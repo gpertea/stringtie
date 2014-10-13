@@ -1,0 +1,120 @@
+This document provides basic installation and usage instructions for StringTie
+
+Obtaining and installing StringTie
+----------------------------------
+
+The current version of StringTie can be downloaded from
+ http://ccb.jhu.edu/software/stringtie/
+
+In order to build StringTie from the source package, 
+the following steps should be taken:
+
+1. Unpack the downloaded StringTie source archive 
+   in a directory of your choice, e.g.:
+
+       cd ~/src/
+       tar xvfz ~/Downloads/stringtie-N.NN.tar.gz
+
+   A directory called stringtie-N.NN (where N.NN is the current 
+   numeric version of the program) will be created in the current directory.
+    
+2.  Change to that directory and build the stringtie executable:
+
+       cd stringtie-N.NN
+       make release
+
+3.  Optionally, the stringtie executable can be copied to one of the 
+    shell's PATH directories for easy access, e.g.:
+
+    cp stringtie ~/bin/
+
+Running StringTie
+-----------------
+
+Run stringtie from the command line like this:
+
+ stringtie <aligned_reads.bam> [options]
+
+The main input of the program is a SAMtools BAM file with RNA-Seq mappings 
+sorted by genomic location (for example the accepted_hits.bam file produced
+by TopHat). 
+
+The following optional parameters can be specified when running stringtie 
+to control its performance:
+
+ -h/--help    Prints help message and exits.
+ -v           Turns on verbose mode, and prints bundle processing details.
+ -o <outfile> Sets the name of the output file with the assembled transcripts.
+              By default, StringTie writes at standard output.
+ -p <int>     Sets the number of threads (CPUs) to use. The default is 1.
+ -G <ref_ann> Tells StringTie to use the reference annotation file (in GTF/GFF3
+              format) provided to guide the assembly process. 
+              Output will include expressed reference transcripts as well as any
+              novel transcripts that are assembled.
+ -l <label>   Sets <label> as the prefix for the name of the output transcripts.
+              Default: STRG.
+ -f <0.0-1.0> Sets the minimum isoform abundance of the predicted transcripts as
+              a fraction of the most abundant transcript assembled at a given 
+              locus. Lower abundance transcripts are often artifacts of 
+              incompletely spliced precursors of processed transcripts.
+              Default: 0.15.
+ -S           This is a more sensitive version of StringTie. By default, 
+              StringTie starts looking for transcripts that go through the most
+              abundant node in the splice graph and stops as soon as it finds
+              one transcript below the minimum isoform abundance threshold
+              established by the parameter -f. A sensitive run of StringTie,
+              restarts the search from different points in the splice graph.
+ -m <int>     Sets the minimum length allowed for the predicted transcripts.
+              Default: 200.
+ -a <int>     Junctions that don't have spliced reads that align across them
+              with at least this amount of bases on both sides are filtered out.
+              Default: 10.
+ -j <float>   There should be at least this many spliced reads that align across
+              a junction. This number doesn't necessary have to be an integer, 
+              since some reads align in more than one place. A read that aligns
+              in n places will contribute 1/n to the junction coverage.
+              Default: 1.
+ -t           This parameter disables the trimming at the ends of predicted
+              transcripts. By default, StringTie trimms transcription starts
+              and stops based on sudden drops in coverage of the transcript.
+ -c <float>   Sets the minimum reads per base coverage allowed for the predicted
+              transcripts. A transcripts with a lower coverage than this is not
+              printed. Default: 2.5
+ -s <int>     Sets the coverage saturation threshold. StringTie will ignore
+              further read alignments in a region where a local coverage depth
+              greater than this is reached. Default: 1,000,000.
+ -g <int>     Bundles of reads that are separated by less than this distance get
+              merged together. Default: 50 (bp)
+ -C <cov.gtf> StringTie outputs a file with the given name with all transcripts
+              in the provided reference file that are fully covered by reads.
+              This option only works when an annotation reference file is also
+              specified (with the -G parameter. Also the current implementation
+              doesn't support more than one thread for this option.)
+
+Input files
+StringTie takes as input a binary SAM (BAM) file which must be sorted by 
+reference position. This file contains spliced read alignments such as the 
+ones produced by TopHat. If you have a text file in SAM format you should
+first convert it to the BAM format using the samtools view command:
+
+  samtools view -S -b input.sam > input.bam
+
+Any SAM spliced read alignment (a read alignment across at least one junction)
+needs to contain the tag XS to indicate which strand of the RNA that produced
+this read came from. TopHat alignments already include this tag, but if you use
+a different read mapper you should check that this tag is also included for all
+spliced alignment records. You would also need to check that the reads are
+properly sorted. For a SAM file, this can be done with the command:
+
+  sort -k 3,3 -k 4,4n input.sam > input.sorted.sam
+
+For BAM files, the samtools program can be used to sort the alignments.
+
+Optionally, a reference annotation file in GTF/GFF3 format
+can be provided to StringTie. In this case, StringTie will check
+to see if the reference transcripts are expressed in the RNA-Seq data,
+and for the ones that are expressed it will compute coverage and FPKM values.
+Note that the reference transcripts need to be fully covered by reads
+in order to be included in StringTie's output. Other transcripts
+assembled from the data by StringTie and not present in the reference
+file will be printed as well.
