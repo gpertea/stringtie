@@ -1,34 +1,37 @@
-Obtaining and installing StringTie
-----------------------------------
+##Obtaining and installing StringTie
+
 The current version of StringTie can be downloaded from
   http://ccb.jhu.edu/software/stringtie/
 In order to build StringTie from the source package,
 the following steps should be taken:
-1. Unpack the downloaded StringTie source archive
-in a directory of your choice, e.g.:
+
+1. Unpack the downloaded StringTie source archive in a directory of your choice, e.g.:
 ```
 cd ~/src/
 tar xvfz ~/Downloads/stringtie-N.NN.tar.gz
 ```
 A directory called stringtie-N.NN (where N.NN is the current
 numeric version of the program) will be created in the current directory.
+
 2. Change to that directory and build the stringtie executable:
 ```
 cd stringtie-N.NN
 make release
 ```
+
 3. Optionally, the stringtie executable can be copied to one of the
 shell's PATH directories for easy access, e.g.:
 ```
 cp stringtie ~/bin/
 ```
-Running StringTie
------------------
+##Running StringTie
+
 Run stringtie from the command line like this:
 stringtie <aligned_reads.bam> [options]
 The main input of the program is a SAMtools BAM file with RNA-Seq mappings
 sorted by genomic location (for example the accepted_hits.bam file produced
 by TopHat).
+
 The following optional parameters can be specified (use -h/--help to get the
 usage message):
 ```
@@ -57,8 +60,8 @@ created under the directory path given as <dir_path>
 -e only estimates the abundance of given reference transcripts (requires -G)
 ```
 
-Input files
------------
+##Input files
+
 StringTie takes as input a binary SAM (BAM) file which must be sorted by
 reference position. This file contains spliced read alignments such as the
 ones produced by TopHat. If you have a text file in SAM format you should
