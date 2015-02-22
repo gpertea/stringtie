@@ -324,7 +324,6 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 			 gene_id=extractAttr("geneid");
 		 gene_name=extractAttr("gene_name");
 		 if (gene_name==NULL) {
-
 			 gene_name=extractAttr("gene_sym");
 			 if (gene_name==NULL) {
 				 gene_name=extractAttr("gene");
@@ -365,12 +364,18 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 				 }
 			 }
 		 } //exon feature?
-		 if (Parent==NULL && exontype>=exgffCDS &&
+		 if (Parent==NULL) {
+		    //something is very wrong here, cannot parse the GTF ID
+		    GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n",
+		    l);
+		 }
+		 /* if (Parent==NULL && exontype>=exgffCDS &&
 				 (i=strcspn(info,"; \t\n\r"))<=(int)(strlen(info)+1)) {
 			 //one word ID ? really desperate attempt to parse it here
 			 Parent=Gstrdup(info,info+i-1);
 			 info=NULL; //discard anything else on the line
 		 }
+		*/
 	 }
 	 if (Parent!=NULL) { //GTF transcript_id for exon/CDS feature
 		 _parents=Parent;

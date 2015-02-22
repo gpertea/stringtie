@@ -21,6 +21,7 @@
     #define __WIN32__
   #endif
   #include <windows.h>
+  #include <direct.h>
   #include <io.h>
   #define CHPATHSEP '\\'
   #undef off_t
@@ -43,10 +44,6 @@
   #ifdef _ftelli64
     #define ftello(stream) _ftelli64(stream)
   #else
-    /*
-    #define _DEFINE_WIN32_FTELLO
-    off_t ftello(FILE *stream);
-    */
     #define ftello ftell
   #endif
  #endif
@@ -64,6 +61,8 @@
 
 #ifdef DEBUG
 #undef NDEBUG
+#define _DEBUG 1
+#define _DEBUG_ 1
 #endif
 
 typedef int32_t int32;
@@ -171,6 +170,9 @@ inline char* strMax(char *arg1, char *arg2) {
 inline int iround(double x) {
    return (int)floor(x + 0.5);
 }
+
+int Gmkdir(const char *path, bool recursive=true, int perms=0775);
+
 
 /****************************************************************************/
 

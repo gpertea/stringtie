@@ -1,7 +1,6 @@
 #include "GBase.h"
 #include <stdarg.h>
 #include <ctype.h>
-#include <sys/stat.h>
 
 #ifndef S_ISDIR
 #define S_ISDIR(mode)  (((mode) & S_IFMT) == S_IFDIR)
@@ -56,8 +55,13 @@ void GAssert(const char* expression, const char* filename, unsigned int lineno){
   char msg[4096];
   sprintf(msg,"%s(%d): ASSERT(%s) failed.\n",filename,lineno,expression);
   fprintf(stderr,"%s",msg);
-  //abort();
-  }
+  #ifdef DEBUG
+  // modify here if you [don't] want a core dump
+    abort();
+  #endif
+  exit(1);
+}
+
 // Error routine (prints error message and exits!)
 void GError(const char* format,...){
   #ifdef __WIN32__
@@ -182,6 +186,47 @@ int Gstrcmp(const char* a, const char* b, int n) {
        else return strncmp(a,b,n);
  }
 
+}
+
+int G_mkdir(const char* path, int perms=0775) {
+ #ifdef __WIN32__
+     return _mkdir(path);
+ #else
+ //#if _POSIX_C_SOURCE
+ //    return ::mkdir(path);
+ //#else
+     return mkdir(path, perms); // not sure if this works on mac
+ //#endif
+ #endif
+}
+
+
+int Gmkdir(const char *path, bool recursive, int perms) {
+	if (path==NULL || path[0]==0) return -1;
+	if (!recursive) return G_mkdir(path, perms);
+	int plen=strlen(path);
+	char* gpath=NULL;
+	//make sure gpath ends with /
+	if (path[plen-1]=='/') {
+		gpath=Gstrdup(path);
+	}
+	else {
+		GMALLOC(gpath, plen+2);
+		strcpy(gpath,path);
+		gpath[plen]='/';
+		gpath[plen+1]=0;
+	}
+	char* ss=gpath;
+	char* psep = NULL;
+	while (*ss!=0 && (psep=strchr(ss, '/'))!=NULL)  {
+		*psep=0; //now gpath is the path up to this /
+		ss=psep; ++ss; //ss repositioned just after the /
+		// create current level
+		if (fileExists(gpath)!=1 && G_mkdir(gpath, perms)!=0)
+			return -1;
+		*psep='/';
+	}
+	return 0;
 }
 
 int Gstricmp(const char* a, const char* b, int n) {
@@ -773,5 +818,5 @@ char* commaprintnum(uint64 n) {
     n /= 10;
     i++;
   } while(n != 0);
-  return p;
+  return Gstrdup(p);
 }

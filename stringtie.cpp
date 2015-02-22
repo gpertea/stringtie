@@ -3,20 +3,13 @@
 #include "GThreads.h"
 #endif
 
-//comment this out if you don't want memory tracing in log
-#ifdef GDEBUG
-#define GMEMTRACE 1
-#else
-#undef GMEMTRACE
-#endif
-
-//#undef GMEMTRACE //-- comment out to track memory use for GDEBUG
+//#undef GMEMTRACE //-- comment out to track memory use for GDEBUG in Linux
 
 #ifdef GMEMTRACE
 #include "proc_mem.h"
 #endif
 
-#define VERSION "0.97"
+#define VERSION "1.0.1"
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
 
@@ -35,51 +28,57 @@
 #endif
 
 #define USAGE "StringTie v"VERSION" usage:\n\
- stringtie <input.bam> [-G <guide_gff>] [-l <label>] [-o <out_gff>] [-p <cpus>]\n\
+ stringtie <input.bam> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-n sens]\n\
   [-C <coverage_file_name>] [-s <maxcov>] [-c <min_bundle_cov>] [-g <bdist>]\n\
+  {-B | -b <dir_path>} [-e]\n\
 \nAssemble RNA-Seq alignments into potential transcripts.\n\
  \n\
  Options:\n\
- -G  reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
- -l  name prefix for output transcripts (default: STRG)\n\
- -f  minimum isoform fraction (default: 0.15)\n\
- -m  minimum assembled transcript length to report (default 200bp)\n\
- -o  output file with the assembled transcripts (default: stdout)\n\
- -a  minimum anchor length for junctions (default: 10)\n\
- -j  minimum junction coverage (default: 1)\n\
- -t  disable trimming of predicted transcripts based on coverage (default: trimming enabled)\n\
- -c  minimum bundle reads per bp coverage to consider for assembly (default: 2.5)\n\
- -s  coverage saturation threshold; further read alignments will be\n\
-     ignored in a region where a local coverage depth of <maxcov> \n\
-     is reached (default: 1,000,000);\n\
- -v  verbose (log bundle processing details)\n\
- -e  abundance estimation only of input transcripts (for -G option)\n\
- -g  gap between read mappings triggering a new bundle (default: 50)\n\
- -S  more sensitive run (default: no)\n\
- -C  output file with all transcripts in reference that are fully\n\
-     covered by reads\n\
- -M  fraction of bundle allowed to be covered by multi-hit reads (default:0.95)\n\
- -p  number of threads (CPUs) to use (default: 1)\n\
+ -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
+ -l name prefix for output transcripts (default: STRG)\n\
+ -f minimum isoform fraction (default: 0.1)\n\
+ -m minimum assembled transcript length to report (default 200bp)\n\
+ -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
+ -a minimum anchor length for junctions (default: 10)\n\
+ -j minimum junction coverage (default: 1)\n\
+ -t disable trimming of predicted transcripts based on coverage\n\
+    (default: coverage trimming is enabled)\n\
+ -c minimum reads per bp coverage to consider for transcript assembly (default: 2.5)\n\
+ -s coverage saturation threshold; further read alignments will be\n\
+    ignored in a region where a local coverage depth of <maxcov> \n\
+    is reached (default: 1,000,000);\n\
+ -v verbose (log bundle processing details)\n\
+ -g gap between read mappings triggering a new bundle (default: 50)\n\
+ -C output file with reference transcripts that are covered by reads\n\
+ -M fraction of bundle allowed to be covered by multi-hit reads (default:0.95)\n\
+ -p number of threads (CPUs) to use (default: 1)\n\
+ -B enable output of Ballgown table files which will be created in the\n\
+    same directory as the output GTF (requires -G, -o recommended)\n\
+ -b enable output of Ballgown table files but these files will be \n\
+    created under the directory path given as <dir_path>\n\
+ -e only estimates the abundance of given reference transcripts (requires -G)\n\
  "
 /* 
- -n  sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\
- -O  disable the coverage saturation limit and use a slower two-pass approach\n\
-     to process the input alignments, collapsing redundant reads\n\
- -x  disable fast computing for transcript path; default: yes\n\
- -i  the reference annotation contains partial transcripts\n\
- -w  weight the maximum flow algorithm towards the transcript with higher rate (abundance); default: no\n\
- -y  include EM algorithm in max flow estimation; default: no\n\
+ -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\
+ -O disable the coverage saturation limit and use a slower two-pass approach\n\
+    to process the input alignments, collapsing redundant reads\n\
+ -x disable fast computing for transcript path; default: yes\n\
+ -i the reference annotation contains partial transcripts\n\
+ -w weight the maximum flow algorithm towards the transcript with higher rate (abundance); default: no\n\
+ -y include EM algorithm in max flow estimation; default: no\n\
  -z don't include source in the max flow algorithm\n\
  -P output file with all transcripts in reference that are partially covered by reads
- -M  fraction of bundle allowed to be covered by multi-hit reads (paper uses default: 1)\n\
- -c  minimum bundle reads per bp coverage to consider for assembly (paper uses default: 3)\n\
+ -M fraction of bundle allowed to be covered by multi-hit reads (paper uses default: 1)\n\
+ -c minimum bundle reads per bp coverage to consider for assembly (paper uses default: 3)\n\
+ -S more sensitive run (default: no) disabled for now \n\
 */
 //---- globals
 
 FILE* f_out=NULL;
 FILE* c_out=NULL;
 GStr outfname;
+GStr out_dir;
 GStr tmpfname;
 bool guided=false;
 bool trim=true;
@@ -95,26 +94,28 @@ int junctionsupport=10; // anchor length for junction to be considered well supp
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise considered noise; paper uses 3
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
-float mcov=0.95; // fraction of bundle allowed to be covered by multi-hit readsl paper uses 1
+float mcov=0.95; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 
 // different options of implementation reflected with the next three options
 bool includesource=true;
 bool EM=false;
 bool weight=false;
 
-float isofrac=0.15;
+float isofrac=0.1;
 GStr label("STRG");
+GStr ballgown_dir;
+
 GStr guidegff;
 
 bool debugMode=false;
 bool verbose=false;
+bool ballgown=false;
 
 int maxReadCov=1000000; //max local read coverage (changed with -s option)
 //no more reads will be considered for a bundle if the local coverage exceeds this value
 //(each exon is checked for this)
 
 bool singlePass=true; //-O will set this to False
-
 
 int GeneNo=0; //-- global "gene" counter
 unsigned long long int Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -177,13 +178,17 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;xyzwShvtin:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:");
+   "debug;help;xyzwShvtien:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:");
  args.printError(USAGE, true);
 
  GStr bamfname=Process_Options(&args);
  // == Done argument processing.
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
+ GPVec<RC_ScaffData> refguides_RC_Data(true);
+ GPVec<RC_Feature> refguides_RC_exons(true);
+ GPVec<RC_Feature> refguides_RC_introns(true);
+
 
 #ifdef DEBUGPRINT
   verbose=true;
@@ -206,21 +211,40 @@ int main(int argc, char * const argv[]) {
    //collect them in other data structures, if it's kept for later call gffobj->isUsed(true)
    // (otherwise it'll be deallocated when gffr is destroyed due to going out of scope)
    refguides.setCount(gffr.gseqStats.Count()); //maximum gseqid
+   uint cur_tid=0;
+   uint cur_exon_id=0;
+   uint cur_intron_id=0;
+   std::set<RC_ScaffSeg> exons;
+   std::set<RC_ScaffSeg> introns;
+   //assign unique transcript IDs based on the sorted order
+   int last_refid=0;
    for (int i=0;i<gffr.gflst.Count();i++) {
-     GffObj* m=gffr.gflst[i];
-     GRefData& grefdata = refguides[m->gseq_id];
-     grefdata.add(&gffr, m); //transcripts already sorted by location
+	   GffObj* m=gffr.gflst[i];
+	   if (ballgown) {
+		   RC_ScaffData* tdata=new RC_ScaffData(*m, ++cur_tid);
+		   m->uptr=tdata;
+		   if (last_refid!=m->gseq_id) {
+			   //chromosome switch
+			   exons.clear();
+			   introns.clear();
+			   last_refid=m->gseq_id;
+		   }
+		   refguides_RC_Data.Add(tdata);
+		   tdata->rc_addFeatures(cur_exon_id, exons, refguides_RC_exons,
+				   cur_intron_id, introns, refguides_RC_introns);
+	   }
+
+	   GRefData& grefdata = refguides[m->gseq_id];
+	   grefdata.add(&gffr, m); //transcripts already sorted by location
    }
 	 if (verbose) {
 		 printTime(stderr);
 		 GMessage(" %d reference transcripts loaded.\n", gffr.gflst.Count());
 	 }
-
+	fclose(f);
  }
 
-
- // ---OK, here we do the input processing:
-
+ // --- here we do the input processing
  gseqNames=GffObj::names; //might have been populated already by gff data
  gffnames_ref(gseqNames);  //initialize the names collection if not guided
 
@@ -240,6 +264,14 @@ int main(int argc, char * const argv[]) {
  int lastref_id=-1; //last seen gseq_id
  // int ncluster=0; used it for debug purposes only
 
+ //Ballgown files
+ FILE* f_tdata=NULL;
+ FILE* f_edata=NULL;
+ FILE* f_idata=NULL;
+ FILE* f_e2t=NULL;
+ FILE* f_i2t=NULL;
+if (ballgown)
+ Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 #ifndef NOTHREADS
  GThread* threads=new GThread[num_cpus];
  GPVec<BundleData> bundleQueue(false);
@@ -299,6 +331,9 @@ int main(int argc, char * const argv[]) {
 			 }
 			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,\@junction,$junctionthr,$mintranscriptlen,\@keepguides);
 			// (readthr, junctionthr, mintranscriptlen are globals)
+			/* if (ballgown && bundle->rc_data) {
+				bundle->rc_data->setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
+			}*/
 			bundle->getReady(currentstart, currentend);
 #ifndef NOTHREADS
 			//push this in the bundle queue, where it'll be picked up by the threads
@@ -369,20 +404,30 @@ int main(int argc, char * const argv[]) {
 		 bundle=&(bundles[new_bidx]);
 #endif
 		 currentstart=pos;
+		 currentend=brec->end;
 		 if (guides) { //guided and guides!=NULL
 			 ng_start=ng_end+1;
 			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) { ng_start++; } // skip guides that have no read coverage
-			 if(ng_start<ng && (int)(*guides)[ng_start]->start<pos) {
-				 currentstart=(*guides)[ng_start]->start;
-				 currentend=(*guides)[ng_start]->end;
-				 ng_end=ng_start;
+			 //if(ng_start<ng && (int)(*guides)[ng_start]->start<pos) {
+			 int ng_ovlstart=ng_start;
+			 //add all guides overlapping the current read
+			 while (ng_ovlstart<ng && (int)(*guides)[ng_ovlstart]->start<=currentend) {
+				 if (currentstart>(int)(*guides)[ng_ovlstart]->start)
+					 currentstart=(*guides)[ng_ovlstart]->start;
+				 if (currentend<(int)(*guides)[ng_ovlstart]->end)
+					 currentend=(*guides)[ng_ovlstart]->end;
+				 if (ballgown) bundle->rc_store_t((*guides)[ng_ovlstart]);
+				 ng_ovlstart++;
+			 }
+			 if (ng_ovlstart>ng_start) ng_end=ng_ovlstart-1;
+				 /*
 				 while(ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=pos) {
 					 ng_end++;
 					 if(currentend<(int)(*guides)[ng_end]->end) {
 						 currentend=(*guides)[ng_end]->end;
 					 }
 				 }
-			 }
+				 */
 		 } //guides present on the current chromosome
 		bundle->refseq=lastref;
 		bundle->start=currentstart;
@@ -390,9 +435,36 @@ int main(int argc, char * const argv[]) {
 	 } //<---- new bundle
 	 //currentend=process_read(currentstart, currentend, bundle->readlist, hashread,
 		//	 bundle->junction, *brec, strand, nh, hi, bundle->bpcov);
-     currentend=processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
+     //currentend=
+	 if (currentend<(int)brec->end) {
+		 //current read just pushed upper boundary of the bundle
+		 //this might never happen if a longer guide was added already to the bundle
+		 currentend=brec->end;
+		 if (guides) { //add any newly overlapping guides to bundle
+			 bool cend_changed;
+			 do {
+				 cend_changed=false;
+				 while (ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=currentend) {
+					 ng_end++;
+					 //more transcripts overlapping this bundle
+					 if (ballgown) bundle->rc_store_t((*guides)[ng_end]);
+					 if(currentend<(int)(*guides)[ng_end]->end) {
+						 currentend=(*guides)[ng_end]->end;
+						 cend_changed=true;
+					 }
+				 }
+			 } while (cend_changed);
+		 }
+	 } //adjusted currentend and checked for overlapping reference transcripts
+     bool ref_overlap=false;
+	 if (ballgown && bundle->rc_data) ref_overlap=bundle->rc_count_hit(*brec, xstrand, nh);
+	 countRead(*bundle, *brec, hi);
+	 if (!ballgown || ref_overlap) {
+	    processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
+	 }
    //update current end to be at least as big as the start of the read pair in the fragment?? -> maybe not because then I could introduce some false positives with paired reads mapped badly
 
+	 /*
 	 if(guides) { // I need to adjust end according to guides
 		 while( ng_end+1 < ng && (int)(*guides)[ng_end+1]->start<=currentend) {
 			 ng_end++;
@@ -401,6 +473,7 @@ int main(int argc, char * const argv[]) {
 			 }
 		 }
 	 }
+	 */
  } //for each read alignment
 
  //cleaning up
@@ -422,10 +495,8 @@ int main(int argc, char * const argv[]) {
  }
 #endif
 
- gffnames_unref(gseqNames); //deallocate names collection
  //if (f_out && f_out!=stdout) fclose(f_out);
  fclose(f_out);
- if (c_out) fclose(c_out);
 
  // write the FPKMs
 
@@ -440,30 +511,40 @@ int main(int argc, char * const argv[]) {
 	 f_out=fopen(outfname.chars(), "w");
 	 if (f_out==NULL) GError("Error creating output file %s\n", outfname.chars());
  }
- c_out=fopen(tmpfname.chars(),"rt");
- if (c_out!=NULL) {
-	 char line[5001];
+ FILE* t_out=fopen(tmpfname.chars(),"rt");
+ if (t_out!=NULL) {
+	 char* linebuf=NULL;
+	 int linebuflen=5000;
+     GMALLOC(linebuf, linebuflen);
 	 int nl;
 	 int tlen;
 	 float tcov;
 	 float fpkm;
-	 while(fgets(line,5000,c_out)) {
-		 sscanf(line,"%d %d %g %g",&nl,&tlen,&fpkm,&tcov);
+	 float calc_fpkm;
+	 int t_id;
+	 while(fgetline(linebuf,linebuflen,t_out)) {
+		 sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
+		 calc_fpkm=tcov*1000000000/Frag_Len;
+		 if (ballgown && t_id>0) {
+			 refguides_RC_Data[t_id-1]->fpkm=calc_fpkm;
+			 refguides_RC_Data[t_id-1]->cov=tcov;
+		 }
 		 for(int i=0;i<nl;i++) {
-			 fgets(line,5000,c_out);
+			 fgetline(linebuf,linebuflen,t_out);
 			 if(!i) {
-				 line[strlen(line)-1]='\0';
-				 fprintf(f_out,"%s",line);
-				 fprintf(f_out,"FPKM \"%.6f\";",tcov*1000000000/Frag_Len);
+				 //linebuf[strlen(line)-1]='\0';
+				 fprintf(f_out,"%s",linebuf);
+				 fprintf(f_out,"FPKM \"%.6f\";",calc_fpkm);
 				 //fprintf(f_out,"FPKM \"%.6f\"; calculated_FPKM \"%.6f\";",tcov*1000000000/Frag_Len,fpkm*1000000000/(Num_Fragments*tlen));
 				 //fprintf(f_out,"flen \"%.6f\"; FPKM \"%.6f\";",fpkm,fpkm*1000000000/Num_Fragments);
 				 fprintf(f_out,"\n");
 			 }
-			 else fprintf(f_out,"%s",line);
+			 else fprintf(f_out,"%s\n",linebuf);
 		 }
 	 }
 	 fclose(f_out);
-	 fclose(c_out);
+	 fclose(t_out);
+	 GFREE(linebuf);
 	 remove(tmpfname.chars());
  }
  else {
@@ -471,64 +552,21 @@ int main(int argc, char * const argv[]) {
 	 GError("No temporary file %s present!\n",tmpfname.chars());
  }
 
+ //lastly, for ballgown, rewrite the tdata file with updated cov and fpkm
+ if (ballgown) {
+	 rc_writeRC(refguides_RC_Data, refguides_RC_exons, refguides_RC_introns,
+			 f_tdata, f_edata, f_idata, f_e2t, f_i2t);
+ }
+
+ gffnames_unref(gseqNames); //deallocate names collection
+
+
 #ifdef GMEMTRACE
  if(verbose) GMessage(" Max bundle memory: %6.1fMB for bundle %s\n", maxMemRS/1024, maxMemBundle.chars());
 #endif
 } // -- END main
 
 //----------------------------------------
-
-int predCmp(const pointer p1, const pointer p2) {
-	CPrediction *a=(CPrediction*)p1;
-	CPrediction *b=(CPrediction*)p2;
-	if(a->start < b->start) return 1;
-	if(a->start > b->start) return -1;
-	if(sensitivitylevel!=1 || sensitivitylevel!=2) {
-		if(a->exons.Count() < b->exons.Count()) return 1;
-		if(a->exons.Count() > b->exons.Count()) return -1;
-		int i=0;
-		uint a1=0;
-		uint b1=0;
-		while(i<a->exons.Count()) {
-			if(a->exons[i].start<b->exons[i].start) {
-				a1=a->exons[i].start;
-				b1=b->exons[i].start;
-				break;
-			}
-			if(a->exons[i].end<b->exons[i].end) {
-				a1=a->exons[i].end;
-				b1=b->exons[i].end;
-				break;
-			}
-			i++;
-		}
-		if(a1) {
-			if(a1<b1) return 1;
-			if(a1>b1) return -1;
-		}
-	}
-	return 0;
-}
-
-int predexCmp(const pointer p1, const pointer p2) {
-	CPrediction *a=(CPrediction*)p1;
-	CPrediction *b=(CPrediction*)p2;
-	if(a->exons.Count() < b->exons.Count()) return -1;
-	if(a->exons.Count() > b->exons.Count()) return 1;
-	if(a->tlen < b->tlen) return -1;
-	if(a->tlen > b->tlen) return 1;
-	return 0;
-}
-
-int predcovCmp(const pointer p1, const pointer p2) {
-	CPrediction *a=(CPrediction*)p1;
-	CPrediction *b=(CPrediction*)p2;
-	if(a->cov < b->cov) return 1;
-	if(a->cov > b->cov) return -1;
-	return 0;
-}
-
-
 char* sprintTime() {
 	static char sbuf[32];
 	time_t ltime; /* calendar time */
@@ -549,7 +587,6 @@ GStr Process_Options(GArgs* args) {
 
 	 debugMode=(args->getOpt("debug")!=NULL || args->getOpt('D')!=NULL);
 	 fast=!(args->getOpt('x')!=NULL);
-	 eonly=(args->getOpt('e')!=NULL);
 	 verbose=(args->getOpt('v')!=NULL);
 	 if (verbose) {
 	     fprintf(stderr, "Command line was:\n");
@@ -605,14 +642,24 @@ GStr Process_Options(GArgs* args) {
 	 //f_out=stdout;
 	 tmpfname=args->getOpt('o');
 	 outfname="stdout";
+	 out_dir="./";
 	 if (!tmpfname.is_empty() && tmpfname!="-") {
 		 outfname=tmpfname;
+		 int pidx=outfname.rindex('/');
+		 if (pidx>=0) //path given
+			 out_dir=outfname.substr(0,pidx+1);
 	 }
-	 else { // s is stdout
+	 else { // stdout
 		tmpfname=outfname;
 		char *stime=sprintTime();
 		tmpfname+='.';
 		tmpfname+=stime;
+	 }
+	 if (out_dir!="./") {
+		 if (fileExists(out_dir.chars())==0) {
+			//directory does not exist, create it
+			Gmkdir(out_dir.chars());
+		 }
 	 }
 	 tmpfname+=".tmp";
 	 f_out=fopen(tmpfname.chars(), "w");
@@ -653,6 +700,26 @@ GStr Process_Options(GArgs* args) {
 	             guidegff.chars());
 	 }
 
+	 eonly=(args->getOpt('e')!=NULL);
+	 if(eonly && !guided)
+		 GError("Error: invalid -e usage, GFF reference not given (-G option required).\n");
+
+	 ballgown_dir=args->getOpt('b');
+	 ballgown=(args->getOpt('B')!=NULL);
+	 if (ballgown && !ballgown_dir.is_empty()) {
+		 GError("Error: please use either -B or -b <path> options, not both.");
+	 }
+	 if (ballgown) ballgown_dir=out_dir;
+	 else if (!ballgown_dir.is_empty()) {
+		    ballgown=true;
+		    ballgown_dir.chomp('/');ballgown_dir+='/';
+			if (fileExists(ballgown_dir.chars())==0) {
+				//directory does not exist, create it
+				Gmkdir(ballgown_dir.chars());
+			}
+	 	  }
+	 if (ballgown && !guided)
+		 GError("Error: invalid -b usage, GFF reference not given (-G option required).\n");
 
 	 s=args->getOpt('P');
 	 if (!s.is_empty()) {
@@ -664,12 +731,12 @@ GStr Process_Options(GArgs* args) {
 	 else {
 		 s=args->getOpt('C');
 		 if (!s.is_empty()) {
+			 if(!guided) GError("Error: invalid -C usage, GFF reference not given (-G option required).\n");
 			 c_out=fopen(s.chars(), "w");
 			 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
+			 num_cpus=1;
 		 }
 	 }
-
-
 
 	 int numbam=args->startNonOpt();
 	 if (numbam==0 || numbam>1) {
@@ -680,885 +747,6 @@ GStr Process_Options(GArgs* args) {
 	 s=args->nextNonOpt();
 
 	 return(s);
-}
-
-bool equal_pred(GList<CPrediction>& pred,int n1,int n2){
-
-	if(pred[n1]->strand!=pred[n2]->strand) return false;
-
-	//if(pred[n1]->start!=pred[n2]->start) return(false); // this allows genes with different start/ends to be merged together
-	//if(pred[n1]->end!=pred[n2]->end) return(false);     // but I need to check if they overlap in case of single exons
-
-	if((pred[n1]->end < pred[n2]->start) || (pred[n2]->end<pred[n1]->start)) return(false); // genes don't overlap
-
-	int nex=pred[n1]->exons.Count();
-	if(nex!=pred[n2]->exons.Count()) return(false);
-	for(int i=0;i<nex;i++) {
-		//if(pred[n1]->exons[i].start!=pred[n2]->exons[i].start) { fprintf(stderr,"ret false start[%d]: %d vs %d\n",i,pred[n1]->exons[i].start,pred[n2]->exons[i].start); return(false);}
-		//if(pred[n1]->exons[i].end!=pred[n2]->exons[i].end) { fprintf(stderr,"ret false end[%d]: %d vs %d\n",i,pred[n1]->exons[i].end,pred[n2]->exons[i].end); return(false);}
-		if(i>0 && (pred[n1]->exons[i].start!=pred[n2]->exons[i].start)) return(false);
-		if(i<nex-1 && (pred[n1]->exons[i].end!=pred[n2]->exons[i].end)) return(false);
-	}
-
-	return(true);
-}
-
-
-CInterval *add_pred_to_cov(CInterval *maxcov, CPrediction* pred, bool *abundant=NULL) { // maybe I can eliminate some genes here
-
-
-	//fprintf(stderr,"add pred: %d-%d with cov=%f to maxpos\n",pred->start,pred->end,pred->cov);
-
-	if(maxcov==NULL || pred->end<maxcov->pos) { // prediction before current intervals or no current intervals
-		uint linkstart=pred->end+1;
-		CInterval *link=maxcov;
-		if(maxcov && linkstart==maxcov->pos) { // next interval starts immediately after this one ends
-			maxcov = new CInterval(pred->start,pred->cov,link);
-		}
-		else {
-			CInterval *interval=new CInterval(linkstart,0,maxcov);
-			maxcov = new CInterval(pred->start,pred->cov,interval);
-		}
-	}
-	else { // I need to place current prediction
-		CInterval *lastinterv=NULL;
-		CInterval *interv=maxcov;
-		while(interv && pred->start>=interv->pos) {
-			lastinterv=interv;
-			interv=interv->next;
-		}
-		if(interv){ // pred->start < interv->pos
-			if(lastinterv) { // pred->start >= lastinterv->pos
-
-				if(pred->end<interv->pos) {
-					if(lastinterv->val<pred->cov) { // only in this case I am interested to do something, otherwise I am done
-						if(pred->end+1<interv->pos) {
-							lastinterv->next=new CInterval(pred->end+1,lastinterv->val,interv);
-						}
-						if(lastinterv->pos==pred->start) lastinterv->val=pred->cov;
-						else {
-							interv=lastinterv->next;
-							lastinterv->next=new CInterval(pred->start,pred->cov,interv);
-						}
-					}
-					else if(abundant && pred->cov<isofrac*lastinterv->val) *abundant=false;
-				}
-				else {
-					float lastcov=lastinterv->val; // lastcov might be 0 here
-					if(pred->cov>lastinterv->val) { // create new interval unless the position is in the same place as lastinterv
-						if(pred->start==lastinterv->pos) lastinterv->val=pred->cov;
-						else {
-							lastinterv->next=new CInterval(pred->start,pred->cov,interv);
-							lastinterv=lastinterv->next;
-							lastcov=lastinterv->val;
-						}
-					}
-					else if(abundant && pred->cov<isofrac*lastinterv->val) *abundant=false;
-					while(interv && pred->end>=interv->pos) {
-						if(interv->val<pred->cov) {
-							if(lastinterv->val==pred->cov) { // I have to skip current interval
-								lastinterv->next=interv->next;
-								free(interv);
-								interv=lastinterv;
-							}
-							else { lastcov=interv->val; interv->val=pred->cov;lastinterv=interv;}
-						}
-						else {
-							if(abundant && pred->cov<isofrac*interv->val) *abundant=false;
-							lastinterv=interv;
-							lastcov=lastinterv->val;
-						}
-						interv=interv->next;
-					}
-					if(interv) { // pred->end<interv->pos: I might need to create new interval
-						if(lastinterv->val<pred->cov) lastinterv->val=pred->cov;
-						else if(abundant && pred->cov<isofrac*lastinterv->val) *abundant=false;
-						uint newstart=pred->end+1;
-						if(newstart<interv->pos) {
-							lastinterv->next=new CInterval(newstart,lastcov,interv);
-						}
-					}
-					else { // pred->end >= lastinterv->pos
-						if(lastinterv->val<pred->cov) lastinterv->val=pred->cov;
-						else if(abundant && pred->cov<isofrac*lastinterv->val) *abundant=false;
-						lastinterv->next=new CInterval(pred->end+1);
-					}
-				}
-			}
-			else { // lastinterv == NULL
-				maxcov=new CInterval(pred->start,pred->cov,interv);
-				if(pred->end<interv->pos) {
-					if(pred->end+1<interv->pos) maxcov->next=new CInterval(pred->end+1,0,interv);
-				}
-				else { // pred->end >= interv->pos
-					lastinterv=maxcov;
-					while(interv && pred->end>=interv->pos) {
-						if(interv->val<pred->cov) {
-							if(lastinterv->val==pred->cov) { // I have to skip current interval
-								lastinterv->next=interv->next;
-								free(interv);
-							}
-							else { interv->val=pred->cov;lastinterv=interv;}
-						}
-						else {
-							if(abundant && pred->cov<isofrac*interv->val) *abundant=false;
-							lastinterv=interv;
-						}
-						interv=interv->next;
-					}
-					if(interv) { // pred->end<interv->pos I might need to create new interval
-						float lastcov=lastinterv->val;
-						if(lastinterv->val<pred->cov) lastinterv->val=pred->cov;
-						else if(abundant && pred->cov<isofrac*lastinterv->val) *abundant=false;
-						uint newstart=pred->end+1;
-						if(newstart<interv->pos) lastinterv->next=new CInterval(newstart,lastcov,interv);
-					}
-					else {
-						if(lastinterv->val<pred->cov) lastinterv->val=pred->cov;
-						else if(abundant && pred->cov<isofrac*lastinterv->val) *abundant=false;
-						lastinterv->next=new CInterval(pred->end+1);
-					}
-				}
-			}
-		}
-		else { // prediction is after the end of maxcov, or is equal to lastinterv->pos
-			interv=new CInterval(pred->end+1);
-			if(pred->start==lastinterv->pos) {
-				if(pred->cov>=lastinterv->val) {
-					lastinterv->val=pred->cov;
-					lastinterv->next=interv;
-				}
-				else {
-					if(abundant && pred->cov<isofrac*lastinterv->val) *abundant=false;
-					lastinterv->next= new CInterval(pred->start+1,pred->cov,interv);
-				}
-			}
-			else lastinterv->next = new CInterval(pred->start,pred->cov,interv);
-		}
-	}
-
-	return(maxcov);
-}
-
-bool is_pred_above_frac(CInterval *maxcov,CPrediction* pred) {
-
-	CInterval *lastinterv=NULL;
-	while(maxcov && pred->start>=maxcov->pos) {
-		lastinterv=maxcov;
-		maxcov=maxcov->next;
-	}
-	if(lastinterv && ((pred->exons.Count()==1 && pred->cov<lastinterv->val) || pred->cov<isofrac*lastinterv->val)) return(false); // I need to deal with single exons too here
-	while(maxcov && pred->end>=maxcov->pos) {
-		if((pred->exons.Count()==1 && pred->cov<maxcov->val) || pred->cov<isofrac*maxcov->val) return(false);
-		maxcov=maxcov->next;
-	}
-	return(true);
-}
-
-void delete_interval(CInterval *interv){
-	if(interv) {
-		if(interv->next) delete_interval(interv->next);
-		delete interv;
-	}
-}
-
-
-/*
-// I don't use this
-int print_cluster(GList<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcripts,
-		int nstart, int nend, int geneno,GStr& refname) {
-
-  GVec<int> keep;
-
-  CInterval *maxposcov=NULL; //remembers intervals of maximum positive coverage
-  CInterval *maxnegcov=NULL; //remembers intervals of maximum positive coverage
-
-  bool pos;
-  bool neg;
-  int lastadded=0;
-  for(int n=nstart;n<=nend;n++) {
-	  if(pred[n]->strand=='+') { pos=true;neg=false;}
-	  else if(pred[n]->strand=='-') { pos=false;neg=true;}
-	  else { pos=true;neg=true;}
-	  if(n>nstart) {
-		  if(equal_pred(pred,lastadded,n)) {
-			  pred[lastadded]->cov+=pred[n]->cov;
-			  if(pos) maxposcov=add_pred_to_cov(maxposcov,pred[lastadded]);
-			  if(neg) maxnegcov=add_pred_to_cov(maxnegcov,pred[lastadded]);
-			  continue;
-		  }
-	  }
-	  if(pos) maxposcov=add_pred_to_cov(maxposcov,pred[n]);
-	  if(neg) maxnegcov=add_pred_to_cov(maxnegcov,pred[n]);
-	  keep.Add(n);
-	  lastadded=n;
-  }
-
-  for(int i=0;i<keep.Count();i++) {
-	  int n=keep[i];
-	  if(pred[n]->strand=='+') { pos=true;neg=false;}
-	  else if(pred[n]->strand=='-') { pos=false;neg=true;}
-	  else { pos=false;neg=false;}
-	  if((pos && is_pred_above_frac(maxposcov,pred[n])) || (neg && is_pred_above_frac(maxnegcov,pred[n])) ||
-			  (!pos && !neg && is_pred_above_frac(maxnegcov,pred[n]))) {
-		  if(genes[pred[n]->geneno]==-1) genes[pred[n]->geneno]=++geneno;
-		  transcripts[pred[n]->geneno]++;
-		  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; cov \"%.6f\";\n",
-				  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-				  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],pred[n]->cov);
-		  for(int j=0;j<pred[n]->exons.Count();j++)
-			  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; cov \"%.6f\";\n",
-			  		 refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-			  		 label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1,pred[n]->cov); // maybe add exon coverage here
-	  }
-  }
-
-  delete_interval(maxposcov);
-  delete_interval(maxnegcov);
-
-  return(geneno);
-}
-*/
-
-/*
-// I don't use this
-int print_transcript_cluster(GList<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcripts,
-		int nstart, int nend, int geneno,GStr& refname) {
-
-  GVec<int> keep;
-
-  float maxcovpos=0;
-  float maxcovneg=0;
-  bool pos;
-  bool neg;
-  int lastadded=0;
-  for(int n=nstart;n<=nend;n++) {
-	  if(pred[n]->strand=='+') { pos=true;neg=false;}
-	  else if(pred[n]->strand=='-') { pos=false;neg=true;}
-	  else { pos=true;neg=true;}
-	  if(n>nstart) {
-		  if(equal_pred(pred,lastadded,n)) {
-			  pred[lastadded]->cov+=pred[n]->cov;
-			  if(pos && pred[lastadded]->cov > maxcovpos) {
-				  maxcovpos=pred[lastadded]->cov;
-			  }
-			  if(neg && pred[lastadded]->cov > maxcovneg) {
-				  maxcovneg=pred[lastadded]->cov;
-			  }
-			  continue;
-		  }
-	  }
-	  if(pos && pred[n]->cov>maxcovpos) {
-		  maxcovpos=pred[n]->cov;
-	  }
-	  if(neg && pred[n]->cov>maxcovneg) {
-		  maxcovneg=pred[n]->cov;
-	  }
-	  keep.Add(n);
-	  lastadded=n;
-  }
-
-  for(int i=0;i<keep.Count();i++) {
-	  int n=keep[i];
-	  if(pred[n]->strand=='+') { pos=true;neg=false;}
-	  else if(pred[n]->strand=='-') { pos=false;neg=true;}
-	  else { pos=false;neg=false;}
-	  if((pos && ((pred[n]->exons.Count()==1 && pred[n]->cov>=maxcovpos) || (pred[n]->exons.Count()>1 && pred[n]->cov/maxcovpos>=isofrac))) ||
-			  (neg && ((pred[n]->exons.Count()==1 && pred[n]->cov>=maxcovneg) || (pred[n]->exons.Count()>1 && pred[n]->cov/maxcovneg>=isofrac))) ||
-			  (!pos && !neg && ((pred[n]->exons.Count()==1 && pred[n]->cov>=maxcovneg && pred[n]->cov>=maxcovpos) ||
-					  (pred[n]->exons.Count()>1 && pred[n]->cov/maxcovpos>=isofrac && pred[n]->cov/maxcovneg>=isofrac)))) { // print this transcript
-		  if(genes[pred[n]->geneno]==-1) genes[pred[n]->geneno]=++geneno;
-		  transcripts[pred[n]->geneno]++;
-		  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; cov \"%.6f\";\n",
-				  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-				  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],pred[n]->cov);
-		  for(int j=0;j<pred[n]->exons.Count();j++)
-			  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; cov \"%.6f\";\n",
-			  		 refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-			  		 label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1,pred[n]->cov); // maybe add exon coverage here
-	  }
-  }
-
-  return(geneno);
-}
-*/
-
-int print_signcluster(char strand,GList<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcripts,
-		int nstart, int nend, int geneno,GStr& refname) {
-
-  GVec<int> keep;
-
-  CInterval *maxpos=NULL; //remembers intervals of maximum coverage
-
-  int lastadded=0;
-  for(int n=nstart;n<=nend;n++) if(pred[n]->strand==strand || pred[n]->strand=='.'){
-	  if(n>nstart) {
-		  if(equal_pred(pred,lastadded,n)) {
-			  if(pred[n]->cov>pred[lastadded]->cov){
-				  pred[lastadded]->flag=pred[n]->flag;
-				  if(pred[lastadded]->exons[0].start != pred[n]->exons[0].start ||
-						  pred[lastadded]->exons.Last().end!=pred[n]->exons.Last().end) { // new prediction has to replace old one
-					  pred[lastadded]->tlen=pred[n]->tlen;
-					  pred[lastadded]->exons[0].start=pred[n]->exons[0].start;
-					  pred[lastadded]->exons.Last().end=pred[n]->exons.Last().end;
-				  }
-			  }
-			  for(int j=0;j<pred[n]->exons.Count();j++) {
-				  pred[lastadded]->exoncov[j]+=pred[n]->exoncov[j];
-			  }
-			  pred[lastadded]->cov+=pred[n]->cov;
-			  pred[lastadded]->frag+=pred[n]->frag;
-
-			  maxpos=add_pred_to_cov(maxpos,pred[lastadded]);
-			  if(pred[n]->id && !pred[lastadded]->id) { pred[lastadded]->id=Gstrdup(pred[n]->id);}
-			  continue;
-		  }
-	  }
-	  bool abundant=true;
-	  maxpos=add_pred_to_cov(maxpos,pred[n],&abundant);
-	  //maxpos=add_pred_to_cov(maxpos,pred[n]);
-	  if(pred[n]->id || abundant) {
-		  keep.Add(n);
-		  lastadded=n;
-	  }
-  }
-
-  for(int i=0;i<keep.Count();i++) {
-	  int n=keep[i];
-	  if(is_pred_above_frac(maxpos,pred[n])) { // print this transcript
-		  if(genes[pred[n]->geneno]==-1) genes[pred[n]->geneno]=++geneno;
-		  transcripts[pred[n]->geneno]++;
-		  if(pred[n]->flag) {
-			  fprintf(f_out,"%d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen,pred[n]->frag,pred[n]->cov);
-			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
-					  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-					  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno]);
-			  if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
-			  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
-			  for(int j=0;j<pred[n]->exons.Count();j++) {
-				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
-						  refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-						  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1); // maybe add exon coverage here
-				  if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
-				  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
-			  }
-		  }
-		  else pred[n]->flag=true;
-	  }
-	  else pred[n]->flag=false;
-  }
-
-  delete_interval(maxpos);
-
-  return(geneno);
-}
-
-uint min(uint n1,uint n2) {
-	if(n1<n2) return(n1);
-	return(n2);
-}
-
-uint max(uint n1,uint n2) {
-	if(n1<n2) return(n2);
-	return n1;
-}
-
-bool included_pred(GPVec<CPrediction>& pred,int n1,int n2) { // check if the small prediction is included in the larger prediction
-
-	if(pred[n1]->start > pred[n2]->end || pred[n2]->start>pred[n1]->end) return false;
-
-	int big=n1;
-	int small=n2;
-	if(pred[n1]->exons.Count()<pred[n2]->exons.Count()) {
-		big=n2;
-		small=n1;
-	}
-
-	if(pred[small]->id) {
-		if(pred[big]->id) if(strcmp(pred[small]->id,pred[big]->id)) return false;
-		if(pred[small]->exons.Count()!=pred[big]->exons.Count()) return false;
-	}
-
-	int bex=0;
-	while(bex<pred[big]->exons.Count()) {
-		if(pred[small]->exons[0].start>pred[big]->exons[bex].end) bex++;
-		else { // now pred[small]->exons[0].start <= pred[big]->exons[bex].end
-			if(pred[small]->exons[0].end<pred[big]->exons[bex].start) return false; // no overlap
-			int sex=0;
-			while(sex<pred[small]->exons.Count() && bex<pred[big]->exons.Count()) {
-				if(sex==pred[small]->exons.Count()-1) { // I am at end of small pred
-					if(bex==pred[big]->exons.Count()-1) return true; // same intron structure and there is overlap
-					// here not at last exon in big prediction
-					if(pred[small]->exons[sex].end>=pred[big]->exons[bex+1].start) return false;
-					return true;
-				}
-				// sex is not last exon in small prediction but overlaps bex
-				if(bex==pred[big]->exons.Count()-1) return false; // small pred extends past big pred
-				if(pred[small]->exons[sex].end != pred[big]->exons[bex].end) return false;
-				bex++;
-				sex++;
-				if(pred[small]->exons[sex].start != pred[big]->exons[bex].start) return false;
-			}
-			return false;
-		}
-	}
-
-	return false;
-}
-
-void update_cov(GPVec<CPrediction>& pred,int big,int small,float frac=1) {
-
-	int bex=0;
-	while(pred[small]->exons[0].start>pred[big]->exons[bex].end) bex++;
-
-	if(!bex && pred[small]->exons.Count()>1 && pred[big]->exons[0].start<pred[small]->exons[0].start) { // adjust start to account for trimming
-		pred[big]->tlen-=pred[small]->exons[0].start-pred[big]->exons[0].start;
-		pred[big]->exons[0].start=pred[small]->exons[0].start;
-	}
-
-	int sex=0;
-	int overlap=0;
-	while(sex<pred[small]->exons.Count()) {
-		int exovlp=(pred[small]->exons[sex].end<pred[big]->exons[bex].end ? pred[small]->exons[sex].end : pred[big]->exons[bex].end)-
-				(pred[small]->exons[sex].start>pred[big]->exons[bex].start ? pred[small]->exons[sex].start : pred[big]->exons[bex].start)+1;
-
-		if(bex==pred[big]->exons.Count()-1 && sex>=1 && pred[big]->exons[bex].end>pred[small]->exons[sex].end) { // adjust end
-			pred[big]->tlen-=pred[big]->exons[bex].end-pred[small]->exons[sex].end;
-			pred[big]->exons[bex].end=pred[small]->exons[sex].end;
-		}
-
-		pred[big]->exoncov[bex]=(pred[big]->exoncov[bex]*pred[big]->exons[bex].len()+frac*pred[small]->exoncov[sex]*exovlp)/pred[big]->exons[bex].len();
-		overlap+=exovlp;
-		sex++;bex++;
-	}
-
-	pred[big]->cov=(pred[big]->tlen*pred[big]->cov+overlap*frac*pred[small]->cov)/pred[big]->tlen;
-
-}
-
-int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcripts, int geneno,GStr& refname) {
-
-	//fprintf(stderr,"start print cluster...\n");
-	// sort predictions from the most abundant to the least:
-	pred.Sort(predcovCmp);
-	GVec<int> keep;
-
-	CInterval *maxpos=NULL; //remembers intervals of maximum coverage
-
-	for(int n=0;n<pred.Count();n++) { // don't need this anymore since I already took care of it before: if(pred[n]->strand==strand || pred[n]->strand=='.'){
-
-		/*
-		{ // DEBUG ONLY
-			fprintf(stderr,"Consider prediction[%d] %c cov=%f:",n,pred[n]->strand,pred[n]->cov);
-			for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," %d-%d",pred[n]->exons[i].start,pred[n]->exons[i].end);
-			fprintf(stderr,"\n");
-		}
-		*/
-
-		int k=0;
-		bool included=false;
-		while(!included && k<keep.Count() && keep[k]<n) {
-			//if(pred[keep[k]]->exons.Count()>=pred[n]->exons.Count() && included_pred(pred,keep[k],n)) {
-
-			if(included_pred(pred,keep[k],n)) {
-				if(pred[keep[k]]->exons.Count()<pred[n]->exons.Count()) {
-					//if(pred[keep[k]]->cov>pred[n]->cov) break; // this is new and improves specificity but I loose some things -> TO CHECK WHAT IT ACT: also this should always happen because of the sort procedure
-					if(pred[keep[k]]->exons.Count()>2) break;
-					update_cov(pred,n,keep[k]);
-					pred[keep[k]]->cov=pred[n]->cov;
-					pred[keep[k]]->exons.Clear();
-					pred[keep[k]]->exons.Add(pred[n]->exons);
-					pred[keep[k]]->exoncov.Clear();
-					pred[keep[k]]->exoncov.Add(pred[n]->exoncov);
-					pred[keep[k]]->flag=true;
-					pred[keep[k]]->start=pred[n]->start;
-					pred[keep[k]]->end=pred[n]->end;
-					pred[keep[k]]->tlen=pred[n]->tlen;
-				}
-				else update_cov(pred,keep[k],n);
-
-				if(pred[n]->id && !pred[keep[k]]->id) pred[keep[k]]->id=Gstrdup(pred[n]->id);
-				pred[keep[k]]->frag+=pred[n]->frag;
-
-				//fprintf(stderr,"...included in prediction[%d] with cov=%f\n",keep[k],pred[keep[k]]->cov);
-				included=true;
-				break;
-			}
-			k++;
-		}
-		if(included) {
-			maxpos=add_pred_to_cov(maxpos,pred[keep[k]]);
-
-			/*
-			{ // DEBUG ONLY
-				fprintf(stderr,"Maxpos is:");
-				CInterval *interval=maxpos;
-				while(interval!=NULL) {
-					fprintf(stderr," pos=%d val=%f",interval->pos,interval->val);
-					interval=interval->next;
-				}
-				fprintf(stderr,"\n");
-			}
-			*/
-
-			continue;
-		}
-		bool abundant=true;
-		maxpos=add_pred_to_cov(maxpos,pred[n],&abundant);
-		//maxpos=add_pred_to_cov(maxpos,pred[n]);
-
-		/*
-		{ // DEBUG ONLY
-			fprintf(stderr,"Maxpos is:");
-			CInterval *interval=maxpos;
-			while(interval!=NULL) {
-				fprintf(stderr," pos=%d val=%f",interval->pos,interval->val);
-				interval=interval->next;
-			}
-			fprintf(stderr,"\n");
-		}
-		*/
-
-		if(pred[n]->id || abundant) {
-			keep.Add(n);
-			//fprintf(stderr,"...keep prediction\n");
-		}
-	}
-
-  for(int i=0;i<keep.Count();i++) {
-	  int n=keep[i];
-	  if(is_pred_above_frac(maxpos,pred[n])) { // print this transcript
-
-		  /*
-		  { // DEBUG ONLY
-			  fprintf(stderr,"print prediction %d",n);
-			  if(pred[n]->flag) fprintf(stderr," with true flag");
-			  fprintf(stderr,"\n");
-		  }
-		  */
-
-		  if(pred[n]->flag) {
-			  if(genes[pred[n]->geneno]==-1) genes[pred[n]->geneno]=++geneno;
-			  transcripts[pred[n]->geneno]++;
-
-			  fprintf(f_out,"%d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen,pred[n]->frag,pred[n]->cov);
-			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
-					  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-					  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno]);
-			  if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
-			  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
-			  for(int j=0;j<pred[n]->exons.Count();j++) {
-				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
-						  refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-						  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1); // maybe add exon coverage here
-				  if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
-				  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
-			  }
-		  }
-		  else pred[n]->flag=true;
-	  }
-	  else pred[n]->flag=false;
-  }
-
-  delete_interval(maxpos);
-
-  return(geneno);
-}
-
-int print_cluster_inclusion(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcripts, int geneno,GStr& refname, int limit=3) {
-
-	//fprintf(stderr,"start print cluster...\n");
-	// sort predictions from the one with the most exons to the one with the least:
-	pred.Sort(predexCmp);
-
-	GVec<int> included[pred.Count()];
-	GVec<float> maxcov;
-	GVec<float> totalcov;
-
-	for(int n1=0;n1<pred.Count()-1;n1++) {
-		float elem=0;
-		maxcov.Add(elem);
-		totalcov.Add(elem);
-		bool equal=false;
-		for(int n2=n1+1;n2<pred.Count();n2++)
-			if(included_pred(pred,n1,n2)) {
-				if(equal && pred[n1]->exons.Count()<pred[n2]->exons.Count()) break;
-				if(pred[n1]->exons.Count()==pred[n2]->exons.Count()) {
-					if(maxcov[n1]<pred[n1]->cov) maxcov[n1]=pred[n1]->cov;
-					equal=true;
-				}
-				included[n1].Add(n2);
-				if(pred[n2]->cov>maxcov[n1]) maxcov[n1]=pred[n2]->cov;
-				totalcov[n1]+=pred[n2]->cov;
-			}
-	}
-
-	GVec<int> keep;
-
-	CInterval *maxpos=NULL; //remembers intervals of maximum coverage
-
-	for(int n=0;n<pred.Count();n++) { // don't need this anymore since I already took care of it before: if(pred[n]->strand==strand || pred[n]->strand=='.'){
-
-		/*
-		{ // DEBUG ONLY
-			fprintf(stderr,"Consider prediction[%d] %c cov=%f:",n,pred[n]->strand,pred[n]->cov);
-			for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," %d-%d",pred[n]->exons[i].start,pred[n]->exons[i].end);
-			fprintf(stderr," included in predictions:");
-			for(int i=0;i<included[n].Count();i++) fprintf(stderr," %d",included[n][i]);
-			if(n<pred.Count()-1) fprintf(stderr," maxcov=%f totalcov=%f",maxcov[n],totalcov[n]);
-			fprintf(stderr,"\n");
-		}
-		*/
-
-		if(included[n].Count() && (maxcov[n]>=pred[n]->cov || pred[n]->exons.Count()<limit)) { // this prediction is included in others, and is less abundant or has very few exons: make it <=2 if two exon genes also are to be ignored
-			for(int k=0;k<included[n].Count();k++) {
-				update_cov(pred,included[n][k],n,pred[included[n][k]]->cov/totalcov[n]);
-			}
-		}
-		else {
-
-			bool abundant=true;
-			maxpos=add_pred_to_cov(maxpos,pred[n],&abundant);
-			//maxpos=add_pred_to_cov(maxpos,pred[n]);
-
-			/*
-			{ // DEBUG ONLY
-				fprintf(stderr,"Maxpos is:");
-				CInterval *interval=maxpos;
-				while(interval!=NULL) {
-					fprintf(stderr," pos=%d val=%f",interval->pos,interval->val);
-					interval=interval->next;
-				}
-				fprintf(stderr,"\n");
-			}
-			*/
-
-			if(pred[n]->id || abundant) {
-				keep.Add(n);
-				//fprintf(stderr,"...keep prediction\n");
-			}
-		}
-	}
-
-	for(int i=0;i<keep.Count();i++) {
-	  int n=keep[i];
-	  if(is_pred_above_frac(maxpos,pred[n])) { // print this transcript
-
-		  //fprintf(stderr,"print prediction %d",n);
-		  //if(pred[n]->flag) fprintf(stderr," with true flag");
-		  //fprintf(stderr,"\n");
-
-		  if(pred[n]->flag) {
-			  if(genes[pred[n]->geneno]==-1) genes[pred[n]->geneno]=++geneno;
-			  transcripts[pred[n]->geneno]++;
-
-			  fprintf(f_out,"%d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen,pred[n]->frag,pred[n]->cov);
-			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
-					  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-					  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno]);
-			  if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
-			  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
-			  for(int j=0;j<pred[n]->exons.Count();j++) {
-				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
-						  refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-						  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1); // maybe add exon coverage here
-				  if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
-				  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
-			  }
-		  }
-		  else pred[n]->flag=true;
-	  }
-	  else pred[n]->flag=false;
-  }
-
-  delete_interval(maxpos);
-
-  return(geneno);
-}
-
-
-int print_transcript_signcluster(char strand,GList<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcripts,
-		int nstart, int nend, int geneno,GStr& refname) {
-
-  GVec<int> keep;
-
-  float maxcov=0;
-  int lastadded=0;
-  for(int n=nstart;n<=nend;n++) if(pred[n]->strand==strand || pred[n]->strand=='.'){
-	  if(n>nstart) {
-		  if(equal_pred(pred,lastadded,n)) {
-			  /*
-			  fprintf(stderr,"pred %d is equal to pred %d btw %d-%d\n",lastadded,n,pred[lastadded]->start,pred[lastadded]->end);
-			  for(int j=0;j<pred[n]->exons.Count();j++) {
-				  fprintf(stderr,"%d-%d vs %d-%d\n",pred[lastadded]->exons[j].start,pred[lastadded]->exons[j].end,pred[n]->exons[j].start,pred[n]->exons[j].end);
-			  }
-			  */
-		    if(pred[n]->cov>pred[lastadded]->cov){
-		      pred[lastadded]->flag=pred[n]->flag;
-		      if(pred[lastadded]->exons[0].start != pred[n]->exons[0].start ||
-		    		  pred[lastadded]->exons.Last().end!=pred[n]->exons.Last().end) { // new prediction has to replace old one
-		    	  pred[lastadded]->tlen=pred[n]->tlen;
-		    	  pred[lastadded]->exons[0].start=pred[n]->exons[0].start;
-		    	  pred[lastadded]->exons.Last().end=pred[n]->exons.Last().end;
-
-		      }
-		    }
-		    for(int j=0;j<pred[n]->exons.Count();j++) {
-		      pred[lastadded]->exoncov[j]+=pred[n]->exoncov[j];
-		    }
-		    pred[lastadded]->cov+=pred[n]->cov;
-		    pred[lastadded]->frag+=pred[n]->frag;
-		    if(pred[lastadded]->cov > maxcov) {
-		      maxcov=pred[lastadded]->cov;
-		    }
-		    if(pred[n]->id && !pred[lastadded]->id) { pred[lastadded]->id=Gstrdup(pred[n]->id);}
-		    continue;
-		  }
-	  }
-	  if(pred[n]->cov>maxcov) {
-		  maxcov=pred[n]->cov;
-	  }
-	  keep.Add(n);
-	  lastadded=n;
-  }
-
-  //fprintf(stderr,"keepcount=%d\n",keep.Count());
-
-  for(int i=0;i<keep.Count();i++) {
-	  int n=keep[i];
-	  if((pred[n]->exons.Count()==1 && pred[n]->cov>=maxcov) || (pred[n]->exons.Count()>1 && pred[n]->cov/maxcov>=isofrac))	{ // print this transcript
-		  if(genes[pred[n]->geneno]==-1) genes[pred[n]->geneno]=++geneno;
-		  transcripts[pred[n]->geneno]++;
-		  if(pred[n]->flag) {
-			  fprintf(f_out,"%d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen,pred[n]->frag,pred[n]->cov);
-			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
-				  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-				  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno]);
-			  if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
-			  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
-			  for(int j=0;j<pred[n]->exons.Count();j++) {
-				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
-			  		 refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-			  		 label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1); // maybe add exon coverage here
-				  if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
-				  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
-			  }
-		  }
-		  else pred[n]->flag=true;
-	  }
-	  else pred[n]->flag=false;
-  }
-
-  return(geneno);
-}
-
-
-int print_transcripts(GList<CPrediction>& pred,int ngenes, int geneno, GStr& refname) {
-
-	// print transcripts including the necessary isoform fraction cleanings
-	pred.setSorted(predCmp);
-	//pred.setSorted(true);
-
-	int npred=pred.Count();
-
-	int currentstartpos=-1;
-	uint currentendpos=0;
-	int nstartpos=0;
-	int nendpos=0;
-	int currentstartneg=-1;
-	uint currentendneg=0;
-	int nstartneg=0;
-	int nendneg=0;
-	GVec<int> genes(true); // for each gene remembers it's geneno
-	genes.Resize(ngenes,-1);
-	GVec<int> transcripts(true); // for each gene remembers how many transcripts were printed
-	transcripts.Resize(ngenes,0);
-
-	GPVec<CPrediction> pospred(false);
-	GPVec<CPrediction> negpred(false);
-
-	for(int n=0;n<npred;n++) {
-
-		if(pred[n]->strand=='.') pred[n]->flag=false; // only let it print if it passes threshold for printing
-
-		if(pred[n]->strand=='+' || pred[n]->strand=='.') {
-			if(pred[n]->start > currentendpos) { // begin new cluster
-				// first print predictions I've seen so far
-				if(currentstartpos>-1) { // I've seen a cluster before
-					switch (sensitivitylevel) {
-					case 0: geneno=print_transcript_signcluster('+',pred,genes,transcripts,nstartpos,nendpos,geneno,refname);break;
-					case 1: geneno=print_cluster(pospred,genes,transcripts,geneno,refname);break;
-					case 2: geneno=print_cluster_inclusion(pospred,genes,transcripts,geneno,refname);break;
-					case 3: geneno=print_signcluster('+',pred,genes,transcripts,nstartpos,nendpos,geneno,refname);
-					}
-					pospred.Clear();
-				}
-
-				pospred.Add(pred[n]);
-
-				currentstartpos=pred[n]->start;
-				currentendpos=pred[n]->end;
-				nstartpos=n;
-				nendpos=n;
-			}
-			else {
-				if(pred[n]->end > currentendpos) currentendpos=pred[n]->end;
-				nendpos=n;
-				pospred.Add(pred[n]);
-
-			}
-		}
-
-		if(pred[n]->strand=='-' || pred[n]->strand=='.') {
-			if(pred[n]->start > currentendneg) { // begin new cluster
-
-				// first print predictions I've seen so far
-				if(currentstartneg>-1) { // I've seen a cluster before
-					switch (sensitivitylevel) {
-					case 0: geneno=print_transcript_signcluster('-',pred,genes,transcripts,nstartneg,nendneg,geneno,refname);break;
-					case 1: geneno=print_cluster(negpred,genes,transcripts,geneno,refname);break;
-					case 2: geneno=print_cluster_inclusion(negpred,genes,transcripts,geneno,refname);break;
-					case 3: geneno=print_signcluster('-',pred,genes,transcripts,nstartneg,nendneg,geneno,refname);break;
-					}
-					negpred.Clear();
-				}
-
-				negpred.Add(pred[n]);
-
-				currentstartneg=pred[n]->start;
-				currentendneg=pred[n]->end;
-				nstartneg=n;
-				nendneg=n;
-			}
-			else {
-				negpred.Add(pred[n]);
-				if(pred[n]->end > currentendneg) currentendneg=pred[n]->end;
-				nendneg=n;
-			}
-		}
-	}
-
-	if(currentstartpos>-1) { // I've seen a cluster before
-		switch (sensitivitylevel) {
-		case 0: geneno=print_transcript_signcluster('+',pred,genes,transcripts,nstartpos,nendpos,geneno,refname);break;
-		case 1: geneno=print_cluster(pospred,genes,transcripts,geneno,refname);break;
-		case 2: geneno=print_cluster_inclusion(pospred,genes,transcripts,geneno,refname);break;
-		case 3: geneno=print_signcluster('+',pred,genes,transcripts,nstartpos,nendpos,geneno,refname);
-		}
-		pospred.Clear();
-	}
-
-	if(currentstartneg>-1) { // I've seen a cluster before
-		switch (sensitivitylevel) {
-		case 0: geneno=print_transcript_signcluster('-',pred,genes,transcripts,nstartneg,nendneg,geneno,refname);break;
-		case 1: geneno=print_cluster(negpred,genes,transcripts,geneno,refname);break;
-		case 2: geneno=print_cluster_inclusion(negpred,genes,transcripts,geneno,refname);break;
-		case 3: geneno=print_signcluster('-',pred,genes,transcripts,nstartneg,nendneg,geneno,refname);
-		}
-		negpred.Clear();
-	}
-
-	return(geneno);
 }
 
 //---------------
@@ -1658,7 +846,7 @@ void processBundle(BundleData* bundle) {
 			GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d(%d) done (%d predicted transcripts).\n",bundle->refseq.chars(),
+	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
 	  		bundle->start, bundle->end, bundle->numreads, bundle->pred.Count());
 	}
 	bundle->Clear(); //full clear (after the 2nd pass unless singlePass was requested)
@@ -1677,8 +865,9 @@ void processBundle(BundleData* bundle) {
 			GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%d) (%djs) loaded, begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->junction.Count());
+		GMessage(">bundle %s:%d-%d(%d) (%djs, %d guides) loaded, begins processing...\n",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, 
+                bundle->junction.Count(), bundle->keepguides.Count());
 #ifdef GMEMTRACE
 		double vm,rsm;
 		get_mem_usage(vm, rsm);
@@ -1690,20 +879,23 @@ void processBundle(BundleData* bundle) {
 		}
 #endif
 	}
-	int ngenes=infer_transcripts(bundle->start,bundle->readlist,
-			bundle->junction, bundle->keepguides, bundle->bpcov, bundle->pred, fast | bundle->covSaturated);
+	int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
+	if (bundle->rc_data) {
+		//rc_write_counts(refname.chars(), *bundleData);
+		rc_update_exons(*(bundle->rc_data));
+	}
 	if (bundle->pred.Count()>0) {
 #ifndef NOTHREADS
 		GLockGuard<GFastMutex> lock(printMutex);
 #endif
-		GeneNo=print_transcripts(bundle->pred, ngenes, GeneNo, bundle->refseq);
+		GeneNo=printResults(bundle, ngenes, GeneNo, bundle->refseq);
 	}
 	if (verbose) {
 	#ifndef NOTHREADS
 			GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d(%d) done (%d predicted transcripts).\n",bundle->refseq.chars(),
+	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
 	  		bundle->start, bundle->end, bundle->readlist.Count(), bundle->pred.Count());
 	#ifdef GMEMTRACE
 		    double vm,rsm;

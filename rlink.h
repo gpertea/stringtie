@@ -6,6 +6,7 @@
 #include "GBam.h"
 #include "GBitVec.h"
 #include "time.h"
+#include "tablemaker.h"
 
 #define MAX_NODE 100000
 
@@ -18,6 +19,11 @@ const double epsilon=0.00000001; //-E
 const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
 const int MAX_MAXCOMP=200; // is 200 too much, or should I set it up to 150?
+
+const int longintron=20000; // don't trust introns longer than this unless there is higher evidence; 93.5% of all annotated introns are shorter than this
+const int longintronanchor=25; // I need a higher anchor for long introns
+
+const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
 extern bool singlePass;
 
@@ -97,9 +103,10 @@ struct CTransfrag {
 
 struct CGuide {
 	CTransfrag *trf;
-	char *id;
-	CGuide(CTransfrag* _trf=NULL,char* _id=NULL):trf(_trf),id(_id) {}
-	//~CGuide() { GFREE(trf);}
+	//char *id;
+	//CGuide(CTransfrag* _trf=NULL,char* _id=NULL):trf(_trf),id(_id) {}
+	GffObj* t;
+	CGuide(CTransfrag* _trf=NULL, GffObj* _t=NULL):trf(_trf),t(_t) {}
 };
 
 struct CGroup:public GSeg {
@@ -116,7 +123,8 @@ struct CGroup:public GSeg {
 
 struct CPrediction:public GSeg {
 	int geneno;
-	char *id;
+	GffObj* t_eq; //equivalent reference transcript (guide)
+	//char *id;
 	float cov;
 	char strand;
 	float frag; // counted number of fragments associated with prediction
@@ -124,13 +132,17 @@ struct CPrediction:public GSeg {
 	bool flag;
 	GVec<GSeg> exons;
 	GVec<float> exoncov;
-	CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
-			int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
+	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
+	int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),strand(_strand),frag(_frag),
+	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
+	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
 			tlen(_len),flag(f),exons(),exoncov() {}
 	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
-	      id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
+//			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
+			t_eq(c.t_eq), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
 	      exons(c.exons),  exoncov(c.exoncov) {}
-	~CPrediction() { GFREE(id);}
+	~CPrediction() { //GFREE(id);
+		}
 };
 
 class CJunction;
@@ -186,7 +198,7 @@ struct CTreePat {
 	}
 };
 
-struct CTrimPoint {
+struct CTrimPoint { // this can work as a guide keeper too, where pos is the guideidx, abundance is the flow, and start is the included status
 	uint pos;
 	float abundance;
 	bool start;
@@ -256,6 +268,37 @@ struct CJunction:public GSeg {
 	}
 };
 
+struct CTCov { //covered transcript info
+	int first_cov_exon;
+	int last_cov_exon;
+	int numt;
+	GffObj* guide;
+	bool whole;
+	CTCov(GffObj* t, int fex=-1, int lex=0, int ntr=0):first_cov_exon(fex), last_cov_exon(lex),
+			   numt(ntr), guide(t), whole(false) {
+		whole = (first_cov_exon<0);
+	}
+	void print(FILE* f) {
+		if (whole) { //from get_covered()
+			guide->printTranscriptGff(f);
+		}
+		else { //from get_partial_covered()
+			bool partial=true;
+			if (last_cov_exon<0) {
+				if (guide->exons.Count()==1) partial=false;
+				last_cov_exon=first_cov_exon;
+			} else {
+			 if(last_cov_exon-first_cov_exon+1==guide->exons.Count()) partial=false;
+			}
+			for(int i=first_cov_exon;i<=last_cov_exon;i++) {
+				if(partial) fprintf(f, "%s\tpartial\texon\t%u\t%u\t.\t%c\t.\ttranscript_id \"%s_part%d\";\n",guide->getGSeqName(),
+						guide->exons[i]->start,guide->exons[i]->end,guide->strand,guide->getID(), numt);
+				else fprintf(f, "%s\tcomplete\texon\t%u\t%u\t.\t%c\t.\ttranscript_id \"%s\";\n",guide->getGSeqName(),
+						guide->exons[i]->start,guide->exons[i]->end,guide->strand,guide->getID());
+			}
+		}
+	}
+};
 
 // bundle data structure, holds all input data parsed from BAM file
 // - r216 regression
@@ -274,10 +317,12 @@ struct BundleData {
  GVec<float> bpcov;
  GList<CJunction> junction;
  GPVec<GffObj> keepguides;
+ GPVec<CTCov> covguides;
  GList<CPrediction> pred;
+ RC_BundleData* rc_data;
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 covSaturated(false), numreads(0), num_fragments(0), frag_len(0),refseq(), readlist(false,true),
-		 bpcov(1024), junction(true, true, true), keepguides(false), pred(false) { }
+		 bpcov(1024), junction(true, true, true), keepguides(false), pred(false), rc_data(NULL) { }
 
  void getReady(int currentstart, int currentend) {
 	 start=currentstart;
@@ -285,6 +330,21 @@ struct BundleData {
 	 //refseq=ref;
 	 status=BUNDLE_STATUS_READY;
  }
+ void rc_init(GffObj* t) {
+	  if (rc_data==NULL) {
+	  	rc_data = new RC_BundleData(t->start, t->end);
+	    }
+ }
+ /* after reference annotation was loaded
+ void rc_finalize_refs() {
+     if (rc_data==NULL) return;
+     //rc_data->setupCov();
+	}
+	Not needed here, we update the coverage span as each transcript is added
+ */
+ void rc_store_t(GffObj* scaff);
+
+ bool rc_count_hit(GBamRecord& brec, char strand, int nh); //, int hi);
 
  void Clear() {
 	keepguides.Clear();
@@ -300,6 +360,8 @@ struct BundleData {
 	numreads=0;
 	num_fragments=0;
 	frag_len=0;
+	delete rc_data;
+	rc_data=NULL;
  }
 
  ~BundleData() {
@@ -361,13 +423,19 @@ struct BundleData {
 int processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GBamRecord& brec, char strand, int nh, int hi);
 
+void countRead(BundleData& bdata, GBamRecord& brec, int hi);
+
 //int process_read(int currentstart, int currentend, GList<CReadAln>& readlist, GHash<int>& hashread,
 //		GList<CJunction>& junction, GBamRecord& brec, char strand, int nh, int hi, GVec<float>& bpcov);
 
-int print_transcripts(GList<CPrediction>& pred, int ngenes, int geneno, GStr& refname);
+int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
 
-int infer_transcripts(int refstart, GList<CReadAln>& readlist,
-		GList<CJunction>& junction, GPVec<GffObj>& guides, GVec<float>& bpcov, GList<CPrediction>& pred, bool fast);
+//int print_transcripts(GList<CPrediction>& pred, int ngenes, int geneno, GStr& refname);
+
+//int infer_transcripts(int refstart, GList<CReadAln>& readlist,
+//		GList<CJunction>& junction, GPVec<GffObj>& guides, GVec<float>& bpcov, GList<CPrediction>& pred, bool fast);
+
+int infer_transcripts(BundleData* bundle, bool fast);
 
 // --- utility functions
 void printGff3Header(FILE* f, GArgs& args);

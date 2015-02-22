@@ -39,59 +39,35 @@ The main input of the program is a SAMtools BAM file with RNA-Seq mappings
 sorted by genomic location (for example the accepted_hits.bam file produced
 by TopHat). 
 
-The following optional parameters can be specified when running stringtie 
-to control its performance:
+The following optional parameters can be specified (use -h/--help to get the
+usage message):
 
- -h/--help    Prints help message and exits.
- -v           Turns on verbose mode, and prints bundle processing details.
- -o <outfile> Sets the name of the output file with the assembled transcripts.
-              By default, StringTie writes at standard output.
- -p <int>     Sets the number of threads (CPUs) to use. The default is 1.
- -G <ref_ann> Tells StringTie to use the reference annotation file (in GTF/GFF3
-              format) provided to guide the assembly process. 
-              Output will include expressed reference transcripts as well as any
-              novel transcripts that are assembled.
- -l <label>   Sets <label> as the prefix for the name of the output transcripts.
-              Default: STRG.
- -f <0.0-1.0> Sets the minimum isoform abundance of the predicted transcripts as
-              a fraction of the most abundant transcript assembled at a given 
-              locus. Lower abundance transcripts are often artifacts of 
-              incompletely spliced precursors of processed transcripts.
-              Default: 0.15.
- -S           This is a more sensitive version of StringTie. By default, 
-              StringTie starts looking for transcripts that go through the most
-              abundant node in the splice graph and stops as soon as it finds
-              one transcript below the minimum isoform abundance threshold
-              established by the parameter -f. A sensitive run of StringTie,
-              restarts the search from different points in the splice graph.
- -m <int>     Sets the minimum length allowed for the predicted transcripts.
-              Default: 200.
- -a <int>     Junctions that don't have spliced reads that align across them
-              with at least this amount of bases on both sides are filtered out.
-              Default: 10.
- -j <float>   There should be at least this many spliced reads that align across
-              a junction. This number doesn't necessary have to be an integer, 
-              since some reads align in more than one place. A read that aligns
-              in n places will contribute 1/n to the junction coverage.
-              Default: 1.
- -t           This parameter disables the trimming at the ends of predicted
-              transcripts. By default, StringTie trimms transcription starts
-              and stops based on sudden drops in coverage of the transcript.
- -c <float>   Sets the minimum reads per base coverage allowed for the predicted
-              transcripts. A transcripts with a lower coverage than this is not
-              printed. Default: 2.5
- -s <int>     Sets the coverage saturation threshold. StringTie will ignore
-              further read alignments in a region where a local coverage depth
-              greater than this is reached. Default: 1,000,000.
- -g <int>     Bundles of reads that are separated by less than this distance get
-              merged together. Default: 50 (bp)
- -C <cov.gtf> StringTie outputs a file with the given name with all transcripts
-              in the provided reference file that are fully covered by reads.
-              This option only works when an annotation reference file is also
-              specified (with the -G parameter. Also the current implementation
-              doesn't support more than one thread for this option.)
-
+ -G reference annotation to use for guiding the assembly process (GTF/GFF3)
+ -l name prefix for output transcripts (default: STRG)
+ -f minimum isoform fraction (default: 0.1)
+ -m minimum assembled transcript length to report (default 200bp)
+ -o output path/file name for the assembled transcripts GTF (default: stdout)
+ -a minimum anchor length for junctions (default: 10)
+ -j minimum junction coverage (default: 1)
+ -t disable trimming of predicted transcripts based on coverage
+    (default: coverage trimming is enabled)
+ -c minimum reads per bp coverage to consider for transcript assembly (default: 2.5)
+ -s coverage saturation threshold; further read alignments will be
+    ignored in a region where a local coverage depth of <maxcov> 
+    is reached (default: 1,000,000);
+ -v verbose (log bundle processing details)
+ -g gap between read mappings triggering a new bundle (default: 50)
+ -C output file with reference transcripts that are covered by reads
+ -M fraction of bundle allowed to be covered by multi-hit reads (default:0.95)
+ -p number of threads (CPUs) to use (default: 1)
+ -B enable output of Ballgown table files which will be created in the
+    same directory as the output GTF (requires -G, -o recommended)
+ -b enable output of Ballgown table files but these files will be 
+    created under the directory path given as <dir_path>
+ -e only estimates the abundance of given reference transcripts (requires -G)
+ 
 Input files
+-----------
 StringTie takes as input a binary SAM (BAM) file which must be sorted by 
 reference position. This file contains spliced read alignments such as the 
 ones produced by TopHat. If you have a text file in SAM format you should

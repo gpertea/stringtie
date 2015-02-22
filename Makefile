@@ -2,7 +2,7 @@ BAM := ./samtools-0.1.18
 #path to the directory where the samtools package was built (in place)
 #so libbam.a and *.h files MUST be in here
 
-GDIR := ./gclib
+GDIR :=./gclib
 
 SEARCHDIRS := -I. -I${GDIR} -I${BAM}
 
@@ -29,11 +29,11 @@ endif
 #endif
 
 # Misc. system commands
-ifdef WINDOWS
-RM = del /Q
-else
+#ifdef WINDOWS
+#RM = del /Q
+#else
 RM = rm -f
-endif
+#endif
 
 # File endings
 ifdef WINDOWS
@@ -50,14 +50,17 @@ BASEFLAGS  := -Wall -Wextra ${SEARCHDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 \
 
 LINKER  := g++
 
-LIBS := -lbam -lz
+LIBS := -lz -lbam
 
 # Non-windows systems need pthread
 ifndef WINDOWS
- #ifndef NOTHREADS
- # unfortunately the new samtools requires pthread anyway
+ ifndef NOTHREADS
    LIBS += -lpthread
- #endif
+ endif
+ ifdef GDEBUG
+   OBJS += ${GDIR}/proc_mem.o
+   BASEFLAGS += -DGMEMTRACE
+ endif
 endif
 
 ifdef NOTHREADS
@@ -70,8 +73,16 @@ ifneq (,$(findstring release,$(MAKECMDGOALS)))
   CFLAGS := -O2 -DNDEBUG -g $(BASEFLAGS)
   LDFLAGS := -g -L${BAM} ${LFLAGS}
 else
-  CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
-  LDFLAGS := -g -L${BAM}
+  #make memcheck : use the statically linked address sanitizer in gcc 4.9.x
+  ifneq (,$(findstring mem,$(MAKECMDGOALS))) 
+     CFLAGS := -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
+     CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector $(CFLAGS)
+     LDFLAGS := -g -L${BAM}
+     LIBS := -Wl,-Bstatic -lasan -lubsan -Wl,-Bdynamic -ldl $(LIBS)
+  else
+     CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
+     LDFLAGS := -g -L${BAM}
+  endif
   GDEBUG = 1
 endif
 
@@ -85,21 +96,20 @@ ifndef NOTHREADS
  OBJS += ${GDIR}/GThreads.o 
 endif
 
-ifdef GDEBUG
- OBJS += ${GDIR}/proc_mem.o
-endif
-
-OBJS += rlink.o
+OBJS += rlink.o tablemaker.o
  
 .PHONY : all debug clean release nothreads
 all:     stringtie
 release: stringtie
 debug:   stringtie
+memcheck: stringtie
+memdebug: stringtie
 nothreads: stringtie
 
 ${GDIR}/GBam.o : $(GDIR)/GBam.h
 stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHash.hh $(GDIR)/GBam.h
-rlink.o : rlink.h $(GDIR)/GBam.h $(GDIR)/GBitVec.h
+rlink.o : rlink.h tablemaker.h $(GDIR)/GBam.h $(GDIR)/GBitVec.h
+tablemaker.o : tablemaker.h rlink.h
 ${BAM}/libbam.a: 
 	cd ${BAM} && make lib
 stringtie: ${BAM}/libbam.a $(OBJS) stringtie.o
