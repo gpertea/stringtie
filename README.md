@@ -63,7 +63,9 @@ StringTie takes as input a binary SAM (BAM) file which must be sorted by
 reference position. This file contains spliced read alignments such as the
 ones produced by TopHat. If you have a text file in SAM format you should
 first convert it to the BAM format using the samtools view command:
+```
 samtools view -S -b input.sam > input.bam
+```
 Any SAM spliced read alignment (a read alignment across at least one junction)
 needs to contain the tag XS to indicate which strand of the RNA that produced
 this read came from. TopHat alignments already include this tag, but if you use
