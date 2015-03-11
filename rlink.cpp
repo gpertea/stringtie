@@ -966,7 +966,7 @@ inline int edge(int min, int max, int gno) {
 	return((gno-1)*(min+1)-min*(min-1)/2+max-min); // this includes source to node edges
 }
 
-GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec parents,int gno,GVec<bool>& visit,
+GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec parents,int gno, GVec<bool>& visit,
 		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag){
 
 	if(visit[node->nodeid]) {
@@ -1847,14 +1847,19 @@ void process_transfrags(int gno,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& t
 
 	//if(!EM) {
 	if(0) {
-		GVec<float> n[gno]; // abundances of all transfrags passing through node and leaving node
-		GVec<float> f[gno]; // abundances of all transfrags leaving node
+		GVec<float> f_init(gno, float(0));
+		GVec< GVec<float> > n(gno, &f_init, false);
+		//GVec<float> n[gno]; // abundances of all transfrags passing through node and leaving node
+		GVec< GVec<float> > f(gno, &f_init, false);
+		//GVec<float> f[gno]; // abundances of all transfrags leaving node
+		//GVec< GVec<int> > u(gno, new GVec<int>(gno,0) );
 		//GVec<int> u[gno]; // transfrags that are uncommited to a specific child; this is a more complicated issue -> ignore for now
+		/*
 		for(int i=1;i<gno-1;i++) {
 			n[i].Resize(gno,0);
 			f[i].Resize(gno,0);
 		}
-
+        */
 		for(int t=0;t<transfrag.Count();t++)
 			if(transfrag[t]->nodes[0] && transfrag[t]->nodes.Count()) { // transfrag has more than one node, and doesn't start at source
 				for(int i=0;i<transfrag[t]->nodes.Count()-1;i++) { // for all nodes in transfrags that are not last
@@ -8732,7 +8737,7 @@ int print_cluster_inclusion(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>&
 	// sort predictions from the one with the most exons to the one with the least:
 	pred.Sort(predexCmp);
 
-	GVec<int> included[pred.Count()];
+	GVec< GVec<int> > included(pred.Count()); included.Resize(pred.Count());
 	GVec<float> maxcov;
 	GVec<float> totalcov;
 
@@ -9000,7 +9005,7 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 		*/
 
 		// this version is more inclusive by stiching together single exons to reference guides that overlap them
-		GVec<int> reflink[npred];
+		GVec< GVec<int> > reflink(npred); reflink.Resize(npred);
 		for(int n=0;n<npred;n++) {
 
 			if(pred[n] && pred[n]->t_eq) {

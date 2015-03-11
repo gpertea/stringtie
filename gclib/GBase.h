@@ -185,6 +185,8 @@ int Gstrcmp(const char* a, const char* b, int n=-1);
 //same as strcmp but doesn't crash on NULL pointers
 
 int Gstricmp(const char* a, const char* b, int n=-1);
+bool GstrEq(const char* a, const char* b);
+bool GstriEq(const char* a, const char* b);
 
 //basic swap template function
 template<class T> void Gswap(T& lhs, T& rhs) {
@@ -259,13 +261,16 @@ char* rstrstr(const char* rstart, const char *lend, const char* substr);
  a pointer to the last (right) matching character in str */
 
 char* strifind(const char* str,  const char* substr);
-// the case insensitive version of strstr -- finding a string within a strin
-
+// case insensitive version of strstr -- finding a string within another string
+// returns NULL if not found
 
 //Determines if a string begins with a given prefix
 //(returns false when any of the params is NULL,
 // but true when prefix is '' (empty string)!)
 bool startsWith(const char* s, const char* prefix);
+
+bool startsiWith(const char* s, const char* prefix); //case insensitive
+
 
 bool endsWith(const char* s, const char* suffix);
 //Note: returns true if suffix is empty string, but false if it's NULL

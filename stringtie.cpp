@@ -9,7 +9,8 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.0.1"
+#define VERSION "1.0.2"
+
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
 
@@ -188,11 +189,13 @@ int main(int argc, char * const argv[]) {
  GPVec<RC_ScaffData> refguides_RC_Data(true);
  GPVec<RC_Feature> refguides_RC_exons(true);
  GPVec<RC_Feature> refguides_RC_introns(true);
-
+ GVec<int> alncounts(30,0); //number of read alignments per chromosome [gseq_id]
 
 #ifdef DEBUGPRINT
   verbose=true;
 #endif
+
+const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
  if(guided) { // read guiding transcripts from input gff file
 	 if (verbose) {
@@ -289,6 +292,7 @@ if (ballgown)
 #endif
  GBamRecord* brec=NULL;
  bool more_alns=true;
+ int prev_pos=0;
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;
@@ -308,7 +312,15 @@ if (ballgown)
 		 chr_changed=(lastref.is_empty() || lastref!=rname);
 		 if (chr_changed) {
 			 gseq_id=gseqNames->gseqs.addName(rname);
+			 if (alncounts.Count()<=gseq_id) {
+				 alncounts.Resize(gseq_id+1, 0);
+			 }
+			 else if (alncounts[gseq_id]>0) GError(ERR_BAM_SORT);
+			 prev_pos=0;
 		 }
+		 if (pos<prev_pos) GError(ERR_BAM_SORT);
+		 alncounts[gseq_id]++;
+		 prev_pos=pos;
 		 xstrand=brec->spliceStrand();
 		 if (xstrand=='+') strand=1;
 		 else if (xstrand=='-') strand=-1;
@@ -719,7 +731,7 @@ GStr Process_Options(GArgs* args) {
 			}
 	 	  }
 	 if (ballgown && !guided)
-		 GError("Error: invalid -b usage, GFF reference not given (-G option required).\n");
+		 GError("Error: invalid -B/-b usage, GFF reference not given (-G option required).\n");
 
 	 s=args->getOpt('P');
 	 if (!s.is_empty()) {

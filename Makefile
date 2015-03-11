@@ -6,8 +6,7 @@ GDIR :=./gclib
 
 SEARCHDIRS := -I. -I${GDIR} -I${BAM}
 
-#SYSTYPE :=     $(shell uname)
-
+#CC := clang++
 CC      := g++
 
 
@@ -48,6 +47,7 @@ BASEFLAGS  := -Wall -Wextra ${SEARCHDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 \
 
 # C/C++ linker
 
+#LINKER := clang++
 LINKER  := g++
 
 LIBS := -lbam -lz

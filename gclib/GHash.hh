@@ -326,6 +326,7 @@ template <class OBJ>  OBJ* GHash<OBJ>::Replace(const char* ky,const OBJ* pdata, 
 template <class OBJ> OBJ* GHash<OBJ>::Remove(const char* ky){
   register int p,x,h,n;
   if(!ky){ GError("GHash::remove: NULL key argument.\n"); }
+  OBJ* removed=NULL;
   if(0<fCount){
     h=strhash(ky);
     GASSERT(0<=h);
@@ -342,18 +343,19 @@ template <class OBJ> OBJ* GHash<OBJ>::Remove(const char* ky){
         hash[p].mark=false;
         if (hash[p].keyalloc) GFREE((hash[p].key));
         if (FREEDATA) (*fFreeProc)(hash[p].data);
+            else removed=(OBJ*)hash[p].data;
         hash[p].key=NULL;
         hash[p].data=NULL;
         fCount--;
         if((100*fCount)<=(MIN_LOAD*fCapacity)) Resize(fCount);
         GASSERT(fCount<fCapacity);
-        return NULL;
+        return removed;
         }
       p=(p+x)%fCapacity;
       n--;
       }
     }
-  return NULL;
+  return removed;
   }
 
 

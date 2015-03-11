@@ -170,7 +170,7 @@ char* newEmptyStr() {
 char* Gstrdup(const char* sfrom, const char* sto) {
   if (sfrom==NULL || sto==NULL) return NULL;
   char *copy=NULL;
-  if (sfrom[0]==0) return newEmptyStr();
+  if (sfrom[0]==0 || sto<sfrom) return newEmptyStr();
   GMALLOC(copy, sto-sfrom+2);
   strncpy(copy, sfrom, sto-sfrom+1);
   copy[sto-sfrom+1]=0;
@@ -227,6 +227,25 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 		*psep='/';
 	}
 	return 0;
+}
+
+bool GstrEq(const char* a, const char* b) {
+	 if (a==NULL || b==NULL) return false;
+	 register int i=0;
+	 while (a[i]==b[i]) {
+		 if (a[i]==0) return true;
+		 ++i;
+	 }
+	 return false;
+}
+
+bool GstriEq(const char* a, const char* b) {
+	 if (a==NULL || b==NULL) return false;
+	 register int i=0;
+	 while (tolower((unsigned char)a[i])==tolower((unsigned char)b[i])) {
+		 if (a[i]==0) return true;
+	 }
+	 return false;
 }
 
 int Gstricmp(const char* a, const char* b, int n) {
@@ -537,7 +556,7 @@ char* strifind(const char* str,  const char* substr) {
   char* p=(char*)str;
   while (p<=smax) {
      for (i=0; i<l && tolower(*(p+i))==tolower(*(substr+i)); i++) ;
-     if (i==l) return p; //found!
+     if (i==l) return p;
      p++;
      }
   return NULL;
@@ -552,6 +571,14 @@ bool startsWith(const char* s, const char* prefix) {
  while (prefix[i]!='\0' && prefix[i]==s[i]) i++;
  return (prefix[i]=='\0');
  }
+
+bool startsiWith(const char* s, const char* prefix) {
+ if (prefix==NULL || s==NULL) return false;
+ int i=0;
+ while (prefix[i]!='\0' && tolower(prefix[i])==tolower(s[i])) i++;
+ return (prefix[i]=='\0');
+ }
+
 
 // tests if string s ends with given suffix
 bool endsWith(const char* s, const char* suffix) {

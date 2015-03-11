@@ -366,17 +366,13 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 		 } //exon feature?
 		 if (Parent==NULL) {
 		    //something is very wrong here, cannot parse the GTF ID
-		    GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n",
-		    l);
+			 if (is_transcript || exontype)
+		       GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n",
+		       l);
+			 else return; //skip unrecognized GTF line (from GTF we only care about transcripts for now)
+
 		 }
-		 /* if (Parent==NULL && exontype>=exgffCDS &&
-				 (i=strcspn(info,"; \t\n\r"))<=(int)(strlen(info)+1)) {
-			 //one word ID ? really desperate attempt to parse it here
-			 Parent=Gstrdup(info,info+i-1);
-			 info=NULL; //discard anything else on the line
-		 }
-		*/
-	 }
+	 } //Parent was NULL, attempted to find it
 	 if (Parent!=NULL) { //GTF transcript_id for exon/CDS feature
 		 _parents=Parent;
 		 GMALLOC(parents,sizeof(char*));

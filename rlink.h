@@ -145,7 +145,7 @@ struct CPrediction:public GSeg {
 		}
 };
 
-class CJunction;
+struct CJunction;
 
 struct CReadAln:public GSeg {
 	//DEBUG ONLY:

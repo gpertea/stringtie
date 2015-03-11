@@ -187,7 +187,7 @@ FILE* rc_fwopen(const char* fname);
 FILE* rc_frenopen(const char* fname);
 void rc_frendel(const char* fname);
 
-class BundleData;
+struct BundleData;
 
 //void rc_write_counts(const char* refname, BundleData& bundle);
 
