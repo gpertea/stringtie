@@ -50,7 +50,7 @@ BASEFLAGS  := -Wall -Wextra ${SEARCHDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 \
 
 LINKER  := g++
 
-LIBS := -lz -lbam
+LIBS := -lbam -lz
 
 # Non-windows systems need pthread
 ifndef WINDOWS
