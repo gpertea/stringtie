@@ -48,7 +48,7 @@ struct RC_ScaffSeg {
 
 struct RC_Feature { //exon or intron of a reference transcript
 	uint id; //feature id (>0)
-	uint t_id; //transcript id;
+	GVec<uint> t_ids; //transcripts owning this feature
 	int l; int r; //genomic coordinates
 	char strand;
 	mutable uint rcount; //# reads covering this feature
@@ -66,16 +66,17 @@ struct RC_Feature { //exon or intron of a reference transcript
 	 }
 	};
 
-	RC_Feature(int l0=0, int r0=0, char s='.', uint fid=0, uint tid=0): id(fid), t_id(tid), l(l0), r(r0),
+	RC_Feature(int l0=0, int r0=0, char s='.', uint fid=0, uint tid=0): id(fid), t_ids(1), l(l0), r(r0),
 		strand(s), rcount(0),ucount(0),mrcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
 	if (l>r) { int t=l; l=r; r=t; }
+	if (tid>0) t_ids.Add(tid);
 	}
 
-	RC_Feature(RC_ScaffSeg& seg, uint tid=0): id(seg.id), t_id(tid), l(seg.l), r(seg.r),
+	RC_Feature(RC_ScaffSeg& seg, uint tid=0): id(seg.id), t_ids(1), l(seg.l), r(seg.r),
 		strand(seg.strand), rcount(0),ucount(0),mrcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
 	if (l>r) { int t=l; l=r; r=t; }
+	if (tid>0) t_ids.Add(tid);
 	}
-
 
 	bool operator<(const RC_Feature& o) const {
 	 //if (id == o.id) return false;

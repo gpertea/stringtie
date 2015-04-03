@@ -546,7 +546,7 @@ if (ballgown)
 			 if(!i) {
 				 //linebuf[strlen(line)-1]='\0';
 				 fprintf(f_out,"%s",linebuf);
-				 fprintf(f_out,"FPKM \"%.6f\";",calc_fpkm);
+				 fprintf(f_out," FPKM \"%.6f\";",calc_fpkm);
 				 //fprintf(f_out,"FPKM \"%.6f\"; calculated_FPKM \"%.6f\";",tcov*1000000000/Frag_Len,fpkm*1000000000/(Num_Fragments*tlen));
 				 //fprintf(f_out,"flen \"%.6f\"; FPKM \"%.6f\";",fpkm,fpkm*1000000000/Num_Fragments);
 				 fprintf(f_out,"\n");
@@ -638,7 +638,12 @@ GStr Process_Options(GArgs* args) {
 	 s=args->getOpt('j');
 	 if (!s.is_empty()) junctionthr=s.asInt();
 	 s=args->getOpt('c');
-	 if (!s.is_empty()) readthr=(float)s.asDouble();
+	 if (!s.is_empty()) {
+		 readthr=(float)s.asDouble();
+		 if (readthr<0.001) {
+			 GError("Error: invalid -c value, must be >=0.001)\n");
+		 }
+	 }
 	 s=args->getOpt('l');
 	 if (!s.is_empty()) label=s;
 	 s=args->getOpt('f');

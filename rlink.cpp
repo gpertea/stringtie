@@ -8443,15 +8443,25 @@ int print_signcluster(char strand,GList<CPrediction>& pred,GVec<int>& genes,GVec
 			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
 					  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
 					  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno]);
-			  if(pred[n]->t_eq) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-			  //if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
+			  if(pred[n]->t_eq) {
+				  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+				  if (pred[n]->t_eq->getGeneID())
+				    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+				  if (pred[n]->t_eq->getGeneName())
+				    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+			  }
 			  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
 			  for(int j=0;j<pred[n]->exons.Count();j++) {
 				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
 						  refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
 						  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1); // maybe add exon coverage here
-				  if(pred[n]->t_eq) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-				  //if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
+				  if(pred[n]->t_eq) {
+					  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+					  if (pred[n]->t_eq->getGeneID())
+					    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+					  if (pred[n]->t_eq->getGeneName())
+					    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+				  }
 				  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
 			  }
 		  }
@@ -8708,15 +8718,25 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
 					  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
 					  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno]);
-			  if(pred[n]->t_eq) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-			  //if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
+			  if(pred[n]->t_eq) {
+				  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+				  if (pred[n]->t_eq->getGeneID())
+				    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+				  if (pred[n]->t_eq->getGeneName())
+				    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+			  }
 			  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
 			  for(int j=0;j<pred[n]->exons.Count();j++) {
 				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
 						  refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
 						  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1); // maybe add exon coverage here
-				  if(pred[n]->t_eq) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-				  //if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
+				  if(pred[n]->t_eq) {
+					  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+					  if (pred[n]->t_eq->getGeneID())
+					    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+					  if (pred[n]->t_eq->getGeneName())
+					    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+				  }
 				  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
 			  }
 		  }
@@ -8826,15 +8846,25 @@ int print_cluster_inclusion(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>&
 			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
 					  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
 					  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno]);
-			  if(pred[n]->t_eq) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-			  //if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
+			  if(pred[n]->t_eq) {
+				  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+				  if (pred[n]->t_eq->getGeneID())
+				    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+				  if (pred[n]->t_eq->getGeneName())
+				    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+			  }
 			  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
 			  for(int j=0;j<pred[n]->exons.Count();j++) {
 				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
 						  refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
 						  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1); // maybe add exon coverage here
-				  if(pred[n]->t_eq) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-				  //if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
+				  if(pred[n]->t_eq) {
+					  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+					  if (pred[n]->t_eq->getGeneID())
+					    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+					  if (pred[n]->t_eq->getGeneName())
+					    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+				  }
 				  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
 			  }
 		  }
@@ -8911,15 +8941,25 @@ int print_transcript_signcluster(char strand,GList<CPrediction>& pred,GVec<int>&
 			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
 				  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
 				  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno]);
-			  if(pred[n]->t_eq) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-			  //if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
+			  if(pred[n]->t_eq) {
+				  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+				  if (pred[n]->t_eq->getGeneID())
+				    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+				  if (pred[n]->t_eq->getGeneName())
+				    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+			  }
 			  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
 			  for(int j=0;j<pred[n]->exons.Count();j++) {
 				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
 			  		 refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
 			  		 label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1); // maybe add exon coverage here
-				  if(pred[n]->t_eq) fprintf(f_out, "reference_id \"%s\"; ", pred[n]->t_eq->getID());
-				  //if(pred[n]->id) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->id);
+				  if(pred[n]->t_eq) {
+					  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+					  if (pred[n]->t_eq->getGeneID())
+					    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+					  if (pred[n]->t_eq->getGeneName())
+					    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+				  }
 				  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
 			  }
 		  }

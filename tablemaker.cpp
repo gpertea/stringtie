@@ -250,7 +250,7 @@ void rc_write_RCfeature( GPVec<RC_ScaffData>& rcdata, GPVec<RC_Feature>& feature
 		               bool is_exon=false) {
   for (int i=0;i<features.Count();++i) {
 	RC_Feature& f=*(features[i]);
-	const char* ref_name=rcdata[f.t_id-1]->scaff->getGSeqName();
+	const char* ref_name=rcdata[f.t_ids[0]-1]->scaff->getGSeqName();
 	if (is_exon) {
 	  fprintf(fdata, "%u\t%s\t%c\t%d\t%d\t%d\t%d\t%.2f\t%.4f\t%.4f\t%.4f\t%.4f\n",
 		  f.id, ref_name, f.strand, f.l, f.r, f.rcount,
@@ -261,7 +261,8 @@ void rc_write_RCfeature( GPVec<RC_ScaffData>& rcdata, GPVec<RC_Feature>& feature
 		  f.strand, f.l, f.r, f.rcount, f.ucount, f.mrcount);
 	}
   // f2t -------
-	fprintf(f2t, "%u\t%u\n", f.id, f.t_id);
+	for (int t=0;t<f.t_ids.Count();++t)
+	   fprintf(f2t, "%u\t%u\n", f.id, f.t_ids[t]);
   } //for each feature
   fclose(fdata);
   fclose(f2t);
@@ -345,7 +346,7 @@ void RC_ScaffData::addFeature(int fl, int fr, GPVec<RC_Feature>& fvec,
       }
     }
   }
-  if (add_new) {
+  if (add_new) { //never seen this feature before
     newseg.id = ++f_id;
     pair< set<RC_ScaffSeg>::iterator, bool> ret = fset.insert(newseg);
     //ret.second = was_inserted (indeed new)
@@ -361,6 +362,9 @@ void RC_ScaffData::addFeature(int fl, int fr, GPVec<RC_Feature>& fvec,
     }
 #endif
     GASSERT((uint)fdata.Count()==f_id);
+  }
+  else { //feature seen before, update its parent list
+   fdata[newseg.id-1]->t_ids.Add(this->t_id);
   }
   //fvec.push_back(newseg);
   GASSERT(fdata[newseg.id-1]->id==newseg.id);
