@@ -45,7 +45,7 @@ usage message):
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)
  -l name prefix for output transcripts (default: STRG)
  -f minimum isoform fraction (default: 0.1)
- -m minimum assembled transcript length to report (default 200bp)
+ -m minimum assembled transcript length to report (default 100bp)
  -o output path/file name for the assembled transcripts GTF (default: stdout)
  -a minimum anchor length for junctions (default: 10)
  -j minimum junction coverage (default: 1)
