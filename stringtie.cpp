@@ -39,7 +39,7 @@
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.1)\n\
- -m minimum assembled transcript length (default: 100)\n\
+ -m minimum assembled transcript length (default: 200)\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -a minimum anchor length for junctions (default: 10)\n\
  -j minimum junction coverage (default: 1)\n\
@@ -89,7 +89,7 @@ bool specific=false;
 bool complete=true;
 bool partialcov=false;
 int num_cpus=1;
-int mintranscriptlen=100; // minimum length for a transcript to be printed
+int mintranscriptlen=200; // minimum length for a transcript to be printed
 int sensitivitylevel=1;
 int junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
 int junctionthr=1; // number of reads needed to support a particular junction
