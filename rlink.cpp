@@ -8161,7 +8161,8 @@ CInterval *add_pred_to_cov(CInterval *maxcov, CPrediction* pred, bool *abundant=
 							if(lastinterv->val==pred->cov) { // I have to skip current interval
 								lastinterv->next=interv->next;
 								lastcov=interv->val;
-								free(interv);
+								//free(interv);
+								delete interv;
 								interv=lastinterv;
 							}
 							else { lastcov=interv->val; interv->val=pred->cov;lastinterv=interv;}
@@ -8199,7 +8200,8 @@ CInterval *add_pred_to_cov(CInterval *maxcov, CPrediction* pred, bool *abundant=
 						if(interv->val<pred->cov) {
 							if(lastinterv->val==pred->cov) { // I have to skip current interval
 								lastinterv->next=interv->next;
-								free(interv);
+								//free(interv);
+								delete interv; interv=lastinterv;
 							}
 							else { interv->val=pred->cov;lastinterv=interv;}
 						}

@@ -9,7 +9,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.0.2"
+#define VERSION "1.0.3"
 
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
@@ -39,7 +39,7 @@
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.1)\n\
- -m minimum assembled transcript length to report (default 200bp)\n\
+ -m minimum assembled transcript length (default: 100)\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -a minimum anchor length for junctions (default: 10)\n\
  -j minimum junction coverage (default: 1)\n\
@@ -89,7 +89,7 @@ bool specific=false;
 bool complete=true;
 bool partialcov=false;
 int num_cpus=1;
-int mintranscriptlen=200; // minimum length for a transcript to be printed
+int mintranscriptlen=100; // minimum length for a transcript to be printed
 int sensitivitylevel=1;
 int junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
 int junctionthr=1; // number of reads needed to support a particular junction
@@ -124,6 +124,9 @@ unsigned long long int Frag_Len=0;
 //bool firstPrint=true; //just for writing the GFF header before the first transcript is printed
 
 GffNames* gseqNames=NULL; //used as a dictionary for genomic sequence names and ids
+
+int refseqCount=0;
+
 
 #ifdef GMEMTRACE
  double maxMemRS=0;
@@ -189,7 +192,7 @@ int main(int argc, char * const argv[]) {
  GPVec<RC_ScaffData> refguides_RC_Data(true);
  GPVec<RC_Feature> refguides_RC_exons(true);
  GPVec<RC_Feature> refguides_RC_introns(true);
- GVec<int> alncounts(30,0); //number of read alignments per chromosome [gseq_id]
+ GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
 
 #ifdef DEBUGPRINT
   verbose=true;
@@ -213,7 +216,12 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    //the list of GffObj is in gffr.gflst, sorted by chromosome and start-end coordinates
    //collect them in other data structures, if it's kept for later call gffobj->isUsed(true)
    // (otherwise it'll be deallocated when gffr is destroyed due to going out of scope)
-   refguides.setCount(gffr.gseqStats.Count()); //maximum gseqid
+   refseqCount=gffr.gseqStats.Count();
+   if (refseqCount==0 || gffr.gflst.Count()==0) {
+	   GError("Error: could not read reference annotation transcripts from GTF/GFF %s - invalid file?\n",
+			   guidegff.chars());
+   }
+   refguides.setCount(refseqCount); //maximum gseqid
    uint cur_tid=0;
    uint cur_exon_id=0;
    uint cur_intron_id=0;
@@ -264,6 +272,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  int ng_end=-1;
  int ng=0;
  GStr lastref;
+ bool no_ref_used=true;
  int lastref_id=-1; //last seen gseq_id
  // int ncluster=0; used it for debug purposes only
 
@@ -296,7 +305,7 @@ if (ballgown)
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;
-	 const char* rname=NULL;
+	 const char* refseqName=NULL;
 	 char strand=0;
 	 char xstrand=0;
 	 int nh=1;
@@ -306,12 +315,21 @@ if (ballgown)
 	 delete brec;
 	 if ((brec=bamreader.next())!=NULL) {
 		 if (brec->isUnmapped()) continue;
-		 rname=brec->refName();
-		 if (rname==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
+		 refseqName=brec->refName();
+		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
-		 chr_changed=(lastref.is_empty() || lastref!=rname);
+		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
 		 if (chr_changed) {
-			 gseq_id=gseqNames->gseqs.addName(rname);
+			 gseq_id=gseqNames->gseqs.addName(refseqName);
+			 if (guided) {
+				 if (gseq_id>=refseqCount) {
+					 if (verbose)
+						 GMessage("WARNING: no reference transcripts found for genomic sequence \"%s\"! (different naming convention?)\n",
+								refseqName);
+				 }
+				 else no_ref_used=false;
+			 }
+
 			 if (alncounts.Count()<=gseq_id) {
 				 alncounts.Resize(gseq_id+1, 0);
 			 }
@@ -389,7 +407,7 @@ if (ballgown)
 					 ng=guides->Count();
 				 }
 			 }
-			 lastref=rname;
+			 lastref=refseqName;
 			 lastref_id=gseq_id;
 			 currentend=0;
 		 }
@@ -487,7 +505,9 @@ if (ballgown)
 	 }
 	 */
  } //for each read alignment
-
+ if (guided && no_ref_used)
+    GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
+    		"Please make sure the -G annotation file uses the same naming convention for the genome sequences.\n");
  //cleaning up
  delete brec;
  bamreader.bclose();
@@ -610,18 +630,22 @@ GStr Process_Options(GArgs* args) {
 	 EM=(args->getOpt('y')!=NULL);
 	 weight=(args->getOpt('w')!=NULL);
 	 GStr s=args->getOpt('m');
-	 if (!s.is_empty()) mintranscriptlen=s.asInt();
+	 if (!s.is_empty()) {
+	   mintranscriptlen=s.asInt();
+	   if (mintranscriptlen<30) 
+	     GError("Error: invalid -m value, must be >=30)\n");
+	 }
 
 	 s=args->getOpt('n');
 	 if (!s.is_empty()) {
 		 sensitivitylevel=s.asInt();
 		 if(sensitivitylevel<0) {
 			 sensitivitylevel=0;
-			 fprintf(stderr,"sensitivity level out of range: setting sensitivity level at 0\n");
+			 GMessage("sensitivity level out of range: setting sensitivity level at 0\n");
 		 }
 		 if(sensitivitylevel>3) {
 			 sensitivitylevel=3;
-			 fprintf(stderr,"sensitivity level out of range: setting sensitivity level at 2\n");
+			 GMessage("sensitivity level out of range: setting sensitivity level at 2\n");
 		 }
 	 }
 
@@ -898,7 +922,6 @@ void processBundle(BundleData* bundle) {
 	}
 	int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
 	if (bundle->rc_data) {
-		//rc_write_counts(refname.chars(), *bundleData);
 		rc_update_exons(*(bundle->rc_data));
 	}
 	if (bundle->pred.Count()>0) {
