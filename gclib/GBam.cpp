@@ -27,7 +27,7 @@ uint8_t* dupalloc_bdata(bam1_t *b, int size) {
 }
 
 //from bam_import.c
-extern unsigned short bam_char2flag_table[];
+//extern unsigned short bam_char2flag_table[];
 
 GBamRecord::GBamRecord(const char* qname, int32_t gseq_tid,
                  int pos, bool reverse, const char* qseq,

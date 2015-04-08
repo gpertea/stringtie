@@ -9,7 +9,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.0.3"
+#define VERSION "1.0.4"
 
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
@@ -315,6 +315,10 @@ if (ballgown)
 	 delete brec;
 	 if ((brec=bamreader.next())!=NULL) {
 		 if (brec->isUnmapped()) continue;
+		 xstrand=brec->spliceStrand();
+		 if (xstrand=='+') strand=1;
+		 else if (xstrand=='-') strand=-1;
+		 if (brec->exons.Count()>1 && strand==0) continue; //skip HISAT spliced alignments without XS strand info
 		 refseqName=brec->refName();
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
@@ -339,9 +343,6 @@ if (ballgown)
 		 if (pos<prev_pos) GError(ERR_BAM_SORT);
 		 alncounts[gseq_id]++;
 		 prev_pos=pos;
-		 xstrand=brec->spliceStrand();
-		 if (xstrand=='+') strand=1;
-		 else if (xstrand=='-') strand=-1;
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
