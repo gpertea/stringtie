@@ -110,15 +110,16 @@ struct CGuide {
 };
 
 struct CGroup:public GSeg {
-	int grid;
 	int color;
+	int grid;
 	float cov_sum;
 	float nread;
 	float multi;
+	float neg_prop; // proportion of negative reads assigned to group out of all positives and negatives
 	CGroup *next_gr;
-	CGroup(int rstart=0, int rend=0, int _color=-1, int _grid=0, float _cov_sum=0,float _nread=0,float _multi=0,
-			CGroup *_next_gr=NULL): GSeg(rstart, rend), grid(_grid),
-			color(_color), cov_sum(_cov_sum), nread(_nread),multi(_multi), next_gr(_next_gr) { }
+	CGroup(int rstart=0, int rend=0, int _color=-1, int _grid=0, float _cov_sum=0,float _nread=0,float _multi=0,float _neg_prop=0,
+			CGroup *_next_gr=NULL): GSeg(rstart, rend), color(_color), grid(_grid),
+			cov_sum(_cov_sum), nread(_nread),multi(_multi), neg_prop(_neg_prop), next_gr(_next_gr) { }
 };
 
 struct CPrediction:public GSeg {

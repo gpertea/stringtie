@@ -321,6 +321,7 @@ void set_strandcol(CGroup *prevgroup, CGroup *group, int grcol, GVec<int>& eqcol
 	else {
 		eqcol[prevgroup->color]=grcol;
 	}
+
 }
 
 void add_group_to_bundle(CGroup *group, CBundle *bundle, GPVec<CBundlenode>& bnode){
@@ -487,8 +488,8 @@ void merge_fwd_groups(GPVec<CGroup>& group, CGroup *group1, CGroup *group2, GVec
 int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& group,CGroup **allcurrgroup,
 		CGroup **startgroup,GVec<int> *readgroup,GVec<int>& eqcol,GVec<int>& merge,float& fraglen,uint& fragno) {
 
-	int sno=readlist[n]->strand+1; // 0: negative strand; 1: zero strand; 2: positive strand
-	int readcol=color;
+	int sno=readlist[n]->strand+1; // 0: negative strand; 1: zero strand; 2: positive strand (starting from -1,0,1)
+	int readcol=color; // start with the new color -> might change
 
 	// check if I've seen read's pair and if yes get its readcol; at the least get read's pair strand if available
 	int np=readlist[n]->pair_idx; // pair read number
@@ -503,7 +504,7 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 		    }
 		    readgroup[np][0]=grouppair;
 
-		    readcol=group[readgroup[np][0]]->color;
+		    readcol=group[readgroup[np][0]]->color;    // readcol gets assigned the color of the pair's group
 		    while(eqcol[readcol]!=readcol) { // get smallest color
 		    	readcol=eqcol[readcol];
 		    }
@@ -515,11 +516,11 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 			fragno++;
 
 		    // see if I have the correct read strand
-		    char snop=readlist[np]->strand+1;
-		    if(sno!=snop) { // different strands
-		    	if(sno==1 && snop!=1) { // read n is on zero strand
+		    char snop=readlist[np]->strand+1;  // snop is the strand of pair read
+		    if(sno!=snop) { // different strands for read and pair
+		    	if(sno==1 && snop!=1) { // read n is on zero (neutral) strand, but pair has strand
 		    		readlist[n]->strand=readlist[np]->strand;
-		    		sno=snop;
+		    		sno=snop;  // assign strand of pair to read
 		    	}
 		    	else if(snop==1 && sno!=1) { // pair read np is on zero strand
 		    		readlist[np]->strand=readlist[n]->strand;
@@ -529,13 +530,13 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 		    		readlist[np]->pair_idx=-1;
 		    	}
 		    }
-		    eqcol.Add(color);
+		    eqcol.Add(color);  // read will keep the new color so we need to add it to the eqcol
 		    color++;
 		}
 	} // if(np>-1 && readlist[np]->nh) : read pair exists and it wasn't deleted
 	else {
 		fragno++;
-		eqcol.Add(color);
+		eqcol.Add(color); // read will keep the new color so we need to add it to the eqcol
 		color++;
 	}
 
@@ -545,34 +546,34 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 
 		//set currgroup first
 		CGroup *lastgroup=NULL;
-		while(currgroup!=NULL && readlist[n]->start > currgroup->end) {
+		while(currgroup!=NULL && readlist[n]->start > currgroup->end) { // while read start after the current group's end advance group -> I might have more groups leaving from current group due to splicing
 		    lastgroup=currgroup;
 		    currgroup=currgroup->next_gr;
 		}
 
-		if(currgroup==NULL || readlist[n]->segs[0].end < currgroup->start) // currgroup is null only if we reached end of currgroup list
+		if(currgroup==NULL || readlist[n]->segs[0].end < currgroup->start) // currgroup is null only if we reached end of currgroup list because currgroup is not NULL initially
 			currgroup=lastgroup;
 
 		// now process each group of coordinates individually
 		CGroup *thisgroup=currgroup;
-		int ncoord=readlist[n]->segs.Count();
+		int ncoord=readlist[n]->segs.Count(); // number of "exons" in read
 		int lastpushedgroup=-1;
 		bool added=false;
 
 		for(int i=0;i<ncoord;i++) {
 
-			fraglen+=readlist[n]->segs[i].len();
+			fraglen+=readlist[n]->segs[i].len();  // this might be useful to have if I decide not to use the HI tag anymore
 
 		    // skip groups that are left behind
-		    while(thisgroup!=NULL && readlist[n]->segs[i].start > thisgroup->end) {
+		    while(thisgroup!=NULL && readlist[n]->segs[i].start > thisgroup->end) { // find the group where "exon" fits
 		    	lastgroup=thisgroup;
 		    	thisgroup=thisgroup->next_gr;
 		    }
 
 		    if(thisgroup && readlist[n]->segs[i].end >= thisgroup->start) { // read overlaps group
 
-		    	// I need to split pairs here if color didn't reach this group
-		    	if(!i && np>-1 && readlist[np]->nh && np<n) {
+		    	// I need to split pairs here if color didn't reach this group: it means there is a gap between these groups and no reads joining them
+		    	if(!i && np>-1 && readlist[np]->nh && np<n) { // I only consider first exon here because the rest of the groups need to get the same color
 
 		    		int grouppair=thisgroup->grid;
 		    		while( merge[grouppair]!=grouppair) {
@@ -592,16 +593,16 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 
 		    			readlist[n]->pair_idx=-1;
 		    			readlist[np]->pair_idx=-1;
-		    			readcol=color;
+		    			readcol=color; // readcol gets back the new color
 		    			eqcol.Add(color);
 		    			color++;
 		    		}
 		    	}
 
 
-		    	if(!added) {
+		    	if(!added) { // read gets added only to first group - why ??
 		    		thisgroup->nread+=(float)1/readlist[n]->nh;
-		    		if(readlist[n]->nh>1) thisgroup->multi+=(float)1/readlist[n]->nh;
+		    		if(readlist[n]->nh>1) thisgroup->multi+=(float)1/readlist[n]->nh;  // this will probably need to be coded differently if I do super-reads, or collapse more than one read into the same nh
 		    		added=true;
 		    	}
 
@@ -637,14 +638,14 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 		    	}
 
 		    	if(thisgroup->grid != lastpushedgroup) {
-		    		readgroup[n].Add(thisgroup->grid);
+		    		readgroup[n].Add(thisgroup->grid);   // readgroup for read n gets the id of group
 		    		lastpushedgroup=thisgroup->grid;
 		    	}
-		    	thisgroup->cov_sum+=(float)(readlist[n]->segs[i].end-readlist[n]->segs[i].start+1)/readlist[n]->nh;
+		    	thisgroup->cov_sum+=(float)(readlist[n]->segs[i].end-readlist[n]->segs[i].start+1)/readlist[n]->nh; // coverage is different than number of reads
 		    } // end if(thisgroup && readlist[n]->segs[i].end >= thisgroup->start)
-		    else { // read is at the end of groups, or read is not overlapping other groups -> $lastgroup should be not null here
+		    else { // read is at the end of groups, or read is not overlapping other groups -> lastgroup is not null here because currgroup was not null
 
-		    	// I need to split pairs here because I have no overlap => color didn't reach here for sure
+		    	// I need to split pairs here because I have no overlap => color didn't reach here for sure if I am at the first exon
 		    	if(!i && np>-1 && readlist[np]->nh && np<n) {
 
 		    		//fprintf(stderr,"Split pairs: %d-%d and %d-%d on strand %d\n",readlist[np]->start,readlist[np]->end,readlist[n]->start,readlist[n]->end,readlist[n]->strand);
@@ -667,7 +668,7 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 		    	CGroup *newgroup=new CGroup(readlist[n]->segs[i].start,readlist[n]->segs[i].end,readcol,ngroup,(float)(readlist[n]->segs[i].end-readlist[n]->segs[i].start+1)/readlist[n]->nh,nread,multi);
 		    	group.Add(newgroup);
 		    	merge.Add(ngroup);
-		    	lastgroup->next_gr=newgroup;
+		    	lastgroup->next_gr=newgroup; // can lastgroup be null here -> no from the way I got here
 		    	newgroup->next_gr=thisgroup;
 		    	readgroup[n].Add(ngroup);
 		    	lastpushedgroup=ngroup;
@@ -1461,7 +1462,8 @@ int create_graph(int s,int g,CBundle *bundle,GPVec<CBundlenode>& bnode, GList<CJ
 */
 
 void get_read_pattern(GBitVec& pattern0,GBitVec& pattern1,int *rgno, GVec<int> *rnode,GList<CReadAln>& readlist,int n,
-		GVec<int> *readgroup,GVec<int>& merge,GVec<int> *group2bundle,GVec<CGraphinfo> **bundle2graph,GVec<int> *graphno,GPVec<CGraphnode> **no2gnode) {
+		GVec<int> *readgroup,GVec<int>& merge,GVec<int> *group2bundle,GVec<CGraphinfo> **bundle2graph,GVec<int> *graphno,
+		GPVec<CGraphnode> **no2gnode,GPVec<CGroup> &group) {
 
 	int lastgnode[2]={-1,-1}; // lastgnode[0] is for - strand; [1] is for + strand -> I need these in order to add the edges to the read pattern; check this: if it's not correct than storage was wrong!
 	int ncoord=readlist[n]->segs.Count();
@@ -1489,7 +1491,10 @@ void get_read_pattern(GBitVec& pattern0,GBitVec& pattern1,int *rgno, GVec<int> *
     							int bp = readlist[n]->segs[k[s]].overlapLen(node);
     							if(bp) {
     								intersect=true;
-    								node->cov+=float(bp)/readlist[n]->nh;
+    								//float multi=1;
+    								float multi=group[gr]->neg_prop;
+    								if(s) multi=1-multi;
+    								node->cov+=multi*float(bp)/readlist[n]->nh;
     								if(readlist[n]->segs[k[s]].end<=node->end) k[s]++;
     								else break;
 				  				}
@@ -1630,6 +1635,7 @@ void update_abundance(int s,int g,int gno,GBitVec& pattern,float abundance,GVec<
 	CTransfrag *t=findtrf_in_treepat(gno,node,pattern,tr2no[s][g]);
 	if(!t) { // t is NULL
 		t=new CTransfrag(node,pattern,0);
+
 		/*
 		{ // DEBUG ONLY
 			fprintf(stderr,"Add update transfrag[%d][%d]=%d and pattern",s,g,transfrag[s][g].Count());
@@ -1637,6 +1643,7 @@ void update_abundance(int s,int g,int gno,GBitVec& pattern,float abundance,GVec<
 			fprintf(stderr,"\n");
 		}
 		*/
+
 		transfrag[s][g].Add(t);
 
 		// node.Sort() : nodes should be sorted; if they are not then I should update to sort here
@@ -1659,19 +1666,19 @@ void update_abundance(int s,int g,int gno,GBitVec& pattern,float abundance,GVec<
 
 void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,GVec<int> *readgroup,GVec<int>& merge,
 		GVec<int> *group2bundle,GVec<CGraphinfo> **bundle2graph,GVec<int> *graphno,GPVec<CGraphnode> **no2gnode,
-		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no) {
+		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no,GPVec<CGroup> &group) {
 
 	GBitVec rpat[2];
 	int rgno[2]={-1,-1};
 	GVec<int> rnode[2];
-	if(readlist[n]->nh) get_read_pattern(rpat[0],rpat[1],rgno,rnode,readlist,n,readgroup,merge,group2bundle,bundle2graph,graphno,no2gnode);
+	if(readlist[n]->nh) get_read_pattern(rpat[0],rpat[1],rgno,rnode,readlist,n,readgroup,merge,group2bundle,bundle2graph,graphno,no2gnode,group);
 
 	GBitVec ppat[2];
 	int pgno[2]={-1,-1};
 	GVec<int> pnode[2];
 	// get pair pattern if pair exists and it hasn't been deleted
 	if(np>-1 && readlist[np]->nh) {
-		get_read_pattern(ppat[0],ppat[1],pgno,pnode,readlist,np,readgroup,merge,group2bundle,bundle2graph,graphno,no2gnode);
+		get_read_pattern(ppat[0],ppat[1],pgno,pnode,readlist,np,readgroup,merge,group2bundle,bundle2graph,graphno,no2gnode,group);
 	}
 
 	for(int s=0;s<2;s++){
@@ -7380,7 +7387,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 			i++;
 		}
 		//if(rd.juncs.Count()) fprintf(stderr,"] keep=%d\n",keep);
-		if(keep) { // this keeps read
+		if(keep) { // if it's a good read that needs to be kept
 			color=add_read_to_group(n,readlist,color,group,currgroup,startgroup,readgroup,equalcolor,merge,fraglen,fragno);
 
 			/* this part is now in add_read_to_group -> hopefully faster
@@ -7407,7 +7414,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 
 	if(fragno) fraglen/=fragno;
 
-	// merge groups that are close together or groups that are within he same exon of a reference gene
+	// merge groups that are close together or groups that are within the same exon of a reference gene
 	if(bundledist || guides.Count()) {
 		for(int sno=0;sno<3;sno++) {
 			CGroup *lastgroup=NULL;
@@ -7479,6 +7486,8 @@ int build_graphs(BundleData* bdata, bool fast) {
 	}
 	*/
 
+	// each unstranded group needs to remember what proportion of stranded group it overlaps so that it can distribute reads later on -> maybe I can do this in the following while?
+
 	while(currgroup[0]!=NULL || currgroup[1]!=NULL || currgroup[2]!=NULL) { // there are still groups to process
 
 		int nextgr=get_min_start(currgroup); // gets the index of currgroup with the left most begining
@@ -7491,45 +7500,179 @@ int build_graphs(BundleData* bdata, bool fast) {
 		currgroup[nextgr]->color=grcol;
 
 		//print STDERR "nextgr=$nextgr grcol=$grcol current group is at coords: ",$currgroup[$nextgr][0],"-",$currgroup[$nextgr][1],"\n";
+		//fprintf(stderr,"group %d id=%d: %u-%u col=%d from col=%d\n",nextgr,currgroup[nextgr]->grid,currgroup[nextgr]->start,currgroup[nextgr]->end,grcol,prevcol);
 
+		if(nextgr == 1) { // unknown strand group
+
+			if(prevgroup[0]!=NULL && currgroup[nextgr]->start <= prevgroup[0]->end) { // overlaps previous negative group
+				//fprintf(stderr,"\tovlp to neg group: %u-%u\n",prevgroup[0]->start,prevgroup[0]->end);
+				set_strandcol(currgroup[nextgr],prevgroup[0],prevgroup[0]->color,eqnegcol,equalcolor);
+				uint maxstart = currgroup[nextgr]->start > prevgroup[0]->start ? currgroup[nextgr]->start : prevgroup[0]->start;
+				uint minend = currgroup[nextgr]->end < prevgroup[0]->end ? currgroup[nextgr]->end : prevgroup[0]->end;
+				currgroup[nextgr]->neg_prop+=prevgroup[0]->cov_sum*(minend-maxstart+1)/prevgroup[0]->len();
+			}
+
+			while(currgroup[0]!=NULL && currgroup[nextgr]->start <= currgroup[0]->end && currgroup[0]->start <= currgroup[nextgr]->end) { // overlaps current negative strand group
+				//fprintf(stderr,"\tovlp to neg group: %u-%u\n",currgroup[0]->start,currgroup[0]->end);
+
+				int grcol = currgroup[0]->color;    // set smallest color for currgroup[$nextgr]
+				while(equalcolor[grcol]!=grcol) {
+					grcol=equalcolor[grcol];
+				}
+				currgroup[0]->color=grcol;
+				currgroup[0]->neg_prop=1;
+
+				set_strandcol(currgroup[nextgr],currgroup[0],currgroup[0]->color,eqnegcol,equalcolor);
+				uint maxstart = currgroup[nextgr]->start > currgroup[0]->start ? currgroup[nextgr]->start : currgroup[0]->start;
+				uint minend = currgroup[nextgr]->end < currgroup[0]->end ? currgroup[nextgr]->end : currgroup[0]->end;
+				currgroup[nextgr]->neg_prop+=currgroup[0]->cov_sum*(minend-maxstart+1)/currgroup[0]->len();
+
+
+				prevgroup[0]=currgroup[0];
+				currgroup[0]=currgroup[0]->next_gr;
+			}
+
+			float pos_prop=0;
+			if(prevgroup[2]!=NULL && currgroup[nextgr]->start <= prevgroup[2]->end) { // overlaps positive strand group
+				//fprintf(stderr,"\tovlp to pos group: %u-%u\n",prevgroup[2]->start,prevgroup[2]->end);
+				set_strandcol(currgroup[nextgr],prevgroup[2],prevgroup[2]->color,eqposcol,equalcolor);
+				if(currgroup[nextgr]->neg_prop) {
+					uint maxstart = currgroup[nextgr]->start > prevgroup[2]->start ? currgroup[nextgr]->start : prevgroup[2]->start;
+					uint minend = currgroup[nextgr]->end < prevgroup[2]->end ? currgroup[nextgr]->end : prevgroup[2]->end;
+					pos_prop+=prevgroup[2]->cov_sum*(minend-maxstart+1)/prevgroup[2]->len();
+				}
+			}
+
+			while(currgroup[2]!=NULL && currgroup[nextgr]->start <= currgroup[2]->end && currgroup[2]->start <= currgroup[nextgr]->end) { // overlaps positive strand group
+				//fprintf(stderr,"\tovlp to pos group: %u-%u\n",currgroup[2]->start,currgroup[2]->end);
+
+				int grcol = currgroup[2]->color;    // set smallest color for currgroup[$nextgr]
+				while(equalcolor[grcol]!=grcol) {
+					grcol=equalcolor[grcol];
+				}
+				currgroup[2]->color=grcol;
+
+				set_strandcol(currgroup[nextgr],currgroup[2],currgroup[2]->color,eqposcol,equalcolor);
+				if(currgroup[nextgr]->neg_prop) {
+					uint maxstart = currgroup[nextgr]->start > currgroup[2]->start ? currgroup[nextgr]->start : currgroup[2]->start;
+					uint minend = currgroup[nextgr]->end < currgroup[2]->end ? currgroup[nextgr]->end : currgroup[2]->end;
+					pos_prop+=currgroup[2]->cov_sum*(minend-maxstart+1)/currgroup[2]->len();
+				}
+
+				prevgroup[2]=currgroup[2];
+				currgroup[2]=currgroup[2]->next_gr;
+			}
+
+			if(pos_prop) {
+				currgroup[nextgr]->neg_prop/=(currgroup[nextgr]->neg_prop+pos_prop);
+			}
+			else if(currgroup[nextgr]->neg_prop) currgroup[nextgr]->neg_prop=1;
+			//fprintf(stderr,"neg_prop=%g pos_prop=%g\n",currgroup[nextgr]->neg_prop,pos_prop);
+		}
+		else if(nextgr == 0) { // negative strand group
+			currgroup[nextgr]->neg_prop=1;
+		}
+
+
+		/*
 		if(nextgr == 0) { // negative strand group
-			if(prevgroup[1]!=NULL && currgroup[nextgr]->start < prevgroup[1]->end) { // overlaps an unknown strand group
+			if(prevgroup[1]!=NULL && currgroup[nextgr]->start <= prevgroup[1]->end) { // overlaps an unknown strand group
+
+				fprintf(stderr,"neg group: %u-%u overlaps neutral group: %u-%u\n",currgroup[nextgr]->start,currgroup[nextgr]->end,prevgroup[1]->start,prevgroup[1]->end);
+
 				set_strandcol(prevgroup[1],currgroup[nextgr],grcol,eqnegcol,equalcolor);
+
+				if(currgroup[nextgr]->grid==1789) fprintf(stderr,"new grcol[1789]=%d from intersect with neutral group %d\n",grcol,prevgroup[1]->grid);
+				else if(grcol==2910492 && grcol!=currgroup[nextgr]->color) fprintf(stderr,"changed col 2910492 to %d at group %d intersect with neutral group %d\n",currgroup[nextgr]->color,currgroup[nextgr]->grid,prevgroup[1]->grid);
+
 			}
 		}
 		else if(nextgr == 2) { // positive strand group
-			if(prevgroup[1]!=NULL && currgroup[nextgr]->start < prevgroup[1]->end) { // overlaps an unknown strand group
+			if(prevgroup[1]!=NULL && currgroup[nextgr]->start <= prevgroup[1]->end) { // overlaps an unknown strand group
+
+				fprintf(stderr,"pos group: %u-%u overlaps neutral group: %u-%u\n",currgroup[nextgr]->start,currgroup[nextgr]->end,prevgroup[1]->start,prevgroup[1]->end);
+
 				set_strandcol(prevgroup[1],currgroup[nextgr],grcol,eqposcol,equalcolor);
+
 			}
 		}
 		else { // unknown strand group
-			if(prevgroup[0]!=NULL && currgroup[nextgr]->start < prevgroup[0]->end) { // overlaps negative strand group
+			if(prevgroup[0]!=NULL && currgroup[nextgr]->start <= prevgroup[0]->end) { // overlaps negative strand group
+
+				fprintf(stderr,"neutral group: %u-%u overlaps neg group: %u-%u\n",currgroup[nextgr]->start,currgroup[nextgr]->end,prevgroup[0]->start,prevgroup[0]->end);
+				int prevcol=prevgroup[0]->color;
 				set_strandcol(currgroup[nextgr],prevgroup[0],prevgroup[0]->color,eqnegcol,equalcolor);
+
+				if(prevgroup[0]->grid==1789) fprintf(stderr,"grcol[1789]=%d from prev intersect with neutral group %d\n",prevgroup[0]->color,currgroup[nextgr]->grid);
+				else if(prevcol==2910492 && prevcol!=prevgroup[0]->color) fprintf(stderr,"changed col 2910492 to %d at group %d intersect with prev neutral group %d\n",prevgroup[0]->color,prevgroup[0]->grid,currgroup[nextgr]->grid);
 			}
-			if(prevgroup[2]!=NULL && currgroup[nextgr]->start < prevgroup[2]->end) { // overlaps positive strand group
+			if(prevgroup[2]!=NULL && currgroup[nextgr]->start <= prevgroup[2]->end) { // overlaps positive strand group
+
+				fprintf(stderr,"neutral group: %u-%u overlaps pos group: %u-%u\n",currgroup[nextgr]->start,currgroup[nextgr]->end,prevgroup[2]->start,prevgroup[2]->end);
+
 				set_strandcol(currgroup[nextgr],prevgroup[2],prevgroup[2]->color,eqposcol,equalcolor);
 			}
 		}
+		*/
 
 		prevgroup[nextgr]=currgroup[nextgr];
 		currgroup[nextgr]=currgroup[nextgr]->next_gr;
 
     }
 
-    //print STDERR "Colors assigned!\n";
+	/*
+    { // DEBUG ONLY
+    	fprintf(stderr,"Colors assigned!\n");
+    	for(int sno=0;sno<3;sno++) {
+    		fprintf(stderr, "Colors of groups on strand %d:\n",sno);
+    		CGroup *procgroup=startgroup[sno];
+    		while(procgroup!=NULL) {
 
-	// create bundles
+    			int grcol = procgroup->color;
+
+    			if(procgroup->grid==1789) fprintf(stderr,"debug grcol[1789]=%d\n",grcol);
+
+    			while(equalcolor[grcol]!=grcol) {
+    				grcol=equalcolor[grcol];
+    			}
+
+    			if(procgroup->grid==1789) fprintf(stderr,"debug corrected grcol[1789]=%d\n",grcol);
+
+    			int negcol=eqnegcol[grcol];
+    			if(eqnegcol[grcol]!=-1){
+    				while(equalcolor[negcol]!=negcol) {
+    					negcol=equalcolor[negcol];
+    				}
+    			}
+    			int poscol=eqposcol[grcol];
+    			if(eqposcol[grcol]!=-1){
+    				while(equalcolor[poscol]!=poscol) {
+    					poscol=equalcolor[poscol];
+    				}
+    			}
+
+    			fprintf(stderr, " gr %d(%d,%d,%d,%.6f): %d-%d\n",procgroup->grid,grcol,negcol,poscol,procgroup->cov_sum,procgroup->start,procgroup->end);
+    			procgroup=procgroup->next_gr;
+    		}
+    		//fprintf(stderr,"\n");
+    	}
+    	exit(0);
+    }
+    */
+
+
+	// create bundles : bundles collect connected groups (with same color)
 	for (int i=0;i<3;i++) {
 		currgroup[i]=startgroup[i];
 		prevgroup[i]=NULL;
 	}
 
 	GPVec<CBundle> bundle[3]; // all bundles on all strands: 0,1,2
-	GPVec<CBundlenode> bnode[3]; // last bnodes on all strands: 0,1,2 for each bundle
+	GPVec<CBundlenode> bnode[3]; // last bnodes on all strands: 0,1,2 for each bundle : this might be the key for overalps
 
 	GVec<int> group2bundle[3]; // to retrace reads from group no to bundle
 	for(int sno=0;sno<3;sno++) {
-		group2bundle[sno].Resize(group.Count(),-1);
+		group2bundle[sno].Resize(group.Count(),-1);  // for a given group id we get a certain bnode id
 		bnode[sno].setFreeItem(false);
 	}
 
@@ -7538,7 +7681,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 
 	while(currgroup[0]!=NULL || currgroup[1]!=NULL || currgroup[2]!=NULL) { // there are still groups to process
 
-		int nextgr=get_min_start(currgroup);
+		int nextgr=get_min_start(currgroup);  // next group based on starting position
 
 		// get group color; I need to redo this to ensure I equalize all colors -> they could still be hanged by set_strandcol
 		int grcol = currgroup[nextgr]->color;
@@ -7567,7 +7710,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 			group2bundle.Add(id.chars(),bnode[nextgr][bno]);
 			*/
 		}
-		else { // unknown strand
+		else { // unknown strand : here is where I should compute positive and negative proportions
 
 			if(eqnegcol[grcol]!=-1){
 				int negcol=eqnegcol[grcol];
@@ -7617,8 +7760,6 @@ int build_graphs(BundleData* bdata, bool fast) {
 		}
 
 		// print STDERR "Done with groups: ",$currgroup[0],",",$currgroup[1],",",$currgroup[2],"\n";
-
-
 		currgroup[nextgr]=currgroup[nextgr]->next_gr;
 
 	} // while(currgroup[0]!=NULL || currgroup[1]!=NULL || currgroup[2]!=NULL)
@@ -7740,7 +7881,7 @@ int build_graphs(BundleData* bdata, bool fast) {
     if(startgroup[0]!=NULL || startgroup[2]!=NULL) { //# there are stranded groups to process
 
     	// I don't need the groups here anymore : I only use their numbers
-    	group.Clear();
+    	// group.Clear(); // I will need the proportions later on
 
     	// sort junctions -> junctions are sorted already according with their start, but not their end
     	GList<CJunction> ejunction(junction);
@@ -7828,9 +7969,9 @@ int build_graphs(BundleData* bdata, bool fast) {
     	for (int n=0;n<readlist.Count();n++) {
     		int np=readlist[n]->pair_idx;
     		if(np==-1 || n<np) // read might have been deleted -> check this in get_fragment_pattern
-    			get_fragment_pattern(readlist,n,np,readgroup,merge,group2bundle,bundle2graph,graphno,no2gnode,transfrag,tr2no);
+    			get_fragment_pattern(readlist,n,np,readgroup,merge,group2bundle,bundle2graph,graphno,no2gnode,transfrag,tr2no,group);
     	}
-    	//fprintf(stderr, "Done read parsing and updating frequencies\n");
+
 
     	/*
     	{ // DEBUG ONLY
@@ -7850,6 +7991,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 
     	// don't forget to clean up the allocated data here
     	delete [] readgroup;
+    	group.Clear();
 
     	// parse graph
     	for(int s=0;s<2;s++) {
