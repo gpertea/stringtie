@@ -137,21 +137,26 @@ int refseqCount=0;
 
 #ifndef NOTHREADS
 
-GFastMutex dataMutex; //to manage availability of data records ready to be loaded by main thread
+GFastMutex dataMutex; //manage availability of data records ready to be loaded by main thread
 GVec<int> dataClear; //indexes of data bundles cleared for loading by main thread (clear data pool)
 
-GFastMutex waitMutex; // for main program to make sure there are threads ready/waiting
+GFastMutex waitMutex; // controls threadsWaiting (idle threads counter)
 int threadsWaiting=0; // how many worker threads are waiting
 
-GFastMutex printMutex; //for writing the output to file
-GFastMutex logMutex; //only when verbose - to avoid mangling the log output
-GMutex queueMutex; //whenever bundleQueue is updated
-GFastMutex bamReadingMutex;
+GMutex queueMutex; //controls bundleQueue and bundleWork access
+int bundleWork=1; // bit 0 set if bundles are still being prepared (BAM file not exhausted yet)
+                  // bit 1 set if there are Bundles ready in the queue
 GConditionVar haveBundles; //will notify all threads when bundles are pushed in the ready queue
                            //or no more bundles are coming
 
-int bundleWork=1; // bit 0 set if bundles are still being prepared (BAM file not exhausted yet)
-                  // bit 1 set if there are Bundles ready in the queue
+
+
+GFastMutex printMutex; //for writing the output to file
+
+GFastMutex logMutex; //only when verbose - to avoid mangling the log output
+
+GFastMutex bamReadingMutex;
+
 #endif
 
 bool NoMoreBundles=false;
@@ -285,9 +290,13 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 #ifndef NOTHREADS
- GThread* threads=new GThread[num_cpus];
- GPVec<BundleData> bundleQueue(false);
- BundleData* bundles=new BundleData[num_cpus+1]; //extra one being prepared while all others are processed
+ GThread* threads=new GThread[num_cpus]; //bundle processing threads
+
+ GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
+
+ BundleData* bundles=new BundleData[num_cpus+1];
+ //bundles[1..num_cpus] are processed by threads, bundles[0] is being prepared
+
  dataClear.setCapacity(num_cpus+1);
  for (int b=0;b<num_cpus;b++) {
 	 threads[b].kickStart(workerThread, (void*) &bundleQueue);
@@ -366,20 +375,28 @@ if (ballgown)
 			}*/
 			bundle->getReady(currentstart, currentend);
 #ifndef NOTHREADS
-			//push this in the bundle queue, where it'll be picked up by the threads
+			//push this in the bundle queue where it'll be picked up by the threads
 			DBGPRINT2("##> Locking queueMutex to push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
+			int qCount=0;
 			queueMutex.lock();
-			bundleQueue.Push(bundle);
-			bundleWork |= 0x02; //set bit 1
-			int qCount=bundleQueue.Count();
+			  //push the bundle in the processing queue
+			  bundleQueue.Push(bundle);
+			  bundleWork |= 0x02; //set bit 1
+			  qCount=bundleQueue.Count();
+			  DBGPRINT2("##> bundleQueue.Count()=%d)\n", qCount);
 			queueMutex.unlock();
+			/*
 			do {
 			     waitForThreads();
 			     DBGPRINT("##> NOTIFY any thread...\n");
 			     haveBundles.notify_one();
 			     //this_thread::sleep_for(chrono::milliseconds(1));
-			     sleep(0);
+			     //sleep(0);
 			} while (!queuePopped(bundleQueue, qCount));
+			*/
+			waitForThreads(); //wait for any threads to become available
+			queuePopped(bundleQueue, qCount); //pop the next bundle from the queue and process it
+
 #else //no threads
 			Num_Fragments+=bundle->num_fragments;
 			Frag_Len+=bundle->frag_len;
@@ -394,7 +411,7 @@ if (ballgown)
 	dataClear.Push(bundle->idx);
 	dataMutex.unlock();
 #endif
-		 }
+		 } //nothing to do with this bundle
 
 		 if (chr_changed) {
 			 if (guided) {
@@ -450,25 +467,15 @@ if (ballgown)
 				 ng_ovlstart++;
 			 }
 			 if (ng_ovlstart>ng_start) ng_end=ng_ovlstart-1;
-				 /*
-				 while(ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=pos) {
-					 ng_end++;
-					 if(currentend<(int)(*guides)[ng_end]->end) {
-						 currentend=(*guides)[ng_end]->end;
-					 }
-				 }
-				 */
 		 } //guides present on the current chromosome
 		bundle->refseq=lastref;
 		bundle->start=currentstart;
 		bundle->end=currentend;
-	 } //<---- new bundle
-	 //currentend=process_read(currentstart, currentend, bundle->readlist, hashread,
-		//	 bundle->junction, *brec, strand, nh, hi, bundle->bpcov);
-     //currentend=
+	 } //<---- new bundle just started
+
 	 if (currentend<(int)brec->end) {
-		 //current read just pushed upper boundary of the bundle
-		 //this might never happen if a longer guide was added already to the bundle
+		 //current read extends the bundle
+		 //this might not happen if a longer guide had already been added to the bundle
 		 currentend=brec->end;
 		 if (guides) { //add any newly overlapping guides to bundle
 			 bool cend_changed;
@@ -969,8 +976,10 @@ bool waitForThreads() {
 	  waitMutex.lock();
 	  noneWaiting=(threadsWaiting<1);
 	  waitMutex.unlock();
-	  if (noneWaiting)
-	    this_thread::sleep_for(chrono::milliseconds(30));
+	  if (noneWaiting) {
+		DBGPRINT("##>none waiting, sleep_for(2ms)\n");
+	    this_thread::sleep_for(chrono::milliseconds(2));
+	  }
 	}
  DBGPRINT("##> there are workers ready now.\n");
  return(!noneWaiting);
@@ -1033,7 +1042,7 @@ int waitForData(BundleData* bundles) {
 	    return bidx;
 	    }
 	  dataMutex.unlock();
-	  this_thread::sleep_for(chrono::milliseconds(20));
+	  //this_thread::sleep_for(chrono::milliseconds(20));
 	}
 	return -1; // should NEVER happen
 }

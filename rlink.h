@@ -370,71 +370,12 @@ struct BundleData {
  }
 };
 
-/*
-struct BundleData {
- BundleStatus status;
- int numreads;
- //GBamReader bamreader;
- int64_t bamStart; //start of bundle in BAM file
- char firstPass; //0=2nd pass, 1=1st pass, 2=single pass requested
- int idx; //index in the main bundles array
- int start;
- int end;
- bool covSaturated;
- GStr refseq;
- GList<CReadAln> readlist;
- GVec<float> bpcov;
- GList<CJunction> junction;
- GPVec<GffObj> keepguides;
- GList<CPrediction> pred;
- BundleData():status(BUNDLE_STATUS_CLEAR), numreads(0), bamStart(-1), 
-         firstPass(singlePass ? 2 : 1),
-		 idx(0), start(0), end(0), covSaturated(false), refseq(), readlist(false,true),
-		 bpcov(1024), junction(true, true, true), keepguides(false), pred(false) { }
-
-  void getReady(int currentstart, int currentend, GStr& ref) {
-	 start=currentstart;
-	 end=currentend;
-	 refseq=ref;
-	 status=BUNDLE_STATUS_READY;
-  }
-
- void Clear() {
-	keepguides.Clear();
-	pred.Clear();
-	status=BUNDLE_STATUS_CLEAR;
-	numreads=0;
-	bamStart=-1;
-	firstPass = singlePass ? 2 : 1;
-	start=0;
-	end=0;
-	covSaturated=false;
-	refseq="";
-	readlist.Clear();
-	bpcov.Clear();
-	bpcov.setCapacity(1024);
-	junction.Clear();
- }
-
- ~BundleData() {
-	Clear();
- }
-};
-*/
 int processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GBamRecord& brec, char strand, int nh, int hi);
 
 void countRead(BundleData& bdata, GBamRecord& brec, int hi);
 
-//int process_read(int currentstart, int currentend, GList<CReadAln>& readlist, GHash<int>& hashread,
-//		GList<CJunction>& junction, GBamRecord& brec, char strand, int nh, int hi, GVec<float>& bpcov);
-
 int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
-
-//int print_transcripts(GList<CPrediction>& pred, int ngenes, int geneno, GStr& refname);
-
-//int infer_transcripts(int refstart, GList<CReadAln>& readlist,
-//		GList<CJunction>& junction, GPVec<GffObj>& guides, GVec<float>& bpcov, GList<CPrediction>& pred, bool fast);
 
 int infer_transcripts(BundleData* bundle, bool fast);
 

@@ -31,7 +31,6 @@ void BundleData::rc_store_t(GffObj* t) {
 	  rc_init(t);
 	}
 	rc_data->addTranscript(*t);
- //check this read alignment against ref exons and introns
 }
 
 struct COvlSorter {

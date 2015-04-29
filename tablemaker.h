@@ -215,26 +215,12 @@ struct RC_BundleData {
  int init_lmin;
  int lmin;
  int rmax;
- //set<RC_ScaffData> tdata; //all transcripts in this bundle
- //map<uint, set<uint> > e2t; //mapping exon ID to transcript IDs
- //map<uint, set<uint> > i2t; //mapping intron ID to transcript IDs
- //set<RC_Feature> exons; //all exons in this bundle, by their start coordinate
- //set<RC_Feature> introns; //all introns in this bundle, by their start coordinate
- //GList<RC_ScaffData> tdata;
- GPVec<RC_ScaffData> tdata;
- GList<RC_Feature> exons;
- GList<RC_Feature> introns;
+ GPVec<RC_ScaffData> tdata; //all transcripts in this bundle
+ GList<RC_Feature> exons; //all unique exons in this bundle, by their start coordinate
+ GList<RC_Feature> introns; //all unique introns in this bundle, by their start coordinate
  //RC_FeatIt xcache; //cache the first exon overlapping xcache_pos to speed up exon-overlap queries (findExons())
  int xcache; //exons index of the first exon overlapping xcache_pos
  int xcache_pos; // left coordinate of last cached exon overlap query (findExons())
- // -- output files
- /*
- FILE* ftdata; //t_data
- FILE* fedata; //e_data
- FILE* fidata; //i_data
- FILE* fe2t;   //e2t
- FILE* fi2t;   //i2t
- */
  vector<float> f_mcov; //coverage data, multi-map aware, per strand
  vector<int> f_cov;
  vector<float> r_mcov; //coverage data on the reverse strand
@@ -242,9 +228,8 @@ struct RC_BundleData {
  //
  RC_BundleData(int t_l=0, int t_r=0):init_lmin(0), lmin(t_l), rmax(t_r),
 	 tdata(false), // e2t(), i2t(), exons(), introns(),
-	 exons(true, false, true), introns(true,false,true),
+	 exons(true, false, true), introns(true, false, true),
 	 xcache(0), xcache_pos(0)
-     //, ftdata(NULL), fedata(NULL), fidata(NULL), fe2t(NULL), fi2t(NULL)
 	 {
 	 if (rmax>lmin) updateCovSpan();
  }
@@ -255,25 +240,6 @@ struct RC_BundleData {
 	 r_cov.clear();
 	 r_mcov.clear();
  }
-
-/*
- void addBundleFeature(uint t_id, int l, int r, char strand, uint f_id, set<RC_Feature>& fset,
-	                         map<uint, set<uint> >& f2t) {
-   RC_Feature feat(l, r, strand, f_id);
-   fset.insert(feat);
-   //pair<RC_FeatIt, bool> in = fset.insert(feat);
-   //if (!in.second) { //existing f_id
-   // f_id=in.first->id;
-   //}
-   set<uint> tset;
-   tset.insert(t_id);
-   pair<RC_Map2SetIt, bool> mapin=f2t.insert(pair<uint, set<uint> >(f_id, tset));
-   if (!mapin.second) {
-	 //existing f_id
-	 (*mapin.first).second.insert(t_id);
-   }
-  }
-*/
 
  void addTranscript(GffObj& t) {
    //if (!ps.rc_id_data()) return;
@@ -288,12 +254,9 @@ struct RC_BundleData {
    if (boundary_changed) updateCovSpan();
    //for (vector<RC_ScaffSeg>::iterator it=sdata.exons.begin();it!=sdata.exons.end();++it) {
    for (int i=0;i<sdata.t_exons.Count();i++) {
-	 //addBundleFeature(sdata.t_id, sdata.exons[i], sdata.strand, exons);
 	 exons.Add(sdata.t_exons[i]);
    }
    //store introns:
-   //for (vector<RC_ScaffSeg>::iterator it=sdata.introns.begin();it!=sdata.introns.end();++it) {
-   //   addBundleFeature(sdata.t_id, it->l, it->r, sdata.strand, it->id, introns, i2t);
    for (int i=0;i<sdata.t_introns.Count();i++) {
 	   introns.Add(sdata.t_introns[i]);
    }
