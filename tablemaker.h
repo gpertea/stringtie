@@ -244,21 +244,32 @@ struct RC_BundleData {
  void addTranscript(GffObj& t) {
    //if (!ps.rc_id_data()) return;
    //RC_ScaffIds& sdata = *(ps.rc_id_data());
-   GASSERT(t.uptr);
-   RC_ScaffData& sdata=*(RC_ScaffData*)(t.uptr);
-   //tdata.insert(sdata);
-   tdata.Add(&sdata);
-   bool boundary_changed=false;
-   if (lmin==0 || lmin>(int)t.start) { lmin=t.start; boundary_changed=true; }
-   if (rmax==0 || rmax<(int)t.end) { rmax=t.end; boundary_changed=true; }
-   if (boundary_changed) updateCovSpan();
-   //for (vector<RC_ScaffSeg>::iterator it=sdata.exons.begin();it!=sdata.exons.end();++it) {
-   for (int i=0;i<sdata.t_exons.Count();i++) {
-	 exons.Add(sdata.t_exons[i]);
+   if (t.uptr) { //ballgown case
+	   RC_ScaffData& sdata=*(RC_ScaffData*)(t.uptr);
+	   //tdata.insert(sdata);
+	   tdata.Add(&sdata);
+	   bool boundary_changed=false;
+	   if (lmin==0 || lmin>(int)t.start) { lmin=t.start; boundary_changed=true; }
+	   if (rmax==0 || rmax<(int)t.end) { rmax=t.end; boundary_changed=true; }
+	   if (boundary_changed) updateCovSpan();
+	   //for (vector<RC_ScaffSeg>::iterator it=sdata.exons.begin();it!=sdata.exons.end();++it) {
+	   for (int i=0;i<sdata.t_exons.Count();i++) {
+		 exons.Add(sdata.t_exons[i]);
+	   }
+	   //store introns:
+	   for (int i=0;i<sdata.t_introns.Count();i++) {
+		   introns.Add(sdata.t_introns[i]);
+	   }
    }
-   //store introns:
-   for (int i=0;i<sdata.t_introns.Count();i++) {
-	   introns.Add(sdata.t_introns[i]);
+   else {
+	   //non-ballgown, regular storage of bundle guides data
+	   //TODO
+	   for (int i=0;i<t.exons.Count();++i) {
+           RC_Feature fexon(t.exons[i]->start, t.exons[i]->end, t.strand);
+		   if (i>0) {
+			   //add intron
+		   }
+	   }
    }
  }
 

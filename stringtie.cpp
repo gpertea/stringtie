@@ -201,9 +201,9 @@ int main(int argc, char * const argv[]) {
  // == Done argument processing.
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
- GPVec<RC_ScaffData> refguides_RC_Data(true);
- GPVec<RC_Feature> refguides_RC_exons(true);
- GPVec<RC_Feature> refguides_RC_introns(true);
+ GPVec<RC_ScaffData> refguides_RC_Data(true); //raw count data for all guide transcripts
+ GPVec<RC_Feature> refguides_RC_exons(true); //raw count data for all guide exons
+ GPVec<RC_Feature> refguides_RC_introns(true);//raw count data for all guide introns
  GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
 
 #ifdef DEBUGPRINT
@@ -397,13 +397,11 @@ if (ballgown)
 			}
 			waitMutex.unlock();
 			haveBundles.notify_one();
-			//sleep(0);
 			this_thread::yield();
 			queueMutex.lock();
 			while (bundleQueue.Count()==qCount) {
 				queueMutex.unlock();
 				haveBundles.notify_one();
-				//sleep(0);
 				this_thread::yield();
 				queueMutex.lock();
 			}
@@ -951,7 +949,6 @@ void workerThread(GThreadData& td) {
 		queueMutex.unlock();
 		waitMutex.unlock();
 		haveThreads.notify_one(); //in case main thread is waiting
-		//sleep(0);
 		this_thread::yield();
 		queueMutex.lock();
 		while (bundleWork && bundleQueue->Count()==0) {
@@ -975,7 +972,6 @@ void workerThread(GThreadData& td) {
 				dataClear.Push(readyBundle->idx);
 				dataMutex.unlock();
 				haveClear.notify_one(); //inform main thread
-				//sleep(0);
 				this_thread::yield();
 				queueMutex.lock();
 				DBGPRINT2("---->> Thread%d locked back queueMutex\n", td.thread->get_id());
