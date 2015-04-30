@@ -137,19 +137,24 @@ int refseqCount=0;
 
 #ifndef NOTHREADS
 
-GFastMutex dataMutex; //manage availability of data records ready to be loaded by main thread
+GMutex dataMutex; //manage availability of data records ready to be loaded by main thread
 GVec<int> dataClear; //indexes of data bundles cleared for loading by main thread (clear data pool)
-
-GFastMutex waitMutex; // controls threadsWaiting (idle threads counter)
-int threadsWaiting=0; // how many worker threads are waiting
-
-GMutex queueMutex; //controls bundleQueue and bundleWork access
+GConditionVar haveBundles; //will notify a thread that a bundle was loaded in the ready queue
+                           //(or that no more bundles are coming)
 int bundleWork=1; // bit 0 set if bundles are still being prepared (BAM file not exhausted yet)
                   // bit 1 set if there are Bundles ready in the queue
-GConditionVar haveBundles; //will notify all threads when bundles are pushed in the ready queue
-                           //or no more bundles are coming
 
 
+//GFastMutex waitMutex;
+GMutex waitMutex; // controls threadsWaiting (idle threads counter)
+
+int threadsWaiting; // idle worker threads
+GConditionVar haveThreads; //will notify the bundle loader when a thread
+                          //is available to process the currently loaded bundle
+
+GConditionVar haveClear; //will notify when bundle buf space available
+
+GMutex queueMutex; //controls bundleQueue and bundles access
 
 GFastMutex printMutex; //for writing the output to file
 
@@ -172,6 +177,8 @@ void processBundle(BundleData* bundle);
 #ifndef NOTHREADS
 
 bool waitForThreads(); //wait for at least 1 worker thread to enter "ready" state
+
+bool noThreadsWaiting();
 
 void workerThread(GThreadData& td); // Thread function
 
@@ -295,7 +302,7 @@ if (ballgown)
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
 
  BundleData* bundles=new BundleData[num_cpus+1];
- //bundles[1..num_cpus] are processed by threads, bundles[0] is being prepared
+ //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
 
  dataClear.setCapacity(num_cpus+1);
  for (int b=0;b<num_cpus;b++) {
@@ -361,6 +368,7 @@ if (ballgown)
 		 more_alns=false;
 		 new_bundle=true; //fake a new start (end of last bundle)
 	 }
+
 	 if (new_bundle || chr_changed) {
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
@@ -370,32 +378,43 @@ if (ballgown)
 			 }
 			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,\@junction,$junctionthr,$mintranscriptlen,\@keepguides);
 			// (readthr, junctionthr, mintranscriptlen are globals)
-			/* if (ballgown && bundle->rc_data) {
-				bundle->rc_data->setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
-			}*/
 			bundle->getReady(currentstart, currentend);
 #ifndef NOTHREADS
 			//push this in the bundle queue where it'll be picked up by the threads
 			DBGPRINT2("##> Locking queueMutex to push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
 			int qCount=0;
 			queueMutex.lock();
-			  //push the bundle in the processing queue
-			  bundleQueue.Push(bundle);
-			  bundleWork |= 0x02; //set bit 1
-			  qCount=bundleQueue.Count();
-			  DBGPRINT2("##> bundleQueue.Count()=%d)\n", qCount);
+			bundleQueue.Push(bundle);
+			bundleWork |= 0x02; //set bit 1
+			qCount=bundleQueue.Count();
+			queueMutex.unlock();
+			DBGPRINT2("##> bundleQueue.Count()=%d)\n", qCount);
+			//wait for a thread to pop this bundle from the queue
+			waitMutex.lock();
+			DBGPRINT("##> waiting for a thread to become available..\n");
+			while (threadsWaiting==0) {
+				haveThreads.wait(waitMutex);
+			}
+			waitMutex.unlock();
+			haveBundles.notify_one();
+			sleep(0);
+			queueMutex.lock();
+			while (bundleQueue.Count()==qCount) {
+				queueMutex.unlock();
+				haveBundles.notify_one();
+				sleep(0);
+				queueMutex.lock();
+			}
 			queueMutex.unlock();
 			/*
 			do {
-			     waitForThreads();
-			     DBGPRINT("##> NOTIFY any thread...\n");
-			     haveBundles.notify_one();
-			     //this_thread::sleep_for(chrono::milliseconds(1));
-			     //sleep(0);
+			     //waitForThreads();
+			     //DBGPRINT("##> NOTIFY any thread...\n");
+			     //haveBundles.notify_one();
+			     ////this_thread::sleep_for(chrono::milliseconds(1));
+			     ////sleep(0);
 			} while (!queuePopped(bundleQueue, qCount));
 			*/
-			waitForThreads(); //wait for any threads to become available
-			queuePopped(bundleQueue, qCount); //pop the next bundle from the queue and process it
 
 #else //no threads
 			Num_Fragments+=bundle->num_fragments;
@@ -407,9 +426,9 @@ if (ballgown)
 		 else { //no read alignments in this bundle?
 			bundle->Clear();
 #ifndef NOTHREADS
-	dataMutex.lock();
-	dataClear.Push(bundle->idx);
-	dataMutex.unlock();
+			dataMutex.lock();
+			dataClear.Push(bundle->idx);
+			dataMutex.unlock();
 #endif
 		 } //nothing to do with this bundle
 
@@ -432,7 +451,7 @@ if (ballgown)
 		 if (!more_alns) {
 				if (verbose) {
 #ifndef NOTHREADS
-						GLockGuard<GFastMutex> lock(logMutex);
+					GLockGuard<GFastMutex> lock(logMutex);
 #endif
 					printTime(stderr);
 					GMessage(" %llu aligned fragments found.\n", Num_Fragments);
@@ -442,6 +461,7 @@ if (ballgown)
 			 break;
 		 }
 #ifndef NOTHREADS
+
 		 int new_bidx=waitForData(bundles);
 		 if (new_bidx<0) {
 			 //should never happen!
@@ -811,7 +831,7 @@ bool moreBundles() { //getter (interogation)
   return v;
 }
 
-void noMoreBundles() { //setter
+void noMoreBundles() {
 #ifndef NOTHREADS
 		bamReadingMutex.lock();
 		NoMoreBundles=true;
@@ -838,78 +858,6 @@ void noMoreBundles() { //setter
 	  NoMoreBundles=true;
 #endif
 }
-
-/*
-void processBundle1stPass(BundleData* bundle) {
-	// code executed on bundle data after 1st pass
-	//bundle->readlist() is empty here also no pairs data are available
-	//just splice sites and coverage info for the bundle
-	//TODO: build the groups here (bundle->groups) so processRead() can
-	//collapse reads efficiently in 2nd pass
-	if (verbose) {
-		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%d) (%djs) begins 1st pass processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end,
-				bundle->numreads, bundle->junction.Count());
-	}
-	// generate groups here, storing them in some bundle->groups data structure
-	if (verbose) {
-//	#ifndef NOTHREADS
-//			GLockGuard<GFastMutex> lock(logMutex);
-//	#endif
-	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d(%d) 1st pass done.\n",bundle->refseq.chars(),
-	  		bundle->start, bundle->end, bundle->numreads);
-	}
-}
-
-*/
-
-/*
-void processBundle(BundleData* bundle) {
-	if (verbose) {
-	#ifndef NOTHREADS
-			GLockGuard<GFastMutex> lock(logMutex);
-	#endif
-		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%d) (%djs) begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->junction.Count());
-#ifdef GMEMTRACE
-		double vm,rsm;
-		get_mem_usage(vm, rsm);
-		GMessage(" memory usage: %6.1fMB\n",rsm/1024);
-		if (rsm>maxMemRS) {
-			maxMemRS=rsm;
-			maxMemVM=vm;
-			maxMemBundle.format("%s:%d-%d(%d)", bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads);
-		}
-#endif
-	}
-	int ngenes=infer_transcripts(bundle->start,bundle->readlist,
-	        bundle->junction, bundle->keepguides, bundle->bpcov, bundle->pred);
-	if (bundle->pred.Count()>0) {
-#ifndef NOTHREADS
-		GLockGuard<GFastMutex> lock(printMutex);
-#endif
-		GeneNo=print_transcripts(bundle->pred, ngenes, GeneNo, bundle->refseq);
-	}
-	if (verbose) {
-	#ifndef NOTHREADS
-			GLockGuard<GFastMutex> lock(logMutex);
-	#endif
-	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
-	  		bundle->start, bundle->end, bundle->numreads, bundle->pred.Count());
-	}
-	bundle->Clear(); //full clear (after the 2nd pass unless singlePass was requested)
-#ifndef NOTHREADS
-	dataMutex.lock();
-	dataClear.Push(bundle->idx);
-	dataMutex.unlock();
-#endif
-}
-
-*/
 
 void processBundle(BundleData* bundle) {
 	if (verbose) {
@@ -960,31 +908,33 @@ void processBundle(BundleData* bundle) {
 	#endif
 	    }
 	bundle->Clear();
-#ifndef NOTHREADS
-	dataMutex.lock();
-	dataClear.Push(bundle->idx);
-	dataMutex.unlock();
-#endif
 }
 
 #ifndef NOTHREADS
 
+
+bool noThreadsWaiting() {
+	waitMutex.lock();
+	int v=threadsWaiting;
+	waitMutex.unlock();
+	return (v<1);
+}
+
 bool waitForThreads() {
 	bool noneWaiting=true;
-	DBGPRINT("##> waiting for workers to enter wait state..\n");
+	DBGPRINT("##> waiting for a thread to become available..\n");
 	while (noneWaiting) {
 	  waitMutex.lock();
 	  noneWaiting=(threadsWaiting<1);
 	  waitMutex.unlock();
 	  if (noneWaiting) {
-		DBGPRINT("##>none waiting, sleep_for(2ms)\n");
+		DBGPRINT("##>all threads busy, sleep_for 2ms\n");
 	    this_thread::sleep_for(chrono::milliseconds(2));
 	  }
 	}
  DBGPRINT("##> there are workers ready now.\n");
  return(!noneWaiting);
 }
-
 
 void workerThread(GThreadData& td) {
 	GPVec<BundleData>* bundleQueue = (GPVec<BundleData>*)td.udata;
@@ -997,14 +947,20 @@ void workerThread(GThreadData& td) {
 		waitMutex.lock();
 		 threadsWaiting++;
 		waitMutex.unlock();
-		haveBundles.wait(queueMutex);
+		queueMutex.unlock();
+		haveThreads.notify_one(); //in case main thread is waiting
+		sleep(0);
+		queueMutex.lock();
+		while (bundleWork && bundleQueue->Count()==0) {
+		    haveBundles.wait(queueMutex);//unlocks queueMutex and wait until notified
+		               //when notified, locks queueMutex and resume
+		}
 		waitMutex.lock();
-		 if (threadsWaiting>0) threadsWaiting--;
+		if (threadsWaiting>0) threadsWaiting--;
 		waitMutex.unlock();
 		DBGPRINT3("---->> Thread%d: awakened! (queue len=%d)\n",td.thread->get_id(),bundleQueue->Count());
 		BundleData* readyBundle=NULL;
 		if ((bundleWork & 0x02)!=0 && (readyBundle=bundleQueue->Pop())!=NULL) { //is bit 1 set?
-			 //while ()!=NULL) {
 				if (bundleQueue->Count()==0)
 					 bundleWork &= ~(int)0x02; //clear bit 1 (queue is empty)
 				Num_Fragments+=readyBundle->num_fragments;
@@ -1012,10 +968,16 @@ void workerThread(GThreadData& td) {
 				queueMutex.unlock();
 				processBundle(readyBundle);
 				DBGPRINT2("---->> Thread%d processed bundle, now locking back queueMutex\n", td.thread->get_id());
+				dataMutex.lock();
+				dataClear.Push(readyBundle->idx);
+				dataMutex.unlock();
+				haveClear.notify_one(); //inform main thread
+				sleep(0);
 				queueMutex.lock();
 				DBGPRINT2("---->> Thread%d locked back queueMutex\n", td.thread->get_id());
-			// }
+
 		}
+		//haveThreads.notify_one();
 	} //while there is reason to live
 	queueMutex.unlock();
 	DBGPRINT2("---->> Thread%d DONE.\n", td.thread->get_id());
@@ -1030,9 +992,10 @@ bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount) {
   return (c==0 || c<prevCount);
 }
 
-//prepare the next free bundle for loading
+//prepare the next available bundle slot for loading
 int waitForData(BundleData* bundles) {
 	int bidx=-1;
+	/*
 	while (bidx<0) {
 	  dataMutex.lock();
 	  if (dataClear.Count()>0) {
@@ -1045,6 +1008,17 @@ int waitForData(BundleData* bundles) {
 	  //this_thread::sleep_for(chrono::milliseconds(20));
 	}
 	return -1; // should NEVER happen
+	*/
+	dataMutex.lock();
+	while (dataClear.Count()==0) {
+		haveClear.wait(dataMutex);
+	}
+	bidx=dataClear.Pop();
+	if (bidx>=0) {
+	  bundles[bidx].status=BUNDLE_STATUS_LOADING;
+	}
+	dataMutex.unlock();
+	return bidx;
 }
 
 #endif
