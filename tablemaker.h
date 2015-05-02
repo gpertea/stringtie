@@ -227,7 +227,7 @@ struct RC_BundleData {
  vector<int> r_cov;
  //
  RC_BundleData(int t_l=0, int t_r=0):init_lmin(0), lmin(t_l), rmax(t_r),
-	 tdata(false), // e2t(), i2t(), exons(), introns(),
+	 tdata(false), // features:(sorted, free, unique)
 	 exons(true, false, true), introns(true, false, true),
 	 xcache(0), xcache_pos(0)
 	 {
@@ -264,13 +264,15 @@ struct RC_BundleData {
    else {
 	   //non-ballgown, regular storage of bundle guides data
 	   //TODO
+	   //use GffObj::udata as tid, it's the index in bundles::keepguides
 	   for (int i=0;i<t.exons.Count();++i) {
            RC_Feature fexon(t.exons[i]->start, t.exons[i]->end, t.strand);
 		   if (i>0) {
 			   //add intron
+			   RC_Feature fintron(t.exons[i-1]->end+1, t.exons[i]->start-1, t.strand);
 		   }
 	   }
-   }
+   } //no ballgown coverage
  }
 
  void updateCovSpan() {

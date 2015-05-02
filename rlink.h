@@ -52,9 +52,12 @@ struct GRefData {
             GError("Error: invalid genomic sequence data (%s)!\n",gseq_name);
         rnas.setCapacity(gffr->gseqStats[gseq_id]->fcount);
      }
+     //int tidx=
      rnas.Add(t);
      t->isUsed(true);
+     //t->udata=tidx;
   }
+
   bool operator==(GRefData& d){
     return gseq_id==d.gseq_id;
   }

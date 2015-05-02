@@ -373,8 +373,10 @@ if (ballgown)
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			 if (guides && ng_end>=ng_start) {
-				 for (int gi=ng_start;gi<=ng_end;gi++)
-					 bundle->keepguides.Add((*guides)[gi]);
+				 for (int gi=ng_start;gi<=ng_end;gi++) {
+					 int tidx=bundle->keepguides.Add((*guides)[gi]);
+					 (*guides)[gi]->udata=tidx; //tid when not ballgown
+				 }
 			 }
 			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,\@junction,$junctionthr,$mintranscriptlen,\@keepguides);
 			// (readthr, junctionthr, mintranscriptlen are globals)
