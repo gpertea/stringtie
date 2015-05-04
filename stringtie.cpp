@@ -332,6 +332,9 @@ if (ballgown)
 	 if ((brec=bamreader.next())!=NULL) {
 		 if (brec->isUnmapped()) continue;
 		 refseqName=brec->refName();
+		 xstrand=brec->spliceStrand();
+		 if (xstrand=='.' && brec->exons.Count()>1)
+			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
@@ -355,7 +358,6 @@ if (ballgown)
 		 if (pos<prev_pos) GError(ERR_BAM_SORT);
 		 alncounts[gseq_id]++;
 		 prev_pos=pos;
-		 xstrand=brec->spliceStrand();
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
