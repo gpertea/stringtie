@@ -356,8 +356,6 @@ if (ballgown)
 		 alncounts[gseq_id]++;
 		 prev_pos=pos;
 		 xstrand=brec->spliceStrand();
-		 if (xstrand=='+') strand=1;
-		 else if (xstrand=='-') strand=-1;
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
@@ -372,13 +370,16 @@ if (ballgown)
 	 if (new_bundle || chr_changed) {
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
-			 if (guides && ng_end>=ng_start) {
+			 //TODO: check that the same guides are now kept
+			 //      using bundle->keepGuide()
+			 /*if (guides && ng_end>=ng_start) {
 				 for (int gi=ng_start;gi<=ng_end;gi++) {
 					 int tidx=bundle->keepguides.Add((*guides)[gi]);
 					 (*guides)[gi]->udata=tidx; //tid when not ballgown
 				 }
-			 }
-			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,\@junction,$junctionthr,$mintranscriptlen,\@keepguides);
+			 }*/
+			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,
+			 // \@junction,$junctionthr,$mintranscriptlen,\@keepguides);
 			// (readthr, junctionthr, mintranscriptlen are globals)
 			bundle->getReady(currentstart, currentend);
 #ifndef NOTHREADS
@@ -476,7 +477,10 @@ if (ballgown)
 		 currentend=brec->end;
 		 if (guides) { //guided and guides!=NULL
 			 ng_start=ng_end+1;
-			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) { ng_start++; } // skip guides that have no read coverage
+			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
+				 // skip guides that have no read coverage
+				 ng_start++;
+			 }
 			 //if(ng_start<ng && (int)(*guides)[ng_start]->start<pos) {
 			 int ng_ovlstart=ng_start;
 			 //add all guides overlapping the current read
@@ -485,7 +489,8 @@ if (ballgown)
 					 currentstart=(*guides)[ng_ovlstart]->start;
 				 if (currentend<(int)(*guides)[ng_ovlstart]->end)
 					 currentend=(*guides)[ng_ovlstart]->end;
-				 if (ballgown) bundle->rc_store_t((*guides)[ng_ovlstart]);
+				 //if (ballgown)
+				  bundle->keepGuide((*guides)[ng_ovlstart]);
 				 ng_ovlstart++;
 			 }
 			 if (ng_ovlstart>ng_start) ng_end=ng_ovlstart-1;
@@ -506,7 +511,8 @@ if (ballgown)
 				 while (ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=currentend) {
 					 ng_end++;
 					 //more transcripts overlapping this bundle
-					 if (ballgown) bundle->rc_store_t((*guides)[ng_end]);
+					 //if (ballgown)
+					  bundle->keepGuide((*guides)[ng_end]);
 					 if(currentend<(int)(*guides)[ng_end]->end) {
 						 currentend=(*guides)[ng_end]->end;
 						 cend_changed=true;
@@ -516,11 +522,14 @@ if (ballgown)
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
      bool ref_overlap=false;
-	 if (ballgown && bundle->rc_data) ref_overlap=bundle->rc_count_hit(*brec, xstrand, nh);
-	 countRead(*bundle, *brec, hi);
-	 if (!ballgown || ref_overlap) {
-	    processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
-	 }
+	 //if (ballgown && bundle->rc_data)
+      ref_overlap=bundle->evalReadAln(*brec, xstrand, nh);
+      if (xstrand=='+') strand=1;
+		else if (xstrand=='-') strand=-1;
+	  countFragment(*bundle, *brec, hi);
+	 //if (!ballgown || ref_overlap)
+	   processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
+
    //update current end to be at least as big as the start of the read pair in the fragment?? -> maybe not because then I could introduce some false positives with paired reads mapped badly
 
 	 /*

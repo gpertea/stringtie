@@ -16,6 +16,7 @@ using namespace std;
 
 #define RC_MIN_EOVL 5
 
+extern bool ballgown;
 
 void Ballgown_setupFiles(FILE* &f_tdata, FILE* &f_edata, FILE* &f_idata,
 	            FILE* &f_e2t, FILE* &f_i2t);
@@ -231,7 +232,7 @@ struct RC_BundleData {
 	 exons(true, false, true), introns(true, false, true),
 	 xcache(0), xcache_pos(0)
 	 {
-	 if (rmax>lmin) updateCovSpan();
+	 if (rmax>lmin && ballgown) updateCovSpan();
  }
 
  ~RC_BundleData() {
@@ -241,16 +242,29 @@ struct RC_BundleData {
 	 r_mcov.clear();
  }
 
+ //for non-ballgown tracking of guide features
+ void addTranscriptFeature(uint fstart, uint fend, char fstrand, GList<RC_Feature>& flist, uint tidx) {
+	 RC_Feature* feat=new RC_Feature(fstart, fend, fstrand, 0, tidx);
+     int fidx=-1;
+     RC_Feature* p=flist.AddIfNew(feat, true, &fidx);
+     if (p==feat) {//exon not seen before
+  	   p->id=fidx;
+     }
+     else {//exon seen before, update t_id list
+  	   p->t_ids.Add(tidx);
+     }
+ }
+
  void addTranscript(GffObj& t) {
    //if (!ps.rc_id_data()) return;
    //RC_ScaffIds& sdata = *(ps.rc_id_data());
-   if (t.uptr) { //ballgown case
+  bool boundary_changed=false;
+  if (lmin==0 || lmin>(int)t.start) { lmin=t.start; boundary_changed=true; }
+  if (rmax==0 || rmax<(int)t.end) { rmax=t.end; boundary_changed=true; }
+  if (t.uptr) { //ballgown case
 	   RC_ScaffData& sdata=*(RC_ScaffData*)(t.uptr);
 	   //tdata.insert(sdata);
 	   tdata.Add(&sdata);
-	   bool boundary_changed=false;
-	   if (lmin==0 || lmin>(int)t.start) { lmin=t.start; boundary_changed=true; }
-	   if (rmax==0 || rmax<(int)t.end) { rmax=t.end; boundary_changed=true; }
 	   if (boundary_changed) updateCovSpan();
 	   //for (vector<RC_ScaffSeg>::iterator it=sdata.exons.begin();it!=sdata.exons.end();++it) {
 	   for (int i=0;i<sdata.t_exons.Count();i++) {
@@ -263,13 +277,12 @@ struct RC_BundleData {
    }
    else {
 	   //non-ballgown, regular storage of bundle guides data
-	   //TODO
 	   //use GffObj::udata as tid, it's the index in bundles::keepguides
 	   for (int i=0;i<t.exons.Count();++i) {
-           RC_Feature fexon(t.exons[i]->start, t.exons[i]->end, t.strand);
+           addTranscriptFeature(t.exons[i]->start, t.exons[i]->end, t.strand, exons, (uint)t.udata);
 		   if (i>0) {
-			   //add intron
-			   RC_Feature fintron(t.exons[i-1]->end+1, t.exons[i]->start-1, t.strand);
+			 //add intron
+			 addTranscriptFeature(t.exons[i-1]->end+1, t.exons[i]->start-1, t.strand, introns, (uint)t.udata);
 		   }
 	   }
    } //no ballgown coverage

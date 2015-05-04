@@ -97,7 +97,7 @@ bool maxCovReached(int currentstart, GBamRecord& brec, BundleData& bdata) {
 	return true;
 }
 
-void countRead(BundleData& bdata, GBamRecord& brec, int hi) {
+void countFragment(BundleData& bdata, GBamRecord& brec, int hi) {
 	static uint32_t BAM_R2SINGLE = BAM_FREAD2 | BAM_FMUNMAP ;
 	if (hi==0) {
 		for (int i=0;i<brec.exons.Count();i++) {
