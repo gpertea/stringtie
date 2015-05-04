@@ -87,7 +87,7 @@ bool fast=true;
 bool eonly=false; // parameter -e
 bool specific=false;
 bool complete=true;
-bool partialcov=false;
+//bool partialcov=false;
 int num_cpus=1;
 int mintranscriptlen=200; // minimum length for a transcript to be printed
 int sensitivitylevel=1;
@@ -375,11 +375,11 @@ if (ballgown)
 			 /*if (guides && ng_end>=ng_start) {
 				 for (int gi=ng_start;gi<=ng_end;gi++) {
 					 int tidx=bundle->keepguides.Add((*guides)[gi]);
-					 (*guides)[gi]->udata=tidx; //tid when not ballgown
+					 (*guides)[gi]->udata=tidx+1; //tid when not ballgown
 				 }
 			 }*/
 			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,
-			 // \@junction,$junctionthr,$mintranscriptlen,\@keepguides);
+			// \@junction,$junctionthr,$mintranscriptlen,\@keepguides);
 			// (readthr, junctionthr, mintranscriptlen are globals)
 			bundle->getReady(currentstart, currentend);
 #ifndef NOTHREADS
@@ -521,9 +521,10 @@ if (ballgown)
 			 } while (cend_changed);
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
-     bool ref_overlap=false;
+      //bool ref_overlap=false;
 	 //if (ballgown && bundle->rc_data)
-      ref_overlap=bundle->evalReadAln(*brec, xstrand, nh);
+      //ref_overlap=
+      bundle->evalReadAln(*brec, xstrand, nh);
       if (xstrand=='+') strand=1;
 		else if (xstrand=='-') strand=-1;
 	  countFragment(*bundle, *brec, hi);
@@ -567,8 +568,7 @@ if (ballgown)
 
  //if (f_out && f_out!=stdout) fclose(f_out);
  fclose(f_out);
-
- // write the FPKMs
+ if (c_out && c_out!=stdout) fclose(c_out);
 
  if(verbose) {
 	 GMessage("Total count of aligned fragments: %llu\n",Num_Fragments);
@@ -581,6 +581,7 @@ if (ballgown)
 	 f_out=fopen(outfname.chars(), "w");
 	 if (f_out==NULL) GError("Error creating output file %s\n", outfname.chars());
  }
+
  fprintf(f_out,"# ");
  args.printCmdLine(f_out);
  fprintf(f_out,"# StringTie version %s\n",VERSION);
@@ -804,22 +805,21 @@ GStr Process_Options(GArgs* args) {
 	 if (ballgown && !guided)
 		 GError("Error: invalid -B/-b usage, GFF reference not given (-G option required).\n");
 
-	 s=args->getOpt('P');
+	 /* s=args->getOpt('P');
 	 if (!s.is_empty()) {
 		 if(!guided) GError("Error: option -G with reference annotation file has to be specified.\n");
 		 c_out=fopen(s.chars(), "w");
 		 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
 		 partialcov=true;
 	 }
-	 else {
+	 else { */
 		 s=args->getOpt('C');
 		 if (!s.is_empty()) {
 			 if(!guided) GError("Error: invalid -C usage, GFF reference not given (-G option required).\n");
 			 c_out=fopen(s.chars(), "w");
 			 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
-			 num_cpus=1;
 		 }
-	 }
+	 //}
 
 	 int numbam=args->startNonOpt();
 	 if (numbam==0 || numbam>1) {
@@ -891,7 +891,7 @@ void processBundle(BundleData* bundle) {
 #endif
 	}
 	int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
-	if (bundle->rc_data) {
+	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
 	}
 	if (bundle->pred.Count()>0) {

@@ -9,10 +9,8 @@ extern FILE *c_out;         // file handle for the input transcripts that are fu
 
 extern bool specific;
 extern bool trim;
-extern bool partialcov;
+//extern bool partialcov;
 extern bool complete;
-//extern bool debugMode;
-//extern bool verbose;
 extern bool eonly;
 
 extern int maxReadCov;
@@ -7781,7 +7779,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 
 	//if(guides.Count()) fprintf(stderr,"No of guides=%d partialcov=%d\n",guides.Count(),partialcov);
 
-	if(partialcov) {
+	/* if(partialcov) {
 		for(int g=0;g<guides.Count();g++) {
 			int s=0;
 			if(guides[g]->strand=='+') s=2;
@@ -7789,7 +7787,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 		}
 		return(0);
 	}
-
+    */
 	if(c_out || (bundle[1].Count() && bnode[1].Count())) // coverage is needed
 		for(int g=0;g<guides.Count();g++) {
 			//fprintf(stderr,"consider guide %d\n",g);

@@ -29,7 +29,7 @@ void BundleData::keepGuide(GffObj* t) {
 	if (rc_data==NULL) {
 	  rc_init(t);
 	}
-	t->udata=keepguides.Add(t);
+	t->udata=keepguides.Add(t)+1;
 	rc_data->addTranscript(*t);
 }
 
@@ -39,7 +39,6 @@ struct COvlSorter {
     return (i.first>j.first); //sort in decreasing order of overlap length
   }
 } OvlSorter;
-
 
 void rc_updateExonCounts(const RC_Feature* exon, int nh) {
   exon->rcount++;

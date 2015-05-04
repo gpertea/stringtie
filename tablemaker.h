@@ -232,7 +232,12 @@ struct RC_BundleData {
 	 exons(true, false, true), introns(true, false, true),
 	 xcache(0), xcache_pos(0)
 	 {
-	 if (rmax>lmin && ballgown) updateCovSpan();
+	 if (ballgown) {
+		 if (rmax>lmin) updateCovSpan();
+	 }else {
+		 exons.setFreeItem(true);
+		 introns.setFreeItem(true);
+	 }
  }
 
  ~RC_BundleData() {

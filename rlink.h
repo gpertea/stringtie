@@ -52,10 +52,8 @@ struct GRefData {
             GError("Error: invalid genomic sequence data (%s)!\n",gseq_name);
         rnas.setCapacity(gffr->gseqStats[gseq_id]->fcount);
      }
-     //int tidx=
      rnas.Add(t);
      t->isUsed(true);
-     //t->udata=tidx;
   }
 
   bool operator==(GRefData& d){
@@ -337,7 +335,7 @@ struct BundleData {
  void rc_init(GffObj* t) {
 	  if (rc_data==NULL) {
 	  	rc_data = new RC_BundleData(t->start, t->end);
-	    }
+	  }
  }
  /* after reference annotation was loaded
  void rc_finalize_refs() {
