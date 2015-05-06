@@ -25,11 +25,11 @@ void rc_update_tdata(BundleData& bundle, GffObj& scaff,
   (*tdata).fpkm=fpkm;
 }
 */
-void BundleData::rc_store_t(GffObj* t) {
-	//if (!rc_stage) return;
+void BundleData::keepGuide(GffObj* t) {
 	if (rc_data==NULL) {
 	  rc_init(t);
 	}
+	t->udata=keepguides.Add(t)+1;
 	rc_data->addTranscript(*t);
 }
 
@@ -40,89 +40,126 @@ struct COvlSorter {
   }
 } OvlSorter;
 
-
 void rc_updateExonCounts(const RC_Feature* exon, int nh) {
   exon->rcount++;
   exon->mrcount += (nh > 1) ? (1.0/nh) : 1;
   if (nh<=1)  exon->ucount++;
 }
 
-bool BundleData::rc_count_hit(GBamRecord& brec, char strand, int nh) { //, int hi) {
- if (rc_data==NULL) return false; //no ref transcripts available for this reads' region
- if (rc_data->tdata.Count()==0) return false; //nothing to do without transcripts
-
- //check this read alignment against ref exons and introns
- /*
- int gstart=brec.start; //alignment start position on the genome
-
- We NEVER update read-counting boundaries of the bundle based on reads - they should only be based on reference transcripts
- if (rc_data->f_cov.size()==0 && gstart<rc_data->lmin) {
-   fprintf(stderr, "Warning: adjusting lmin coverage bundle from %d to %d !\n", int(rc_data->lmin), (int)gstart);
-   rc_data->lmin=gstart;
+bool BundleData::evalReadAln(GBamRecord& brec, char& strand, int nh) { //, int hi) {
+ if (rc_data==NULL) {
+	  return false; //no ref transcripts available for this reads' region
  }
- */
  if ((int)brec.end<rc_data->lmin || (int)brec.start>rc_data->rmax) {
 	 return false; //hit outside coverage area
  }
- /*
- int gpos=brec.start; //current genomic position
- int rlen=0; //read length, obtained here from the cigar string
- int segstart=gstart;
- */
- vector<RC_Seg> rsegs;
- vector<RC_Seg> rintrons;
- for (int i=0;i<brec.exons.Count();i++) {
-	 rc_data->updateCov(strand, nh, brec.exons[i].start, brec.exons[i].len());
-	 rsegs.push_back(RC_Seg(brec.exons[i].start, brec.exons[i].end) );
-	 if (i>0) {
-		 //add intron
-		 rintrons.push_back(RC_Seg(brec.exons[i-1].end+1, brec.exons[i].start-1));
+ if (rc_data->exons.Count()==0) return false;
+
+ if (ballgown) {
+	 if (rc_data->tdata.Count()==0) return false; //nothing to do without transcripts
+	 //check this read alignment against ref exons and introns
+	 /*
+	 int gstart=brec.start; //alignment start position on the genome
+
+	 We NEVER update read-counting boundaries of the bundle based on reads - they should only be based on reference transcripts
+	 if (rc_data->f_cov.size()==0 && gstart<rc_data->lmin) {
+	   fprintf(stderr, "Warning: adjusting lmin coverage bundle from %d to %d !\n", int(rc_data->lmin), (int)gstart);
+	   rc_data->lmin=gstart;
+	 }
+	 */
+	 /*
+	 int gpos=brec.start; //current genomic position
+	 int rlen=0; //read length, obtained here from the cigar string
+	 int segstart=gstart;
+	 */
+	 vector<RC_Seg> rsegs;
+	 vector<RC_Seg> rintrons;
+	 for (int i=0;i<brec.exons.Count();i++) {
+		 rc_data->updateCov(strand, nh, brec.exons[i].start, brec.exons[i].len());
+		 rsegs.push_back(RC_Seg(brec.exons[i].start, brec.exons[i].end) );
+		 if (i>0) {
+			 //add intron
+			 rintrons.push_back(RC_Seg(brec.exons[i-1].end+1, brec.exons[i].start-1));
+		 }
+	 }
+	 //now check rexons and rintrons with findExons() and findIntron()
+	 for (size_t i=0;i<rintrons.size();++i) {
+	   /*RC_FeatIt ri=rc_data->findIntron(rintrons[i].l, rintrons[i].r, strand);
+	   if (ri!=rc_data->introns.end()) {
+		 (*ri).rcount++;
+		 (*ri).mrcount += (nh > 1) ? (1.0/nh) : 1;
+		 if (nh==1)  (*ri).ucount++;
+	   }
+	   */
+		RC_Feature* ri=rc_data->findIntron(rintrons[i].l, rintrons[i].r, strand);
+		if (ri) {
+			ri->rcount++;
+			ri->mrcount += (nh > 1) ? (1.0/nh) : 1;
+			if (nh==1)  ri->ucount++;
+		}
+	 } //for each intron
+
+	 char strandbits=0;
+	 for (size_t i=0;i<rsegs.size();++i) {
+		 RC_FeatPtrSet ovlex=rc_data->findExons(rsegs[i].l, rsegs[i].r, strand);
+		 if (ovlex.size()==0) continue;
+		 if (ovlex.size()>1) {
+		   vector< pair<int, const RC_Feature*> > xovl; //overlapped exons sorted by decreasing overlap length
+		   for (RC_FeatPtrSet::iterator ox=ovlex.begin();ox != ovlex.end(); ++ox) {
+			 int ovlen=(*ox)->ovlen(rsegs[i].l, rsegs[i].r);
+			 if (ovlen>=5)
+			   xovl.push_back(pair<int, const RC_Feature*>(ovlen, *ox));
+		   }
+		   if (xovl.size()>1) {
+			  sort(xovl.begin(), xovl.end(), OvlSorter); //larger overlaps first
+			  //update the counts only for ref exons with max overlap to this segment
+			  int max_ovl=xovl.begin()->first;
+			  for (vector<pair<int, const RC_Feature*> >::iterator xo=xovl.begin();xo!=xovl.end();++xo) {
+				 if (xo->second->strand=='+') strandbits |= 0x01;
+				 else if (xo->second->strand=='-') strandbits |= 0x02;
+				 if (max_ovl - xo->first > 5 ) break; //more than +5 bases coverage for the other exons
+				 rc_updateExonCounts(xo->second, nh);
+			  }
+		   } else if (xovl.size() == 1) {
+			   rc_updateExonCounts(xovl.begin()->second, nh);
+		   }
+		 } else {
+		   // 1 exon overlap only
+		   int ovlen=(*ovlex.begin())->ovlen(rsegs[i].l, rsegs[i].r);
+		   if (ovlen>=5) {
+			   if ((*ovlex.begin())->strand=='+') strandbits |= 0x01;
+			   else if ((*ovlex.begin())->strand=='-') strandbits |= 0x02;
+			   rc_updateExonCounts(*ovlex.begin(), nh);
+		   }
+		 }
+	   } //for each read alignment "exon"
+	 if (strand=='.' && strandbits && strandbits<3) {
+		strand = (strandbits==1) ? '+' : '-';
 	 }
  }
- //now check rexons and rintrons with findExons() and findIntron()
- for (size_t i=0;i<rintrons.size();++i) {
-   /*RC_FeatIt ri=rc_data->findIntron(rintrons[i].l, rintrons[i].r, strand);
-   if (ri!=rc_data->introns.end()) {
-     (*ri).rcount++;
-     (*ri).mrcount += (nh > 1) ? (1.0/nh) : 1;
-     if (nh==1)  (*ri).ucount++;
-   }
-   */
-	RC_Feature* ri=rc_data->findIntron(rintrons[i].l, rintrons[i].r, strand);
-	if (ri) {
-	    ri->rcount++;
-	    ri->mrcount += (nh > 1) ? (1.0/nh) : 1;
-	    if (nh==1)  ri->ucount++;
-	}
- } //for each intron
-
- for (size_t i=0;i<rsegs.size();++i) {
-     RC_FeatPtrSet ovlex=rc_data->findExons(rsegs[i].l, rsegs[i].r, strand);
-     if (ovlex.size()==0) continue;
-     if (ovlex.size()>1) {
-       vector< pair<int, const RC_Feature*> > xovl; //overlapped exons sorted by decreasing overlap length
-       for (RC_FeatPtrSet::iterator ox=ovlex.begin();ox != ovlex.end(); ++ox) {
-         int ovlen=(*ox)->ovlen(rsegs[i].l, rsegs[i].r);
-         if (ovlen>=5)
-           xovl.push_back(pair<int, const RC_Feature*>(ovlen, *ox));
-       }
-       if (xovl.size()>1) {
-          sort(xovl.begin(), xovl.end(), OvlSorter); //larger overlaps first
-          //update the counts only for ref exons with max overlap to this segment
-          int max_ovl=xovl.begin()->first;
-          for (vector<pair<int, const RC_Feature*> >::iterator xo=xovl.begin();xo!=xovl.end();++xo) {
-             if (max_ovl - xo->first > 5 ) break; //more than +5 bases coverage for the other exons
-             rc_updateExonCounts(xo->second, nh);
-          }
-       } else if (xovl.size() == 1) {
-         rc_updateExonCounts(xovl.begin()->second, nh);
-       }
-     } else {
-       // 1 exon overlap only
-       int ovlen=(*ovlex.begin())->ovlen(rsegs[i].l, rsegs[i].r);
-       if (ovlen>=5) rc_updateExonCounts(*ovlex.begin(), nh);
-     }
-   } //for each read "exon"
+ else {
+	 //don't keep track of ballgown coverage data, just check for exon overlaps
+	 //TODO check and assign strand here if needed
+	 if (strand=='.') {
+		 vector< pair<int, const RC_Feature*> > xovl; //overlapped exons sorted by ovl len
+		 for (int i=0;i<brec.exons.Count();i++) {
+			 RC_FeatPtrSet ovlex=rc_data->findExons(brec.exons[i].start, brec.exons[i].end, strand);
+			 for (RC_FeatPtrSet::iterator ox=ovlex.begin();ox != ovlex.end(); ++ox) {
+				 int ovlen=(*ox)->ovlen(brec.exons[i].start, brec.exons[i].end);
+				 if (ovlen>=5)
+				   xovl.push_back(pair<int, const RC_Feature*>(ovlen, *ox));
+			   }
+		 } // for each read alignment "exon"
+		 char strandbits=0;
+		 for (vector<pair<int, const RC_Feature*> >::iterator xo=xovl.begin();xo!=xovl.end();++xo) {
+			 if (xo->second->strand=='+') strandbits |= 0x01;
+			 else if (xo->second->strand=='-') strandbits |= 0x02;
+		 }
+		 if (strandbits && strandbits<3) {
+			strand = (strandbits==1) ? '+' : '-';
+		 }
+	 }
+ }
  return true;
 }
 

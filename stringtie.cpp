@@ -87,7 +87,7 @@ bool fast=true;
 bool eonly=false; // parameter -e
 bool specific=false;
 bool complete=true;
-bool partialcov=false;
+//bool partialcov=false;
 int num_cpus=1;
 int mintranscriptlen=200; // minimum length for a transcript to be printed
 int sensitivitylevel=1;
@@ -201,9 +201,9 @@ int main(int argc, char * const argv[]) {
  // == Done argument processing.
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
- GPVec<RC_ScaffData> refguides_RC_Data(true);
- GPVec<RC_Feature> refguides_RC_exons(true);
- GPVec<RC_Feature> refguides_RC_introns(true);
+ GPVec<RC_ScaffData> refguides_RC_Data(true); //raw count data for all guide transcripts
+ GPVec<RC_Feature> refguides_RC_exons(true); //raw count data for all guide exons
+ GPVec<RC_Feature> refguides_RC_introns(true);//raw count data for all guide introns
  GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
 
 #ifdef DEBUGPRINT
@@ -332,6 +332,9 @@ if (ballgown)
 	 if ((brec=bamreader.next())!=NULL) {
 		 if (brec->isUnmapped()) continue;
 		 refseqName=brec->refName();
+		 xstrand=brec->spliceStrand();
+		 if (xstrand=='.' && brec->exons.Count()>1)
+			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
@@ -355,9 +358,6 @@ if (ballgown)
 		 if (pos<prev_pos) GError(ERR_BAM_SORT);
 		 alncounts[gseq_id]++;
 		 prev_pos=pos;
-		 xstrand=brec->spliceStrand();
-		 if (xstrand=='+') strand=1;
-		 else if (xstrand=='-') strand=-1;
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
@@ -372,11 +372,16 @@ if (ballgown)
 	 if (new_bundle || chr_changed) {
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
-			 if (guides && ng_end>=ng_start) {
-				 for (int gi=ng_start;gi<=ng_end;gi++)
-					 bundle->keepguides.Add((*guides)[gi]);
-			 }
-			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,\@junction,$junctionthr,$mintranscriptlen,\@keepguides);
+			 //TODO: check that the same guides are now kept
+			 //      using bundle->keepGuide()
+			 /*if (guides && ng_end>=ng_start) {
+				 for (int gi=ng_start;gi<=ng_end;gi++) {
+					 int tidx=bundle->keepguides.Add((*guides)[gi]);
+					 (*guides)[gi]->udata=tidx+1; //tid when not ballgown
+				 }
+			 }*/
+			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,
+			// \@junction,$junctionthr,$mintranscriptlen,\@keepguides);
 			// (readthr, junctionthr, mintranscriptlen are globals)
 			bundle->getReady(currentstart, currentend);
 #ifndef NOTHREADS
@@ -397,13 +402,11 @@ if (ballgown)
 			}
 			waitMutex.unlock();
 			haveBundles.notify_one();
-			//sleep(0);
 			this_thread::yield();
 			queueMutex.lock();
 			while (bundleQueue.Count()==qCount) {
 				queueMutex.unlock();
 				haveBundles.notify_one();
-				//sleep(0);
 				this_thread::yield();
 				queueMutex.lock();
 			}
@@ -476,7 +479,10 @@ if (ballgown)
 		 currentend=brec->end;
 		 if (guides) { //guided and guides!=NULL
 			 ng_start=ng_end+1;
-			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) { ng_start++; } // skip guides that have no read coverage
+			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
+				 // skip guides that have no read coverage
+				 ng_start++;
+			 }
 			 //if(ng_start<ng && (int)(*guides)[ng_start]->start<pos) {
 			 int ng_ovlstart=ng_start;
 			 //add all guides overlapping the current read
@@ -485,7 +491,8 @@ if (ballgown)
 					 currentstart=(*guides)[ng_ovlstart]->start;
 				 if (currentend<(int)(*guides)[ng_ovlstart]->end)
 					 currentend=(*guides)[ng_ovlstart]->end;
-				 if (ballgown) bundle->rc_store_t((*guides)[ng_ovlstart]);
+				 //if (ballgown)
+				  bundle->keepGuide((*guides)[ng_ovlstart]);
 				 ng_ovlstart++;
 			 }
 			 if (ng_ovlstart>ng_start) ng_end=ng_ovlstart-1;
@@ -506,7 +513,8 @@ if (ballgown)
 				 while (ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=currentend) {
 					 ng_end++;
 					 //more transcripts overlapping this bundle
-					 if (ballgown) bundle->rc_store_t((*guides)[ng_end]);
+					 //if (ballgown)
+					  bundle->keepGuide((*guides)[ng_end]);
 					 if(currentend<(int)(*guides)[ng_end]->end) {
 						 currentend=(*guides)[ng_end]->end;
 						 cend_changed=true;
@@ -515,12 +523,16 @@ if (ballgown)
 			 } while (cend_changed);
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
-     bool ref_overlap=false;
-	 if (ballgown && bundle->rc_data) ref_overlap=bundle->rc_count_hit(*brec, xstrand, nh);
-	 countRead(*bundle, *brec, hi);
-	 if (!ballgown || ref_overlap) {
-	    processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
-	 }
+      //bool ref_overlap=false;
+	 //if (ballgown && bundle->rc_data)
+      //ref_overlap=
+      bundle->evalReadAln(*brec, xstrand, nh);
+      if (xstrand=='+') strand=1;
+		else if (xstrand=='-') strand=-1;
+	  countFragment(*bundle, *brec, hi);
+	 //if (!ballgown || ref_overlap)
+	   processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
+
    //update current end to be at least as big as the start of the read pair in the fragment?? -> maybe not because then I could introduce some false positives with paired reads mapped badly
 
 	 /*
@@ -558,8 +570,7 @@ if (ballgown)
 
  //if (f_out && f_out!=stdout) fclose(f_out);
  fclose(f_out);
-
- // write the FPKMs
+ if (c_out && c_out!=stdout) fclose(c_out);
 
  if(verbose) {
 	 GMessage("Total count of aligned fragments: %llu\n",Num_Fragments);
@@ -572,6 +583,7 @@ if (ballgown)
 	 f_out=fopen(outfname.chars(), "w");
 	 if (f_out==NULL) GError("Error creating output file %s\n", outfname.chars());
  }
+
  fprintf(f_out,"# ");
  args.printCmdLine(f_out);
  fprintf(f_out,"# StringTie version %s\n",VERSION);
@@ -795,22 +807,21 @@ GStr Process_Options(GArgs* args) {
 	 if (ballgown && !guided)
 		 GError("Error: invalid -B/-b usage, GFF reference not given (-G option required).\n");
 
-	 s=args->getOpt('P');
+	 /* s=args->getOpt('P');
 	 if (!s.is_empty()) {
 		 if(!guided) GError("Error: option -G with reference annotation file has to be specified.\n");
 		 c_out=fopen(s.chars(), "w");
 		 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
 		 partialcov=true;
 	 }
-	 else {
+	 else { */
 		 s=args->getOpt('C');
 		 if (!s.is_empty()) {
 			 if(!guided) GError("Error: invalid -C usage, GFF reference not given (-G option required).\n");
 			 c_out=fopen(s.chars(), "w");
 			 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
-			 num_cpus=1;
 		 }
-	 }
+	 //}
 
 	 int numbam=args->startNonOpt();
 	 if (numbam==0 || numbam>1) {
@@ -882,7 +893,7 @@ void processBundle(BundleData* bundle) {
 #endif
 	}
 	int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
-	if (bundle->rc_data) {
+	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
 	}
 	if (bundle->pred.Count()>0) {
@@ -951,7 +962,6 @@ void workerThread(GThreadData& td) {
 		queueMutex.unlock();
 		waitMutex.unlock();
 		haveThreads.notify_one(); //in case main thread is waiting
-		//sleep(0);
 		this_thread::yield();
 		queueMutex.lock();
 		while (bundleWork && bundleQueue->Count()==0) {
@@ -975,7 +985,6 @@ void workerThread(GThreadData& td) {
 				dataClear.Push(readyBundle->idx);
 				dataMutex.unlock();
 				haveClear.notify_one(); //inform main thread
-				//sleep(0);
 				this_thread::yield();
 				queueMutex.lock();
 				DBGPRINT2("---->> Thread%d locked back queueMutex\n", td.thread->get_id());

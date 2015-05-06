@@ -55,6 +55,7 @@ struct GRefData {
      rnas.Add(t);
      t->isUsed(true);
   }
+
   bool operator==(GRefData& d){
     return gseq_id==d.gseq_id;
   }
@@ -334,7 +335,7 @@ struct BundleData {
  void rc_init(GffObj* t) {
 	  if (rc_data==NULL) {
 	  	rc_data = new RC_BundleData(t->start, t->end);
-	    }
+	  }
  }
  /* after reference annotation was loaded
  void rc_finalize_refs() {
@@ -343,9 +344,9 @@ struct BundleData {
 	}
 	Not needed here, we update the coverage span as each transcript is added
  */
- void rc_store_t(GffObj* scaff);
+ void keepGuide(GffObj* scaff);
 
- bool rc_count_hit(GBamRecord& brec, char strand, int nh); //, int hi);
+ bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
 
  void Clear() {
 	keepguides.Clear();
@@ -373,7 +374,7 @@ struct BundleData {
 int processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GBamRecord& brec, char strand, int nh, int hi);
 
-void countRead(BundleData& bdata, GBamRecord& brec, int hi);
+void countFragment(BundleData& bdata, GBamRecord& brec, int hi);
 
 int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
 
