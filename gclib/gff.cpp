@@ -58,6 +58,98 @@ int gfo_cmpByLoc(const pointer p1, const pointer p2) {
              else return (int)(g1.gseq_id-g2.gseq_id);
 }
 
+void GffLine::dupAttrs(GffLine* l) {
+ if (l==NULL || l->attrs.Count()==0) return;
+ for (int i=0;i<l->attrs.Count();++i) {
+	 char *aname=Gstrdup(l->attrs[i].name);
+	 char *aval=Gstrdup(l->attrs[i].value);
+	 addAttr(aname, aval,l->attrs[i].nlen, l->attrs[i].vlen);
+ }
+}
+
+char GffLine::parseInfoAttrs() {
+ //parse the attributes and their values
+ const char* b=info;
+ char avsep=0; // ' ' for GTF, '=' for GFF3
+ if (is_gff3) avsep='=';
+ while (*b!=0) {
+	  bool inc=false;
+	  while (*b==' ' || *b==';') {inc=true; ++b;}
+	  if (inc && *b==0) break;
+	  const char *a0=b,*a1=b;
+	  if (avsep) { //we already know delimiter type
+		  while (*a1 && *a1!=';' && *a1!=avsep) ++a1;
+	  }
+	  else { //determining file type
+	      while (*a1 && *a1!=';' && *a1!=' ' && *a1!='=') ++a1;
+		  if (*a1==' ' || *a1=='=') {
+		      /*if (avsep) {
+		    	  if (avsep!=*a1)
+		    		  GError("Error: inconsistent attribute-value separator! Line:\n%s\n", dupline);
+		      }
+		      else */ avsep=*a1;
+		  }
+	  }
+	  //a1 after the attribute name
+	  --a1;
+	  char* attrname=Gstrdup(a0,a1);
+	  int alen=a1-a0+1;
+	  if ((is_exonlike && GstrEq(attrname,"ID")) ||
+		  (startsiWith(attrname, "exon") && (attrname[4]==0 ||
+			  GstriEq(attrname+4, "_number") || GstriEq(attrname+4, "_id")))  ) {
+		  GFREE(attrname);
+		  continue;
+	  }
+
+	  const char* v0=a1, *v1=a1;
+	  if (*v0 && *v0!=';') {
+		  ++v0;while (*v0==' ') ++v0;
+		  v1=v0;
+		  while (*v1 && *v1!=';') ++v1;
+		  while(*(v1-1)==' ') --v1;
+		  }
+	  b=v1;
+	  --v1;
+	  char* attrval=Gstrdup(v0,v1);
+	  int vlen=v1-v0+1;
+	  addAttr(attrname, attrval, alen, vlen);
+ }//while chars
+ return avsep;
+}
+
+char* GffLine::findAttr(const char* attr, bool caseStrict, bool enforce_GTF2) {
+ if (attrs.Count()==0) return NULL;
+ static const char GTF2_ERR[]="Error parsing attribute %s ('\"' required) at GTF line:\n%s\n";
+ const char* v=NULL;
+ int vlen=0;
+ int aidx=-1;
+ if (caseStrict) {
+	 //a bit faster to use the hash lookup
+	 const GAttrValStr* vstr=attrmap.Find(attr);
+	 if (!vstr) return NULL;
+	 v=vstr->str;
+	 vlen=vstr->len;
+	 aidx=vstr->idx;
+ }
+ else { //case insensitive lookup
+	 char* lcattr=loCase(attr);
+	 const GAttrValStr* vstr=attrmaplc.Find(lcattr);
+	 GFREE(lcattr);
+	 if (!vstr) return NULL;
+	 v=vstr->str;
+	 vlen=vstr->len;
+	 aidx=vstr->idx;
+ }
+ bool qstart=(v[0]=='"');
+ bool qend=(v[vlen-1]=='"');
+ if (enforce_GTF2 && (!qstart || !qend))
+	 GError(GTF2_ERR, attrs[aidx].name, dupline);
+ if (qstart) ++v;
+ if (qend) return Gstrdup(v, v+vlen-2);
+      else return Gstrdup(v);
+}
+
+/*
 char* GffLine::extractAttr(const char* attr, bool caseStrict, bool enforce_GTF2) {
  //parse a key attribute and remove it from the info string
  //(only works for attributes that have values following them after ' ' or '=')
@@ -128,6 +220,7 @@ char* GffLine::extractAttr(const char* attr, bool caseStrict, bool enforce_GTF2)
    }
  return r;
 }
+*/
 
 static char fnamelc[128];
 
@@ -136,7 +229,7 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 		ftype(NULL), info(NULL), fstart(0), fend(0), qstart(0), qend(0), qlen(0),
 		score(0), strand(0), flags(0), exontype(0), phase(0),
 		gene_name(NULL), gene_id(NULL),
-		parents(NULL), num_parents(0), ID(NULL) {
+		parents(NULL), num_parents(0), ID(NULL), attrs(), attrmap(true), attrmaplc(true) {
  llen=strlen(l);
  GMALLOC(line,llen+1);
  memcpy(line, l, llen+1);
@@ -195,6 +288,7 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
  fnamelc[127]=0;
  strlower(fnamelc); //convert to lower case
  bool is_t_data=false;
+ bool is_pseudo=false;
  if (strstr(fnamelc, "utr")!=NULL) {
 	 exontype=exgffUTR;
 	 is_exon=true;
@@ -225,16 +319,50 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
  else if (startsWith(fnamelc, "intron") || endsWith(fnamelc, "intron")) {
 	 exontype=exgffIntron;
  }
- else if (endsWith(fnamelc, "gene") || startsWith(fnamelc, "gene")) {
+ else if (endsWith(fnamelc, "gene") ) { //|| startsWith(fnamelc, "gene")) {
 	 is_gene=true;
-	 is_t_data=true; //because its name will be attached to parented transcripts
+	 is_t_data=true; //because its name may be needed for parented transcripts
  }
  else if (endsWith(fnamelc,"rna") || endsWith(fnamelc,"transcript")) {
 	 is_transcript=true;
 	 is_t_data=true;
  }
+ char avsep=parseInfoAttrs(); //attributes are parsed from the info field
 
- ID=extractAttr("ID=",true);
+ if (reader->noPseudo && strstr(fnamelc, "pseudo")) {
+   is_pseudo=true;
+ }
+
+ ID=findAttr("ID",true);
+ char* Parent=findAttr("Parent", true);
+ if (avsep=='=' && (ID!=NULL || Parent!=NULL)) {
+   is_gff3=true;
+ }
+ char* multiP=NULL;
+ if (is_gff3) {
+	if (Parent) {
+		p=Parent+1;
+		while (*p) {
+			if (*p==',') { *p=0;multiP=p; break; }
+			++p;
+		}
+	}
+  //TODO: anything else here for GFF3 ?
+ }
+ else { //parse as GTF
+	GFREE(ID); //just in case there was a weird ID attribute in this GTF
+	ID=findAttr("transcript_id");
+	if (ID==NULL && is_gene) {
+	  ID=findAttr("gene_id"); //e.g. Ensembl GTF has parent gene records
+	  GFREE(Parent);
+	  if (ID==NULL) return; //skip unrecognized GTF feature
+	} //gene record in GTF
+ }
+
+ //TODO: check for the pseudo keyword in all attributes
+ //TODO: now that we get the ID or Parent make sure we discard properly
+ // in case of transcriptsOnly or noPseudo, or if already present in reader->discarded_ids
+
  if (reader->transcriptsOnly && !is_t_data) {
 	 //can_discard=1;
 	 if (ID!=NULL) {
@@ -242,42 +370,14 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 		 reader->discarded_ids.Add(ID, new int(1));
 		 GFREE(ID);
 	 }
+	 GFREE(Parent);
 	 //skip non-transcript recognized features
 	 return;
  }
- char* Parent=extractAttr("Parent=",true);
- is_gff3=(ID!=NULL || Parent!=NULL);
- if (is_gff3) {
-	 //parse as GFF3
-	 if (ID!=NULL) {
-		 //has ID attr so it's likely to be a parent feature
-		 //look for explicit gene name
-		 gene_name=extractAttr("gene_name=");
-		 if (gene_name==NULL) {
-			 gene_name=extractAttr("geneName=");
-			 if (gene_name==NULL) {
-				 gene_name=extractAttr("gene_sym=");
-				 if (gene_name==NULL) {
-					 gene_name=extractAttr("gene=");
-				 }
-			 }
-		 }
-		 gene_id=extractAttr("geneID=");
-		 if (gene_id==NULL) {
-			 gene_id=extractAttr("gene_id=");
-		 }
-		 if (is_gene) {
-			 //special case: keep the Name and ID attributes of the gene feature
-			 if (gene_name==NULL)
-				 gene_name=extractAttr("Name=");
-			 if (gene_id==NULL) //the ID is also gene_id in this case
-				 gene_id=Gstrdup(ID);
-			 //skip=false;
-			 //return;
-			 GFREE(Parent); //TMI, we really don't care about gene Parents?
-		 } //gene feature
-	 }// has GFF3 ID
-	 if (Parent!=NULL) {
+
+
+ if (Parent && multiP) { //parse multiple parents
+	 *multiP=',';
 		 //keep Parent attr
 		 //parse multiple parents
 		 num_parents=1;
@@ -306,32 +406,65 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 				 }
 			 }
 		 }
-	 } //has Parent field
+ } //parse all parents
+
+ if (is_gff3) {
+	 //parse as GFF3
+	 if (ID!=NULL) {
+		 //has ID attr so it's likely to be a parent feature
+		 //look for explicit gene name
+		 gene_name=findAttr("gene_name");
+		 if (gene_name==NULL) {
+			 gene_name=findAttr("geneName");
+			 if (gene_name==NULL) {
+				 gene_name=findAttr("gene_sym");
+				 if (gene_name==NULL) {
+					 gene_name=findAttr("gene");
+				 }
+			 }
+		 }
+		 gene_id=findAttr("geneID");
+		 if (gene_id==NULL) {
+			 gene_id=findAttr("gene_id=");
+		 }
+		 if (is_gene) {
+			 //special case: keep the Name and ID attributes of the gene feature
+			 if (gene_name==NULL) {
+				 gene_name=findAttr("Name=");
+				 if (gene_name==NULL) gene_name=findAttr("gene_name=");
+			 }
+			 if (gene_id==NULL) //the ID is also gene_id in this case
+				 gene_id=Gstrdup(ID);
+			 //skip=false;
+			 //return;
+			 GFREE(Parent); //TMI, we really don't care about gene Parents?
+		 } //gene feature
+	 }// has GFF3 ID
  } //GFF3
  else { // GTF-like expected
 	 if (reader->transcriptsOnly && !is_t_data) {
 		 return; //skipping unrecognized non-transcript feature
 	 }
-	 Parent=extractAttr("transcript_id",true);
+	 Parent=findAttr("transcript_id",true);
 	 if (Parent!=NULL) { //GTF2 format detected
 		 if (is_transcript) {
 			 // atypical GTF with a parent transcript line declared
 			 ID=Parent;
 			 Parent=NULL;
 		 }
-		 gene_id=extractAttr("gene_id"); // for GTF this is the only attribute accepted as geneID
+		 gene_id=findAttr("gene_id"); // for GTF this is the only attribute accepted as geneID
 		 if (gene_id==NULL)
-			 gene_id=extractAttr("geneid");
-		 gene_name=extractAttr("gene_name");
+			 gene_id=findAttr("geneid");
+		 gene_name=findAttr("gene_name");
 		 if (gene_name==NULL) {
-			 gene_name=extractAttr("gene_sym");
+			 gene_name=findAttr("gene_sym");
 			 if (gene_name==NULL) {
-				 gene_name=extractAttr("gene");
+				 gene_name=findAttr("gene");
 				 if (gene_name==NULL)
-					 gene_name=extractAttr("genesymbol");
+					 gene_name=findAttr("genesymbol");
 			 }
 		 }
-		 //prepare for parseAttr by adding '=' character instead of spaces for all attributes
+		 //prepare for parseAttrs by adding '=' character instead of spaces for all attributes
 		 //after the attribute name
 		 p=info;
 		 bool noed=true; //not edited after the last delim
@@ -366,13 +499,17 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 		 } //exon feature?
 		 if (Parent==NULL) {
 		    //something is very wrong here, cannot parse the GTF ID
-			 if (is_transcript || exontype)
 		       GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n",
 		       l);
-			 else return; //skip unrecognized GTF line (from GTF we only care about transcripts for now)
-
 		 }
-	 } //Parent was NULL, attempted to find it
+		 /* if (Parent==NULL && exontype>=exgffCDS &&
+				 (i=strcspn(info,"; \t\n\r"))<=(int)(strlen(info)+1)) {
+			 //one word ID ? really desperate attempt to parse it here
+			 Parent=Gstrdup(info,info+i-1);
+			 info=NULL; //discard anything else on the line
+		 }
+		*/
+	 } //no transcript_id
 	 if (Parent!=NULL) { //GTF transcript_id for exon/CDS feature
 		 _parents=Parent;
 		 GMALLOC(parents,sizeof(char*));
@@ -507,15 +644,16 @@ int GffObj::addExon(GffReader* reader, GffLine* gl, bool keepAttr, bool noExonAt
   if (keepAttr) {
      if (noExonAttr) { 
          if (attrs==NULL) //place the parsed attributes directly at transcript level
-           parseAttrs(attrs, gl->info);
+           //parseAttrs(attrs, gl->info);
+           getLineAttrs(*gl);
          }
        else { //need all exon-level attributes
-         parseAttrs(exons[eidx]->attrs, gl->info, true);
+           //parseAttrs(exons[eidx]->attrs, gl->info, true);
+           getLineAttrs(*gl, eidx);
          }
       }
   return eidx;
 }
-
 
 int GffObj::addExon(uint segstart, uint segend, double sc, char fr, int qs, int qe, bool iscds, char exontype) {
   if (exons.Count()==0) {
@@ -817,7 +955,8 @@ GffObj::GffObj(GffReader *gfrd, GffLine* gffline, bool keepAttr, bool noExonAttr
         else { //unrecognized non-exon feature ? use the ID instead
              this->hasGffID(true);
              gffID=Gstrdup(gffline->ID);
-             if (keepAttr) this->parseAttrs(attrs, gffline->info);
+             if (keepAttr) //this->parseAttrs(attrs, gffline->info);
+                    this->getLineAttrs(*gffline);
              }
         }
     } //non-transcript parented subfeature given directly
@@ -834,7 +973,8 @@ GffObj::GffObj(GffReader *gfrd, GffLine* gffline, bool keepAttr, bool noExonAttr
     ftype_id=names->feats.addName(gffline->ftype);
     if (gffline->is_transcript)
       exon_ftype_id=gff_fid_exon;
-    if (keepAttr) this->parseAttrs(attrs, gffline->info);
+    if (keepAttr) //this->parseAttrs(attrs, gffline->info);
+         this->getLineAttrs(*gffline);
     }//no parent
 
   if (gffline->gene_name!=NULL) {
@@ -1030,7 +1170,8 @@ GffObj* GffReader::updateGffRec(GffObj* prevgfo, GffLine* gffline,
  prevgfo->hasGffID(gffline->ID!=NULL);
  if (keepAttr) {
    if (prevgfo->attrs!=NULL) prevgfo->attrs->Clear();
-   prevgfo->parseAttrs(prevgfo->attrs, gffline->info);
+   //prevgfo->parseAttrs(prevgfo->attrs, gffline->info);
+   prevgfo->getLineAttrs(*gffline);
    }
  return prevgfo;
 }
@@ -1359,9 +1500,10 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
           && exons.Count()>0 && exons[0]->attrs!=NULL) {
    bool attrs_discarded=false;
    for (int a=0;a<exons[0]->attrs->Count();a++) {
-      int attr_name_id=exons[0]->attrs->Get(a)->attr_id;
+      int attr_name_id=exons[0]->attrs->Get(a)->id();
       char* attr_name=names->attrs.getName(attr_name_id);
-      char* attr_val =exons[0]->attrs->Get(a)->attr_val;
+      char* attr_val =exons[0]->attrs->Get(a)->val();
+      int vlen=exons[0]->attrs->Get(a)->vlen();
       bool sameExonAttr=true;
       for (int i=1;i<exons.Count();i++) {
          char* ov=exons[i]->getAttr(attr_name_id);
@@ -1373,7 +1515,7 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
       if (sameExonAttr) {
              //delete this attribute from exons level
              attrs_discarded=true;
-             this->addAttr(attr_name, attr_val);
+             this->addAttr(attr_name, attr_val, vlen);
              for (int i=1;i<exons.Count();i++) {
                  removeExonAttr(*(exons[i]), attr_name_id);
                  }
@@ -1385,6 +1527,19 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
  return this;
 }
 
+void GffObj::getLineAttrs(GffLine& l, int exno) {
+  if (l.attrs.Count()==0) return;
+  GffAttrs*& atrlist=(exno>=0) ? exons[exno]->attrs : attrs;
+  if (names==NULL)
+     GError(ERR_NULL_GFNAMES, "getLineAttrs()");
+  if (atrlist==NULL)
+      atrlist=new GffAttrs();
+  for (int i=0;i<l.attrs.Count();++i) {
+     atrlist->add_or_update(names,
+    		 l.attrs[i].name, l.attrs[i].value, l.attrs[i].vlen);
+  }
+}
+/*
 void GffObj::parseAttrs(GffAttrs*& atrlist, char* info, bool isExon) {
   if (names==NULL)
      GError(ERR_NULL_GFNAMES, "parseAttrs()");
@@ -1421,21 +1576,19 @@ void GffObj::parseAttrs(GffAttrs*& atrlist, char* info, bool isExon) {
              }
        atrlist->add_or_update(names, start, ech);
        }
-      /*
-      else { //not an attr=value format
-        atrlist->Add(new GffAttr(names->attrs.addName(start),"1"));
-        }
-      */
+      // else { //not an attr=value format
+      //  atrlist->Add(new GffAttr(names->attrs.addName(start),"1"));
+      //  }
     start=pch;
     }
   if (atrlist->Count()==0) { delete atrlist; atrlist=NULL; }
 }
+*/
 
-void GffObj::addAttr(const char* attrname, const char* attrvalue) {
+void GffObj::addAttr(const char* attrname, const char* attrvalue, int vlen) {
   if (this->attrs==NULL)
       this->attrs=new GffAttrs();
-  //this->attrs->Add(new GffAttr(names->attrs.addName(attrname),attrvalue));
-  this->attrs->add_or_update(names, attrname, attrvalue);
+  this->attrs->add_or_update(names, attrname, attrvalue, vlen);
 }
 
 void GffObj::copyAttrs(GffObj* from) { //typically from is the parent gene, and this is a transcript
@@ -1450,20 +1603,20 @@ void GffObj::copyAttrs(GffObj* from) { //typically from is the parent gene, and 
 
 	for (int i=0;i<from->attrs->Count();++i) {
 		//this->attrs->add_no_update(names, from->attrs->Get(i)->attr_id, from->attrs->Get(i)->attr_val);
-		int aid=from->attrs->Get(i)->attr_id;
+		int aid=from->attrs->Get(i)->id();
 		//special case for GenBank refseq genes vs transcripts:
 		if (prod && aid==desc_attr_id && strcmp(from->attrs->getAttr(desc_attr_id), prod)==0)
 			continue; //skip description if product already there and the same
 		bool haveit=false;
 		for (int ai=0;ai<this->attrs->Count();++ai) {
 			//do we have it already?
-			if (aid==this->attrs->Get(i)->attr_id) {
+			if (aid==this->attrs->Get(i)->id()) {
 				haveit=true;
 				break; //skip this, don't replace
 			}
 		}
 		if (!haveit)
-			this->attrs->Add(new GffAttr(aid, from->attrs->Get(i)->attr_val));
+			this->attrs->Add(new GffAttr(*(from->attrs->Get(i))));
 	}
 }
 
@@ -1489,9 +1642,9 @@ int GffObj::removeAttr(const char* attrname, const char* attrval) {
   if (aid<0) return 0;
   int delcount=0;  //could be more than one ?
   for (int i=0;i<this->attrs->Count();i++) {
-     if (aid==this->attrs->Get(i)->attr_id) {
+     if (aid==this->attrs->Get(i)->id()) {
        if (attrval==NULL || 
-          strcmp(attrval, this->attrs->Get(i)->attr_val)==0) {
+          strcmp(attrval, this->attrs->Get(i)->val())==0) {
              delcount++;
              this->attrs->freeItem(i);
              }
@@ -1505,9 +1658,9 @@ int GffObj::removeAttr(int aid, const char* attrval) {
   if (this->attrs==NULL || aid<0) return 0;
   int delcount=0;  //could be more than one ?
   for (int i=0;i<this->attrs->Count();i++) {
-     if (aid==this->attrs->Get(i)->attr_id) {
+     if (aid==this->attrs->Get(i)->id()) {
        if (attrval==NULL || 
-          strcmp(attrval, this->attrs->Get(i)->attr_val)==0) {
+          strcmp(attrval, this->attrs->Get(i)->val())==0) {
              delcount++;
              this->attrs->freeItem(i);
              }
@@ -1524,9 +1677,9 @@ int GffObj::removeExonAttr(GffExon& exon, const char* attrname, const char* attr
   if (aid<0) return 0;
   int delcount=0;  //could be more than one
   for (int i=0;i<exon.attrs->Count();i++) {
-     if (aid==exon.attrs->Get(i)->attr_id) {
+     if (aid==exon.attrs->Get(i)->id()) {
        if (attrval==NULL || 
-          strcmp(attrval, exon.attrs->Get(i)->attr_val)==0) {
+          strcmp(attrval, exon.attrs->Get(i)->val())==0) {
              delcount++;
              exon.attrs->freeItem(i);
              }
@@ -1540,9 +1693,9 @@ int GffObj::removeExonAttr(GffExon& exon, int aid, const char* attrval) {
   if (exon.attrs==NULL || aid<0) return 0;
   int delcount=0;  //could be more than one
   for (int i=0;i<exon.attrs->Count();i++) {
-     if (aid==exon.attrs->Get(i)->attr_id) {
+     if (aid==exon.attrs->Get(i)->id()) {
        if (attrval==NULL || 
-          strcmp(attrval, exon.attrs->Get(i)->attr_val)==0) {
+          strcmp(attrval, exon.attrs->Get(i)->val())==0) {
              delcount++;
              exon.attrs->freeItem(i);
              }
@@ -1931,12 +2084,12 @@ void GffObj::printGxfLine(FILE* fout, const char* tlabel, const char* gseqname, 
       phase, gffID);
     if (xattrs!=NULL) {
       for (int i=0;i<xattrs->Count();i++) {
-        attrname=names->attrs.getName(xattrs->Get(i)->attr_id);
+        attrname=names->attrs.getName(xattrs->Get(i)->id());
         if (cvtChars) {
-          decodeHexChars(dbuf, xattrs->Get(i)->attr_val);
+          decodeHexChars(dbuf, xattrs->Get(i)->val());
           fprintf(fout,";%s=%s", attrname, dbuf);
         } else {
-          fprintf(fout,";%s=%s", attrname, xattrs->Get(i)->attr_val);
+          fprintf(fout,";%s=%s", attrname, xattrs->Get(i)->val());
         }
       }
     }
@@ -1957,31 +2110,32 @@ void GffObj::printGxfLine(FILE* fout, const char* tlabel, const char* gseqname, 
        }
     if (xattrs!=NULL) {
           for (int i=0;i<xattrs->Count();i++) {
-            if (xattrs->Get(i)->attr_val==NULL) continue;
-            attrname=names->attrs.getName(xattrs->Get(i)->attr_id);
+            if (xattrs->Get(i)->val()==NULL) continue;
+            attrname=names->attrs.getName(xattrs->Get(i)->id());
             fprintf(fout, " %s ",attrname);
             if (cvtChars) {
-              decodeHexChars(dbuf, xattrs->Get(i)->attr_val);
+              decodeHexChars(dbuf, xattrs->Get(i)->val());
               attrval=dbuf;
             } else {
-              attrval=xattrs->Get(i)->attr_val;
+              attrval=xattrs->Get(i)->val();
             }
 
-            if (attrval[0]=='"') fprintf(fout, "%s;",attrval);
-                           else fprintf(fout, "\"%s\";",attrval);
+            /*if (attrval[0]=='"') fprintf(fout, "%s;",attrval);
+                           else*/
+             fprintf(fout, "\"%s\";",attrval);
              }
           }
     //for GTF, also append the GffObj attributes to each exon line
     if ((xattrs=this->attrs)!=NULL) {
           for (int i=0;i<xattrs->Count();i++) {
-            if (xattrs->Get(i)->attr_val==NULL) continue;
-            attrname=names->attrs.getName(xattrs->Get(i)->attr_id);
+            if (xattrs->Get(i)->val()==NULL) continue;
+            attrname=names->attrs.getName(xattrs->Get(i)->id());
             fprintf(fout, " %s ",attrname);
             if (cvtChars) {
-              decodeHexChars(dbuf, xattrs->Get(i)->attr_val);
+              decodeHexChars(dbuf, xattrs->Get(i)->val());
               attrval=dbuf;
             } else {
-              attrval=xattrs->Get(i)->attr_val;
+              attrval=xattrs->Get(i)->val();
             }
             if (attrval[0]=='"') fprintf(fout, "%s;",attrval);
                            else fprintf(fout, "\"%s\";",attrval);
@@ -2035,12 +2189,12 @@ void GffObj::printGxf(FILE* fout, GffPrintMode gffp,
       fprintf(fout, ";gene_name=%s",gene_name);
    if (attrs!=NULL) {
       for (int i=0;i<attrs->Count();i++) {
-        const char* attrname=names->attrs.getName(attrs->Get(i)->attr_id);
+        const char* attrname=names->attrs.getName(attrs->Get(i)->id());
         if (cvtChars) {
-          decodeHexChars(dbuf, attrs->Get(i)->attr_val);
+          decodeHexChars(dbuf, attrs->Get(i)->val());
           fprintf(fout,";%s=%s", attrname, dbuf);
         } else {
-          fprintf(fout,";%s=%s", attrname, attrs->Get(i)->attr_val);
+          fprintf(fout,";%s=%s", attrname, attrs->Get(i)->val());
         }
       }
     }

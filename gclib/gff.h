@@ -39,7 +39,7 @@ extern const uint gfo_flag_HAS_GFF_ID; //found a GFF3 formatted main feature wit
 extern const uint gfo_flag_BY_EXON;  //created by subfeature (exon) directly
                       //(GTF2 and some chado gff3 dumps with exons given before their mRNA)
 extern const uint gfo_flag_IS_TRANSCRIPT; //recognized as '*RNA' or '*transcript'
-extern const uint gfo_flag_DISCARDED; //should not be printed under the "transcriptsOnly" directive
+extern const uint gfo_flag_DISCARDED; //should not be printed under the "transcriptsOnly" or "noPseudo" directives
 extern const uint gfo_flag_LST_KEEP; //GffObj from GffReader::gflst is to be kept (not deallocated)
                                      //when GffReader is destroyed
 extern const uint gfo_flag_LEVEL_MSK; //hierarchical level: 0 = no parent
@@ -65,6 +65,37 @@ enum GffExonType {
 const char* strExonType(char xtype);
 
 class GffReader;
+
+struct GAttrValStr {
+ const char* str;
+ int len;
+ int idx;
+ GAttrValStr(const char* s=NULL, int l=0, int ai=0):str(s),len(l), idx(ai) {
+	 if (str && len==0) len=strlen(str);
+ }
+ void set(const char* s=NULL, int l=0, int ai=0) {
+	 str=s;len=l;idx=ai;
+	 if (str && len==0) len=strlen(str);
+ }
+};
+struct GAttrVal {
+	const char* name;
+	const char* value;
+	int nlen;
+	int vlen;
+	GAttrVal(const char* a=NULL, const char* v=NULL, int al=0, int vl=0):name(a),
+			 value(v), nlen(al), vlen(al) {
+		if (name && al==0) nlen=strlen(name);
+		if (value && vl==0) vlen=strlen(value);
+	}
+	void set(const char* a=NULL, const char* v=NULL, int al=0, int vl=0) {
+		name=a; value=v;
+		nlen=al;vlen=vl;
+		if (name && al==0) nlen=strlen(name);
+		if (value && vl==0) vlen=strlen(value);
+	}
+	void free() { GFREE(name); GFREE(value); }
+};
 
 class GffLine {
     char* _parents; //stores a copy of the Parent attribute value,
@@ -95,7 +126,7 @@ class GffLine {
     	    bool is_exon:1; //"exon" and "utr" features
     	    bool is_transcript:1; //if current feature is *RNA or *transcript
     	    bool is_gene:1; //if current feature is *gene
-    	    bool is_gff3:1; //if the line appears to be in GFF3 format
+    	    bool is_gff3:1; //if the line appears to be in GFF3 ID/Parent format (= not GTF)
     	    bool can_discard:1; //flag unwanted/unrecognized parent features
     	    bool skipLine:1;
     	};
@@ -109,6 +140,36 @@ class GffLine {
     char** parents; //for GTF only parents[0] is used
     int num_parents;
     char* ID;     // if a ID=.. attribute was parsed, or a GTF with 'transcript' line (transcript_id)
+	GVec<GAttrVal> attrs;
+	GHash<GAttrValStr> attrmap;
+	GHash<GAttrValStr> attrmaplc; //lowercase version, for fast case-insensitive lookups
+	void dupAttrs(GffLine* l);
+	char parseInfoAttrs(); //parse attributes and their values from the info field
+	void addAttr(const char* a, const char* v, int alen=0, int vlen=0) {
+		GAttrVal av(a,v, alen, vlen);
+		int aidx=attrs.Add(av);
+		attrmap.shkAdd(a, new GAttrValStr(v, vlen, aidx));
+		char* alc=loCase(a);
+		attrmaplc.Add(alc, new GAttrValStr(v, vlen, aidx));
+		GFREE(alc);
+	}
+	/*
+	void removeAttr(const char* a, bool case_insensitive=false) {
+	//FIX THIS - need to remove from both attrmap & attrmaplc
+	  const GAttrValStr* vstr=attrmap.Remove(a);
+	  if (vstr==NULL) return;
+	  for (int i=0;i<attrs.Count();i++)
+	    if (vstr->str==attrs[i].value) { attrs[i].free(); attrs.Delete(i);break; }
+	}
+	*/
+	void clearAttrs() {
+		attrmap.Clear();
+		attrmaplc.Clear();
+		for (int i=0;i<attrs.Count();i++)
+			 attrs[i].free();
+		attrs.Clear();
+	}
+
     GffLine(GffReader* reader, const char* l); //parse the line accordingly
     void discardParent() {
     	GFREE(_parents);
@@ -116,13 +177,16 @@ class GffLine {
     	num_parents=0;
     	parents=NULL;
     }
-    char* extractAttr(const char* pre, bool caseStrict=false, bool enforce_GTF2=false);
+    //char* extractAttr(const char* pre, bool caseStrict=false, bool enforce_GTF2=false);
+    char* findAttr(const char* pre, bool caseStrict=false, bool enforce_GTF2=false);
+     //returns a freshly allocated copy of the attribute value string (caller must free it)
+
     GffLine(GffLine* l):_parents(NULL), _parents_len(0),
     		dupline(NULL), line(NULL), llen(0), gseqname(NULL), track(NULL),
     		ftype(NULL), info(NULL), fstart(0), fend(0), qstart(0), qend(0), qlen(0),
     		score(0), strand(0), flags(0), exontype(0), phase(0),
     		gene_name(NULL), gene_id(NULL),
-    		parents(NULL), num_parents(0), ID(NULL) { //a copy constructor
+    		parents(NULL), num_parents(0), ID(NULL), attrs(), attrmap(true), attrmaplc(true) { //a copy constructor
     	if (l==NULL || l->line==NULL)
     		GError("Error: invalid GffLine(l)\n");
     	memcpy((void*)this, (void*)l, sizeof(GffLine));
@@ -148,6 +212,7 @@ class GffLine {
     	}
     	//-- allocated string copies:
     	ID=Gstrdup(l->ID);
+		dupAttrs(l);
     	if (l->gene_name!=NULL)
     		gene_name=Gstrdup(l->gene_name);
     	if (l->gene_id!=NULL)
@@ -158,7 +223,7 @@ class GffLine {
     		ftype(NULL), info(NULL), fstart(0), fend(0), qstart(0), qend(0), qlen(0),
     		score(0), strand(0), flags(0), exontype(0), phase(0),
     		gene_name(NULL), gene_id(NULL),
-    		parents(NULL), num_parents(0), ID(NULL) {
+    		parents(NULL), num_parents(0), ID(NULL), attrs(), attrmap(true), attrmaplc(true) {
     }
     ~GffLine() {
     	GFREE(dupline);
@@ -168,30 +233,42 @@ class GffLine {
     	GFREE(ID);
     	GFREE(gene_name);
     	GFREE(gene_id);
+    	clearAttrs();
     }
 };
 
 class GffAttr {
- public:
+ protected:
    int attr_id;
    char* attr_val;
-   GffAttr(int an_id, const char* av=NULL) {
+	 int val_len;
+ public:
+   char* val() { return attr_val; }
+   int vlen() { return val_len; }
+   int id() { return attr_id; }
+   GffAttr(int an_id, const char* av=NULL, int vl=0):attr_id(an_id),
+		   attr_val(NULL), val_len(vl) {
      attr_id=an_id;
      attr_val=NULL;
-     setValue(av);
+     setValue(av, vl);
+     }
+  GffAttr(GffAttr& o):attr_id(o.attr_id), attr_val(NULL), val_len(o.val_len){
+	  if (o.attr_val) attr_val=Gstrdup(o.attr_val);
      }
   ~GffAttr() {
      GFREE(attr_val);
      }
-  void setValue(const char* av) {
+  void setValue(const char* av, int vl=0) {
      if (attr_val!=NULL) {
         GFREE(attr_val);
         }
      if (av==NULL || av[0]==0) return;
-     //trim spaces
-     const char* vstart=av;
-     while (*vstart==' ') av++;
-     const char* vend=vstart;
+     if (vl==0) vl=strlen(av);
+     val_len=vl;
+     const char* v=av;
+     //trim spaces around -- no longer needed
+     /* while (*vstart==' ') av++;
+     const char* vend=vstart+vlen-2;
      bool keep_dq=false;
      while (vend[1]!=0) {
         if (*vend==' ' && vend[1]!=' ') keep_dq=true;
@@ -200,12 +277,16 @@ class GffAttr {
         }
      //remove spaces at the end:
      while (*vend==' ' && vend!=vstart) vend--;
-     //practical clean-up: if it doesn't have any internal spaces just strip those useless double quotes
+     //strip the double quotes
      if (!keep_dq && *vstart=='"' && *vend=='"') {
                vend--;
                vstart++;
                }
-     attr_val=Gstrdup(vstart, vend);
+     */
+     if (v[0]=='"') ++v;
+     if (v[vl-1]=='"') attr_val=Gstrdup(v, v+vl-2);
+          	  	  	else attr_val=Gstrdup(v);
+     //attr_val=Gstrdup(vstart, vend);
      }
   bool operator==(GffAttr& d){
       return (this==&d);
@@ -339,15 +420,15 @@ enum GffPrintMode {
 class GffAttrs:public GList<GffAttr> {
   public:
     GffAttrs():GList<GffAttr>(false,true,false) { }
-    void add_or_update(GffNames* names, const char* attrname, const char* val) {
+    void add_or_update(GffNames* names, const char* attrname, const char* val, int vlen=0) {
       int aid=names->attrs.getId(attrname);
       if (aid>=0) {
-         //attribute found in the dictionary
+         //attribute already in the dictionary
          for (int i=0;i<Count();i++) {
             //do we have it?
-            if (aid==Get(i)->attr_id) {
+            if (aid==Get(i)->id()) {
                 //update the value
-                Get(i)->setValue(val);
+                Get(i)->setValue(val, vlen);
                 return;
                 }
             }
@@ -355,20 +436,20 @@ class GffAttrs:public GList<GffAttr> {
         else {
          aid=names->attrs.addNewName(attrname);
          }
-      this->Add(new GffAttr(aid, val));
+      this->Add(new GffAttr(aid, val, vlen));
       }
 
     char* getAttr(GffNames* names, const char* attrname) {
       int aid=names->attrs.getId(attrname);
       if (aid>=0)
         for (int i=0;i<Count();i++)
-          if (aid==Get(i)->attr_id) return Get(i)->attr_val;
+          if (aid==Get(i)->id()) return Get(i)->val();
       return NULL;
       }
     char* getAttr(int aid) {
       if (aid>=0)
         for (int i=0;i<Count();i++)
-          if (aid==Get(i)->attr_id) return Get(i)->attr_val;
+          if (aid==Get(i)->id()) return Get(i)->val();
       return NULL;
       }
 };
@@ -602,9 +683,10 @@ public:
        }
    //--------------
    GffObj* finalize(GffReader* gfr, bool mergeCloseExons=false, 
-               bool keepAttrs=false, bool noExonAttr=true); 
-               //complete parsing: must be called in order to merge adjacent/close proximity subfeatures
-   void parseAttrs(GffAttrs*& atrlist, char* info, bool isExon=false);
+               bool keepAttrs=false, bool noExonAttr=true); //finalize parsing: must be called in order to
+                                                            //merge adjacent/close proximity subfeatures
+   //void parseAttrs(GffAttrs*& atrlist, char* info, bool isExon=false);
+   void getLineAttrs(GffLine& l, int exno=-1);
    const char* getSubfName() { //returns the generic feature type of the entries in exons array
      //int sid=exon_ftype_id;
      //if (sid==gff_fid_exon && isCDS) sid=gff_fid_CDS;
@@ -625,14 +707,14 @@ public:
      }
    void setFeatureName(const char* feature);
    
-   void addAttr(const char* attrname, const char* attrvalue);
+   void addAttr(const char* attrname, const char* attrvalue, int vlen=0);
    int removeAttr(const char* attrname, const char* attrval=NULL);
    int removeAttr(int aid, const char* attrval=NULL);
    int removeExonAttr(GffExon& exon, const char* attrname, const char* attrval=NULL);
    int removeExonAttr(GffExon& exon, int aid, const char* attrval=NULL);
    const char* getAttrName(int i) {
      if (attrs==NULL) return NULL;
-     return names->attrs.getName(attrs->Get(i)->attr_id);
+     return names->attrs.getName(attrs->Get(i)->id());
      }
    char* getAttr(const char* attrname, bool checkFirstExon=false) {
      if (names==NULL || attrname==NULL) return NULL;
@@ -660,7 +742,7 @@ public:
 
    char* getAttrValue(int i) {
      if (attrs==NULL) return NULL;
-     return attrs->Get(i)->attr_val;
+     return attrs->Get(i)->val();
      }
    const char* getGSeqName() {
      return names->gseqs.getName(gseq_id);
@@ -1008,7 +1090,8 @@ class GffReader {
   char* fname;  //optional fasta file with the underlying genomic sequence to be attached to this reader
   GffLine* gffline;
   bool transcriptsOnly; //keep only transcripts w/ their exon/CDS features
-  GHash<int> discarded_ids; //for transcriptsOnly mode, keep track
+  bool noPseudo; //try to detect and discard pseudo genes
+  GHash<int> discarded_ids; //for transcriptsOnly or noPseudo mode, keep track
                             // of discarded parent IDs
   GHash< GPVec<GffObj> > phash; //transcript_id+contig (Parent~Contig) => [gflst index, GffObj]
   //GHash<int> tids; //just for transcript_id uniqueness
@@ -1039,32 +1122,37 @@ class GffReader {
   GffObj* updateParent(GffObj* newgfh, GffObj* parent);
   bool addExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon>& pex, bool noExonAttr);
   GPVec<GSeqStat> gseqStats; //only populated after finalize()
-  GffReader(FILE* f=NULL, bool t_only=false, bool sortbyloc=false):discarded_ids(true),
+  GffReader(FILE* f=NULL, bool t_only=false, bool sortbyloc=false, bool no_pseudo=false):discarded_ids(true),
                        phash(true), gseqstats(true,true,true), gflst(sortbyloc), gseqStats(1, false) {
       gff_warns=gff_show_warnings;
       names=NULL;
       gffline=NULL;
       transcriptsOnly=t_only;
+      noPseudo=no_pseudo;
       fpos=0;
       fname=NULL;
       fh=f;
       GMALLOC(linebuf, GFF_LINELEN);
       buflen=GFF_LINELEN-1;
       }
-  void init(FILE *f, bool t_only=false, bool sortbyloc=false) {
+  /*
+  void init(FILE *f, bool t_only=false, bool sortbyloc=false, bool no_pseudo=false) {
       fname=NULL;
       fh=f;
       if (fh!=NULL) rewind(fh);
       fpos=0;
       transcriptsOnly=t_only;
+      noPseudo=no_pseudo;
       gflst.sortedByLoc(sortbyloc);
       }
-  GffReader(char* fn, bool t_only=false, bool sort=false):discarded_ids(true), phash(true),
+  */
+  GffReader(char* fn, bool t_only=false, bool sort=false, bool no_pseudo=false):discarded_ids(true), phash(true),
             gseqstats(true,true,true), gflst(sort), gseqStats(1,false) {
       gff_warns=gff_show_warnings;
       names=NULL;
       fname=Gstrdup(fn);
       transcriptsOnly=t_only;
+      noPseudo=no_pseudo;
       fh=fopen(fname, "rb");
       fpos=0;
       gffline=NULL;
