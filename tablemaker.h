@@ -118,6 +118,21 @@ struct RC_Feature { //exon or intron of a reference transcript
 	 }
 };
 
+struct RC_FeatOvl {
+	RC_Feature* feature;
+	int ovlen;
+	bool operator<(const RC_FeatOvl& o) const {
+		if (ovlen==o.ovlen) {
+			return (feature<o.feature) ;
+		}
+		else return (ovlen>o.ovlen);
+	} //operator <
+	bool operator==(const RC_FeatOvl& o) const {
+		return (ovlen==o.ovlen && feature==o.feature);
+	}
+	RC_FeatOvl(RC_Feature* f=NULL, int olen=0):feature(f), ovlen(olen) {
+	}
+};
 
 typedef set<const RC_Feature*, RC_Feature::PCompare> RC_FeatPtrSet;
 typedef set<RC_Feature>::iterator RC_FeatIt;
@@ -219,9 +234,9 @@ struct RC_BundleData {
  GPVec<RC_ScaffData> tdata; //all transcripts in this bundle
  GList<RC_Feature> exons; //all unique exons in this bundle, by their start coordinate
  GList<RC_Feature> introns; //all unique introns in this bundle, by their start coordinate
- //RC_FeatIt xcache; //cache the first exon overlapping xcache_pos to speed up exon-overlap queries (findExons())
+ //RC_FeatIt xcache; //cache the first exon overlapping xcache_pos to speed up exon-overlap queries (findOvlExons())
  int xcache; //exons index of the first exon overlapping xcache_pos
- int xcache_pos; // left coordinate of last cached exon overlap query (findExons())
+ int xcache_pos; // left coordinate of last cached exon overlap query (findOvlExons())
  vector<float> f_mcov; //coverage data, multi-map aware, per strand
  vector<int> f_cov;
  vector<float> r_mcov; //coverage data on the reverse strand
@@ -249,15 +264,12 @@ struct RC_BundleData {
 
  //for non-ballgown tracking of guide features
  void addTranscriptFeature(uint fstart, uint fend, char fstrand, GList<RC_Feature>& flist, uint tidx) {
-	 RC_Feature* feat=new RC_Feature(fstart, fend, fstrand, 0, tidx);
-     int fidx=-1;
-     RC_Feature* p=flist.AddIfNew(feat, true, &fidx);
-     if (p==feat) {//exon not seen before
-  	   p->id=fidx;
-     }
-     else {//exon seen before, update t_id list
-  	   p->t_ids.Add(tidx);
-     }
+	RC_Feature* feat=new RC_Feature(fstart, fend, fstrand, 0, tidx);
+	int fidx=-1;
+	RC_Feature* p=flist.AddIfNew(feat, true, &fidx);
+	if (p!=feat) {//exon seen before, update t_id list
+		p->t_ids.Add(tidx);
+	}
  }
 
  void addTranscript(GffObj& t) {
@@ -334,9 +346,56 @@ struct RC_BundleData {
     transform(r_mcov.begin()+goffs, r_mcov.begin()+goffs+glen,
     	        r_mcov.begin()+goffs, RC_MultiCovInc(numhits));
   }
-
  }
 
+ bool findOvlExons(GArray<RC_FeatOvl>& exovls, int hl, int hr, char strand='.', bool update_cache=true) {
+	 //exovls should be clear, unless the caller knows what she's doing
+	 bool foundovls=false;
+	 if (exons.Count()==0) return false;
+	 RC_Feature q(hl, hr);
+	 int xstart=0;
+	 bool no_cache=(xcache_pos==0 || xcache_pos>hl);
+	 if (no_cache) {
+		 if (update_cache) {
+			 //xcache=exons.end();
+			 xcache=exons.Count()-1;
+			 xcache_pos=0;
+		 }
+	 }
+	 else xstart=xcache; //must have a valid value
+	 bool upd_cache(update_cache);
+	 int last_checked_exon=exons.Count()-1;
+	 for (int p=xstart;p < exons.Count();++p) {
+		 last_checked_exon=p;
+		 int l=exons[p]->l;
+		 int r=exons[p]->r;
+		 if (l > hr) break;
+		 if (hl > r) continue;
+		 //exon overlap here
+		 int ovlen=0;
+		 if (hl<l) {
+			 ovlen = ( hr<r ? hr-l+1 : r-l+1 );
+		 }
+		 else { // l<=hl
+			 ovlen= ( hr<r ? hr-hl+1 : r-hl+1 );
+		 }
+		 if (upd_cache) {
+			 //cache first overlap
+			 xcache=p;
+			 upd_cache=false;
+		 }
+		 if (strand!='.' && strand!=exons[p]->strand) continue; //non-matching strand
+		 foundovls=true;
+		 RC_FeatOvl fovl(exons[p], ovlen);
+		 exovls.Add(fovl);
+	 }
+	 if (update_cache) {
+		 if (upd_cache) xcache=last_checked_exon; //there was no overlap found
+		 xcache_pos=hl;
+	 }
+	 return foundovls;
+ }
+/*
  RC_FeatPtrSet findExons(int hl, int hr, char strand='.', bool update_cache=true) {
    //returns exons overlapping given interval hl-hr
    RC_FeatPtrSet ovlex; //return set
@@ -377,10 +436,6 @@ struct RC_BundleData {
    return ovlex;
   }
 
- /*
-   RC_FeatIt findIntron(int hl, int hr, char strand) {
-   RC_FeatIt ri=introns.find(RC_Feature(hl, hr, strand));
-   return ri;
  */
  RC_Feature* findIntron(int hl, int hr, char strand) {
    int fidx=0;

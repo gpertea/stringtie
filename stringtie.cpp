@@ -531,7 +531,7 @@ if (ballgown)
 		else if (xstrand=='-') strand=-1;
 	  countFragment(*bundle, *brec, hi);
 	 //if (!ballgown || ref_overlap)
-	   processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
+	  processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
 
    //update current end to be at least as big as the start of the read pair in the fragment?? -> maybe not because then I could introduce some false positives with paired reads mapped badly
 

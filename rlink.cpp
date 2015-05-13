@@ -150,7 +150,7 @@ int processRead(int currentstart, int currentend, BundleData& bdata,
 				if (leftsupport>maxleftsupport) {
 					maxleftsupport=leftsupport;
 				}
-				leftsup.Add(maxleftsupport);//on the left, always add current max support (?)
+				leftsup.Add(maxleftsupport);//on the left, always add current max support
 				support=brec.exons[i].len();
 				rightsup.Add(support);     //..but on the right, real support value is added
 
