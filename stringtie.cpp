@@ -201,7 +201,7 @@ int main(int argc, char * const argv[]) {
  // == Done argument processing.
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
- GPVec<RC_ScaffData> refguides_RC_Data(true); //raw count data for all guide transcripts
+ GPVec<RC_TData> refguides_RC_Data(true); //raw count data for all guide transcripts
  GPVec<RC_Feature> refguides_RC_exons(true); //raw count data for all guide exons
  GPVec<RC_Feature> refguides_RC_introns(true);//raw count data for all guide introns
  GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
@@ -237,24 +237,24 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    uint cur_tid=0;
    uint cur_exon_id=0;
    uint cur_intron_id=0;
-   std::set<RC_ScaffSeg> exons;
-   std::set<RC_ScaffSeg> introns;
+   GList<RC_Feature> uexons(true, false, true); //sorted, free items, unique
+   GList<RC_Feature> uintrons(true, false, true);
    //assign unique transcript IDs based on the sorted order
    int last_refid=0;
    for (int i=0;i<gffr.gflst.Count();i++) {
 	   GffObj* m=gffr.gflst[i];
 	   if (ballgown) {
-		   RC_ScaffData* tdata=new RC_ScaffData(*m, ++cur_tid);
+		   RC_TData* tdata=new RC_TData(*m, ++cur_tid);
 		   m->uptr=tdata;
 		   if (last_refid!=m->gseq_id) {
 			   //chromosome switch
-			   exons.clear();
-			   introns.clear();
+			   uexons.Clear();
+			   uintrons.Clear();
 			   last_refid=m->gseq_id;
 		   }
 		   refguides_RC_Data.Add(tdata);
-		   tdata->rc_addFeatures(cur_exon_id, exons, refguides_RC_exons,
-				   cur_intron_id, introns, refguides_RC_introns);
+		   tdata->rc_addFeatures(cur_exon_id, uexons, refguides_RC_exons,
+				   cur_intron_id, uintrons, refguides_RC_introns);
 	   }
 
 	   GRefData& grefdata = refguides[m->gseq_id];
@@ -322,7 +322,7 @@ if (ballgown)
 	 bool chr_changed=false;
 	 int pos=0;
 	 const char* refseqName=NULL;
-	 char strand=0;
+	 //char strand=0;
 	 char xstrand=0;
 	 int nh=1;
 	 int hi=0;
@@ -526,12 +526,14 @@ if (ballgown)
       //bool ref_overlap=false;
 	 //if (ballgown && bundle->rc_data)
       //ref_overlap=
-      bundle->evalReadAln(*brec, xstrand, nh);
-      if (xstrand=='+') strand=1;
-		else if (xstrand=='-') strand=-1;
+	 GReadAlnData alndata(brec, 0, nh, hi);
+      bundle->evalReadAln(alndata, xstrand); //xstrand, nh);
+      if (xstrand=='+') alndata.strand=1;
+		else if (xstrand=='-') alndata.strand=-1;
 	  countFragment(*bundle, *brec, hi);
 	 //if (!ballgown || ref_overlap)
-	  processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
+	  processRead(currentstart, currentend, *bundle, hashread, alndata);
+			  // *brec, strand, nh, hi);
 
    //update current end to be at least as big as the start of the read pair in the fragment?? -> maybe not because then I could introduce some false positives with paired reads mapped badly
 

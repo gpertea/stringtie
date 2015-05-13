@@ -22,12 +22,12 @@ void Ballgown_setupFiles(FILE* &f_tdata, FILE* &f_edata, FILE* &f_idata,
 	            FILE* &f_e2t, FILE* &f_i2t);
 
 //Bundle raw count data
-
-struct RC_ScaffSeg {
+/*
+struct RC_TSeg {
    uint id; //feature id (>0)
    int l; int r; //genomic coordinates
    char strand;
-   bool operator<(const RC_ScaffSeg& o) const {
+   bool operator<(const RC_TSeg& o) const {
      //if (id == o.id) return false;
      if (l != o.l) return (l < o.l);
      if (r != o.r) return (r < o.r);
@@ -36,31 +36,35 @@ struct RC_ScaffSeg {
      return false;
    }
 
-   bool operator==(const RC_ScaffSeg& o) const {
+   bool operator==(const RC_TSeg& o) const {
      //if (id == o.id) return true;
      return (l==o.l && r==o.r &&
          (strand == o.strand || strand == '.' || o.strand == '.'));
    }
 
-   RC_ScaffSeg(int fl=0, int fr=0, char s='.', int fid=0) : id(fid),
+   RC_TSeg(int fl=0, int fr=0, char s='.', int fid=0) : id(fid),
          l(fl), r(fr), strand(s) { }
 
 };
+*/
 
 struct RC_Feature { //exon or intron of a reference transcript
-	uint id; //feature id (>0)
+	uint id; //feature id (>0) only used with -B (full Ballgown data)
+	         //it's the index in the global refguides_RC_exons/introns array + 1
 	GVec<uint> t_ids; //transcripts owning this feature
-	int l; int r; //genomic coordinates
+	 //if -B, this is the index in the global refguides_RC_Data array + 1
+	 // otherwise it is the index in the BundleData::keepguides array + 1
+	int l; int r; //genomic coordinates for the feature
 	char strand;
-	mutable uint rcount; //# reads covering this feature
-	mutable uint ucount; //# uniquely mapped reads covering this feature
-	mutable double mrcount; //multi-mapping-weighted counts
+	mutable uint rcount; //# read alignments overlapping this feature (>5bp overlaps for exons;
+	                     // exact coord. match for introns)
+	mutable uint ucount; //# uniquely mapped reads overlapping this ref feature
+	mutable double mrcount; //multi-mapping weighted counts
     double avg;
     double stdev;
     double mavg;
     double mstdev;
 
-    //mutable vector<int> coverage; //per-base exon coverage data
 	struct PCompare {
 	 bool operator()(const RC_Feature* p1, const RC_Feature* p2) {
 	 return (*p1 < *p2);
@@ -72,8 +76,11 @@ struct RC_Feature { //exon or intron of a reference transcript
 	if (l>r) { int t=l; l=r; r=t; }
 	if (tid>0) t_ids.Add(tid);
 	}
+	RC_Feature(const RC_Feature& seg): id(seg.id), t_ids(seg.t_ids), l(seg.l), r(seg.r),
+			strand(seg.strand), rcount(0),ucount(0),mrcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
+	}
 
-	RC_Feature(RC_ScaffSeg& seg, uint tid=0): id(seg.id), t_ids(1), l(seg.l), r(seg.r),
+	RC_Feature(const RC_Feature& seg, uint tid): id(seg.id), t_ids(1), l(seg.l), r(seg.r),
 		strand(seg.strand), rcount(0),ucount(0),mrcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
 	if (l>r) { int t=l; l=r; r=t; }
 	if (tid>0) t_ids.Add(tid);
@@ -118,85 +125,73 @@ struct RC_Feature { //exon or intron of a reference transcript
 	 }
 };
 
-struct RC_FeatOvl {
-	RC_Feature* feature;
+struct RC_ExonOvl {
+	RC_Feature* feature; //pointer to an item of RC_BundleData::g_exons
 	int ovlen;
-	bool operator<(const RC_FeatOvl& o) const {
+	bool operator<(const RC_ExonOvl& o) const {
 		if (ovlen==o.ovlen) {
 			return (feature<o.feature) ;
 		}
 		else return (ovlen>o.ovlen);
 	} //operator <
-	bool operator==(const RC_FeatOvl& o) const {
+	bool operator==(const RC_ExonOvl& o) const {
 		return (ovlen==o.ovlen && feature==o.feature);
 	}
-	RC_FeatOvl(RC_Feature* f=NULL, int olen=0):feature(f), ovlen(olen) {
+	RC_ExonOvl(RC_Feature* f=NULL, int olen=0):feature(f), ovlen(olen) {
 	}
 };
 
-typedef set<const RC_Feature*, RC_Feature::PCompare> RC_FeatPtrSet;
+//typedef set<const RC_Feature*, RC_Feature::PCompare> RC_FeatPtrSet;
 typedef set<RC_Feature>::iterator RC_FeatIt;
 typedef map<uint, set<uint> > RC_Map2Set;
 typedef map<uint, set<uint> >::iterator RC_Map2SetIt;
 
-struct RC_Seg { //just a genomic interval holder
+/*struct RC_Seg { //just a genomic interval holder
 	int l;
 	int r;
 	RC_Seg(int l0=0, int r0=0):l(l0), r(r0) { }
 };
+*/
 
-struct RC_ScaffData { //storing RC data for a transcript
-	GffObj* scaff;
+struct RC_TData { //storing RC data for a transcript
+	//only used with -B (full Ballgown data)
+	GffObj* ref_t;
 	uint t_id;
-	GStr t_name; //original GFF ID for the transcript
+	//GStr t_name; //original GFF ID for the transcript
 	int l;
 	int r;
 	//char strand;
-	int num_exons;
+	//int num_exons;
 	int eff_len;
 	double cov;
 	double fpkm;
-	//other mutable fields here, to be updated by rc_update_scaff()
-	char strand;
-	//vector<RC_ScaffSeg> exons;
-	//vector<RC_ScaffSeg> introns;
+	//char strand;
     GPVec<RC_Feature> t_exons;
     GPVec<RC_Feature> t_introns;
-	//RC_ScaffIds(uint id=0, char s='.'):t_id(id),strand(s) { }
-	void rc_addFeatures(uint& c_e_id, set<RC_ScaffSeg>& fexons, GPVec<RC_Feature>& edata,
-	                      uint& c_i_id, set<RC_ScaffSeg>& fintrons, GPVec<RC_Feature>& idata);
+    //int e_idx_cache;
+    //int i_idx_cache;
+	void rc_addFeatures(uint& c_e_id, GList<RC_Feature>& fexons, GPVec<RC_Feature>& edata,
+	                      uint& c_i_id, GList<RC_Feature>& fintrons, GPVec<RC_Feature>& idata);
 	void addFeature(int fl, int fr, GPVec<RC_Feature>& fvec, uint& f_id,
-			          set<RC_ScaffSeg>& fset, set<RC_ScaffSeg>::iterator& fit, GPVec<RC_Feature>& fdata);
-	RC_ScaffData(GffObj& s, uint id=0):scaff(&s), t_id(id), t_name(s.getID()), l(s.start), r(s.end),
-			num_exons(s.exons.Count()), eff_len(s.covlen), cov(0), fpkm(0), strand(s.strand),
-			t_exons(false), t_introns(false) {
-	  /*RC_ScaffIds& sdata = *(scaff->rc_id_data());
-	  t_id = sdata.t_id;
-	  t_name=scaff->annotated_trans_id();
-	  strand=sdata.strand;
-	  l=scaff->left();
-	  r=scaff->right();
-	  num_exons=scaff->exons.Count();
-	  strand=scaff->strand;
-	  for (size_t i=0;i<exons.size();++i) {
-		 RC_ScaffSeg& exon = sdata.exons[i];
-		 eff_len+=exon.r-exon.l;
-	  }
-	  */
-
+			          GList<RC_Feature>& fset, GPVec<RC_Feature>& fdata,
+					  int& cache_idx);
+	RC_TData(GffObj& s, uint id=0):ref_t(&s), t_id(id), l(s.start), r(s.end), //t_name(s.getID()),
+			//num_exons(s.exons.Count()),
+			eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
+			t_exons(false), t_introns(false) { //, e_idx_cache(-1), i_idx_cache(-1) {
 	}
 
-    bool operator<(const RC_ScaffData& o) const {
+    bool operator<(const RC_TData& o) const {
     	if (l != o.l) return (l < o.l);
     	if (r != o.r) return (r < o.r);
-    	if (strand != o.strand) return (strand < o.strand);
-	    return (t_name < o.t_name);
-		return false;
+    	if (char c=(ref_t->strand - o.ref_t->strand)) return (c<0);
+	    return (strcmp(ref_t->getID(), o.ref_t->getID())<0);
+		//return false;
     }
-    bool operator==(const RC_ScaffData& o) const {
-    	if (t_id!=0 && o.t_id!=0 && t_id!=o.t_id) return false;
-    	return (l==o.l && r==o.r && strand == o.strand &&
-    			t_name == o.t_name);
+    bool operator==(const RC_TData& o) const {
+    	if (t_id!=0 && o.t_id!=0) return (t_id==o.t_id);
+    	return (l==o.l && r==o.r && ref_t->strand == o.ref_t->strand &&
+    			strcmp(ref_t->getID(),o.ref_t->getID())==0);
     }
 };
 
@@ -206,9 +201,7 @@ void rc_frendel(const char* fname);
 
 struct BundleData;
 
-//void rc_write_counts(const char* refname, BundleData& bundle);
-
-void rc_writeRC(GPVec<RC_ScaffData>& RC_data,
+void rc_writeRC(GPVec<RC_TData>& RC_data,
 		GPVec<RC_Feature>& RC_exons,
 		GPVec<RC_Feature>& RC_introns,
 		FILE* &f_tdata, FILE* &f_edata, FILE* &f_idata,
@@ -231,12 +224,13 @@ struct RC_BundleData {
  int init_lmin;
  int lmin;
  int rmax;
- GPVec<RC_ScaffData> tdata; //all transcripts in this bundle
- GList<RC_Feature> exons; //all unique exons in this bundle, by their start coordinate
- GList<RC_Feature> introns; //all unique introns in this bundle, by their start coordinate
+ GPVec<RC_TData> tdata; //all transcripts in this bundle (not used unless -B)
+ GList<RC_Feature> g_exons; //all unique guide exons in this bundle, sorted by their start coordinate
+ GList<RC_Feature> g_introns; //all unique guide introns in this bundle, sorted by their start coordinate
  //RC_FeatIt xcache; //cache the first exon overlapping xcache_pos to speed up exon-overlap queries (findOvlExons())
  int xcache; //exons index of the first exon overlapping xcache_pos
  int xcache_pos; // left coordinate of last cached exon overlap query (findOvlExons())
+ // the following coverage arrays will only used with Ballgown data (-B)
  vector<float> f_mcov; //coverage data, multi-map aware, per strand
  vector<int> f_cov;
  vector<float> r_mcov; //coverage data on the reverse strand
@@ -244,14 +238,14 @@ struct RC_BundleData {
  //
  RC_BundleData(int t_l=0, int t_r=0):init_lmin(0), lmin(t_l), rmax(t_r),
 	 tdata(false), // features:(sorted, free, unique)
-	 exons(true, false, true), introns(true, false, true),
+	 g_exons(true, false, true), g_introns(true, false, true),
 	 xcache(0), xcache_pos(0)
 	 {
 	 if (ballgown) {
 		 if (rmax>lmin) updateCovSpan();
-	 }else {
-		 exons.setFreeItem(true);
-		 introns.setFreeItem(true);
+	 }else { //this will be deallocated when the bundle is cleared
+		 g_exons.setFreeItem(true);
+		 g_introns.setFreeItem(true);
 	 }
  }
 
@@ -263,11 +257,14 @@ struct RC_BundleData {
  }
 
  //for non-ballgown tracking of guide features
- void addTranscriptFeature(uint fstart, uint fend, char fstrand, GList<RC_Feature>& flist, uint tidx) {
+ void addTranscriptFeature(uint fstart, uint fend, char fstrand, GList<RC_Feature>& flist, GffObj& t) {
+	uint tidx=(uint)t.udata; //in non-Ballgown case, this is the index in the BundleData::keepguides array + 1
 	RC_Feature* feat=new RC_Feature(fstart, fend, fstrand, 0, tidx);
 	int fidx=-1;
 	RC_Feature* p=flist.AddIfNew(feat, true, &fidx);
-	if (p!=feat) {//exon seen before, update t_id list
+	if (p==feat) {//exon never seen before
+		//TODO: use some stable e_id index here and assign it to t.exons[eidx]->uptr->e_id (?) for quick retrieval
+	} else {//exon seen before, just update t_id list
 		p->t_ids.Add(tidx);
 	}
  }
@@ -279,27 +276,27 @@ struct RC_BundleData {
   if (lmin==0 || lmin>(int)t.start) { lmin=t.start; boundary_changed=true; }
   if (rmax==0 || rmax<(int)t.end) { rmax=t.end; boundary_changed=true; }
   if (t.uptr) { //ballgown case
-	   RC_ScaffData& sdata=*(RC_ScaffData*)(t.uptr);
+	   RC_TData& sdata=*(RC_TData*)(t.uptr);
 	   //tdata.insert(sdata);
 	   tdata.Add(&sdata);
 	   if (boundary_changed) updateCovSpan();
 	   //for (vector<RC_ScaffSeg>::iterator it=sdata.exons.begin();it!=sdata.exons.end();++it) {
 	   for (int i=0;i<sdata.t_exons.Count();i++) {
-		 exons.Add(sdata.t_exons[i]);
+		 g_exons.Add(sdata.t_exons[i]);
 	   }
 	   //store introns:
 	   for (int i=0;i<sdata.t_introns.Count();i++) {
-		   introns.Add(sdata.t_introns[i]);
+		   g_introns.Add(sdata.t_introns[i]);
 	   }
    }
    else {
 	   //non-ballgown, regular storage of bundle guides data
-	   //use GffObj::udata as tid, it's the index in bundles::keepguides
+	   //use GffObj::udata as tid, it's the index in bundledata::keepguides
 	   for (int i=0;i<t.exons.Count();++i) {
-           addTranscriptFeature(t.exons[i]->start, t.exons[i]->end, t.strand, exons, (uint)t.udata);
+           addTranscriptFeature(t.exons[i]->start, t.exons[i]->end, t.strand, g_exons, t);
 		   if (i>0) {
 			 //add intron
-			 addTranscriptFeature(t.exons[i-1]->end+1, t.exons[i]->start-1, t.strand, introns, (uint)t.udata);
+			 addTranscriptFeature(t.exons[i-1]->end+1, t.exons[i]->start-1, t.strand, g_introns, t);
 		   }
 	   }
    } //no ballgown coverage
@@ -348,27 +345,27 @@ struct RC_BundleData {
   }
  }
 
- bool findOvlExons(GArray<RC_FeatOvl>& exovls, int hl, int hr, char strand='.', bool update_cache=true) {
-	 //exovls should be clear, unless the caller knows what she's doing
-	 bool foundovls=false;
-	 if (exons.Count()==0) return false;
+ bool findOvlExons(GArray<RC_ExonOvl>& exovls, int hl, int hr, char strand='.', bool update_cache=true) {
+	 //exovls should be clear, unless the caller knows what s/he's doing
+	 bool hasOverlaps=false;
+	 if (g_exons.Count()==0) return false;
 	 RC_Feature q(hl, hr);
 	 int xstart=0;
 	 bool no_cache=(xcache_pos==0 || xcache_pos>hl);
 	 if (no_cache) {
 		 if (update_cache) {
 			 //xcache=exons.end();
-			 xcache=exons.Count()-1;
+			 xcache=g_exons.Count()-1;
 			 xcache_pos=0;
 		 }
 	 }
 	 else xstart=xcache; //must have a valid value
 	 bool upd_cache(update_cache);
-	 int last_checked_exon=exons.Count()-1;
-	 for (int p=xstart;p < exons.Count();++p) {
+	 int last_checked_exon=g_exons.Count()-1;
+	 for (int p=xstart;p < g_exons.Count();++p) {
 		 last_checked_exon=p;
-		 int l=exons[p]->l;
-		 int r=exons[p]->r;
+		 int l=g_exons[p]->l;
+		 int r=g_exons[p]->r;
 		 if (l > hr) break;
 		 if (hl > r) continue;
 		 //exon overlap here
@@ -384,16 +381,19 @@ struct RC_BundleData {
 			 xcache=p;
 			 upd_cache=false;
 		 }
-		 if (strand!='.' && strand!=exons[p]->strand) continue; //non-matching strand
-		 foundovls=true;
-		 RC_FeatOvl fovl(exons[p], ovlen);
-		 exovls.Add(fovl);
+		 if (strand!='.' && strand!=g_exons[p]->strand) continue; //non-matching strand
+		 if (ovlen>=5) {
+			 //TODO: check this, arbitrary ovl minimum of 5bp
+			 hasOverlaps=true;
+			 RC_ExonOvl fovl(g_exons[p], ovlen);
+			 exovls.Add(fovl);
+		 }
 	 }
 	 if (update_cache) {
 		 if (upd_cache) xcache=last_checked_exon; //there was no overlap found
 		 xcache_pos=hl;
 	 }
-	 return foundovls;
+	 return hasOverlaps;
  }
 /*
  RC_FeatPtrSet findExons(int hl, int hr, char strand='.', bool update_cache=true) {
@@ -441,8 +441,8 @@ struct RC_BundleData {
    int fidx=0;
    RC_Feature* r=NULL;
    RC_Feature t(hl, hr, strand);
-   if (introns.Found(&t, fidx))
-	   r=introns[fidx];
+   if (g_introns.Found(&t, fidx))
+	   r=g_introns[fidx];
    return r;
  }
 }; //struct RC_BundleData

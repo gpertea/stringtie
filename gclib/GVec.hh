@@ -75,7 +75,7 @@ template <class OBJ> class GVec {
     GVec(int init_capacity=2);
     GVec(int init_count, const OBJ init_val);
     GVec(int init_count, OBJ* init_val, bool delete_initval=true); //convenience constructor for complex vectors
-    GVec(GVec<OBJ>& array); //copy constructor
+    GVec(const GVec<OBJ>& array); //copy constructor
     const GVec<OBJ>& operator=(GVec<OBJ>& array); //copy operator
     virtual ~GVec();
     void Insert(int idx, OBJ item) { Insert(idx, &item); }
@@ -234,7 +234,7 @@ template <class OBJ> GVec<OBJ>::GVec(int init_count, OBJ* init_val, bool delete_
 }
 
 
-template <class OBJ> GVec<OBJ>::GVec(GVec<OBJ>& array) { //copy constructor
+template <class OBJ> GVec<OBJ>::GVec(const GVec<OBJ>& array) { //copy constructor
  this->fCount=array.fCount;
  this->fCapacity=array.fCapacity;
  this->fArray=NULL;
@@ -246,7 +246,7 @@ template <class OBJ> GVec<OBJ>::GVec(GVec<OBJ>& array) { //copy constructor
    else {
      fArray=new OBJ[this->fCapacity]; //]()
      // uses OBJ operator=
-     for (int i=0;i<this->fCount;i++) fArray[i]=array[i];
+     for (int i=0;i<this->fCount;i++) fArray[i]=array.fArray[i];
    }
  }
  this->fCount=array.fCount;

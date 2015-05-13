@@ -252,11 +252,12 @@ struct CGraphnode:public GSeg {
 
 // # 0: strand; 1: start; 2: end; 3: nreads; 4: nreads_good;
 struct CJunction:public GSeg {
-	char strand; //-1,0,1 (unsigned byte)
+	char strand; //-1,0,1
+	char guide_match; //exact match of a ref intron?
 	double nreads;
 	double nreads_good;
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
-			strand(_strand), nreads(0), nreads_good(0) {}
+			strand(_strand), guide_match(0), nreads(0), nreads_good(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;
 		if (start>b.start) return false;
@@ -268,6 +269,17 @@ struct CJunction:public GSeg {
 	bool operator==(CJunction& b) {
 		return (start==b.start && end==b.end && strand==b.strand);
 	}
+};
+
+struct GReadAlnData {
+	GBamRecord* brec;
+	char strand; //-1, 0, 1
+	int nh;
+	int hi;
+	GPVec<CJunction> juncs;
+	GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
+	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0, int hit_idx=0):brec(bamrec),
+			strand(nstrand), nh(num_hits), hi(hit_idx), juncs(true), g_exonovls(true) { }
 };
 
 struct CTCov { //covered transcript info
@@ -346,7 +358,8 @@ struct BundleData {
  */
  void keepGuide(GffObj* scaff);
 
- bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
+ //bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
+ bool evalReadAln(GReadAlnData& alndata, char& strand);
 
  void Clear() {
 	keepguides.Clear();
@@ -372,7 +385,8 @@ struct BundleData {
 };
 
 int processRead(int currentstart, int currentend, BundleData& bdata,
-		 GHash<int>& hashread, GBamRecord& brec, char strand, int nh, int hi);
+		 GHash<int>& hashread, GReadAlnData& alndata);
+		 //GBamRecord& brec, char strand, int nh, int hi);
 
 void countFragment(BundleData& bdata, GBamRecord& brec, int hi);
 

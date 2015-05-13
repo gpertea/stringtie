@@ -86,7 +86,8 @@ template <class OBJ> class GList:public GPVec<OBJ> {
                                              else return  0;
       }
   public:
-    void sortInsert(int idx, OBJ* item);
+    void sortInsert(int idx, OBJ* item); //special insert in sorted lists
+         //WARNING: the caller must know the insert index such that the sort order is preserved!
     GList(GCompareProc* compareProc=NULL); //free by default
     GList(GCompareProc* compareProc, //unsorted by default
         GFreeProc *freeProc,
@@ -110,7 +111,7 @@ template <class OBJ> class GList:public GPVec<OBJ> {
           }
       else fCompareProc=NULL;
       }
-    int Add(OBJ* item); //-- specific implementation if sorted
+    int Add(OBJ* item); //-- specific implementation if sorted - may become an Insert()
     void Add(GList<OBJ>& list); //add all pointers from another list
 
     OBJ* AddIfNew(OBJ* item, bool deleteIfFound=true, int* fidx=NULL);
@@ -588,7 +589,7 @@ template <class OBJ> bool GList<OBJ>::Found(OBJ* item, int& idx) {
 template <class OBJ> void GList<OBJ>::sortInsert(int idx, OBJ* item) {
  //idx must be the new position this new item must have
  //so the allowed range is [0..fCount]
- //the old idx item all the above will be shifted to idx+1
+ //the current fList[idx] and all the above will be shifted +1
  if (idx<0 || idx>this->fCount) GError(GVEC_INDEX_ERR, idx);
  if (this->fCount==this->fCapacity) {
     GPVec<OBJ>::Grow(idx, item);

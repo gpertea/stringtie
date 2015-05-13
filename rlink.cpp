@@ -110,11 +110,15 @@ void countFragment(BundleData& bdata, GBamRecord& brec, int hi) {
 }
 
 int processRead(int currentstart, int currentend, BundleData& bdata,
-		 GHash<int>& hashread, GBamRecord& brec, char strand, int nh, int hi) {
+		 GHash<int>& hashread,  GReadAlnData& alndata) {
+		 //GBamRecord& brec, char strand, int nh, int hi) {
 	GList<CReadAln>& readlist = bdata.readlist;
 	GList<CJunction>& junction = bdata.junction;
 	GVec<float>& bpcov = bdata.bpcov;
-
+	GBamRecord& brec=*(alndata.brec);
+    char strand=alndata.strand;
+    int nh=alndata.nh;
+    int hi=alndata.hi;
 	int readstart=brec.start;
 	CReadAln* readaln=NULL;
 	bool covSaturated=false;
@@ -143,8 +147,7 @@ int processRead(int currentstart, int currentend, BundleData& bdata,
 		GPVec<CJunction> newjunction(false);
 		for (int i=0;i<brec.exons.Count();i++) {
 			CJunction* nj=NULL;
-			if (i) {
-				//deal with introns
+			if (i) { //deal with introns
 				GSeg seg(brec.exons[i-1].end, brec.exons[i].start);
 				leftsupport=brec.exons[i-1].len();
 				if (leftsupport>maxleftsupport) {
@@ -163,6 +166,8 @@ int processRead(int currentstart, int currentend, BundleData& bdata,
 				int maxrightsupport = support > rightsupport ? support : rightsupport;
 				nj=add_junction(seg.start, seg.end, maxleftsupport, maxrightsupport, junction, strand, nh);
 				newjunction.Add(nj);
+				if (alndata.juncs.Count())
+					nj->guide_match=alndata.juncs[i-1]->guide_match;
 			}
 			cov_add(bpcov, brec.exons[i].start-currentstart,
 					brec.exons[i].end-currentstart, float(1)/nh);
@@ -8088,7 +8093,7 @@ void clean_junctions(GList<CJunction>& junction) {
 */
 
 void clean_junctions(GList<CJunction>& junction, int refstart, GVec<float>& bpcov,GPVec<GffObj>& guides) {
-
+	/*
 	GArray <CJunction> guideintrons(true,true);
 	if(guides.Count()) { // guides are not NULL
 		for(int g=0;g<guides.Count();g++) {
@@ -8101,32 +8106,32 @@ void clean_junctions(GList<CJunction>& junction, int refstart, GVec<float>& bpco
 			}
 		}
 	}
-
+*/
 	//fprintf(stderr,"Clean junctions:\n");
 	for(int i=0;i<junction.Count();i++) {
 		CJunction& jd=*(junction[i]);
-		//if(jd.nreads_good<junctionthr) {
-		if(jd.nreads_good<junctionthr && (!guides.Count() || guideintrons.IndexOf(jd)==-1)) {
+		//if(jd.nreads_good<junctionthr && (!guides.Count() || guideintrons.IndexOf(jd)==-1)) {
+		if (jd.nreads_good<junctionthr && (!guides.Count() || !jd.guide_match)) {
 			//fprintf(stderr,"deleted junction: %d-%d (%d)\n",jd.start,jd.end,jd.strand);
 			jd.strand=0;
 		}
-		else if((int)(jd.end-jd.start)>longintron && (!guides.Count() || guideintrons.IndexOf(jd)==-1)) { // very long intron -> hard to trust unless it's well covered
+		else //if((int)(jd.end-jd.start)>longintron && (!guides.Count() || guideintrons.IndexOf(jd)==-1)) {
+			// very long intron -> hard to trust unless it's well covered
+		 if ((int)(jd.end-jd.start)>longintron && (!guides.Count() || !jd.guide_match)) {
 			int leftreach = jd.start-longintronanchor-refstart;
 			if(leftreach<0) leftreach=0;
 			int rightreach = jd.end+longintronanchor-refstart;
 			if(rightreach>=bpcov.Count()) rightreach=bpcov.Count()-1;
 			//fprintf(stderr,"cov[%d]=%f cov[%d]=%f cov[%d][=%f cov[%d]=%f\n",leftreach+refstart,bpcov[leftreach],jd.start,bpcov[jd.start-refstart-1],rightreach+refstart,bpcov[rightreach],jd.end,bpcov[jd.end-refstart]);
-			if((bpcov[leftreach]<1 && bpcov[jd.start-refstart-1]<2) || (bpcov[rightreach]<1 && bpcov[jd.end-refstart]<2)) {
+			if((bpcov[leftreach]<1 && bpcov[jd.start-refstart-1]<2) ||
+					(bpcov[rightreach]<1 && bpcov[jd.end-refstart]<2)) {
 				jd.strand=0;
 			}
 		}
-
-		/*
-		{ // DEBUG ONLY
-			fprintf(stderr,"Junction %d: %d %d %d %g %g\n",i,jd.start,jd.end,jd.strand,jd.nreads,jd.nreads_good);
-		}
-		*/
-	}
+		//{ // DEBUG ONLY
+		//	fprintf(stderr,"Junction %d: %d %d %d %g %g\n",i,jd.start,jd.end,jd.strand,jd.nreads,jd.nreads_good);
+		//}
+	} //for each read junction
 }
 
 //debug funcs
@@ -8579,7 +8584,7 @@ int print_signcluster(char strand,GList<CPrediction>& pred,GVec<int>& genes,GVec
 
 			  uint t_id=0;
 			  if (pred[n]->t_eq && pred[n]->t_eq->uptr) {
-				  t_id = ((RC_ScaffData*)pred[n]->t_eq->uptr)->t_id;
+				  t_id = ((RC_TData*)pred[n]->t_eq->uptr)->t_id;
 			  }
 			  fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
 			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
@@ -8854,7 +8859,7 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 			  transcripts[pred[n]->geneno]++;
 			  uint t_id=0;
 			  if (pred[n]->t_eq && pred[n]->t_eq->uptr) {
-				  t_id = ((RC_ScaffData*)pred[n]->t_eq->uptr)->t_id;
+				  t_id = ((RC_TData*)pred[n]->t_eq->uptr)->t_id;
 			  }
 			  fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
 			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
@@ -8982,7 +8987,7 @@ int print_cluster_inclusion(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>&
 			  transcripts[pred[n]->geneno]++;
 			  uint t_id=0;
 			  if (pred[n]->t_eq && pred[n]->t_eq->uptr) {
-				  t_id = ((RC_ScaffData*)pred[n]->t_eq->uptr)->t_id;
+				  t_id = ((RC_TData*)pred[n]->t_eq->uptr)->t_id;
 			  }
 			  fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
 			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
@@ -9077,7 +9082,7 @@ int print_transcript_signcluster(char strand,GList<CPrediction>& pred,GVec<int>&
 		  if(pred[n]->flag) {
 			  uint t_id=0;
 			  if (pred[n]->t_eq && pred[n]->t_eq->uptr) {
-				  t_id = ((RC_ScaffData*)pred[n]->t_eq->uptr)->t_id;
+				  t_id = ((RC_TData*)pred[n]->t_eq->uptr)->t_id;
 			  }
 			  fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
 			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
