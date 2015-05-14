@@ -344,9 +344,11 @@ struct BundleData {
 	 //refseq=ref;
 	 status=BUNDLE_STATUS_READY;
  }
- void rc_init(GffObj* t) {
+ void rc_init(GffObj* t, GPVec<RC_TData>* rc_tdata,
+		 GPVec<RC_Feature>* rc_edata, GPVec<RC_Feature>* rc_idata) {
 	  if (rc_data==NULL) {
-	  	rc_data = new RC_BundleData(t->start, t->end);
+	  	rc_data = new RC_BundleData(t->start, t->end,
+	  			rc_tdata, rc_edata, rc_idata);
 	  }
  }
  /* after reference annotation was loaded
@@ -356,7 +358,8 @@ struct BundleData {
 	}
 	Not needed here, we update the coverage span as each transcript is added
  */
- void keepGuide(GffObj* scaff);
+ void keepGuide(GffObj* scaff, GPVec<RC_TData>* rc_tdata=NULL,
+		 GPVec<RC_Feature>* rc_edata=NULL, GPVec<RC_Feature>* rc_idata=NULL);
 
  //bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
  bool evalReadAln(GReadAlnData& alndata, char& strand);

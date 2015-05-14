@@ -25,12 +25,13 @@ void rc_update_tdata(BundleData& bundle, GffObj& scaff,
   (*tdata).fpkm=fpkm;
 }
 */
-void BundleData::keepGuide(GffObj* t) {
+void BundleData::keepGuide(GffObj* t, GPVec<RC_TData>* rc_tdata,
+		 GPVec<RC_Feature>* rc_edata, GPVec<RC_Feature>* rc_idata) {
 	if (rc_data==NULL) {
-	  rc_init(t);
+	  rc_init(t, rc_tdata, rc_edata, rc_idata);
 	}
-	t->udata=keepguides.Add(t)+1;
-	rc_data->addTranscript(*t);
+	keepguides.Add(t);
+	t->udata=(int)rc_data->addTranscript(*t);
 }
 
 struct COvlSorter {
@@ -56,12 +57,10 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
  if ((int)brec.end<rc_data->lmin || (int)brec.start>rc_data->rmax) {
 	 return false; //hit outside coverage area
  }
- if (rc_data->g_exons.Count()==0) return false;
- if (ballgown && rc_data->tdata.Count()==0) return false;
- //nothing to do without transcripts
+ if (rc_data->g_exons.Count()==0 || rc_data->g_tdata.Count()==0)
+	 return false; //nothing to do without transcripts
  //check this read alignment against ref exons and introns
  char strandbits=0;
-
  for (int i=0;i<brec.exons.Count();i++) {
 	 if (ballgown)
 		 rc_data->updateCov(xstrand, nh, brec.exons[i].start, brec.exons[i].len());
@@ -94,7 +93,7 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 		 int j_r=brec.exons[i].start-1;
 		 RC_Feature* ri=rc_data->findIntron(j_l, j_r, xstrand);
 		 alndata.juncs.Add(new CJunction(j_l, j_r)); //don't set strand, etc. for now
-		 if (ri) {
+		 if (ri) { //update guide intron counts
 			 ri->rcount++;
 			 ri->mrcount += (nh > 1) ? (1.0/nh) : 1;
 			 if (nh==1)  ri->ucount++;

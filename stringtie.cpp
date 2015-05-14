@@ -194,16 +194,18 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;xyzwShvtien:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:");
+   "debug;help;exclude=xyzwShvtien:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:");
  args.printError(USAGE, true);
 
  GStr bamfname=Process_Options(&args);
  // == Done argument processing.
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
- GPVec<RC_TData> refguides_RC_Data(true); //raw count data for all guide transcripts
- GPVec<RC_Feature> refguides_RC_exons(true); //raw count data for all guide exons
- GPVec<RC_Feature> refguides_RC_introns(true);//raw count data for all guide introns
+ //table indexes for Ballgown Raw Counts data
+ GPVec<RC_TData> guides_RC_tdata(true); //raw count data for all guide transcripts
+ GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
+ GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
+
  GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
 
 #ifdef DEBUGPRINT
@@ -234,17 +236,17 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 			   guidegff.chars());
    }
    refguides.setCount(refseqCount); //maximum gseqid
-   uint cur_tid=0;
-   uint cur_exon_id=0;
-   uint cur_intron_id=0;
+   uint c_tid=0;
+   uint c_exon_id=0;
+   uint c_intron_id=0;
    GList<RC_Feature> uexons(true, false, true); //sorted, free items, unique
    GList<RC_Feature> uintrons(true, false, true);
    //assign unique transcript IDs based on the sorted order
    int last_refid=0;
    for (int i=0;i<gffr.gflst.Count();i++) {
 	   GffObj* m=gffr.gflst[i];
-	   if (ballgown) {
-		   RC_TData* tdata=new RC_TData(*m, ++cur_tid);
+	   if (ballgown) { //prepare memory storage/tables for all guides
+		   RC_TData* tdata=new RC_TData(*m, ++c_tid);
 		   m->uptr=tdata;
 		   if (last_refid!=m->gseq_id) {
 			   //chromosome switch
@@ -252,9 +254,9 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 			   uintrons.Clear();
 			   last_refid=m->gseq_id;
 		   }
-		   refguides_RC_Data.Add(tdata);
-		   tdata->rc_addFeatures(cur_exon_id, uexons, refguides_RC_exons,
-				   cur_intron_id, uintrons, refguides_RC_introns);
+		   guides_RC_tdata.Add(tdata);
+		   tdata->rc_addFeatures(c_exon_id, uexons, guides_RC_exons,
+				   c_intron_id, uintrons, guides_RC_introns);
 	   }
 
 	   GRefData& grefdata = refguides[m->gseq_id];
@@ -492,7 +494,8 @@ if (ballgown)
 				 if (currentend<(int)(*guides)[ng_ovlstart]->end)
 					 currentend=(*guides)[ng_ovlstart]->end;
 				 //if (ballgown)
-				  bundle->keepGuide((*guides)[ng_ovlstart]);
+				  bundle->keepGuide((*guides)[ng_ovlstart],
+						   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
 				 ng_ovlstart++;
 			 }
 			 if (ng_ovlstart>ng_start) ng_end=ng_ovlstart-1;
@@ -514,7 +517,8 @@ if (ballgown)
 					 ng_end++;
 					 //more transcripts overlapping this bundle
 					 //if (ballgown)
-					  bundle->keepGuide((*guides)[ng_end]);
+					 bundle->keepGuide((*guides)[ng_end],
+							  &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
 					 if(currentend<(int)(*guides)[ng_end]->end) {
 						 currentend=(*guides)[ng_end]->end;
 						 cend_changed=true;
@@ -605,8 +609,8 @@ if (ballgown)
 		 sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
 		 calc_fpkm=tcov*1000000000/Frag_Len;
 		 if (ballgown && t_id>0) {
-			 refguides_RC_Data[t_id-1]->fpkm=calc_fpkm;
-			 refguides_RC_Data[t_id-1]->cov=tcov;
+			 guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
+			 guides_RC_tdata[t_id-1]->cov=tcov;
 		 }
 		 for(int i=0;i<nl;i++) {
 			 fgetline(linebuf,linebuflen,t_out);
@@ -633,7 +637,7 @@ if (ballgown)
 
  //lastly, for ballgown, rewrite the tdata file with updated cov and fpkm
  if (ballgown) {
-	 rc_writeRC(refguides_RC_Data, refguides_RC_exons, refguides_RC_introns,
+	 rc_writeRC(guides_RC_tdata, guides_RC_exons, guides_RC_introns,
 			 f_tdata, f_edata, f_idata, f_e2t, f_i2t);
  }
 
