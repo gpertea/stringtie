@@ -286,7 +286,10 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 #ifdef GFF_DEBUG
   for (int r=0;r<refguides.Count();++r) {
 	  GRefData& grefdata = refguides[r];
-
+      for (int k=0;k<grefdata.rnas.Count();++k) {
+    	  GMessage("#transcript #%d : %s (%d exons)\n", k, grefdata.rnas[k]->getID(), grefdata.rnas[k]->exons.Count());
+    	  grefdata.rnas[k]->printGff(stderr);
+      }
   }
   GMessage("GFF Debug mode, exiting...\n");
   exit(0);
