@@ -1,3 +1,4 @@
+#define GFF_DEBUG 1
 #include "rlink.h"
 #ifndef NOTHREADS
 #include "GThreads.h"
@@ -209,7 +210,8 @@ int main(int argc, char * const argv[]) {
  // == Done argument processing.
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
- //table indexes for Ballgown Raw Counts data
+
+ //table indexes for Ballgown Raw Counts data (-B/-b option)
  GPVec<RC_TData> guides_RC_tdata(true); //raw count data for all guide transcripts
  GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
  GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
@@ -250,13 +252,13 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    GList<RC_Feature> uexons(true, false, true); //sorted, free items, unique
    GList<RC_Feature> uintrons(true, false, true);
    //assign unique transcript IDs based on the sorted order
-   int last_refid=0;
+   int last_refid=-1;
    bool skipGseq=false;
    for (int i=0;i<gffr.gflst.Count();i++) {
 	   GffObj* m=gffr.gflst[i];
 	   if (last_refid!=m->gseq_id) {
 		   //chromosome switch
-		   if (ballgown) { //prepare memory storage/tables for all guides
+		   if (ballgown) { //prepare memory storage/tables for all guides on this chromosome
 			   uexons.Clear();
 			   uintrons.Clear();
 		   }
@@ -280,6 +282,15 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 	 }
 	fclose(f);
  }
+
+#ifdef GFF_DEBUG
+  for (int r=0;r<refguides.Count();++r) {
+	  GRefData& grefdata = refguides[r];
+
+  }
+  GMessage("GFF Debug mode, exiting...\n");
+  exit(0);
+#endif
 
  // --- here we do the input processing
  gseqNames=GffObj::names; //might have been populated already by gff data
@@ -860,15 +871,15 @@ GStr Process_Options(GArgs* args) {
 			 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
 		 }
 	 //}
-
 	 int numbam=args->startNonOpt();
+#ifndef GFF_DEBUG
 	 if (numbam==0 || numbam>1) {
 	 	 GMessage("%s\nError: no BAM input file provided!\n",USAGE);
 	 	 exit(1);
 	 }
+#endif
 
 	 s=args->nextNonOpt();
-
 	 return(s);
 }
 
