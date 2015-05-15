@@ -58,8 +58,11 @@ struct RC_Feature { //exon or intron of a reference transcript
 	char strand;
 	mutable uint rcount; //# read alignments overlapping this feature (>5bp overlaps for exons;
 	                     // exact coord. match for introns)
-	mutable uint ucount; //# uniquely mapped reads overlapping this ref feature
-	mutable double mrcount; //multi-mapping weighted counts
+	mutable uint ucount; //# uniquely mapped reads overlapping/matching this ref feature
+	mutable double mrcount; //multi-map weighted read counts overlapping/matching this feature
+
+	mutable double movlcount; //exons only: multi-map weighted sum of overlap lengths
+
     double avg;
     double stdev;
     double mavg;
@@ -72,16 +75,16 @@ struct RC_Feature { //exon or intron of a reference transcript
 	};
 
 	RC_Feature(int l0=0, int r0=0, char s='.', uint fid=0, uint tid=0): id(fid), t_ids(1), l(l0), r(r0),
-		strand(s), rcount(0),ucount(0),mrcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
+		strand(s), rcount(0),ucount(0),mrcount(0), movlcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
 	if (l>r) { int t=l; l=r; r=t; }
 	if (tid>0) t_ids.Add(tid);
 	}
 	RC_Feature(const RC_Feature& seg): id(seg.id), t_ids(seg.t_ids), l(seg.l), r(seg.r),
-			strand(seg.strand), rcount(0),ucount(0),mrcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
+			strand(seg.strand), rcount(0),ucount(0),mrcount(0), movlcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
 	}
 
 	RC_Feature(const RC_Feature& seg, uint tid): id(seg.id), t_ids(1), l(seg.l), r(seg.r),
-		strand(seg.strand), rcount(0),ucount(0),mrcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
+		strand(seg.strand), rcount(0),ucount(0),mrcount(0), movlcount(0), avg(0), stdev(0), mavg(0), mstdev(0) {
 	if (l>r) { int t=l; l=r; r=t; }
 	if (tid>0) t_ids.Add(tid);
 	}

@@ -41,10 +41,18 @@ struct COvlSorter {
   }
 } OvlSorter;
 
-void rc_updateExonCounts(const RC_Feature* exon, int nh) {
-  exon->rcount++;
-  exon->mrcount += (nh > 1) ? (1.0/nh) : 1;
-  if (nh<=1)  exon->ucount++;
+void rc_updateExonCounts(const RC_ExonOvl& exonovl, int nh) {
+  //this only gets read overlaps > 5bp and otherwise filtered in evalReadAln()
+  exonovl.feature->rcount++;
+  if (nh>1) {
+	  exonovl.feature->mrcount += (1.0/nh);
+	  exonovl.feature->movlcount += ((double)exonovl.ovlen/nh);
+  }
+  else { // nh<=1
+	  exonovl.feature->mrcount++;
+	  exonovl.feature->movlcount += exonovl.ovlen;
+	  exonovl.feature->ucount++;
+  }
 }
 
 bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
@@ -81,7 +89,7 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 				 //      spanned by this same read alignment
 				 //counting this overlap for multiple exons if it's similarly large
 				 //(in the shared region of overlapping exons)
-				 rc_updateExonCounts(exonOverlaps[k].feature, nh);
+				 rc_updateExonCounts(exonOverlaps[k], nh);
 			 }
 		 //} //exon overlap >= 5
 	 } //ref exon overlaps
