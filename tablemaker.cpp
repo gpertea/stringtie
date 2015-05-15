@@ -61,6 +61,7 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 	  return false; //no ref transcripts available for this reads' region
  }
  GBamRecord& brec=*(alndata.brec);
+ int mate_pos=brec.mate_start();
  int nh=alndata.nh;
  if ((int)brec.end<rc_data->lmin || (int)brec.start>rc_data->rmax) {
 	 return false; //hit outside coverage area
@@ -74,16 +75,16 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 		 rc_data->updateCov(xstrand, nh, brec.exons[i].start, brec.exons[i].len());
 	 GArray<RC_ExonOvl> exonOverlaps(true, true); //overlaps sorted by decreasing length
 	 if (rc_data->findOvlExons(exonOverlaps, brec.exons[i].start,
-			 brec.exons[i].end, xstrand)) {
+			 brec.exons[i].end, xstrand, mate_pos)) {
 		 int max_ovl=exonOverlaps[0].ovlen;
 		 alndata.g_exonovls.Add(new GVec<RC_ExonOvl>(exonOverlaps));
 		 //if (max_ovl>=5) { //only count exon overlaps of at least 5bp
 			 for (int k=0;k<exonOverlaps.Count();++k) {
-
 				 //if (exonOverlaps[k].ovlen < 5) break; //ignore very short overlaps
 				 if (exonOverlaps[k].feature->strand=='+') strandbits |= 0x01;
 				 else if (exonOverlaps[k].feature->strand=='-') strandbits |= 0x02;
-				 if (max_ovl - exonOverlaps[k].ovlen > 5)
+				 if (k && (exonOverlaps[k].mate_ovl < exonOverlaps[0].mate_ovl
+						 || exonOverlaps[k].ovlen+5<max_ovl) )
 					 break; //ignore overlaps shorter than max_overlap - 5bp
 				 //TODO: perhaps we could use a better approach for non-overlapping ref exons
 				 //      spanned by this same read alignment

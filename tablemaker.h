@@ -130,17 +130,21 @@ struct RC_Feature { //exon or intron of a reference transcript
 
 struct RC_ExonOvl {
 	RC_Feature* feature; //pointer to an item of RC_BundleData::g_exons
+	int mate_ovl; // = 1 if the mate of this read overlaps the same exon
 	int ovlen;
 	bool operator<(const RC_ExonOvl& o) const {
+		if (mate_ovl!=o.mate_ovl)
+			return (mate_ovl>o.mate_ovl);
 		if (ovlen==o.ovlen) {
 			return (feature<o.feature) ;
 		}
 		else return (ovlen>o.ovlen);
 	} //operator <
 	bool operator==(const RC_ExonOvl& o) const {
-		return (ovlen==o.ovlen && feature==o.feature);
+		return (mate_ovl==o.mate_ovl && ovlen==o.ovlen && feature==o.feature);
 	}
-	RC_ExonOvl(RC_Feature* f=NULL, int olen=0):feature(f), ovlen(olen) {
+	RC_ExonOvl(RC_Feature* f=NULL, int olen=0, int movl=0):feature(f),
+			mate_ovl(movl), ovlen(olen) {
 	}
 };
 
@@ -386,7 +390,8 @@ struct RC_BundleData {
   }
  }
 
- bool findOvlExons(GArray<RC_ExonOvl>& exovls, int hl, int hr, char strand='.', bool update_cache=true) {
+ bool findOvlExons(GArray<RC_ExonOvl>& exovls, int hl, int hr, char strand='.',
+		                                    int mate_pos=0, bool update_cache=true) {
 	 //exovls should be clear, unless the caller knows what s/he's doing
 	 bool hasOverlaps=false;
 	 if (g_exons.Count()==0) return false;
@@ -423,10 +428,13 @@ struct RC_BundleData {
 			 upd_cache=false;
 		 }
 		 if (strand!='.' && strand!=g_exons[p]->strand) continue; //non-matching strand
-		 if (ovlen>=5) {
+		 int mate_ovl=0;
+		 if (mate_pos && mate_pos+10>l && mate_pos+5<r)
+			    mate_ovl=1; //mate read likely overlaps this exon
+		 if (mate_ovl || ovlen>=5) {
 			 //TODO: check this, arbitrary ovl minimum of 5bp
 			 hasOverlaps=true;
-			 RC_ExonOvl fovl(g_exons[p], ovlen);
+			 RC_ExonOvl fovl(g_exons[p], ovlen, mate_ovl);
 			 exovls.Add(fovl);
 		 }
 	 }
