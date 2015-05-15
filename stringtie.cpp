@@ -32,7 +32,7 @@
  stringtie <input.bam> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-n sens]\n\
   [-C <coverage_file_name>] [-s <maxcov>] [-c <min_bundle_cov>] [-g <bdist>]\n\
-  {-B | -b <dir_path>} [-e]\n\
+  [-e] [-x <seqid,..>] {-B | -b <dir_path>} \n\
 \nAssemble RNA-Seq alignments into potential transcripts.\n\
  \n\
  Options:\n\
@@ -59,12 +59,13 @@
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
  -e only estimates the abundance of given reference transcripts (requires -G)\n\
+ -x do not assemble any transcripts on these reference sequence(s)\n\
  "
 /* 
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\
  -O disable the coverage saturation limit and use a slower two-pass approach\n\
     to process the input alignments, collapsing redundant reads\n\
- -x disable fast computing for transcript path; default: yes\n\
+ -F disable fast computing for transcript path; default: yes\n\
  -i the reference annotation contains partial transcripts\n\
  -w weight the maximum flow algorithm towards the transcript with higher rate (abundance); default: no\n\
  -y include EM algorithm in max flow estimation; default: no\n\
@@ -78,6 +79,11 @@
 
 FILE* f_out=NULL;
 FILE* c_out=NULL;
+//#define B_DEBUG 1
+#ifdef B_DEBUG
+ FILE* dbg_out=NULL;
+#endif
+
 GStr outfname;
 GStr out_dir;
 GStr tmpfname;
@@ -164,6 +170,8 @@ GFastMutex bamReadingMutex;
 
 #endif
 
+GHash<int> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
+
 bool NoMoreBundles=false;
 bool moreBundles(); //thread-safe retrieves NoMoreBundles
 void noMoreBundles(); //sets NoMoreBundles to true
@@ -194,7 +202,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;exclude=xyzwShvtien:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:");
+   "debug;help;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:");
  args.printError(USAGE, true);
 
  GStr bamfname=Process_Options(&args);
@@ -243,22 +251,26 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    GList<RC_Feature> uintrons(true, false, true);
    //assign unique transcript IDs based on the sorted order
    int last_refid=0;
+   bool skipGseq=false;
    for (int i=0;i<gffr.gflst.Count();i++) {
 	   GffObj* m=gffr.gflst[i];
-	   if (ballgown) { //prepare memory storage/tables for all guides
-		   RC_TData* tdata=new RC_TData(*m, ++c_tid);
-		   m->uptr=tdata;
-		   if (last_refid!=m->gseq_id) {
-			   //chromosome switch
+	   if (last_refid!=m->gseq_id) {
+		   //chromosome switch
+		   if (ballgown) { //prepare memory storage/tables for all guides
 			   uexons.Clear();
 			   uintrons.Clear();
-			   last_refid=m->gseq_id;
 		   }
+		   last_refid=m->gseq_id;
+		   skipGseq=excludeGseqs.hasKey(m->getGSeqName());
+	   }
+	   if (skipGseq) continue;
+	   if (ballgown) {
+		   RC_TData* tdata=new RC_TData(*m, ++c_tid);
+		   m->uptr=tdata;
 		   guides_RC_tdata.Add(tdata);
 		   tdata->rc_addFeatures(c_exon_id, uexons, guides_RC_exons,
-				   c_intron_id, uintrons, guides_RC_introns);
+		          c_intron_id, uintrons, guides_RC_introns);
 	   }
-
 	   GRefData& grefdata = refguides[m->gseq_id];
 	   grefdata.add(&gffr, m); //transcripts already sorted by location
    }
@@ -320,6 +332,7 @@ if (ballgown)
  GBamRecord* brec=NULL;
  bool more_alns=true;
  int prev_pos=0;
+ bool skipGseq=false;
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;
@@ -341,6 +354,7 @@ if (ballgown)
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
 		 if (chr_changed) {
+			 skipGseq=excludeGseqs.hasKey(refseqName);
 			 gseq_id=gseqNames->gseqs.addName(refseqName);
 			 if (guided) {
 				 if (gseq_id>=refseqCount) {
@@ -358,8 +372,9 @@ if (ballgown)
 			 prev_pos=0;
 		 }
 		 if (pos<prev_pos) GError(ERR_BAM_SORT);
-		 alncounts[gseq_id]++;
 		 prev_pos=pos;
+		 if (skipGseq) continue;
+		 alncounts[gseq_id]++;
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
@@ -574,6 +589,9 @@ if (ballgown)
  }
 #endif
 
+#ifdef B_DEBUG
+ fclose(dbg_out);
+#endif
  //if (f_out && f_out!=stdout) fclose(f_out);
  fclose(f_out);
  if (c_out && c_out!=stdout) fclose(c_out);
@@ -669,7 +687,7 @@ GStr Process_Options(GArgs* args) {
 	}
 
 	 debugMode=(args->getOpt("debug")!=NULL || args->getOpt('D')!=NULL);
-	 fast=!(args->getOpt('x')!=NULL);
+	 fast=!(args->getOpt('F')!=NULL);
 	 verbose=(args->getOpt('v')!=NULL);
 	 if (verbose) {
 	     fprintf(stderr, "Command line was:\n");
@@ -686,7 +704,15 @@ GStr Process_Options(GArgs* args) {
 	   if (mintranscriptlen<30) 
 	     GError("Error: invalid -m value, must be >=30)\n");
 	 }
-
+     s=args->getOpt('x');
+     if (!s.is_empty()) {
+    	 //split by comma and populate excludeGSeqs
+    	 s.startTokenize(" ,\t");
+    	 GStr chrname;
+    	 while (s.nextToken(chrname)) {
+    		 excludeGseqs.Add(chrname.chars(),new int(0));
+    	 }
+     }
 	 s=args->getOpt('n');
 	 if (!s.is_empty()) {
 		 sensitivitylevel=s.asInt();
@@ -753,10 +779,16 @@ GStr Process_Options(GArgs* args) {
 			Gmkdir(out_dir.chars());
 		 }
 	 }
+#ifdef B_DEBUG
+	 GStr dbgfname(tmpfname);
+	 dbgfname+=".dbg";
+	 dbg_out=fopen(dbgfname.chars(), "w");
+	 if (dbg_out==NULL) GError("Error creating debug output file %s\n", dbgfname.chars());
+#endif
+
 	 tmpfname+=".tmp";
 	 f_out=fopen(tmpfname.chars(), "w");
 	 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
-
      /*
 	 if (args->getOpt('O')) {
 		 singlePass=false;
@@ -898,6 +930,32 @@ void processBundle(BundleData* bundle) {
 		}
 #endif
 	}
+#ifdef B_DEBUG
+	for (int i=0;i<bundle->keepguides.Count();++i) {
+		GffObj& t=*(bundle->keepguides[i]);
+		RC_TData* tdata=(RC_TData*)(t.uptr);
+		fprintf(dbg_out, ">%s (t_id=%d) %s%c %d %d\n", t.getID(), tdata->t_id, t.getGSeqName(), t.strand, t.start, t.end );
+		for (int fe=0;fe < tdata->t_exons.Count(); ++fe) {
+			RC_Feature& exoninfo = *(tdata->t_exons[fe]);
+			fprintf(dbg_out, "%d\texon\t%d\t%d\t%c\t%d\t%d\n", exoninfo.id, exoninfo.l, exoninfo.r,
+					    exoninfo.strand, exoninfo.rcount, exoninfo.ucount);
+			if (! (exoninfo==*(bundle->rc_data->guides_RC_exons->Get(exoninfo.id-1))))
+				 GError("exoninfo with id (%d) not matching!\n", exoninfo.id);
+		}
+		for (int fi=0;fi < tdata->t_introns.Count(); ++fi) {
+			RC_Feature& introninfo = *(tdata->t_introns[fi]);
+			fprintf(dbg_out, "%d\tintron\t%d\t%d\t%c\t%d\t%d\n", introninfo.id, introninfo.l, introninfo.r,
+					introninfo.strand, introninfo.rcount, introninfo.ucount);
+			if (! (introninfo==*(bundle->rc_data->guides_RC_introns->Get(introninfo.id-1))))
+				 GError("introninfo with id (%d) not matching!\n", introninfo.id);
+		}
+		//check that IDs are properly assigned
+		if (tdata->t_id!=(uint)t.udata) GError("tdata->t_id(%d) not matching t.udata(%d)!\n",tdata->t_id, t.udata);
+		if (tdata->t_id!=bundle->rc_data->guides_RC_tdata->Get(tdata->t_id-1)->t_id)
+			 GError("tdata->t_id(%d) not matching rc_data[t_id-1]->t_id (%d)\n", tdata->t_id, bundle->rc_data->g_tdata[tdata->t_id-1]->t_id);
+
+	}
+#endif
 	int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
 	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));

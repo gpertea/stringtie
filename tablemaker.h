@@ -278,6 +278,7 @@ struct RC_BundleData {
  }
 
  //for non-ballgown tracking of guide features
+ /*
  void addTranscriptFeature(uint fstart, uint fend, char fstrand, GList<RC_Feature>& flist, GffObj& t) {
 	uint tidx=(uint)t.udata; //in non-Ballgown case, this is the index in the BundleData::keepguides array + 1
 	RC_Feature* feat=new RC_Feature(fstart, fend, fstrand, 0, tidx);
@@ -289,7 +290,7 @@ struct RC_BundleData {
 		p->t_ids.Add(tidx);
 	}
  }
-
+*/
  uint addTranscript(GffObj& t) { //shouuld return the guide index in *guides_RC_tdata
    //if (!ps.rc_id_data()) return;
    //RC_ScaffIds& sdata = *(ps.rc_id_data());

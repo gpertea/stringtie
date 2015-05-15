@@ -120,7 +120,7 @@ FILE* rc_fwopen(const char* fname) {
  FILE* fh=fopen(fpath.chars(), "w");
  if (fh==NULL) {
    fprintf(stderr, "Error: cannot create file %s\n",
-					fpath.chars());
+        fpath.chars());
    exit(1);
    }
  return fh;
