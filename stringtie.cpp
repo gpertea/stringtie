@@ -1,10 +1,10 @@
-#define GFF_DEBUG 1
+//#define GFF_DEBUG 1
 #include "rlink.h"
 #ifndef NOTHREADS
 #include "GThreads.h"
 #endif
 
-//#undef GMEMTRACE //-- comment out to track memory use for GDEBUG in Linux
+//#define GMEMTRACE 1  //debugging mem allocation
 
 #ifdef GMEMTRACE
 #include "proc_mem.h"

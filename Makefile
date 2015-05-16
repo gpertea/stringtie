@@ -57,10 +57,10 @@ ifndef WINDOWS
  ifndef NOTHREADS
    LIBS += -lpthread
  endif
- ifdef GDEBUG
-   OBJS += ${GDIR}/proc_mem.o
-   BASEFLAGS += -DGMEMTRACE
- endif
+ #ifdef GDEBUG
+ #  OBJS += ${GDIR}/proc_mem.o
+ #  BASEFLAGS += -DGMEMTRACE
+ #endif
 endif
 
 ifdef NOTHREADS
