@@ -5159,8 +5159,24 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 		if(first) { geneno++;}
 		//CPrediction *p=new CPrediction(geneno-1, id, exons[0].start, exons.Last().end, cov, sign, fragno, len);
 		//if(t) fprintf(stderr,"store prediction with start=%d and end=%d\n",exons[0].start, exons.Last().end);
-		CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, cov, sign, fragno, len);
+		float gcov=cov;
+		if(t && t->exons.Count()==1) { // if single exon
+			RC_TData* tdata=(RC_TData*)(t->uptr);
+			if(len) gcov=(tdata->t_exons[0])->movlcount/len;
+			if(cov<gcov) gcov=cov;
+		}
+
+		/*
+		{ // DEBUG ONLY
+			if(t) {
+				fprintf(stderr,"Coverage for transcript %s = %f\n",t->getID(),gcov);
+			}
+		}
+	    */
+
+		CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, gcov, sign, fragno, len);
 		p->exons=exons;
+		if(t && t->exons.Count()==1) exoncov[0]=gcov;
 		p->exoncov=exoncov;
 		pred.Add(p);
 		first=false;
@@ -7845,11 +7861,14 @@ int build_graphs(BundleData* bdata, bool fast) {
     				int g=bnodeguides[currbnode->bid][i];
     				geneno++;
     				int glen=guides[g]->end-guides[g]->start+1;
-    				if(guides[g]->exons.Count()==1) {
-    					CPrediction *p=new CPrediction(geneno-1, guides[g], guides[g]->start, guides[g]->end, cov, guides[g]->strand, cov*glen/fraglen,glen);
+    				if(glen && guides[g]->exons.Count()==1) {
+    					RC_TData* tdata=(RC_TData*)(guides[g]->uptr);
+    					float gcov=(tdata->t_exons[0])->movlcount/glen;
+    					if(cov<gcov) gcov=cov;
+    					CPrediction *p=new CPrediction(geneno-1, guides[g], guides[g]->start, guides[g]->end, gcov, guides[g]->strand, gcov*glen/fraglen,glen);
     					GSeg exon(guides[g]->start, guides[g]->end);
     					p->exons.Add(exon);
-    					p->exoncov.Add(cov);
+    					p->exoncov.Add(gcov);
     					pred.Add(p);
     					printguides=true;
     				}
@@ -8688,7 +8707,9 @@ bool included_pred(GPVec<CPrediction>& pred,int n1,int n2) { // check if the sma
 	return false;
 }
 
-void update_cov(GPVec<CPrediction>& pred,int big,int small,float frac=1) {
+void update_cov(GPVec<CPrediction>& pred,int big,int small,float frac=1) { // small gets included into big
+
+	if(pred[big]->strand=='.') pred[big]->strand=pred[small]->strand;
 
 	if(pred[small]->t_eq && !pred[big]->t_eq) {
 		pred[big]->tlen=pred[small]->tlen;
@@ -8754,7 +8775,7 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 
 			if(included_pred(pred,keep[k],n)) {
 
-				//fprintf(stderr,"included prediction: %d %d\n",keep[k],n);
+				//fprintf(stderr,"%d prediction is included in prediction %d\n",keep[k],n);
 
 				bool checkall=false;
 
@@ -8777,6 +8798,8 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 				}
 				else update_cov(pred,keep[k],n);
 
+				if(pred[keep[k]]->strand=='.' && pred[n]->strand!='.') pred[keep[k]]->strand=pred[n]->strand;
+
 				//if(pred[n]->id && !pred[keep[k]]->id) pred[keep[k]]->id=Gstrdup(pred[n]->id);
 				if(pred[n]->t_eq && !pred[keep[k]]->t_eq) pred[keep[k]]->t_eq=pred[n]->t_eq;
 				pred[keep[k]]->frag+=pred[n]->frag;
@@ -8789,6 +8812,7 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 							update_cov(pred,keep[k],keep[j]);
 							if(pred[keep[j]]->t_eq && !pred[keep[k]]->t_eq) pred[keep[k]]->t_eq=pred[keep[j]]->t_eq;
 							pred[keep[k]]->frag+=pred[keep[j]]->frag;
+							if(pred[keep[k]]->strand=='.' && pred[keep[j]]->strand!='.') pred[keep[k]]->strand=pred[keep[j]]->strand;
 							keep.Delete(j);
 						}
 						else j++;
@@ -8886,6 +8910,7 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 				  }
 				  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
 			  }
+			  pred[n]->flag=false;
 		  }
 		  else pred[n]->flag=true;
 	  }

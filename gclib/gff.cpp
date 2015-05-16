@@ -129,7 +129,7 @@ char* GffLine::extractAttr(const char* attr, bool caseStrict, bool enforce_GTF2)
  return r;
 }
 
-static char fnamelc[128];
+
 
 GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(0),
 		dupline(NULL), line(NULL), llen(0), gseqname(NULL), track(NULL),
@@ -147,7 +147,7 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
  int i=0;
  int tidx=1;
  t[0]=line;
- 
+ char fnamelc[128];
  while (line[i]!=0) {
   if (line[i]=='\t') {
    line[i]=0;
@@ -225,13 +225,13 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
  else if (startsWith(fnamelc, "intron") || endsWith(fnamelc, "intron")) {
 	 exontype=exgffIntron;
  }
+ else if (endsWith(fnamelc,"rna") || endsWith(fnamelc,"transcript")) { // || startsWith(fnamelc+1, "rna")) {
+	 is_transcript=true;
+	 is_t_data=true;
+ }
  else if (endsWith(fnamelc, "gene") || startsWith(fnamelc, "gene")) {
 	 is_gene=true;
 	 is_t_data=true; //because its name will be attached to parented transcripts
- }
- else if (endsWith(fnamelc,"rna") || endsWith(fnamelc,"transcript")) {
-	 is_transcript=true;
-	 is_t_data=true;
  }
 
  ID=extractAttr("ID=",true);
@@ -266,7 +266,7 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 		 if (gene_id==NULL) {
 			 gene_id=extractAttr("gene_id=");
 		 }
-		 if (is_gene) {
+		 if (is_gene) { //WARNING: this might be mislabeled (e.g. TAIR: "mRNA_TE_gene")
 			 //special case: keep the Name and ID attributes of the gene feature
 			 if (gene_name==NULL)
 				 gene_name=extractAttr("Name=");
@@ -274,8 +274,9 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 				 gene_id=Gstrdup(ID);
 			 //skip=false;
 			 //return;
-			 GFREE(Parent); //TMI, we really don't care about gene Parents?
-		 } //gene feature
+			 //-- we don't care about gene parents.. unless it's a mislabeled "gene" feature
+			 //GFREE(Parent);
+		 } //gene feature (probably)
 	 }// has GFF3 ID
 	 if (Parent!=NULL) {
 		 //keep Parent attr
@@ -613,9 +614,10 @@ int GffObj::addExon(uint segstart, uint segend, double sc, char fr, int qs, int 
 		*/
 
 		 if ((ovlen>2 || ovlen==0) || exons[oi]->exontype!=exgffCDS || exontype!=exgffCDS) {
-		  if (gff_show_warnings)
+		  /*if (gff_show_warnings)
 			 GMessage("GFF Warning: merging overlapping/adjacent feature segment %s (%d-%d) with %s (%d-%d) for GFF ID %s on %s\n",
 					 strExonType(exontype), segstart, segend, strExonType(exons[oi]->exontype), exons[oi]->start, exons[oi]->end, gffID, getGSeqName());
+		   */
 			expandExon(oi, segstart, segend, exontype, sc, fr, qs, qe);
 			return oi;
 		 }
