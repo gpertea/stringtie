@@ -811,7 +811,8 @@ GStr Process_Options(GArgs* args) {
      */
 
 	 if (args->getOpt('S')) {
-		 sensitivitylevel=2;
+		 // sensitivitylevel=2; no longer supported from version 1.0.3
+		 sensitivitylevel=1;
 	 }
 
 	 s=args->getOpt('s');
