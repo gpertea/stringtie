@@ -70,7 +70,7 @@ endif
 ###----- generic build rule
 
 ifneq (,$(findstring release,$(MAKECMDGOALS)))
-  CFLAGS := -O2 -DNDEBUG -g $(BASEFLAGS)
+  CFLAGS := -O3 -DNDEBUG -g $(BASEFLAGS)
   LDFLAGS := -g -L${BAM} ${LFLAGS}
 else
   #make memcheck : use the statically linked address sanitizer in gcc 4.9.x
