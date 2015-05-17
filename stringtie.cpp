@@ -265,7 +265,14 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		   last_refid=m->gseq_id;
 		   skipGseq=excludeGseqs.hasKey(m->getGSeqName());
 	   }
+	   //sanity check: make sure there are no exonless "genes" or other
 	   if (skipGseq) continue;
+	   if (m->exons.Count()==0) {
+		    if (verbose)
+		    	GMessage("Warning: exonless GFF object %s found, added implicit exon %d-%d.\n",
+		    			m->getID(),m->start, m->end);
+		    m->exons.Add(new GffExon(m->start, m->end));
+	   }
 	   if (ballgown) {
 		   RC_TData* tdata=new RC_TData(*m, ++c_tid);
 		   m->uptr=tdata;
