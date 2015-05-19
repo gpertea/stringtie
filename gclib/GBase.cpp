@@ -222,10 +222,13 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 		*psep=0; //now gpath is the path up to this /
 		ss=psep; ++ss; //ss repositioned just after the /
 		// create current level
-		if (fileExists(gpath)!=1 && G_mkdir(gpath, perms)!=0)
+		if (fileExists(gpath)!=1 && G_mkdir(gpath, perms)!=0) {
+			GFREE(gpath);
 			return -1;
+		}
 		*psep='/';
 	}
+	GFREE(gpath);
 	return 0;
 }
 

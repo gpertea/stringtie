@@ -55,6 +55,7 @@ struct GRefData {
      rnas.Add(t);
      t->isUsed(true);
   }
+
   bool operator==(GRefData& d){
     return gseq_id==d.gseq_id;
   }
@@ -110,15 +111,16 @@ struct CGuide {
 };
 
 struct CGroup:public GSeg {
-	int grid;
 	int color;
+	int grid;
 	float cov_sum;
 	float nread;
 	float multi;
+	float neg_prop; // proportion of negative reads assigned to group out of all positives and negatives
 	CGroup *next_gr;
-	CGroup(int rstart=0, int rend=0, int _color=-1, int _grid=0, float _cov_sum=0,float _nread=0,float _multi=0,
-			CGroup *_next_gr=NULL): GSeg(rstart, rend), grid(_grid),
-			color(_color), cov_sum(_cov_sum), nread(_nread),multi(_multi), next_gr(_next_gr) { }
+	CGroup(int rstart=0, int rend=0, int _color=-1, int _grid=0, float _cov_sum=0,float _nread=0,float _multi=0,float _neg_prop=0,
+			CGroup *_next_gr=NULL): GSeg(rstart, rend), color(_color), grid(_grid),
+			cov_sum(_cov_sum), nread(_nread),multi(_multi), neg_prop(_neg_prop), next_gr(_next_gr) { }
 };
 
 struct CPrediction:public GSeg {
@@ -250,11 +252,12 @@ struct CGraphnode:public GSeg {
 
 // # 0: strand; 1: start; 2: end; 3: nreads; 4: nreads_good;
 struct CJunction:public GSeg {
-	char strand; //-1,0,1 (unsigned byte)
+	char strand; //-1,0,1
+	char guide_match; //exact match of a ref intron?
 	double nreads;
 	double nreads_good;
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
-			strand(_strand), nreads(0), nreads_good(0) {}
+			strand(_strand), guide_match(0), nreads(0), nreads_good(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;
 		if (start>b.start) return false;
@@ -266,6 +269,17 @@ struct CJunction:public GSeg {
 	bool operator==(CJunction& b) {
 		return (start==b.start && end==b.end && strand==b.strand);
 	}
+};
+
+struct GReadAlnData {
+	GBamRecord* brec;
+	char strand; //-1, 0, 1
+	int nh;
+	int hi;
+	GPVec<CJunction> juncs;
+	GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
+	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0, int hit_idx=0):brec(bamrec),
+			strand(nstrand), nh(num_hits), hi(hit_idx), juncs(true), g_exonovls(true) { }
 };
 
 struct CTCov { //covered transcript info
@@ -330,10 +344,12 @@ struct BundleData {
 	 //refseq=ref;
 	 status=BUNDLE_STATUS_READY;
  }
- void rc_init(GffObj* t) {
+ void rc_init(GffObj* t, GPVec<RC_TData>* rc_tdata,
+		 GPVec<RC_Feature>* rc_edata, GPVec<RC_Feature>* rc_idata) {
 	  if (rc_data==NULL) {
-	  	rc_data = new RC_BundleData(t->start, t->end);
-	    }
+	  	rc_data = new RC_BundleData(t->start, t->end,
+	  			rc_tdata, rc_edata, rc_idata);
+	  }
  }
  /* after reference annotation was loaded
  void rc_finalize_refs() {
@@ -342,9 +358,11 @@ struct BundleData {
 	}
 	Not needed here, we update the coverage span as each transcript is added
  */
- void rc_store_t(GffObj* scaff);
+ void keepGuide(GffObj* scaff, GPVec<RC_TData>* rc_tdata=NULL,
+		 GPVec<RC_Feature>* rc_edata=NULL, GPVec<RC_Feature>* rc_idata=NULL);
 
- bool rc_count_hit(GBamRecord& brec, char strand, int nh); //, int hi);
+ //bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
+ bool evalReadAln(GReadAlnData& alndata, char& strand);
 
  void Clear() {
 	keepguides.Clear();
@@ -369,71 +387,13 @@ struct BundleData {
  }
 };
 
-/*
-struct BundleData {
- BundleStatus status;
- int numreads;
- //GBamReader bamreader;
- int64_t bamStart; //start of bundle in BAM file
- char firstPass; //0=2nd pass, 1=1st pass, 2=single pass requested
- int idx; //index in the main bundles array
- int start;
- int end;
- bool covSaturated;
- GStr refseq;
- GList<CReadAln> readlist;
- GVec<float> bpcov;
- GList<CJunction> junction;
- GPVec<GffObj> keepguides;
- GList<CPrediction> pred;
- BundleData():status(BUNDLE_STATUS_CLEAR), numreads(0), bamStart(-1), 
-         firstPass(singlePass ? 2 : 1),
-		 idx(0), start(0), end(0), covSaturated(false), refseq(), readlist(false,true),
-		 bpcov(1024), junction(true, true, true), keepguides(false), pred(false) { }
-
-  void getReady(int currentstart, int currentend, GStr& ref) {
-	 start=currentstart;
-	 end=currentend;
-	 refseq=ref;
-	 status=BUNDLE_STATUS_READY;
-  }
-
- void Clear() {
-	keepguides.Clear();
-	pred.Clear();
-	status=BUNDLE_STATUS_CLEAR;
-	numreads=0;
-	bamStart=-1;
-	firstPass = singlePass ? 2 : 1;
-	start=0;
-	end=0;
-	covSaturated=false;
-	refseq="";
-	readlist.Clear();
-	bpcov.Clear();
-	bpcov.setCapacity(1024);
-	junction.Clear();
- }
-
- ~BundleData() {
-	Clear();
- }
-};
-*/
 int processRead(int currentstart, int currentend, BundleData& bdata,
-		 GHash<int>& hashread, GBamRecord& brec, char strand, int nh, int hi);
+		 GHash<int>& hashread, GReadAlnData& alndata);
+		 //GBamRecord& brec, char strand, int nh, int hi);
 
-void countRead(BundleData& bdata, GBamRecord& brec, int hi);
-
-//int process_read(int currentstart, int currentend, GList<CReadAln>& readlist, GHash<int>& hashread,
-//		GList<CJunction>& junction, GBamRecord& brec, char strand, int nh, int hi, GVec<float>& bpcov);
+void countFragment(BundleData& bdata, GBamRecord& brec, int hi);
 
 int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
-
-//int print_transcripts(GList<CPrediction>& pred, int ngenes, int geneno, GStr& refname);
-
-//int infer_transcripts(int refstart, GList<CReadAln>& readlist,
-//		GList<CJunction>& junction, GPVec<GffObj>& guides, GVec<float>& bpcov, GList<CPrediction>& pred, bool fast);
 
 int infer_transcripts(BundleData* bundle, bool fast);
 
