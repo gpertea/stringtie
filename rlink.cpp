@@ -7353,8 +7353,6 @@ bool guide_exon_overlap(GPVec<GffObj>& guides,int sno,uint start,uint end) {
 	return false;
 }
 
-//int build_graphs(int refstart, GList<CReadAln>& readlist,
-//		GList<CJunction>& junction, GPVec<GffObj>& guides, GVec<float>& bpcov, GList<CPrediction>& pred,bool fast) {
 int build_graphs(BundleData* bdata, bool fast) {
 	int refstart = bdata->start;
 	GList<CReadAln>& readlist = bdata->readlist;

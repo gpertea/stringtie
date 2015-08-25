@@ -135,10 +135,13 @@ struct RC_ExonOvl {
 	bool operator<(const RC_ExonOvl& o) const {
 		if (mate_ovl!=o.mate_ovl)
 			return (mate_ovl>o.mate_ovl);
-		if (ovlen==o.ovlen) {
-			return (feature<o.feature) ;
-		}
-		else return (ovlen>o.ovlen);
+		if (ovlen!=o.ovlen)
+			return (ovlen>o.ovlen);
+		if (feature->r-feature->l != o.feature->r-o.feature->l)
+			return (feature->r-feature->l > o.feature->r-o.feature->l);
+		if (feature->strand != o.feature->strand)
+			return (feature->strand<o.feature->strand);
+		return (feature->l<o.feature->l);
 	} //operator <
 	bool operator==(const RC_ExonOvl& o) const {
 		return (mate_ovl==o.mate_ovl && ovlen==o.ovlen && feature==o.feature);

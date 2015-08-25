@@ -567,26 +567,14 @@ if (ballgown)
 	 //if (ballgown && bundle->rc_data)
       //ref_overlap=
 	 GReadAlnData alndata(brec, 0, nh, hi);
-      bundle->evalReadAln(alndata, xstrand); //xstrand, nh);
-      if (xstrand=='+') alndata.strand=1;
+     bundle->evalReadAln(alndata, xstrand); //xstrand, nh);
+     if (xstrand=='+') alndata.strand=1;
 		else if (xstrand=='-') alndata.strand=-1;
-	  countFragment(*bundle, *brec, hi);
+     //GMessage("%s\t%c\t%d\n",brec->name(), xstrand, alndata.strand);
+	 countFragment(*bundle, *brec, hi);
 	 //if (!ballgown || ref_overlap)
-	  processRead(currentstart, currentend, *bundle, hashread, alndata);
+	 processRead(currentstart, currentend, *bundle, hashread, alndata);
 			  // *brec, strand, nh, hi);
-
-   //update current end to be at least as big as the start of the read pair in the fragment?? -> maybe not because then I could introduce some false positives with paired reads mapped badly
-
-	 /*
-	 if(guides) { // I need to adjust end according to guides
-		 while( ng_end+1 < ng && (int)(*guides)[ng_end+1]->start<=currentend) {
-			 ng_end++;
-			 if(currentend < (int)(*guides)[ng_end]->end) {
-				 currentend=(*guides)[ng_end]->end;
-			 }
-		 }
-	 }
-	 */
  } //for each read alignment
  if (guided && no_ref_used)
     GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"

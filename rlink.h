@@ -277,9 +277,9 @@ struct GReadAlnData {
 	int nh;
 	int hi;
 	GPVec<CJunction> juncs;
-	GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
+	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
 	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0, int hit_idx=0):brec(bamrec),
-			strand(nstrand), nh(num_hits), hi(hit_idx), juncs(true), g_exonovls(true) { }
+			strand(nstrand), nh(num_hits), hi(hit_idx), juncs(true) { } //, g_exonovls(true)
 };
 
 struct CTCov { //covered transcript info
