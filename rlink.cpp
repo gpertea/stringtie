@@ -6027,141 +6027,133 @@ void parse_trf_weight_max_flow(int gno,GPVec<CGraphnode>& no2gnode,GPVec<CTransf
 void parse_trf(int maxi,int gno,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,
 		GVec<bool>& compatible,	int& geneno,bool first,int strand,GList<CPrediction>& pred,GVec<float>& nodecov,
 		GBitVec& istranscript,GBitVec& removable,GBitVec& usednode,float maxcov,GBitVec& prevpath,bool fast) {
-
-	 GVec<int> path;
-	 GVec<float> pathincov;
-	 GVec<float> pathoutcov;
-	 path.Add(maxi);
-	 pathincov.cAdd(0.0);
-	 pathoutcov.cAdd(0.0);
-	 GBitVec pathpat(1+gno*(gno+1)/2);
-	 pathpat[maxi]=1;
-	 istranscript.reset();
-	 GHash<CComponent> computed;
-
-	 float flux=0;
-	 float fragno=0;
-	 GVec<float> nodeflux;
-
-	 /*
-	 { // DEBUG ONLY
-	 	 fprintf(stderr,"start parse_trf with maxi=%d\n",maxi);
-		 //fprintf(stderr,"Transcripts before path:");
-		 //for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d",i);
-		 //fprintf(stderr,"\n");
-	 }
-	 */
-
-	 //if(back_to_source_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno)) {
-	 if((fast && back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno)) ||
-			 (!fast && back_to_source_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno))) {
-		 	 if(includesource) path.cAdd(0);
-	 		 path.Reverse(); // back to source adds the nodes at the end to avoid pushing the list all the time
-	 		 pathincov.Reverse();
-	 		 pathoutcov.Reverse();
-
-	 		 //if(fwd_to_sink_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno)) {
-	 		if((fast && fwd_to_sink_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno)) ||
-	 				(!fast && fwd_to_sink_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno))) {
-	 			 pathincov.Clear();
-	 			 pathoutcov.Clear();
-
-	 			 //removable.reset();
-	 			 //flux=update_flux(gno,path,istranscript,transfrag,removable,no2gnode,nodeflux,pathpat);
-
-
-	 			 if(EM) flux=max_flow_EM(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,fragno);
-	 			 else if(weight)
-	 				 	 //flux=weight_max_flow_EM(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat);
-	 				 	 flux=weight_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,fragno);
-	 			 else flux=max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,fragno);
-
-	 			 /*
-	 			 { // DEBUG ONLY
-	 				 printTime(stderr);
-	 				 fprintf(stderr,"flux=%g Path:",flux);
-	 				 for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
-	 				 fprintf(stderr,"\n");
-	 			 }
-	 			 */
-	 		}
-	 		else {
-	 			//pathpat.reset();
-	 			//pathpat[maxi]=1;
-	 			pathincov.Clear();
-	 			pathoutcov.Clear();
-	 		}
-	 }
-	 else {
-		 //pathpat.reset();
-		 //pathpat[maxi]=1;
-		 pathincov.Clear();
-		 pathoutcov.Clear();
-	 }
-
-	 bool cont=true;
-
-	 if(flux>epsilon) {
-		 bool included=true;
-		 float cov=store_transcript(pred,path,nodeflux,nodecov,no2gnode,geneno,first,strand,gno,included,prevpath,fragno);
-
-		 /*
-		 { // DEBUG ONLY
-			 //fprintf(stderr,"Prevpath=");
-			 //printBitVec(prevpath);
-			 //fprintf(stderr,"\n");
-		 	 fprintf(stderr,"cov=%f maxcov=%f\n",cov,maxcov);
-		 }
-	     */
-
+    GVec<int> path;
+    GVec<float> pathincov, pathoutcov, nodeflux;
+    GHash<CComponent> computed;
+    GBitVec pathpat(1+gno*(gno+1)/2);
+    while(true) {
+        path.Clear(); path.Add(maxi);
+        pathincov.Clear(); pathincov.cAdd(0.0);
+        pathoutcov.Clear(); pathoutcov.cAdd(0.0);        
+        
+        pathpat.reset();
+        pathpat[maxi]=1;
+        
+        istranscript.reset();
+        computed.Clear();
+        
+        float flux=0;
+        float fragno=0;
+        nodeflux.Clear();
+        
+        /*
+         { // DEBUG ONLY
+         fprintf(stderr,"start parse_trf with maxi=%d\n",maxi);
+         //fprintf(stderr,"Transcripts before path:");
+         //for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d",i);
+         //fprintf(stderr,"\n");
+         }
+         */
+        
+        //if(back_to_source_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno)) {
+        if((fast && back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno)) ||
+           (!fast && back_to_source_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno))) {
+            if(includesource) path.cAdd(0);
+            path.Reverse(); // back to source adds the nodes at the end to avoid pushing the list all the time
+            pathincov.Reverse();
+            pathoutcov.Reverse();
+            
+            //if(fwd_to_sink_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno)) {
+            if((fast && fwd_to_sink_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno)) ||
+               (!fast && fwd_to_sink_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno))) {
+                //removable.reset();
+                //flux=update_flux(gno,path,istranscript,transfrag,removable,no2gnode,nodeflux,pathpat);
+                
+                
+                if(EM) flux=max_flow_EM(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,fragno);
+                else if(weight)
+                    //flux=weight_max_flow_EM(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat);
+                    flux=weight_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,fragno);
+                else flux=max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,fragno);
+                
+                /*
+                 { // DEBUG ONLY
+                 printTime(stderr);
+                 fprintf(stderr,"flux=%g Path:",flux);
+                 for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
+                 fprintf(stderr,"\n");
+                 }
+                 */
+            }
+            else {
+                //pathpat.reset();
+                //pathpat[maxi]=1;
+            }
+        }
+        else {
+            //pathpat.reset();
+            //pathpat[maxi]=1;
+        }
+        
+        bool cont=true;
+        
+        if(flux>epsilon) {
+            bool included=true;
+            float cov=store_transcript(pred,path,nodeflux,nodecov,no2gnode,geneno,first,strand,gno,included,prevpath,fragno);
+            
+            /*
+             { // DEBUG ONLY
+             //fprintf(stderr,"Prevpath=");
+             //printBitVec(prevpath);
+             //fprintf(stderr,"\n");
+             fprintf(stderr,"cov=%f maxcov=%f\n",cov,maxcov);
+             }
+             */
+            
 		 if(cov<isofrac*maxcov) {
-			 if(sensitivitylevel) usednode[maxi]=1;
-			 else usednode = usednode | prevpath;
-			 maxi=0;
-			 maxcov=0;
-			 cont=false;
-		 }
-		 else if(cov>maxcov) maxcov=cov;
-	 }
-	 else {
-		 if(sensitivitylevel) usednode[maxi]=1; // start at different locations in graph
-		 else {
-			 usednode = usednode | prevpath;
-			 usednode = usednode | pathpat;
-		 }
-
-		 maxi=0;
-		 maxcov=0;
-		 cont=false;
-	 }
-
-	 // Node coverages:
-	 for(int i=1;i<gno;i++)
-		 if(!usednode[i] && nodecov[i]>nodecov[maxi]) maxi=i;
-
-	 //fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
-
-	 if(nodecov[maxi]>=readthr && (!specific || cont)) { // if I still have nodes that are above coverage threshold
-
-		 /*
-		 { // DEBUG ONLY
-			 printTime(stderr);
-			 fprintf(stderr,"\nAfter update:\n");
-			 for(int i=0;i<gno;i++) {
-				 fprintf(stderr,"Node %d: %f ",i,nodecov[i]);
-				 fprintf(stderr,"trf=");
-				 for(int t=0;t<no2gnode[i]->trf.Count();t++) fprintf(stderr," %d(%f)",no2gnode[i]->trf[t],transfrag[no2gnode[i]->trf[t]]->abundance);
-				 fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
-			 }
-		 }
-		 */
-
-		 path.Clear();
-		 nodeflux.Clear();
-		 computed.Clear();
-		 parse_trf(maxi,gno,no2gnode,transfrag,compatible,geneno,first,strand,pred,nodecov,istranscript,removable,usednode,maxcov,prevpath,fast);
-	 }
-
+             if(sensitivitylevel) usednode[maxi]=1;
+             else usednode = usednode | prevpath;
+             maxi=0;
+             maxcov=0;
+             cont=false;
+         }
+         else if(cov>maxcov) maxcov=cov;
+        }
+        else {
+            if(sensitivitylevel) usednode[maxi]=1; // start at different locations in graph
+            else {
+                usednode = usednode | prevpath;
+                usednode = usednode | pathpat;
+            }
+            
+            maxi=0;
+            maxcov=0;
+            cont=false;
+        }
+        
+        // Node coverages:
+        for(int i=1;i<gno;i++)
+            if(!usednode[i] && nodecov[i]>nodecov[maxi]) maxi=i;
+        
+        //fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
+        
+        if(nodecov[maxi]>=readthr && (!specific || cont)) { // if I still have nodes that are above coverage threshold
+            
+            /*
+             { // DEBUG ONLY
+             printTime(stderr);
+             fprintf(stderr,"\nAfter update:\n");
+             for(int i=0;i<gno;i++) {
+             fprintf(stderr,"Node %d: %f ",i,nodecov[i]);
+             fprintf(stderr,"trf=");
+             for(int t=0;t<no2gnode[i]->trf.Count();t++) fprintf(stderr," %d(%f)",no2gnode[i]->trf[t],transfrag[no2gnode[i]->trf[t]]->abundance);
+             fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
+             }
+             }
+             */
+        }
+        else break;
+    }
 }
 
 

@@ -1,0 +1,260 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXFileReference section */
+		E8709DAA1B95D02300EFF9FE /* AUTHORS */ = {isa = PBXFileReference; lastKnownFileType = text; path = AUTHORS; sourceTree = "<group>"; };
+		E8709DAB1B95D02300EFF9FE /* bam.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam.c; sourceTree = "<group>"; };
+		E8709DAC1B95D02300EFF9FE /* bam.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bam.h; sourceTree = "<group>"; };
+		E8709DAD1B95D02300EFF9FE /* bam2bcf.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam2bcf.c; sourceTree = "<group>"; };
+		E8709DAE1B95D02300EFF9FE /* bam2bcf.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bam2bcf.h; sourceTree = "<group>"; };
+		E8709DAF1B95D02300EFF9FE /* bam2bcf_indel.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam2bcf_indel.c; sourceTree = "<group>"; };
+		E8709DB01B95D02300EFF9FE /* bam2depth.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam2depth.c; sourceTree = "<group>"; };
+		E8709DB11B95D02300EFF9FE /* bam_aux.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_aux.c; sourceTree = "<group>"; };
+		E8709DB21B95D02300EFF9FE /* bam_cat.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_cat.c; sourceTree = "<group>"; };
+		E8709DB31B95D02300EFF9FE /* bam_color.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_color.c; sourceTree = "<group>"; };
+		E8709DB41B95D02300EFF9FE /* bam_endian.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bam_endian.h; sourceTree = "<group>"; };
+		E8709DB51B95D02300EFF9FE /* bam_import.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_import.c; sourceTree = "<group>"; };
+		E8709DB61B95D02300EFF9FE /* bam_index.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_index.c; sourceTree = "<group>"; };
+		E8709DB71B95D02300EFF9FE /* bam_lpileup.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_lpileup.c; sourceTree = "<group>"; };
+		E8709DB81B95D02300EFF9FE /* bam_mate.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_mate.c; sourceTree = "<group>"; };
+		E8709DB91B95D02300EFF9FE /* bam_md.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_md.c; sourceTree = "<group>"; };
+		E8709DBA1B95D02300EFF9FE /* bam_pileup.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_pileup.c; sourceTree = "<group>"; };
+		E8709DBB1B95D02300EFF9FE /* bam_plcmd.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_plcmd.c; sourceTree = "<group>"; };
+		E8709DBC1B95D02300EFF9FE /* bam_reheader.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_reheader.c; sourceTree = "<group>"; };
+		E8709DBD1B95D02300EFF9FE /* bam_rmdup.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_rmdup.c; sourceTree = "<group>"; };
+		E8709DBE1B95D02300EFF9FE /* bam_rmdupse.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_rmdupse.c; sourceTree = "<group>"; };
+		E8709DBF1B95D02300EFF9FE /* bam_sort.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_sort.c; sourceTree = "<group>"; };
+		E8709DC01B95D02300EFF9FE /* bam_stat.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_stat.c; sourceTree = "<group>"; };
+		E8709DC11B95D02300EFF9FE /* bam_tview.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bam_tview.c; sourceTree = "<group>"; };
+		E8709DC21B95D02300EFF9FE /* bamtk.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bamtk.c; sourceTree = "<group>"; };
+		E8709DC31B95D02300EFF9FE /* bedidx.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bedidx.c; sourceTree = "<group>"; };
+		E8709DC41B95D02300EFF9FE /* bgzf.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bgzf.c; sourceTree = "<group>"; };
+		E8709DC51B95D02300EFF9FE /* bgzf.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bgzf.h; sourceTree = "<group>"; };
+		E8709DC61B95D02300EFF9FE /* bgzip.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bgzip.c; sourceTree = "<group>"; };
+		E8709DC71B95D02300EFF9FE /* ChangeLog */ = {isa = PBXFileReference; lastKnownFileType = text; path = ChangeLog; sourceTree = "<group>"; };
+		E8709DC81B95D02300EFF9FE /* COPYING */ = {isa = PBXFileReference; lastKnownFileType = text; path = COPYING; sourceTree = "<group>"; };
+		E8709DC91B95D02300EFF9FE /* cut_target.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = cut_target.c; sourceTree = "<group>"; };
+		E8709DCA1B95D02300EFF9FE /* errmod.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = errmod.c; sourceTree = "<group>"; };
+		E8709DCB1B95D02300EFF9FE /* errmod.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = errmod.h; sourceTree = "<group>"; };
+		E8709DCC1B95D02300EFF9FE /* faidx.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = faidx.c; sourceTree = "<group>"; };
+		E8709DCD1B95D02300EFF9FE /* faidx.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = faidx.h; sourceTree = "<group>"; };
+		E8709DCE1B95D02300EFF9FE /* INSTALL */ = {isa = PBXFileReference; lastKnownFileType = text; path = INSTALL; sourceTree = "<group>"; };
+		E8709DCF1B95D02300EFF9FE /* kaln.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = kaln.c; sourceTree = "<group>"; };
+		E8709DD01B95D02300EFF9FE /* kaln.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kaln.h; sourceTree = "<group>"; };
+		E8709DD11B95D02300EFF9FE /* khash.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = khash.h; sourceTree = "<group>"; };
+		E8709DD21B95D02300EFF9FE /* klist.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = klist.h; sourceTree = "<group>"; };
+		E8709DD31B95D02300EFF9FE /* knetfile.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = knetfile.c; sourceTree = "<group>"; };
+		E8709DD41B95D02300EFF9FE /* knetfile.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = knetfile.h; sourceTree = "<group>"; };
+		E8709DD51B95D02300EFF9FE /* kprobaln.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = kprobaln.c; sourceTree = "<group>"; };
+		E8709DD61B95D02300EFF9FE /* kprobaln.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kprobaln.h; sourceTree = "<group>"; };
+		E8709DD71B95D02300EFF9FE /* kseq.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kseq.h; sourceTree = "<group>"; };
+		E8709DD81B95D02300EFF9FE /* ksort.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ksort.h; sourceTree = "<group>"; };
+		E8709DD91B95D02300EFF9FE /* kstring.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = kstring.c; sourceTree = "<group>"; };
+		E8709DDA1B95D02300EFF9FE /* kstring.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kstring.h; sourceTree = "<group>"; };
+		E8709DDB1B95D02300EFF9FE /* Makefile */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
+		E8709DDC1B95D02300EFF9FE /* NEWS */ = {isa = PBXFileReference; lastKnownFileType = text; path = NEWS; sourceTree = "<group>"; };
+		E8709DDD1B95D02300EFF9FE /* phase.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = phase.c; sourceTree = "<group>"; };
+		E8709DDE1B95D02300EFF9FE /* razf.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = razf.c; sourceTree = "<group>"; };
+		E8709DDF1B95D02300EFF9FE /* razf.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = razf.h; sourceTree = "<group>"; };
+		E8709DE01B95D02300EFF9FE /* razip.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = razip.c; sourceTree = "<group>"; };
+		E8709DE11B95D02300EFF9FE /* sam.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = sam.c; sourceTree = "<group>"; };
+		E8709DE21B95D02300EFF9FE /* sam.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sam.h; sourceTree = "<group>"; };
+		E8709DE31B95D02300EFF9FE /* sam_header.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = sam_header.c; sourceTree = "<group>"; };
+		E8709DE41B95D02300EFF9FE /* sam_header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sam_header.h; sourceTree = "<group>"; };
+		E8709DE51B95D02300EFF9FE /* sam_view.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = sam_view.c; sourceTree = "<group>"; };
+		E8709DE61B95D02300EFF9FE /* sample.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = sample.c; sourceTree = "<group>"; };
+		E8709DE71B95D02300EFF9FE /* sample.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sample.h; sourceTree = "<group>"; };
+		E8709DE81B95D02300EFF9FE /* samtools.1 */ = {isa = PBXFileReference; lastKnownFileType = text.man; path = samtools.1; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		E8709DA41B95D02300EFF9FE = {
+			isa = PBXGroup;
+			children = (
+				E8709DAA1B95D02300EFF9FE /* AUTHORS */,
+				E8709DAB1B95D02300EFF9FE /* bam.c */,
+				E8709DAC1B95D02300EFF9FE /* bam.h */,
+				E8709DAD1B95D02300EFF9FE /* bam2bcf.c */,
+				E8709DAE1B95D02300EFF9FE /* bam2bcf.h */,
+				E8709DAF1B95D02300EFF9FE /* bam2bcf_indel.c */,
+				E8709DB01B95D02300EFF9FE /* bam2depth.c */,
+				E8709DB11B95D02300EFF9FE /* bam_aux.c */,
+				E8709DB21B95D02300EFF9FE /* bam_cat.c */,
+				E8709DB31B95D02300EFF9FE /* bam_color.c */,
+				E8709DB41B95D02300EFF9FE /* bam_endian.h */,
+				E8709DB51B95D02300EFF9FE /* bam_import.c */,
+				E8709DB61B95D02300EFF9FE /* bam_index.c */,
+				E8709DB71B95D02300EFF9FE /* bam_lpileup.c */,
+				E8709DB81B95D02300EFF9FE /* bam_mate.c */,
+				E8709DB91B95D02300EFF9FE /* bam_md.c */,
+				E8709DBA1B95D02300EFF9FE /* bam_pileup.c */,
+				E8709DBB1B95D02300EFF9FE /* bam_plcmd.c */,
+				E8709DBC1B95D02300EFF9FE /* bam_reheader.c */,
+				E8709DBD1B95D02300EFF9FE /* bam_rmdup.c */,
+				E8709DBE1B95D02300EFF9FE /* bam_rmdupse.c */,
+				E8709DBF1B95D02300EFF9FE /* bam_sort.c */,
+				E8709DC01B95D02300EFF9FE /* bam_stat.c */,
+				E8709DC11B95D02300EFF9FE /* bam_tview.c */,
+				E8709DC21B95D02300EFF9FE /* bamtk.c */,
+				E8709DC31B95D02300EFF9FE /* bedidx.c */,
+				E8709DC41B95D02300EFF9FE /* bgzf.c */,
+				E8709DC51B95D02300EFF9FE /* bgzf.h */,
+				E8709DC61B95D02300EFF9FE /* bgzip.c */,
+				E8709DC71B95D02300EFF9FE /* ChangeLog */,
+				E8709DC81B95D02300EFF9FE /* COPYING */,
+				E8709DC91B95D02300EFF9FE /* cut_target.c */,
+				E8709DCA1B95D02300EFF9FE /* errmod.c */,
+				E8709DCB1B95D02300EFF9FE /* errmod.h */,
+				E8709DCC1B95D02300EFF9FE /* faidx.c */,
+				E8709DCD1B95D02300EFF9FE /* faidx.h */,
+				E8709DCE1B95D02300EFF9FE /* INSTALL */,
+				E8709DCF1B95D02300EFF9FE /* kaln.c */,
+				E8709DD01B95D02300EFF9FE /* kaln.h */,
+				E8709DD11B95D02300EFF9FE /* khash.h */,
+				E8709DD21B95D02300EFF9FE /* klist.h */,
+				E8709DD31B95D02300EFF9FE /* knetfile.c */,
+				E8709DD41B95D02300EFF9FE /* knetfile.h */,
+				E8709DD51B95D02300EFF9FE /* kprobaln.c */,
+				E8709DD61B95D02300EFF9FE /* kprobaln.h */,
+				E8709DD71B95D02300EFF9FE /* kseq.h */,
+				E8709DD81B95D02300EFF9FE /* ksort.h */,
+				E8709DD91B95D02300EFF9FE /* kstring.c */,
+				E8709DDA1B95D02300EFF9FE /* kstring.h */,
+				E8709DDB1B95D02300EFF9FE /* Makefile */,
+				E8709DDC1B95D02300EFF9FE /* NEWS */,
+				E8709DDD1B95D02300EFF9FE /* phase.c */,
+				E8709DDE1B95D02300EFF9FE /* razf.c */,
+				E8709DDF1B95D02300EFF9FE /* razf.h */,
+				E8709DE01B95D02300EFF9FE /* razip.c */,
+				E8709DE11B95D02300EFF9FE /* sam.c */,
+				E8709DE21B95D02300EFF9FE /* sam.h */,
+				E8709DE31B95D02300EFF9FE /* sam_header.c */,
+				E8709DE41B95D02300EFF9FE /* sam_header.h */,
+				E8709DE51B95D02300EFF9FE /* sam_view.c */,
+				E8709DE61B95D02300EFF9FE /* sample.c */,
+				E8709DE71B95D02300EFF9FE /* sample.h */,
+				E8709DE81B95D02300EFF9FE /* samtools.1 */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXLegacyTarget section */
+		E8709DA91B95D02300EFF9FE /* samtools-0.1.18 */ = {
+			isa = PBXLegacyTarget;
+			buildArgumentsString = "$(ACTION)";
+			buildConfigurationList = E8709DE91B95D02300EFF9FE /* Build configuration list for PBXLegacyTarget "samtools-0.1.18" */;
+			buildPhases = (
+			);
+			buildToolPath = /usr/bin/make;
+			buildWorkingDirectory = "/Users/infphilo/work/stringtie/samtools-0.1.18";
+			dependencies = (
+			);
+			name = "samtools-0.1.18";
+			passBuildSettingsInEnvironment = 1;
+			productName = "samtools-0.1.18";
+		};
+/* End PBXLegacyTarget section */
+
+/* Begin PBXProject section */
+		E8709DA51B95D02300EFF9FE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+			};
+			buildConfigurationList = E8709DA81B95D02300EFF9FE /* Build configuration list for PBXProject "samtools-0.1.18" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = English;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+			);
+			mainGroup = E8709DA41B95D02300EFF9FE;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E8709DA91B95D02300EFF9FE /* samtools-0.1.18 */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin XCBuildConfiguration section */
+		E8709DA61B95D02300EFF9FE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD_32_BIT)";
+				COPY_PHASE_STRIP = NO;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx10.6;
+			};
+			name = Debug;
+		};
+		E8709DA71B95D02300EFF9FE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD_32_BIT)";
+				COPY_PHASE_STRIP = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				SDKROOT = macosx10.6;
+			};
+			name = Release;
+		};
+		E8709DEA1B95D02300EFF9FE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+				DEBUGGING_SYMBOLS = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_ENABLE_FIX_AND_CONTINUE = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				OTHER_CFLAGS = "";
+				OTHER_LDFLAGS = "";
+				PRODUCT_NAME = "samtools-0.1.18";
+			};
+			name = Debug;
+		};
+		E8709DEB1B95D02300EFF9FE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_ENABLE_FIX_AND_CONTINUE = NO;
+				OTHER_CFLAGS = "";
+				OTHER_LDFLAGS = "";
+				PRODUCT_NAME = "samtools-0.1.18";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		E8709DA81B95D02300EFF9FE /* Build configuration list for PBXProject "samtools-0.1.18" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E8709DA61B95D02300EFF9FE /* Debug */,
+				E8709DA71B95D02300EFF9FE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E8709DE91B95D02300EFF9FE /* Build configuration list for PBXLegacyTarget "samtools-0.1.18" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E8709DEA1B95D02300EFF9FE /* Debug */,
+				E8709DEB1B95D02300EFF9FE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E8709DA51B95D02300EFF9FE /* Project object */;
+}
