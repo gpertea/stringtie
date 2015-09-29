@@ -10,7 +10,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.0.4"
+#define VERSION "1.0.5"
 
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
@@ -98,7 +98,7 @@ bool complete=true;
 int num_cpus=1;
 int mintranscriptlen=200; // minimum length for a transcript to be printed
 int sensitivitylevel=1;
-int junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
+uint junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise considered noise; paper uses 3
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
@@ -128,6 +128,8 @@ bool singlePass=true; //-O will set this to False
 int GeneNo=0; //-- global "gene" counter
 unsigned long long int Num_Fragments=0; //global fragment counter (aligned pairs)
 unsigned long long int Frag_Len=0;
+unsigned long long int Num_Fragments1=0; //global fragment counter (aligned pairs); this is the back-up for programs like STAR
+unsigned long long int Frag_Len1=0;
 //bool firstPrint=true; //just for writing the GFF header before the first transcript is printed
 
 GffNames* gseqNames=NULL; //used as a dictionary for genomic sequence names and ids
@@ -462,6 +464,8 @@ if (ballgown)
 #else //no threads
 			Num_Fragments+=bundle->num_fragments;
 			Frag_Len+=bundle->frag_len;
+			Num_Fragments1+=bundle->num_fragments1;
+			Frag_Len1+=bundle->frag_len1;
 			processBundle(bundle);
 #endif
 			// ncluster++; used it for debug purposes only
@@ -497,7 +501,8 @@ if (ballgown)
 					GLockGuard<GFastMutex> lock(logMutex);
 #endif
 					printTime(stderr);
-					GMessage(" %llu aligned fragments found.\n", Num_Fragments);
+					if(Num_Fragments) GMessage(" %llu aligned fragments found.\n", Num_Fragments);
+					else GMessage(" %llu aligned fragments found.\n", Num_Fragments1);
 					//GMessage(" Done reading alignments.\n");
 				}
 			 noMoreBundles();
@@ -523,7 +528,7 @@ if (ballgown)
 			 }
 			 //if(ng_start<ng && (int)(*guides)[ng_start]->start<pos) {
 			 int ng_ovlstart=ng_start;
-			 //add all guides overlapping the current read
+			 //add all guides overlapping the current read and other guides that overlap them
 			 while (ng_ovlstart<ng && (int)(*guides)[ng_ovlstart]->start<=currentend) {
 				 if (currentstart>(int)(*guides)[ng_ovlstart]->start)
 					 currentstart=(*guides)[ng_ovlstart]->start;
@@ -567,26 +572,15 @@ if (ballgown)
 	 //if (ballgown && bundle->rc_data)
       //ref_overlap=
 	 GReadAlnData alndata(brec, 0, nh, hi);
-      bundle->evalReadAln(alndata, xstrand); //xstrand, nh);
-      if (xstrand=='+') alndata.strand=1;
+     bundle->evalReadAln(alndata, xstrand); //xstrand, nh);
+     if (xstrand=='+') alndata.strand=1;
 		else if (xstrand=='-') alndata.strand=-1;
-	  countFragment(*bundle, *brec, hi);
+     //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
+	 countFragment(*bundle, *brec, hi);
+	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
 	 //if (!ballgown || ref_overlap)
-	  processRead(currentstart, currentend, *bundle, hashread, alndata);
+	 processRead(currentstart, currentend, *bundle, hashread, alndata);
 			  // *brec, strand, nh, hi);
-
-   //update current end to be at least as big as the start of the read pair in the fragment?? -> maybe not because then I could introduce some false positives with paired reads mapped badly
-
-	 /*
-	 if(guides) { // I need to adjust end according to guides
-		 while( ng_end+1 < ng && (int)(*guides)[ng_end+1]->start<=currentend) {
-			 ng_end++;
-			 if(currentend < (int)(*guides)[ng_end]->end) {
-				 currentend=(*guides)[ng_end]->end;
-			 }
-		 }
-	 }
-	 */
  } //for each read alignment
  if (guided && no_ref_used)
     GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
@@ -616,6 +610,14 @@ if (ballgown)
  //if (f_out && f_out!=stdout) fclose(f_out);
  fclose(f_out);
  if (c_out && c_out!=stdout) fclose(c_out);
+
+
+ // this is for programs like STAR in case they start their index HI from 1 instead of 0
+ if(!Num_Fragments) {
+	 Num_Fragments=Num_Fragments1;
+	 Frag_Len=Frag_Len1;
+ }
+
 
  if(verbose) {
 	 GMessage("Total count of aligned fragments: %llu\n",Num_Fragments);
@@ -647,6 +649,9 @@ if (ballgown)
 	 while(fgetline(linebuf,linebuflen,t_out)) {
 		 sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
 		 calc_fpkm=tcov*1000000000/Frag_Len;
+
+		 //fprintf(stderr,"tid=%d tlen=%d fpkm=%g calc_fpkm=%g tcov=%g frag_len=%llu\n",t_id,tlen,fpkm,calc_fpkm,tcov,Frag_Len);
+
 		 if (ballgown && t_id>0) {
 			 guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
 			 guides_RC_tdata[t_id-1]->cov=tcov;
@@ -756,7 +761,7 @@ GStr Process_Options(GArgs* args) {
 	 }
 
 	 s=args->getOpt('a');
-	 if (!s.is_empty()) junctionsupport=s.asInt();
+	 if (!s.is_empty()) junctionsupport=(uint)s.asInt();
 	 s=args->getOpt('j');
 	 if (!s.is_empty()) junctionthr=s.asInt();
 	 s=args->getOpt('c');
@@ -938,9 +943,12 @@ void processBundle(BundleData* bundle) {
 			GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%d) (%djs, %d guides) loaded, begins processing...\n",
+		/*GMessage(">bundle %s:%d-%d(%d) (%djs, %d guides) loaded, begins processing...\n",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
+                bundle->junction.Count(), bundle->keepguides.Count());*/
+		GMessage(">bundle %s:%d-%d(%d) (%d guides) loaded, begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, 
-                bundle->junction.Count(), bundle->keepguides.Count());
+                bundle->keepguides.Count());
 #ifdef GMEMTRACE
 		double vm,rsm;
 		get_mem_usage(vm, rsm);
@@ -1064,6 +1072,8 @@ void workerThread(GThreadData& td) {
 					 bundleWork &= ~(int)0x02; //clear bit 1 (queue is empty)
 				Num_Fragments+=readyBundle->num_fragments;
 				Frag_Len+=readyBundle->frag_len;
+				Num_Fragments1+=readyBundle->num_fragments1;
+				Frag_Len1+=readyBundle->frag_len1;
 				queueMutex.unlock();
 				processBundle(readyBundle);
 				DBGPRINT2("---->> Thread%d processed bundle, now locking back queueMutex\n", td.thread->get_id());

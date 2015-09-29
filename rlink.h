@@ -7,8 +7,9 @@
 #include "GBitVec.h"
 #include "time.h"
 #include "tablemaker.h"
+#include "GIntHash.hh"
 
-#define MAX_NODE 100000
+#define MAX_NODE 1000000
 
 #define DROP 0.5
 
@@ -72,7 +73,6 @@ struct CBundlenode:public GSeg {
 	CBundlenode(int rstart=0, int rend=0, float _cov=0, int _bid=-1, CBundlenode *_nextnode=NULL):GSeg(rstart, rend),
 			cov(_cov),bid(_bid),nextnode(_nextnode) {}
 };
-
 
 // bundle data structure, holds all data needed for
 // infering transcripts from a bundle
@@ -155,13 +155,18 @@ struct CReadAln:public GSeg {
 	// 0: strand; 1: NH; 2: pair's no; 3: coords of read; 4: junctions
 	char strand; // 1, 0 (unkown), -1 (reverse)
 	short int nh;
-	int pair_idx; //mate index alignment in CReadAln list
+	float read_count;       // keeps count for all reads (including paired and unpaired)
+	GVec<float> pair_count;   // keeps count for all paired reads
+	GVec<int> pair_idx;     // keeps indeces for all pairs
+	//int pair_idx;
 	GVec<GSeg> segs; //"exons"
 	GPVec<CJunction> juncs; //junction index in CJunction list
 	//DEBUG ONLY: (discard rname when no debugging needed)
 	CReadAln(char _strand=0, short int _nh=0,
 			int rstart=0, int rend=0 /*,  const char* rname=NULL */): GSeg(rstart, rend), //name(rname),
-					strand(_strand), nh(_nh), pair_idx(-1), segs(), juncs(false) { }
+					strand(_strand),nh(_nh),read_count(0), pair_count(),pair_idx(),
+					//pair_idx(0),
+					segs(), juncs(false) { }
 };
 
 struct CGraphinfo {
@@ -246,7 +251,7 @@ struct CGraphnode:public GSeg {
 	GBitVec childpat;
 	GBitVec parentpat;
 	GVec<int> trf; // transfrags that pass the node
-	CGraphnode(int s=0,int e=0,int id=MAX_NODE,float nodecov=0,float cap=0,float r=0,float f=0):GSeg(s,e),nodeid(id),
+	CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float cap=0,float r=0,float f=0):GSeg(s,e),nodeid(id),
 			cov(nodecov),capacity(cap),rate(r),frag(f),child(),parent(),childpat(),parentpat(),trf(){}
 };
 
@@ -254,10 +259,11 @@ struct CGraphnode:public GSeg {
 struct CJunction:public GSeg {
 	char strand; //-1,0,1
 	char guide_match; //exact match of a ref intron?
-	double nreads;
+	//double nreads;
 	double nreads_good;
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
-			strand(_strand), guide_match(0), nreads(0), nreads_good(0) {}
+			strand(_strand), guide_match(0), //nreads(0),
+			nreads_good(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;
 		if (start>b.start) return false;
@@ -277,9 +283,9 @@ struct GReadAlnData {
 	int nh;
 	int hi;
 	GPVec<CJunction> juncs;
-	GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
+	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
 	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0, int hit_idx=0):brec(bamrec),
-			strand(nstrand), nh(num_hits), hi(hit_idx), juncs(true), g_exonovls(true) { }
+			strand(nstrand), nh(num_hits), hi(hit_idx), juncs(true) { } //, g_exonovls(true)
 };
 
 struct CTCov { //covered transcript info
@@ -325,18 +331,22 @@ struct BundleData {
  bool covSaturated;
  int numreads;
  int num_fragments; //aligned read/pairs
- int frag_len;
+ unsigned long frag_len;
+ int num_fragments1; //aligned read/pairs; this is the back-up in case hi:0 is not present like in STAR
+ unsigned long frag_len1;
  GStr refseq;
  GList<CReadAln> readlist;
- GVec<float> bpcov;
+ //GVec<float> bpcov;   // this also needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
  GPVec<GffObj> keepguides;
  GPVec<CTCov> covguides;
  GList<CPrediction> pred;
  RC_BundleData* rc_data;
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
-		 covSaturated(false), numreads(0), num_fragments(0), frag_len(0),refseq(), readlist(false,true),
-		 bpcov(1024), junction(true, true, true), keepguides(false), pred(false), rc_data(NULL) { }
+		 covSaturated(false), numreads(0), num_fragments(0), frag_len(0),num_fragments1(0), frag_len1(0),refseq(), readlist(false,true),
+		 //bpcov(1024),
+		 junction(true, true, true),
+		 keepguides(false), pred(false), rc_data(NULL) { }
 
  void getReady(int currentstart, int currentend) {
 	 start=currentstart;
@@ -368,8 +378,8 @@ struct BundleData {
 	keepguides.Clear();
 	pred.Clear();
 	readlist.Clear();
-	bpcov.Clear();
-	bpcov.setCapacity(1024);
+	//bpcov.Clear();
+	//bpcov.setCapacity(1024);
 	junction.Clear();
 	start=0;
 	end=0;
@@ -378,6 +388,8 @@ struct BundleData {
 	numreads=0;
 	num_fragments=0;
 	frag_len=0;
+	num_fragments1=0;
+	frag_len1=0;
 	delete rc_data;
 	rc_data=NULL;
  }
@@ -387,7 +399,7 @@ struct BundleData {
  }
 };
 
-int processRead(int currentstart, int currentend, BundleData& bdata,
+void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata);
 		 //GBamRecord& brec, char strand, int nh, int hi);
 

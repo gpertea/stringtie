@@ -77,26 +77,21 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 	 if (rc_data->findOvlExons(exonOverlaps, brec.exons[i].start,
 			 brec.exons[i].end, xstrand, mate_pos)) {
 		 int max_ovl=exonOverlaps[0].ovlen;
-		 alndata.g_exonovls.Add(new GVec<RC_ExonOvl>(exonOverlaps));
-		 //if (max_ovl>=5) { //only count exon overlaps of at least 5bp
+		 //alndata.g_exonovls.Add(new GVec<RC_ExonOvl>(exonOverlaps));
 			 for (int k=0;k<exonOverlaps.Count();++k) {
 				 //if (exonOverlaps[k].ovlen < 5) break; //ignore very short overlaps
-				 if (exonOverlaps[k].feature->strand=='+') strandbits |= 0x01;
-				 else if (exonOverlaps[k].feature->strand=='-') strandbits |= 0x02;
 				 if (k && (exonOverlaps[k].mate_ovl < exonOverlaps[0].mate_ovl
 						 || exonOverlaps[k].ovlen+5<max_ovl) )
-					 break; //ignore overlaps shorter than max_overlap - 5bp
+					 break; //ignore further overlaps after a mate matched or if they are shorter than max_overlap-5
+				 if (exonOverlaps[k].feature->strand=='+') strandbits |= 0x01;
+				 else if (exonOverlaps[k].feature->strand=='-') strandbits |= 0x02;
 				 //TODO: perhaps we could use a better approach for non-overlapping ref exons
 				 //      spanned by this same read alignment
 				 //counting this overlap for multiple exons if it's similarly large
 				 //(in the shared region of overlapping exons)
 				 rc_updateExonCounts(exonOverlaps[k], nh);
 			 }
-		 //} //exon overlap >= 5
 	 } //ref exon overlaps
-	 else { //no ref exon overlaps
-		 alndata.g_exonovls.Add(new GVec<RC_ExonOvl>((int)0));
-	 }
 	 if (i>0) { //intron processing
 		 int j_l=brec.exons[i-1].end+1;
 		 int j_r=brec.exons[i].start-1;
@@ -114,7 +109,6 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
  if (xstrand=='.' && strandbits && strandbits<3) {
 	xstrand = (strandbits==1) ? '+' : '-';
  }
-
  return true;
 }
 
