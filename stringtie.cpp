@@ -325,9 +325,8 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  GBamReader bamreader(bamfname.chars());
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
- //my %hashjunction;  //junction coords and strand => junction index
- // we won't need this because we can quick-search in junction GList directly
- //my @guides=(); //set of annotation transcript for the current locus
+
+ //set of annotation transcript for the current locus
  GList<GffObj>* guides=NULL; //list of transcripts on a specific chromosome
 
  int currentstart=0, currentend=0;
@@ -426,16 +425,6 @@ if (ballgown)
 	 if (new_bundle || chr_changed) {
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
-			 //TODO: check that the same guides are now kept
-			 //      using bundle->keepGuide()
-			 /*if (guides && ng_end>=ng_start) {
-				 for (int gi=ng_start;gi<=ng_end;gi++) {
-					 int tidx=bundle->keepguides.Add((*guides)[gi]);
-					 (*guides)[gi]->udata=tidx+1; //tid when not ballgown
-				 }
-			 }*/
-			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,
-			// \@junction,$junctionthr,$mintranscriptlen,\@keepguides);
 			// (readthr, junctionthr, mintranscriptlen are globals)
 			bundle->getReady(currentstart, currentend);
 #ifndef NOTHREADS
@@ -465,15 +454,6 @@ if (ballgown)
 				queueMutex.lock();
 			}
 			queueMutex.unlock();
-			/*
-			do {
-			     //waitForThreads();
-			     //DBGPRINT("##> NOTIFY any thread...\n");
-			     //haveBundles.notify_one();
-			     ////this_thread::sleep_for(chrono::milliseconds(1));
-			     ////sleep(0);
-			} while (!queuePopped(bundleQueue, qCount));
-			*/
 
 #else //no threads
 			//Num_Fragments+=bundle->num_fragments;
@@ -560,11 +540,6 @@ if (ballgown)
 		 //this might not happen if a longer guide had already been added to the bundle
 		 currentend=brec->end;
 		 if (guides) { //add any newly overlapping guides to bundle
-			/* ng_start=ng_end+1;
-			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
-				 // skip guides that have no read coverage
-				 ng_start++;
-			 }*/
 			 bool cend_changed;
 			 do {
 				 cend_changed=false;
@@ -584,9 +559,6 @@ if (ballgown)
 			 } while (cend_changed);
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
-      //bool ref_overlap=false;
-	 //if (ballgown && bundle->rc_data)
-      //ref_overlap=
 	 GReadAlnData alndata(brec, 0, nh, hi);
      bundle->evalReadAln(alndata, xstrand); //xstrand, nh);
      if (xstrand=='+') alndata.strand=1;
@@ -875,14 +847,6 @@ GStr Process_Options(GArgs* args) {
 		 else maxReadCov=r;
 		 */
 	 }
-
-	 /*
-	 {//DEBUG ONLY:
-		 GStr fname(outfname);
-		 fname+=".reads";
-		 unlink(fname.chars());
-	 }
-	 */
 
 	 if (args->getOpt('G')) {
 	   guidegff=args->getOpt('G');
