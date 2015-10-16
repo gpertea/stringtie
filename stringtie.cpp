@@ -10,7 +10,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.0.5"
+#define VERSION "1.1.0"
 
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
@@ -31,9 +31,9 @@
 
 #define USAGE "StringTie v"VERSION" usage:\n\
  stringtie <input.bam> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
-  [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-n sens]\n\
-  [-C <coverage_file_name>] [-s <maxcov>] [-c <min_bundle_cov>] [-g <bdist>]\n\
-  [-e] [-x <seqid,..>] {-B | -b <dir_path>} \n\
+  [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] \n\
+  [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>]\n\
+  [-e] [-x <seqid,..>] [-A <gene_file_name>] {-B | -b <dir_path>} \n\
 \nAssemble RNA-Seq alignments into potential transcripts.\n\
  \n\
  Options:\n\
@@ -47,9 +47,6 @@
  -t disable trimming of predicted transcripts based on coverage\n\
     (default: coverage trimming is enabled)\n\
  -c minimum reads per bp coverage to consider for transcript assembly (default: 2.5)\n\
- -s coverage saturation threshold; further read alignments will be\n\
-    ignored in a region where a local coverage depth of <maxcov> \n\
-    is reached (default: 1,000,000);\n\
  -v verbose (log bundle processing details)\n\
  -g gap between read mappings triggering a new bundle (default: 50)\n\
  -C output file with reference transcripts that are covered by reads\n\
@@ -60,10 +57,11 @@
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
  -e only estimates the abundance of given reference transcripts (requires -G)\n\
+ -A gene abundance estimation\n\
  -x do not assemble any transcripts on these reference sequence(s)\n\
  "
 /* 
- -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\
+ -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\ \\ deprecated for now
  -O disable the coverage saturation limit and use a slower two-pass approach\n\
     to process the input alignments, collapsing redundant reads\n\
  -F disable fast computing for transcript path; default: yes\n\
@@ -75,6 +73,9 @@
  -M fraction of bundle allowed to be covered by multi-hit reads (paper uses default: 1)\n\
  -c minimum bundle reads per bp coverage to consider for assembly (paper uses default: 3)\n\
  -S more sensitive run (default: no) disabled for now \n\
+ -s coverage saturation threshold; further read alignments will be\n\
+    ignored in a region where a local coverage depth of <maxcov> \n\
+    is reached (default: 1,000,000);\n\ \\ deprecated
 */
 //---- globals
 
@@ -88,12 +89,14 @@ FILE* c_out=NULL;
 GStr outfname;
 GStr out_dir;
 GStr tmpfname;
+GStr genefname;
 bool guided=false;
 bool trim=true;
 bool fast=true;
 bool eonly=false; // parameter -e
 bool specific=false;
 bool complete=true;
+bool geneabundance=false;
 //bool partialcov=false;
 int num_cpus=1;
 int mintranscriptlen=200; // minimum length for a transcript to be printed
@@ -119,18 +122,27 @@ bool debugMode=false;
 bool verbose=false;
 bool ballgown=false;
 
-int maxReadCov=1000000; //max local read coverage (changed with -s option)
+//int maxReadCov=1000000; //max local read coverage (changed with -s option)
 //no more reads will be considered for a bundle if the local coverage exceeds this value
 //(each exon is checked for this)
 
 bool singlePass=true; //-O will set this to False
 
 int GeneNo=0; //-- global "gene" counter
-unsigned long long int Num_Fragments=0; //global fragment counter (aligned pairs)
-unsigned long long int Frag_Len=0;
-unsigned long long int Num_Fragments1=0; //global fragment counter (aligned pairs); this is the back-up for programs like STAR
-unsigned long long int Frag_Len1=0;
+double Num_Fragments=0; //global fragment counter (aligned pairs)
+double Frag_Len=0;
+double Cov_Sum=0;
 //bool firstPrint=true; //just for writing the GFF header before the first transcript is printed
+
+/*
+double SumReads=0;
+double SumFrag=0;
+double NumCov=0;
+double NumFrag=0;
+double NumReads=0;
+double NumFrag3=0;
+double SumFrag3=0;
+*/
 
 GffNames* gseqNames=NULL; //used as a dictionary for genomic sequence names and ids
 
@@ -171,6 +183,8 @@ GFastMutex logMutex; //only when verbose - to avoid mangling the log output
 
 GFastMutex bamReadingMutex;
 
+GFastMutex countMutex;
+
 #endif
 
 GHash<int> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
@@ -205,7 +219,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:");
+   "debug;help;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:");
  args.printError(USAGE, true);
 
  GStr bamfname=Process_Options(&args);
@@ -462,10 +476,8 @@ if (ballgown)
 			*/
 
 #else //no threads
-			Num_Fragments+=bundle->num_fragments;
-			Frag_Len+=bundle->frag_len;
-			Num_Fragments1+=bundle->num_fragments1;
-			Frag_Len1+=bundle->frag_len1;
+			//Num_Fragments+=bundle->num_fragments;
+			//Frag_Len+=bundle->frag_len;
 			processBundle(bundle);
 #endif
 			// ncluster++; used it for debug purposes only
@@ -501,8 +513,7 @@ if (ballgown)
 					GLockGuard<GFastMutex> lock(logMutex);
 #endif
 					printTime(stderr);
-					if(Num_Fragments) GMessage(" %llu aligned fragments found.\n", Num_Fragments);
-					else GMessage(" %llu aligned fragments found.\n", Num_Fragments1);
+					if(Num_Fragments) GMessage(" %g aligned fragments found.\n", Num_Fragments);
 					//GMessage(" Done reading alignments.\n");
 				}
 			 noMoreBundles();
@@ -526,7 +537,6 @@ if (ballgown)
 				 // skip guides that have no read coverage
 				 ng_start++;
 			 }
-			 //if(ng_start<ng && (int)(*guides)[ng_start]->start<pos) {
 			 int ng_ovlstart=ng_start;
 			 //add all guides overlapping the current read and other guides that overlap them
 			 while (ng_ovlstart<ng && (int)(*guides)[ng_ovlstart]->start<=currentend) {
@@ -534,12 +544,11 @@ if (ballgown)
 					 currentstart=(*guides)[ng_ovlstart]->start;
 				 if (currentend<(int)(*guides)[ng_ovlstart]->end)
 					 currentend=(*guides)[ng_ovlstart]->end;
-				 //if (ballgown)
 				  bundle->keepGuide((*guides)[ng_ovlstart],
 						   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
 				 ng_ovlstart++;
 			 }
-			 if (ng_ovlstart>ng_start) ng_end=ng_ovlstart-1;
+			 ng_end=ng_ovlstart-1; //MUST update ng_end here, even if no overlaps were found
 		 } //guides present on the current chromosome
 		bundle->refseq=lastref;
 		bundle->start=currentstart;
@@ -551,19 +560,26 @@ if (ballgown)
 		 //this might not happen if a longer guide had already been added to the bundle
 		 currentend=brec->end;
 		 if (guides) { //add any newly overlapping guides to bundle
+			/* ng_start=ng_end+1;
+			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
+				 // skip guides that have no read coverage
+				 ng_start++;
+			 }*/
 			 bool cend_changed;
 			 do {
 				 cend_changed=false;
 				 while (ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=currentend) {
-					 ng_end++;
-					 //more transcripts overlapping this bundle
-					 //if (ballgown)
-					 bundle->keepGuide((*guides)[ng_end],
-							  &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
-					 if(currentend<(int)(*guides)[ng_end]->end) {
-						 currentend=(*guides)[ng_end]->end;
-						 cend_changed=true;
-					 }
+					 ++ng_end;
+					 //more transcripts overlapping this bundle?
+					 if ((int)(*guides)[ng_end]->end>=currentstart) {
+						 //it should really overlap the bundle
+						 bundle->keepGuide((*guides)[ng_end],
+								  &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+						 if(currentend<(int)(*guides)[ng_end]->end) {
+							 currentend=(*guides)[ng_end]->end;
+							 cend_changed=true;
+						 }
+				 	 }
 				 }
 			 } while (cend_changed);
 		 }
@@ -576,7 +592,7 @@ if (ballgown)
      if (xstrand=='+') alndata.strand=1;
 		else if (xstrand=='-') alndata.strand=-1;
      //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
-	 countFragment(*bundle, *brec, hi);
+	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
 	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
 	 //if (!ballgown || ref_overlap)
 	 processRead(currentstart, currentend, *bundle, hashread, alndata);
@@ -612,17 +628,9 @@ if (ballgown)
  if (c_out && c_out!=stdout) fclose(c_out);
 
 
- // this is for programs like STAR in case they start their index HI from 1 instead of 0
- if(!Num_Fragments) {
-	 Num_Fragments=Num_Fragments1;
-	 Frag_Len=Frag_Len1;
- }
-
-
  if(verbose) {
-	 GMessage("Total count of aligned fragments: %llu\n",Num_Fragments);
-	 //GMessage("Fragment length:%llu\n",Frag_Len);
-	 GMessage("Average fragment length:%g\n",(float)Frag_Len/Num_Fragments);
+	 GMessage("Total count of aligned fragments: %g\n",Num_Fragments);
+	 GMessage("Fragment coverage length:%g\n",Frag_Len/Num_Fragments);
  }
 
  f_out=stdout;
@@ -635,42 +643,65 @@ if (ballgown)
  args.printCmdLine(f_out);
  fprintf(f_out,"# StringTie version %s\n",VERSION);
 
+ FILE *g_out;
+ if(geneabundance) {
+	 g_out=fopen(genefname.chars(),"w");
+	 if (g_out==NULL) GError("Error creating output file %s\n", genefname.chars());
+	 fprintf(g_out,"Gene ID\tGene Name\tStrand\tStart\tEnd\tLength\tCoverage\tFPKM\tTPM\n");
+ }
+
  FILE* t_out=fopen(tmpfname.chars(),"rt");
  if (t_out!=NULL) {
 	 char* linebuf=NULL;
 	 int linebuflen=5000;
      GMALLOC(linebuf, linebuflen);
 	 int nl;
+	 int istr;
 	 int tlen;
 	 float tcov;
-	 float fpkm;
+	 //float fpkm;
 	 float calc_fpkm;
+	 float calc_tpm;
 	 int t_id;
 	 while(fgetline(linebuf,linebuflen,t_out)) {
-		 sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
+		 //sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
+		 sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
 		 calc_fpkm=tcov*1000000000/Frag_Len;
+		 calc_tpm=tcov*1000000/Cov_Sum;
+		 /*
+		 double eff_len=1;
+		 if((float)tlen>AvgFrag) eff_len=tlen-AvgFrag+1;
+		 calc_fpkm2=calc_fpkm*tlen/eff_len;
+		 */
 
-		 //fprintf(stderr,"tid=%d tlen=%d fpkm=%g calc_fpkm=%g tcov=%g frag_len=%llu\n",t_id,tlen,fpkm,calc_fpkm,tcov,Frag_Len);
-
-		 if (ballgown && t_id>0) {
-			 guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
-			 guides_RC_tdata[t_id-1]->cov=tcov;
-		 }
-		 for(int i=0;i<nl;i++) {
-			 fgetline(linebuf,linebuflen,t_out);
-			 if(!i) {
-				 //linebuf[strlen(line)-1]='\0';
-				 fprintf(f_out,"%s",linebuf);
-				 fprintf(f_out," FPKM \"%.6f\";",calc_fpkm);
-				 //fprintf(f_out,"FPKM \"%.6f\"; calculated_FPKM \"%.6f\";",tcov*1000000000/Frag_Len,fpkm*1000000000/(Num_Fragments*tlen));
-				 //fprintf(f_out,"flen \"%.6f\"; FPKM \"%.6f\";",fpkm,fpkm*1000000000/Num_Fragments);
-				 fprintf(f_out,"\n");
+		 //fprintf(stderr,"tid=%d tlen=%d fpkm=%g calc_fpkm=%g tcov=%g new_fpkm=%g newcalc_fpkm=%g calc_fpkm3=%g\n",t_id,tlen,fpkm,calc_fpkm,tcov,tcov*tlen*1000000000/(efflen*SumReads),calc_fpkm2,calc_fpkm3);
+		 if(istr) { // this is a transcript
+			 if (ballgown && t_id>0) {
+				 guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
+				 guides_RC_tdata[t_id-1]->cov=tcov;
 			 }
-			 else fprintf(f_out,"%s\n",linebuf);
+			 for(int i=0;i<nl;i++) {
+				 fgetline(linebuf,linebuflen,t_out);
+				 if(!i) {
+					 //linebuf[strlen(line)-1]='\0';
+					 fprintf(f_out,"%s",linebuf);
+					 fprintf(f_out," FPKM \"%.6f\";",calc_fpkm);
+					 fprintf(f_out," TPM \"%.6f\";",calc_tpm);
+					 //fprintf(f_out,"FPKM \"%.6f\"; calculated_FPKM \"%.6f\";",tcov*1000000000/Frag_Len,fpkm*1000000000/(Num_Fragments*tlen));
+					 //fprintf(f_out,"flen \"%.6f\"; FPKM \"%.6f\";",fpkm,fpkm*1000000000/Num_Fragments);
+					 fprintf(f_out,"\n");
+				 }
+				 else fprintf(f_out,"%s\n",linebuf);
+			 }
+		 }
+		 else { // this is a gene -> different file pointer
+			 fgetline(linebuf,linebuflen,t_out);
+			 fprintf(g_out,"%s\t%.6f\t%.6f\n",linebuf,calc_fpkm,calc_tpm);
 		 }
 	 }
 	 fclose(f_out);
 	 fclose(t_out);
+	 if(geneabundance) fclose(g_out);
 	 GFREE(linebuf);
 	 remove(tmpfname.chars());
  }
@@ -783,6 +814,11 @@ GStr Process_Options(GArgs* args) {
 		 mcov=(float)s.asDouble();
 	 }
 
+	 genefname=args->getOpt('A');
+	 if(!genefname.is_empty()) {
+		 geneabundance=true;
+	 }
+
 	 //f_out=stdout;
 	 tmpfname=args->getOpt('o');
 	 outfname="stdout";
@@ -827,14 +863,19 @@ GStr Process_Options(GArgs* args) {
 		 sensitivitylevel=1;
 	 }
 
+	 // coverage saturation no longer used after version 1.0.4; left here for compatibility with previous versions
 	 s=args->getOpt('s');
 	 if (!s.is_empty()) {
+		 GMessage("Coverage saturation parameter is deprecated starting at version 1.0.5");
+		 /*
 		 int r=s.asInt();
 		 if (r<2) {
 			 GMessage("Warning: invalid -s value, setting coverage saturation threshold, using default (%d)\n", maxReadCov);
 		 }
 		 else maxReadCov=r;
+		 */
 	 }
+
 	 /*
 	 {//DEBUG ONLY:
 		 GStr fname(outfname);
@@ -946,8 +987,8 @@ void processBundle(BundleData* bundle) {
 		/*GMessage(">bundle %s:%d-%d(%d) (%djs, %d guides) loaded, begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
                 bundle->junction.Count(), bundle->keepguides.Count());*/
-		GMessage(">bundle %s:%d-%d(%d) (%d guides) loaded, begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, 
+		GMessage(">bundle %s:%d-%d(%lu) (%d guides) loaded, begins processing...\n",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
                 bundle->keepguides.Count());
 #ifdef GMEMTRACE
 		double vm,rsm;
@@ -986,7 +1027,8 @@ void processBundle(BundleData* bundle) {
 
 	}
 #endif
-	int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
+	//int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
+	int ngenes=infer_transcripts(bundle, fast);
 	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
 	}
@@ -996,11 +1038,32 @@ void processBundle(BundleData* bundle) {
 #endif
 		GeneNo=printResults(bundle, ngenes, GeneNo, bundle->refseq);
 	}
+
+	if (bundle->num_fragments) {
+		#ifndef NOTHREADS
+				GLockGuard<GFastMutex> lock(countMutex);
+		#endif
+		Num_Fragments+=bundle->num_fragments;
+		Frag_Len+=bundle->frag_len;
+		Cov_Sum+=bundle->sum_cov;
+	}
+
 	if (verbose) {
-	#ifndef NOTHREADS
-			GLockGuard<GFastMutex> lock(logMutex);
-	#endif
+		#ifndef NOTHREADS
+				GLockGuard<GFastMutex> lock(logMutex);
+		#endif
 	  printTime(stderr);
+	  /*
+	  SumReads+=bundle->sumreads;
+	  SumFrag+=bundle->sumfrag;
+	  NumCov+=bundle->num_cov;
+	  NumReads+=bundle->num_reads;
+	  NumFrag+=bundle->num_frag;
+	  NumFrag3+=bundle->num_fragments3;
+	  SumFrag3+=bundle->sum_fragments3;
+	  fprintf(stderr,"Number of fragments in bundle: %g with length %g\n",bundle->num_fragments,bundle->frag_len);
+	  */
+	  fprintf(stderr,"Number of fragments in bundle: %g with sum %g\n",bundle->num_fragments,bundle->frag_len);
 	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
 	  		bundle->start, bundle->end, bundle->readlist.Count(), bundle->pred.Count());
 	#ifdef GMEMTRACE
@@ -1070,10 +1133,8 @@ void workerThread(GThreadData& td) {
 		if ((bundleWork & 0x02)!=0 && (readyBundle=bundleQueue->Pop())!=NULL) { //is bit 1 set?
 				if (bundleQueue->Count()==0)
 					 bundleWork &= ~(int)0x02; //clear bit 1 (queue is empty)
-				Num_Fragments+=readyBundle->num_fragments;
-				Frag_Len+=readyBundle->frag_len;
-				Num_Fragments1+=readyBundle->num_fragments1;
-				Frag_Len1+=readyBundle->frag_len1;
+				//Num_Fragments+=readyBundle->num_fragments;
+				//Frag_Len+=readyBundle->frag_len;
 				queueMutex.unlock();
 				processBundle(readyBundle);
 				DBGPRINT2("---->> Thread%d processed bundle, now locking back queueMutex\n", td.thread->get_id());
