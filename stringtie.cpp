@@ -33,7 +33,7 @@
  stringtie <input.bam> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] \n\
   [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>]\n\
-  [-e] [-x <seqid,..>] [-A <gene_file_name>] {-B | -b <dir_path>} \n\
+  [-e] [-x <seqid,..>] [-A <gene_abund.out>] {-B | -b <dir_path>} \n\
 \nAssemble RNA-Seq alignments into potential transcripts.\n\
  \n\
  Options:\n\
@@ -57,7 +57,7 @@
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
  -e only estimates the abundance of given reference transcripts (requires -G)\n\
- -A gene abundance estimation\n\
+ -A gene abundance estimation output file\n\
  -x do not assemble any transcripts on these reference sequence(s)\n\
  "
 /* 
@@ -618,7 +618,8 @@ if (ballgown)
  FILE *g_out;
  if(geneabundance) {
 	 g_out=fopen(genefname.chars(),"w");
-	 if (g_out==NULL) GError("Error creating output file %s\n", genefname.chars());
+	 if (g_out==NULL) 
+	      GError("Error creating gene abundance output file %s\n", genefname.chars());
 	 fprintf(g_out,"Gene ID\tGene Name\tStrand\tStart\tEnd\tLength\tCoverage\tFPKM\tTPM\n");
  }
 
@@ -626,7 +627,7 @@ if (ballgown)
  if (t_out!=NULL) {
 	 char* linebuf=NULL;
 	 int linebuflen=5000;
-     GMALLOC(linebuf, linebuflen);
+	 GMALLOC(linebuf, linebuflen);
 	 int nl;
 	 int istr;
 	 int tlen;

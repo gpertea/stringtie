@@ -566,38 +566,38 @@ template <class OBJ> GPVec<OBJ>::GPVec(GPVec& list) { //copy constructor
  fCount=list.fCount;
  fCapacity=list.fCapacity;
  fList=NULL;
- if (fCapacity>0) {
-      GMALLOC(fList, fCapacity*sizeof(OBJ*));
-      }
  fFreeProc=list.fFreeProc;
  fCount=list.fCount;
- memcpy(fList, list.fList, fCount*sizeof(OBJ*));
- //for (int i=0;i<list.Count();i++) Add(list[i]);
+ if (fCapacity>0) {
+    GMALLOC(fList, fCapacity*sizeof(OBJ*));
+    memcpy(fList, list.fList, fCount*sizeof(OBJ*));
+ }
 }
 
 template <class OBJ> GPVec<OBJ>::GPVec(GPVec* plist) { //another copy constructor
- fCount=0;
- fCapacity=plist->fCapacity;
- fList=NULL;
- if (fCapacity>0) {
-     GMALLOC(fList, fCapacity*sizeof(OBJ*));
-     }
- fFreeProc=plist->fFreeProc;
- fCount=plist->fCount;
- memcpy(fList, plist->fList, fCount*sizeof(OBJ*));
- //for (int i=0;i<list->fCount;i++) Add(plist->Get(i));
+  fCount=0;
+  fCapacity=plist->fCapacity;
+  fList=NULL;
+  fFreeProc=plist->fFreeProc;
+  fCount=plist->fCount;
+  if (fCapacity>0) {
+    GMALLOC(fList, fCapacity*sizeof(OBJ*));
+    memcpy(fList, plist->fList, fCount*sizeof(OBJ*));
+  }
 }
 
 template <class OBJ> const GPVec<OBJ>& GPVec<OBJ>::operator=(GPVec& list) {
  if (&list!=this) {
      Clear();
      fFreeProc=list.fFreeProc;
-     //Attention: the object *POINTERS* are copied,
-     // but the actual object content is NOT duplicated
-     //for (int i=0;i<list.Count();i++) Add(list[i]);
+     //Attention: only the *POINTERS* are copied,
+     // the actual objects are NOT duplicated
      fCount=list.fCount;
-     GMALLOC(fList, fCapacity*sizeof(OBJ*));
-     memcpy(fList, list.fList, fCount*sizeof(OBJ*));
+     fCapacity=list.fCapacity;
+     if (fCapacity>0) {
+        GMALLOC(fList, fCapacity*sizeof(OBJ*));
+        memcpy(fList, list.fList, fCount*sizeof(OBJ*));
+        }
      }
  return *this;
 }
