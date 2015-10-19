@@ -315,9 +315,13 @@ switch (cop) {
 } // interpret_CIGAR(), just a reference of CIGAR operations interpretation
 
  void GBamRecord::setupCoordinates() {
-   uint32_t *cigar = bam1_cigar(b);
    const bam1_core_t *c = &b->core;
    if (c->flag & BAM_FUNMAP) return; /* skip unmapped reads */
+   uint32_t *p = bam1_cigar(b);
+   //--- prevent alignment error here (reported by UB-sanitazer):
+   uint32_t *cigar= new uint32_t[c->n_cigar];
+   memcpy(cigar, p, c->n_cigar * sizeof(uint32_t));
+   //--- UBsan protection end
    int l=0;
    start=c->pos+1; //genomic start coordinate, 1-based (BAM core.pos is 0-based)
    int exstart=c->pos;
@@ -339,69 +343,9 @@ switch (cop) {
    GSeg exon(exstart+1,c->pos+l);
    exons.Add(exon);
    end=c->pos+l; //genomic start coordinate
+   delete[] cigar; //UBsan protection
  }
- /*
- int GBamRecord::find_tag(const char tag[2], uint8_t* & s, char& tag_type) {
-   //position s at the beginning of tag "data" (after the type char)
-   //returns the length of tag data, and tag type in tag_type
-   uint8_t* aux_start=bam1_aux(b);
-   s=aux_start;
-   while (s < aux_start + b->l_aux - 1) {
-     char key[2];
-     key[0] = (char)s[0]; key[1] = (char)s[1];
-     s += 2; tag_type = (char)*s; ++s;
-     int inc=0;
-     int m_inc=0;       //for 'B' case
-     uint8_t sub_type=0; // --,,--
-     switch (tag_type) {
-       case 'A':
-       case 'C':
-       case 'c':
-         inc=1;
-         break;
-       case 'S':
-       case 's':
-         inc=2;
-         break;
-       case 'I':
-       case 'i':
-       case 'f':
-         inc=4;
-         break;
-       case 'd':
-         inc=8;
-         break;
-       case 'B':
-           sub_type = *(s+1);
-           int32_t n;
-           memcpy(&n, s+1, 4);
-           inc += 5;
-           //kputc(type, &str); kputc(':', &str); kputc(sub_type, &str);
-           m_inc=0;
-           if (sub_type == 'c' || sub_type == 'C')
-                        { m_inc=1; }
-           else if (sub_type == 's' || sub_type == 'S')
-                         { m_inc = 2; }
-           else if ('i' == sub_type || 'I' == sub_type || 'f' == sub_type)
-                         { m_inc = 4; }
-           if (m_inc==0)
-              GError("Error: invalid 'B' array subtype (%c)!\n",sub_type);
-           inc += m_inc*n;
-           break;
-       case 'H':
-       case 'Z':
-         while (*(s+inc)) ++inc;
-          ++inc; // to skip the terminating \0
-         break;
-       } //switch (tag_type)
-     if (tag[0]==key[0] && tag[1]==key[1]) {
-        return inc;
-        }
-     s+=inc;
-     }//while aux data
-   return 0;
-   }
-*/
+ 
  uint8_t* GBamRecord::find_tag(const char tag[2]) {
    return bam_aux_get(this->b, tag);
  }
