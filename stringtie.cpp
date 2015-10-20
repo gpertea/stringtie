@@ -34,9 +34,9 @@
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] \n\
   [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>]\n\
   [-e] [-x <seqid,..>] [-A <gene_abund.out>] {-B | -b <dir_path>} \n\
-\nAssemble RNA-Seq alignments into potential transcripts.\n\
- \n\
+ Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
+ --version : print just the version at stdout and exit\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.1)\n\
@@ -52,13 +52,13 @@
  -C output file with reference transcripts that are covered by reads\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:0.95)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
+ -A gene abundance estimation output file\n\
  -B enable output of Ballgown table files which will be created in the\n\
     same directory as the output GTF (requires -G, -o recommended)\n\
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
  -e only estimates the abundance of given reference transcripts (requires -G)\n\
- -A gene abundance estimation output file\n\
- -x do not assemble any transcripts on these reference sequence(s)\n\
+ -x do not assemble any transcripts on the given reference sequence(s)\n\
  "
 /* 
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\ \\ deprecated for now
@@ -219,7 +219,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:");
+   "debug;help;version;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:");
  args.printError(USAGE, true);
 
  GStr bamfname=Process_Options(&args);
@@ -615,7 +615,7 @@ if (ballgown)
  args.printCmdLine(f_out);
  fprintf(f_out,"# StringTie version %s\n",VERSION);
 
- FILE *g_out;
+ FILE *g_out=NULL;
  if(geneabundance) {
 	 g_out=fopen(genefname.chars(),"w");
 	 if (g_out==NULL) 
@@ -646,7 +646,6 @@ if (ballgown)
 		 if((float)tlen>AvgFrag) eff_len=tlen-AvgFrag+1;
 		 calc_fpkm2=calc_fpkm*tlen/eff_len;
 		 */
-
 		 //fprintf(stderr,"tid=%d tlen=%d fpkm=%g calc_fpkm=%g tcov=%g new_fpkm=%g newcalc_fpkm=%g calc_fpkm3=%g\n",t_id,tlen,fpkm,calc_fpkm,tcov,tcov*tlen*1000000000/(efflen*SumReads),calc_fpkm2,calc_fpkm3);
 		 if(istr) { // this is a transcript
 			 if (ballgown && t_id>0) {
@@ -660,8 +659,6 @@ if (ballgown)
 					 fprintf(f_out,"%s",linebuf);
 					 fprintf(f_out," FPKM \"%.6f\";",calc_fpkm);
 					 fprintf(f_out," TPM \"%.6f\";",calc_tpm);
-					 //fprintf(f_out,"FPKM \"%.6f\"; calculated_FPKM \"%.6f\";",tcov*1000000000/Frag_Len,fpkm*1000000000/(Num_Fragments*tlen));
-					 //fprintf(f_out,"flen \"%.6f\"; FPKM \"%.6f\";",fpkm,fpkm*1000000000/Num_Fragments);
 					 fprintf(f_out,"\n");
 				 }
 				 else fprintf(f_out,"%s\n",linebuf);
@@ -712,10 +709,13 @@ char* sprintTime() {
 GStr Process_Options(GArgs* args) {
 
 	if (args->getOpt('h') || args->getOpt("help")) {
-		GMessage("%s",USAGE);
-	    exit(1);
+		fprintf(stdout,"%s",USAGE);
+	    exit(0);
 	}
-
+	if (args->getOpt("version")) {
+	   fprintf(stdout,"%s\n",VERSION);
+	   exit(0);
+	}
 	 debugMode=(args->getOpt("debug")!=NULL || args->getOpt('D')!=NULL);
 	 fast=!(args->getOpt('F')!=NULL);
 	 verbose=(args->getOpt('v')!=NULL);
@@ -792,44 +792,7 @@ GStr Process_Options(GArgs* args) {
 		 geneabundance=true;
 	 }
 
-	 //f_out=stdout;
 	 tmpfname=args->getOpt('o');
-	 outfname="stdout";
-	 out_dir="./";
-	 if (!tmpfname.is_empty() && tmpfname!="-") {
-		 outfname=tmpfname;
-		 int pidx=outfname.rindex('/');
-		 if (pidx>=0) //path given
-			 out_dir=outfname.substr(0,pidx+1);
-	 }
-	 else { // stdout
-		tmpfname=outfname;
-		char *stime=sprintTime();
-		tmpfname+='.';
-		tmpfname+=stime;
-	 }
-	 if (out_dir!="./") {
-		 if (fileExists(out_dir.chars())==0) {
-			//directory does not exist, create it
-			Gmkdir(out_dir.chars());
-		 }
-	 }
-#ifdef B_DEBUG
-	 GStr dbgfname(tmpfname);
-	 dbgfname+=".dbg";
-	 dbg_out=fopen(dbgfname.chars(), "w");
-	 if (dbg_out==NULL) GError("Error creating debug output file %s\n", dbgfname.chars());
-#endif
-
-	 tmpfname+=".tmp";
-	 f_out=fopen(tmpfname.chars(), "w");
-	 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
-     /*
-	 if (args->getOpt('O')) {
-		 singlePass=false;
-		 maxReadCov=0;
-	 }
-     */
 
 	 if (args->getOpt('S')) {
 		 // sensitivitylevel=2; no longer supported from version 1.0.3
@@ -866,16 +829,7 @@ GStr Process_Options(GArgs* args) {
 	 if (ballgown && !ballgown_dir.is_empty()) {
 		 GError("Error: please use either -B or -b <path> options, not both.");
 	 }
-	 if (ballgown) ballgown_dir=out_dir;
-	 else if (!ballgown_dir.is_empty()) {
-		    ballgown=true;
-		    ballgown_dir.chomp('/');ballgown_dir+='/';
-			if (fileExists(ballgown_dir.chars())==0) {
-				//directory does not exist, create it
-				Gmkdir(ballgown_dir.chars());
-			}
-	 	  }
-	 if (ballgown && !guided)
+	 if ((ballgown || !ballgown_dir.is_empty()) && !guided)
 		 GError("Error: invalid -B/-b usage, GFF reference not given (-G option required).\n");
 
 	 /* s=args->getOpt('P');
@@ -893,16 +847,60 @@ GStr Process_Options(GArgs* args) {
 			 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
 		 }
 	 //}
-	 int numbam=args->startNonOpt();
+	int numbam=args->startNonOpt();
 #ifndef GFF_DEBUG
-	 if (numbam==0 || numbam>1) {
+	if (numbam==0 || numbam>1) {
 	 	 GMessage("%s\nError: no BAM input file provided!\n",USAGE);
 	 	 exit(1);
+	}
+#endif
+	GStr bamfile=args->nextNonOpt(); //input alignment file here
+	if (fileExists(bamfile.chars())<2) {
+	    GError("Error: input BAM/SAM file %s cannot be found!\n",
+	            bamfile.chars());
+	}
+	//deferred creation of output path
+	outfname="stdout";
+	out_dir="./";
+	 if (!tmpfname.is_empty() && tmpfname!="-") {
+		 outfname=tmpfname;
+		 int pidx=outfname.rindex('/');
+		 if (pidx>=0) //path given
+			 out_dir=outfname.substr(0,pidx+1);
 	 }
+	 else { // stdout
+		tmpfname=outfname;
+		char *stime=sprintTime();
+		tmpfname+='.';
+		tmpfname+=stime;
+	 }
+	 if (out_dir!="./") {
+		 if (fileExists(out_dir.chars())==0) {
+			//directory does not exist, create it
+			Gmkdir(out_dir.chars());
+		 }
+	 }
+	 if (ballgown) ballgown_dir=out_dir;
+	   else if (!ballgown_dir.is_empty()) {
+			ballgown=true;
+			ballgown_dir.chomp('/');ballgown_dir+='/';
+			if (fileExists(ballgown_dir.chars())==0) {
+				//directory does not exist, create it
+				Gmkdir(ballgown_dir.chars());
+			}
+	   }
+#ifdef B_DEBUG
+	 GStr dbgfname(tmpfname);
+	 dbgfname+=".dbg";
+	 dbg_out=fopen(dbgfname.chars(), "w");
+	 if (dbg_out==NULL) GError("Error creating debug output file %s\n", dbgfname.chars());
 #endif
 
-	 s=args->nextNonOpt();
-	 return(s);
+	 tmpfname+=".tmp";
+	 f_out=fopen(tmpfname.chars(), "w");
+	 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
+
+	return(bamfile);
 }
 
 //---------------
