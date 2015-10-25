@@ -1252,6 +1252,7 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 			int *pos=gpos[s][g][key];
 			if(pos!=NULL) trpat[*pos]=1;
 			else {
+				//fprintf(stderr,"s=%d g=%d key=%d lastgpos=%d add edge between %d and %d\n",s,g,key,lastgpos,0,node->nodeid);
 				gpos[s][g].Add(key,lastgpos);
 				trpat[lastgpos]=1;
 				lastgpos++;
@@ -1285,6 +1286,7 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 			if(pos!=NULL) trpat[*pos]=1;
 			else {
 				gpos[s][g].Add(key,lastgpos);
+				//fprintf(stderr,"s=%d g=%d key=%d lastgpos=%d add edge between %d and %d\n",s,g,key,lastgpos, node->nodeid,gno-1);
 				trpat[lastgpos]=1;
 				lastgpos++;
 			}
@@ -1325,6 +1327,7 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 			}
 			else {
 				gpos[s][g].Add(key,lastgpos);
+				//fprintf(stderr,"s=%d g=%d key=%d lastgpos=%d add edge between %d and %d child\n",s,g,key,lastgpos,min, max);
 				childparents[lastgpos]=1;
 				node->childpat[lastgpos]=1;
 				lastgpos++;
@@ -1417,10 +1420,12 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    do {
 
-	    	//fprintf(stderr,"completed=%d njunctions=%d nje=%d njs=%d junc[njs]->start=%d currentsart=%d\n",completed,njunctions,nje,njs,junction[njs]->start,currentstart);
+	    	//fprintf(stderr,"\ncompleted=%d njunctions=%d nje=%d njs=%d junc[njs]->start=%d currentsart=%d\n",completed,njunctions,nje,njs,junction[njs]->start,currentstart);
 
-	    	while(nje<njunctions && ((ejunction[nje]->strand+1) != 2*s)) nje++; // skip junctions that don't have the same strand
-	    	while(njs<njunctions && (((junction[njs]->strand+1)!= 2*s) || (junction[njs]->start<currentstart))) njs++; // junctions that start before the current graphnode and I haven't seen them before are part of a different bundle
+	    	while(nje<njunctions && (((int)ejunction[nje]->strand+1) != 2*s)) nje++; // skip junctions that don't have the same strand
+	    	while(njs<njunctions && ((((int)junction[njs]->strand+1)!= 2*s) || (junction[njs]->start<currentstart))) njs++; // junctions that start before the current graphnode and I haven't seen them before are part of a different bundle
+
+	    	//fprintf(stderr,"\ns=%d nje=%d njs=%d junc[njs]->start=%d junc[njs]->strand=%d unc[nje]->start=%d junc[nje]->strand=%d currentsart=%d\n",s,nje,njs,junction[njs]->start,junction[njs]->strand,ejunction[nje]->start,ejunction[nje]->strand,currentstart);
 
 	    	int minjunction = -1; // process next junction -> either a start or an ending whichever has the first position on the genome; if they have same position then process ending first
 	    	if((nje<njunctions && (ejunction[nje]->end<endbundle)) || (njs<njunctions && (junction[njs]->start<=endbundle))) {
@@ -1583,7 +1588,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	visit.Resize(graphno,false);
 	GBitVec parents(graphno+edgeno);
 
-	//fprintf(stderr,"traverse graph[%d][%d] now with %d edges ....\n",s,g,edgeno);//edgeno=0;
+	//fprintf(stderr,"traverse graph[%d][%d] now with %d edges and lastgpos=%d....\n",s,g,edgeno,lastgpos);//edgeno=0;
 	traverse_dfs(s,g,source,sink,parents,graphno,visit,no2gnode,transfrag,edgeno,gpos,lastgpos);
 	//fprintf(stderr,"done traversing with edgeno=%d\n",edgeno);
 
@@ -7848,7 +7853,8 @@ bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov,GPVec<GffObj>& gui
 		return false;
 	}
 
-	if(guides.Count() && jd.guide_match && jd.nreads_good) return true;
+	if(guides.Count() && jd.guide_match) return true; // this junction is covered by at least one read: the one that calls good_junc
+													  // ^ KEEP THIS IN MIND IF WE CHANGE HOW WE USE GOOD_JUNC
 
 	/*
 	{ // DEBUG ONLY
@@ -7874,7 +7880,7 @@ bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov,GPVec<GffObj>& gui
 		return false;
 	}
 
-	if(!jd.strand) return false;
+	// if(!jd.strand) return false; the strand has to be non-zero when we call good_junc -> KEEP THIS IN MIND IF WE CHANGE HOW WE USE GOOD_JUNC
 
 	// don't trust spliced reads that have a very low coverage:
 	int sno=(int)jd.strand+1;
@@ -7958,6 +7964,7 @@ void continue_read(GList<CReadAln>& readlist,int n,int idx) {
 	}
 }
 
+/* this version will not work because the bpcov now is on three strands
 void update_junction_counts(CReadAln & rd,GVec<float>& bpcov,int refstart) {
 	int nex=rd.segs.Count();
 	GVec<uint> leftsup;
@@ -7974,15 +7981,18 @@ void update_junction_counts(CReadAln & rd,GVec<float>& bpcov,int refstart) {
 		cov_add(bpcov,rd.segs[i].start-refstart,rd.segs[i].end-refstart,0-rd.read_count);
 	}
 	for(int i=1;i<nex;i++) {
-		uint anchor=junctionsupport;
+		//uint anchor=junctionsupport;
 		//if(anchor<longintron && rd.juncs[i-1]->len()>longintron) anchor=longintronanchor; // this if I want to use a different anchor for long introns
-		if(leftsup[i-1]>=anchor && rightsup[nex-i-1]>=anchor) {
+		//if(leftsup[i-1]>=anchor && rightsup[nex-i-1]>=anchor) {
+		if(leftsup[i-1]>=junctionsupport && rightsup[nex-i-1]>=junctionsupport) { // this was a good read to support this junction
 			rd.juncs[i-1]->nreads_good-=rd.read_count;
 			if(!rd.juncs[i-1]->nreads_good) rd.juncs[i-1]->strand=0;
 			//else if(!rd.juncs[i-1]->guide_match && rd.juncs[i-1]->nreads_good<junctionthr) rd.juncs[i-1]->strand=0; // I am deleteing this one because
 		}
+		else if(!rd.juncs[i-1]->nreads_good) rd.juncs[i-1]->strand=0;
 	}
 }
+*/
 
 void update_junction_counts(CReadAln & rd) {
 	int nex=rd.segs.Count();
@@ -8000,13 +8010,15 @@ void update_junction_counts(CReadAln & rd) {
 		//cov_add(bpcov,rd.segs[i].start-refstart,rd.segs[i].end-refstart,0-rd.read_count); removed this in order not to have inconsistencies between reads
 	}
 	for(int i=1;i<nex;i++) {
-		uint anchor=junctionsupport;
-		//if(anchor<longintron && rd.juncs[i-1]->len()>longintron) anchor=longintronanchor; // this if I want to use a different anchor for long introns
-		if(leftsup[i-1]>=anchor && rightsup[nex-i-1]>=anchor) {
+
+		rd.juncs[i-1]->nreads-=rd.read_count;
+		if(!rd.juncs[i-1]->nreads) rd.juncs[i-1]->strand=0;
+
+		if(leftsup[i-1]>=junctionsupport && rightsup[nex-i-1]>=junctionsupport) { // this was a good junction but for some reason the read was thrown away
 			rd.juncs[i-1]->nreads_good-=rd.read_count;
-			if(!rd.juncs[i-1]->nreads_good) rd.juncs[i-1]->strand=0;
-			//else if(!rd.juncs[i-1]->guide_match && rd.juncs[i-1]->nreads_good<junctionthr) rd.juncs[i-1]->strand=0; // I am deleteing this one because
+			//if(!rd.juncs[i-1]->nreads_good) rd.juncs[i-1]->strand=0;
 		}
+		//else if(!rd.juncs[i-1]->nreads_good) rd.juncs[i-1]->strand=0;
 	}
 }
 
@@ -8060,6 +8072,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 				update_junction_counts(rd);
 				keep=false;
 				rd.nh=0;
+				//fprintf(stderr," - %c -",jd.strand);
 				break;
 				/*
 				// this is one version but is kind of ad-hoc --> don't like it very much: a better option might be to update junction counts
@@ -8925,19 +8938,21 @@ void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* 
 				if(rd.segs[nex-i].len()>maxrightsupport) maxrightsupport=rd.segs[nex-i].len();
 				leftsup.Add(maxleftsupport);
 				rightsup.Add(maxrightsupport);
+				rd.juncs[i-1]->nreads+=rd.read_count;
 			}
 			cov_add(bpcov,sno,rd.segs[i].start-refstart,rd.segs[i].end-refstart,rd.read_count);
 		}
 		for(int i=1;i<nex;i++) {
-			uint anchor=junctionsupport;
+			//uint anchor=junctionsupport;
 			//if(anchor<longintron && rd.juncs[i-1]->len()>longintron) anchor=longintronanchor; // this if I want to use a different anchor for long introns
-			if(leftsup[i-1]>=anchor && rightsup[nex-i-1]>=anchor) rd.juncs[i-1]->nreads_good+=rd.read_count;
+			//if(leftsup[i-1]>=anchor && rightsup[nex-i-1]>=anchor) rd.juncs[i-1]->nreads_good+=rd.read_count;
+			if(leftsup[i-1]>=junctionsupport && rightsup[nex-i-1]>=junctionsupport) rd.juncs[i-1]->nreads_good+=rd.read_count;
 		}
 	}
 
 }
 
-
+/*
 void clean_junctions(GList<CJunction>& junction, int refstart, GVec<float>& bpcov,GPVec<GffObj>& guides) {
 
 	//fprintf(stderr,"Clean junctions:\n");
@@ -8966,6 +8981,7 @@ void clean_junctions(GList<CJunction>& junction, int refstart, GVec<float>& bpco
 		//}
 	} //for each read junction
 }
+*/
 
 //debug funcs
 /*
