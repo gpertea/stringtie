@@ -274,10 +274,10 @@ struct CGraphnode:public GSeg {
 struct CJunction:public GSeg {
 	char strand; //-1,0,1
 	char guide_match; //exact match of a ref intron?
-	//double nreads;
+	double nreads;
 	double nreads_good;
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
-			strand(_strand), guide_match(0), //nreads(0),
+			strand(_strand), guide_match(0), nreads(0),
 			nreads_good(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;

@@ -10,7 +10,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.1.0"
+#define VERSION "1.1.1"
 
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
