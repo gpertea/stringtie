@@ -1,25 +1,26 @@
 ##Obtaining and installing StringTie
 
 The current version of StringTie can be downloaded from
-  http://ccb.jhu.edu/software/stringtie/
+  http://ccb.jhu.edu/software/stringtie
+  
 In order to build StringTie from the source package,
 the following steps should be taken:
 
-1. Unpack the downloaded StringTie source archive in a directory of your choice, e.g.:
+* Unpack the downloaded StringTie source archive in a directory of your choice, e.g.:
 ```
 cd ~/src/
-tar xvfz ~/Downloads/stringtie-N.NN.tar.gz
+tar xvfz ~/Downloads/stringtie-V.V.V.tar.gz
 ```
-A directory called stringtie-N.NN (where N.NN is the current
+A directory called stringtie-V.V.V (where V.V.V is the current
 numeric version of the program) will be created in the current directory.
 
-2. Change to that directory and build the stringtie executable:
+* Change to that directory and build the stringtie executable:
 ```
-cd stringtie-N.NN
+cd stringtie-V.V.V
 make release
 ```
 
-3. Optionally, the stringtie executable can be copied to one of the
+* Optionally, the stringtie executable can be copied to one of the
 shell's PATH directories for easy access, e.g.:
 ```
 cp stringtie ~/bin/
@@ -35,6 +36,7 @@ by TopHat).
 The following optional parameters can be specified (use -h/--help to get the
 usage message):
 ```
+--version : print version at stdout
 -G reference annotation to use for guiding the assembly process (GTF/GFF3)
 -l name prefix for output transcripts (default: STRG)
 -f minimum isoform fraction (default: 0.1)
@@ -43,21 +45,20 @@ usage message):
 -a minimum anchor length for junctions (default: 10)
 -j minimum junction coverage (default: 1)
 -t disable trimming of predicted transcripts based on coverage
-(default: coverage trimming is enabled)
+   (default: coverage trimming is enabled)
 -c minimum reads per bp coverage to consider for transcript assembly (default: 2.5)
--s coverage saturation threshold; further read alignments will be
-ignored in a region where a local coverage depth of <maxcov>
-is reached (default: 1,000,000);
 -v verbose (log bundle processing details)
 -g gap between read mappings triggering a new bundle (default: 50)
 -C output file with reference transcripts that are covered by reads
 -M fraction of bundle allowed to be covered by multi-hit reads (default:0.95)
 -p number of threads (CPUs) to use (default: 1)
+-A gene abundance estimation output file
 -B enable output of Ballgown table files which will be created in the
-same directory as the output GTF (requires -G, -o recommended)
+   same directory as the output GTF (requires -G, -o recommended)
 -b enable output of Ballgown table files but these files will be
-created under the directory path given as <dir_path>
+   created under the directory path given as <dir_path>
 -e only estimates the abundance of given reference transcripts (requires -G)
+-x do not assemble any transcripts on the given reference sequence(s)
 ```
 
 ##Input files
