@@ -10,7 +10,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.1.1"
+#define VERSION "1.1.2"
 
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
@@ -33,7 +33,7 @@
  stringtie <input.bam> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] \n\
   [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>]\n\
-  [-e] [-x <seqid,..>] [-A <gene_abund.out>] {-B | -b <dir_path>} \n\
+  [-e] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
  Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
  --version : print just the version at stdout and exit\n\
@@ -59,6 +59,7 @@
     created under the directory path given as <dir_path>\n\
  -e only estimates the abundance of given reference transcripts (requires -G)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
+ -h prints help message and exits.\n\
  "
 /* 
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\ \\ deprecated for now
