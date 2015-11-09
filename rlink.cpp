@@ -8681,8 +8681,10 @@ int build_graphs(BundleData* bdata, bool fast) {
     				edgeno[s].cAdd(0);
     				lastgpos[s].cAdd(0);
     				// I am overestmating the edgeno below, hopefully not by too much
-    				while(g<ng && guides[g]->end<=bnode[sno][bundle[sno][b]->startnode]->start) g++;
+
+    				while(g<ng && guides[g]->end<bnode[sno][bundle[sno][b]->startnode]->start) g++;
     				int cg=g;
+
     				while(cg<ng && guides[cg]->start<=bnode[sno][bundle[sno][b]->lastnodeid]->end) { // this are potential guides that might overlap the current bundle, and they might introduce extra edges
     					if(guides[cg]->strand==strnd) edgeno[s][b]+=2; // this is an overestimate: possibly I have both an extra source and an extra sink link
     					cg++;
@@ -8715,6 +8717,7 @@ int build_graphs(BundleData* bdata, bool fast) {
     					*
     					*/
     					// create graph then
+
     					graphno[s][b]=create_graph(refstart,s,b,bundle[sno][b],bnode[sno],junction,ejunction,
     							bundle2graph,no2gnode,transfrag,gpos,bpcov,edgeno[s][b],lastgpos[s][b]); // also I need to remember graph coverages somewhere -> probably in the create_graph procedure
 
@@ -8735,7 +8738,7 @@ int build_graphs(BundleData* bdata, bool fast) {
     			for(int b=0;b<bno[s];b++) {
     				if(graphno[s][b]) {
     					GStr pat;
-    					fprintf(stderr,"Graph[%d][%d] with %d nodes and %d edges:",int(2*s),b,graphno[s][b],edgeno[s][b]);
+    					fprintf(stderr,"Graph[%d][%d] with %d nodes and %d edges with lastgpos=%d:",int(2*s),b,graphno[s][b],edgeno[s][b],lastgpos[s][b]);
     					for(int nd=1;nd<graphno[s][b]-1;nd++)
     						fprintf(stderr," %d(%d-%d)",nd,no2gnode[s][b][nd]->start,no2gnode[s][b][nd]->end);
     					fprintf(stderr,"\n");
@@ -8808,6 +8811,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 
     				// include source to guide starts links
     				GVec<CGuide> guidetrf;
+
     				if(guides.Count()) process_refguides(graphno[s][b],edgeno[s][b],gpos[s][b],lastgpos[s][b],no2gnode[s][b],transfrag[s][b],s,guides,guidetrf);
 
     				//process transfrags to eliminate noise, and set compatibilities, and node memberships

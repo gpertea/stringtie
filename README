@@ -88,7 +88,7 @@ properly sorted. For a SAM file, this can be done with the command:
 
   sort -k 3,3 -k 4,4n input.sam > input.sorted.sam
 
-For BAM files, the samtools program can be used to sort the alignments.
+For BAM files, the samtools program should be used to sort the alignments.
 
 Optionally, a reference annotation file in GTF/GFF3 format
 can be provided to StringTie. In this case, StringTie will check
