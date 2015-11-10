@@ -26,7 +26,9 @@ const int longintronanchor=25; // I need a higher anchor for long introns
 
 const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
-extern bool singlePass;
+extern bool mergeMode;
+
+//extern bool singlePass;
 
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {

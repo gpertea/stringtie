@@ -201,6 +201,18 @@ int G_mkdir(const char* path, int perms=0775) {
 }
 
 
+void Gmktempdir(char* templ) {
+#ifdef __WIN32__
+  int blen=strlen(templ);
+  if (_mktemp_s(templ, blen)!=0)
+	  GError("Error creating temp dir %s!\n", templ);
+#else
+  char* cdir=mkdtemp(templ);
+  if (cdir==NULL)
+	  GError("Error creating temp dir %s!\n", templ);
+#endif
+}
+
 int Gmkdir(const char *path, bool recursive, int perms) {
 	if (path==NULL || path[0]==0) return -1;
 	if (!recursive) return G_mkdir(path, perms);

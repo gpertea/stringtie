@@ -55,7 +55,8 @@ int gfo_cmpByLoc(const pointer p1, const pointer p2) {
                               return (int)(g1.end-g2.end);
                         else return strcmp(g1.getID(), g2.getID());
              }
-             else return (int)(g1.gseq_id-g2.gseq_id);
+             else //return (int)(g1.gseq_id-g2.gseq_id); // input order !
+            	 return strcmp(g1.getGSeqName(), g2.getGSeqName()); //lexicographic !
 }
 
 char* GffLine::extractAttr(const char* attr, bool caseStrict, bool enforce_GTF2) {

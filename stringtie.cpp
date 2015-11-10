@@ -30,7 +30,7 @@
 #endif
 
 #define USAGE "StringTie v"VERSION" usage:\n\
- stringtie <input.bam> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
+ stringtie <input.bam ..> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] \n\
   [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>]\n\
   [-e] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
@@ -60,6 +60,11 @@
  -e only estimates the abundance of given reference transcripts (requires -G)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -h prints help message and exits.\n\
+ \n\
+Transcript merge usage: \n\
+  stringtie --merge [-G <guide_gff>] [-o <out_gtf>] strg1.gtf strg2.gtf ...\n\
+When run with the --merge option, StringTie will assemble transcripts\n\
+from multiple files generating a non-redundant set of isoforms.\n\
  "
 /* 
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\ \\ deprecated for now
@@ -89,6 +94,7 @@ FILE* c_out=NULL;
 
 GStr outfname;
 GStr out_dir;
+GStr tmp_path;
 GStr tmpfname;
 GStr genefname;
 bool guided=false;
@@ -127,23 +133,14 @@ bool ballgown=false;
 //no more reads will be considered for a bundle if the local coverage exceeds this value
 //(each exon is checked for this)
 
-bool singlePass=true; //-O will set this to False
+bool mergeMode = false; //--merge option
 
+//bool singlePass=true;
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
 double Frag_Len=0;
 double Cov_Sum=0;
 //bool firstPrint=true; //just for writing the GFF header before the first transcript is printed
-
-/*
-double SumReads=0;
-double SumFrag=0;
-double NumCov=0;
-double NumFrag=0;
-double NumReads=0;
-double NumFrag3=0;
-double SumFrag3=0;
-*/
 
 GffNames* gseqNames=NULL; //used as a dictionary for genomic sequence names and ids
 
@@ -194,7 +191,7 @@ bool NoMoreBundles=false;
 bool moreBundles(); //thread-safe retrieves NoMoreBundles
 void noMoreBundles(); //sets NoMoreBundles to true
 //--
-GStr Process_Options(GArgs* args);
+void processOptions(GArgs& args);
 char* sprintTime();
 
 void processBundle(BundleData* bundle);
@@ -215,16 +212,18 @@ bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount);
 int waitForData(BundleData* bundles);
 #endif
 
+
+TInputFiles bamreader;
+
 int main(int argc, char * const argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:");
+   "debug;help;version;merge;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:");
  args.printError(USAGE, true);
 
- GStr bamfname=Process_Options(&args);
- // == Done argument processing.
+ processOptions(args);
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
 
@@ -234,6 +233,8 @@ int main(int argc, char * const argv[]) {
  GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
 
  GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
+
+ int bamcount=bamreader.start(); //open input files
 
 #ifdef DEBUGPRINT
   verbose=true;
@@ -323,7 +324,8 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  gseqNames=GffObj::names; //might have been populated already by gff data
  gffnames_ref(gseqNames);  //initialize the names collection if not guided
 
- GBamReader bamreader(bamfname.chars());
+ //GBamReader bamreader(bamfname.chars());
+
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
 
@@ -380,7 +382,7 @@ if (ballgown)
 	 int hi=0;
 	 int gseq_id=lastref_id;  //current chr id
 	 bool new_bundle=false;
-	 delete brec;
+	 //delete brec;
 	 if ((brec=bamreader.next())!=NULL) {
 		 if (brec->isUnmapped()) continue;
 		 refseqName=brec->refName();
@@ -576,7 +578,8 @@ if (ballgown)
     		"Please make sure the -G annotation file uses the same naming convention for the genome sequences.\n");
  //cleaning up
  delete brec;
- bamreader.bclose();
+ //bamreader.bclose();
+ bamreader.stop(); //close all BAM files
 #ifndef NOTHREADS
  for (int t=0;t<num_cpus;t++)
 	 threads[t].join();
@@ -706,36 +709,37 @@ char* sprintTime() {
 	return(sbuf);
 }
 
+void processOptions(GArgs& args) {
 
-GStr Process_Options(GArgs* args) {
 
-	if (args->getOpt('h') || args->getOpt("help")) {
+	if (args.getOpt('h') || args.getOpt("help")) {
 		fprintf(stdout,"%s",USAGE);
 	    exit(0);
 	}
-	if (args->getOpt("version")) {
+	if (args.getOpt("version")) {
 	   fprintf(stdout,"%s\n",VERSION);
 	   exit(0);
 	}
-	 debugMode=(args->getOpt("debug")!=NULL || args->getOpt('D')!=NULL);
-	 fast=!(args->getOpt('F')!=NULL);
-	 verbose=(args->getOpt('v')!=NULL);
+	 debugMode=(args.getOpt("debug")!=NULL || args.getOpt('D')!=NULL);
+	 mergeMode=(args.getOpt("merge")!=NULL);
+	 fast=!(args.getOpt('F')!=NULL);
+	 verbose=(args.getOpt('v')!=NULL);
 	 if (verbose) {
 	     fprintf(stderr, "Command line was:\n");
-	     args->printCmdLine(stderr);
+	     args.printCmdLine(stderr);
 	 }
-	 complete=!(args->getOpt('i')!=NULL);
-	 trim=!(args->getOpt('t')!=NULL);
-	 includesource=!(args->getOpt('z')!=NULL);
-	 EM=(args->getOpt('y')!=NULL);
-	 weight=(args->getOpt('w')!=NULL);
-	 GStr s=args->getOpt('m');
+	 complete=!(args.getOpt('i')!=NULL);
+	 trim=!(args.getOpt('t')!=NULL);
+	 includesource=!(args.getOpt('z')!=NULL);
+	 EM=(args.getOpt('y')!=NULL);
+	 weight=(args.getOpt('w')!=NULL);
+	 GStr s=args.getOpt('m');
 	 if (!s.is_empty()) {
 	   mintranscriptlen=s.asInt();
 	   if (mintranscriptlen<30) 
 	     GError("Error: invalid -m value, must be >=30)\n");
 	 }
-     s=args->getOpt('x');
+     s=args.getOpt('x');
      if (!s.is_empty()) {
     	 //split by comma and populate excludeGSeqs
     	 s.startTokenize(" ,\t");
@@ -744,7 +748,7 @@ GStr Process_Options(GArgs* args) {
     		 excludeGseqs.Add(chrname.chars(),new int(0));
     	 }
      }
-	 s=args->getOpt('n');
+	 s=args.getOpt('n');
 	 if (!s.is_empty()) {
 		 sensitivitylevel=s.asInt();
 		 if(sensitivitylevel<0) {
@@ -757,51 +761,51 @@ GStr Process_Options(GArgs* args) {
 		 }
 	 }
 
-	 s=args->getOpt('g');
+	 s=args.getOpt('g');
 	 if (!s.is_empty()) bundledist=s.asInt();
-	 s=args->getOpt('p');
+	 s=args.getOpt('p');
 	 if (!s.is_empty()) {
 		   num_cpus=s.asInt();
 		   if (num_cpus<=0) num_cpus=1;
 	 }
 
-	 s=args->getOpt('a');
+	 s=args.getOpt('a');
 	 if (!s.is_empty()) junctionsupport=(uint)s.asInt();
-	 s=args->getOpt('j');
+	 s=args.getOpt('j');
 	 if (!s.is_empty()) junctionthr=s.asInt();
-	 s=args->getOpt('c');
+	 s=args.getOpt('c');
 	 if (!s.is_empty()) {
 		 readthr=(float)s.asDouble();
 		 if (readthr<0.001) {
 			 GError("Error: invalid -c value, must be >=0.001)\n");
 		 }
 	 }
-	 s=args->getOpt('l');
+	 s=args.getOpt('l');
 	 if (!s.is_empty()) label=s;
-	 s=args->getOpt('f');
+	 s=args.getOpt('f');
 	 if (!s.is_empty()) {
 		 isofrac=(float)s.asDouble();
 		 if(isofrac>=1) GError("Miminum isoform fraction (-f coefficient: %f) needs to be less than 1\n",isofrac);
 	 }
-	 s=args->getOpt('M');
+	 s=args.getOpt('M');
 	 if (!s.is_empty()) {
 		 mcov=(float)s.asDouble();
 	 }
 
-	 genefname=args->getOpt('A');
+	 genefname=args.getOpt('A');
 	 if(!genefname.is_empty()) {
 		 geneabundance=true;
 	 }
 
-	 tmpfname=args->getOpt('o');
+	 tmpfname=args.getOpt('o');
 
-	 if (args->getOpt('S')) {
+	 if (args.getOpt('S')) {
 		 // sensitivitylevel=2; no longer supported from version 1.0.3
 		 sensitivitylevel=1;
 	 }
 
 	 // coverage saturation no longer used after version 1.0.4; left here for compatibility with previous versions
-	 s=args->getOpt('s');
+	 s=args.getOpt('s');
 	 if (!s.is_empty()) {
 		 GMessage("Coverage saturation parameter is deprecated starting at version 1.0.5");
 		 /*
@@ -813,20 +817,20 @@ GStr Process_Options(GArgs* args) {
 		 */
 	 }
 
-	 if (args->getOpt('G')) {
-	   guidegff=args->getOpt('G');
+	 if (args.getOpt('G')) {
+	   guidegff=args.getOpt('G');
 	   if (fileExists(guidegff.chars())>1)
 	        guided=true;
 	   else GError("Error: reference annotation file (%s) not found.\n",
 	             guidegff.chars());
 	 }
 
-	 eonly=(args->getOpt('e')!=NULL);
+	 eonly=(args.getOpt('e')!=NULL);
 	 if(eonly && !guided)
 		 GError("Error: invalid -e usage, GFF reference not given (-G option required).\n");
 
-	 ballgown_dir=args->getOpt('b');
-	 ballgown=(args->getOpt('B')!=NULL);
+	 ballgown_dir=args.getOpt('b');
+	 ballgown=(args.getOpt('B')!=NULL);
 	 if (ballgown && !ballgown_dir.is_empty()) {
 		 GError("Error: please use either -B or -b <path> options, not both.");
 	 }
@@ -841,24 +845,24 @@ GStr Process_Options(GArgs* args) {
 		 partialcov=true;
 	 }
 	 else { */
-		 s=args->getOpt('C');
+		 s=args.getOpt('C');
 		 if (!s.is_empty()) {
 			 if(!guided) GError("Error: invalid -C usage, GFF reference not given (-G option required).\n");
 			 c_out=fopen(s.chars(), "w");
 			 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
 		 }
 	 //}
-	int numbam=args->startNonOpt();
+	int numbam=args.startNonOpt();
 #ifndef GFF_DEBUG
 	if (numbam==0 || numbam>1) {
 	 	 GMessage("%s\nError: no BAM input file provided!\n",USAGE);
 	 	 exit(1);
 	}
 #endif
-	GStr bamfile=args->nextNonOpt(); //input alignment file here
-	if (fileExists(bamfile.chars())<2) {
-	    GError("Error: input BAM/SAM file %s cannot be found!\n",
-	            bamfile.chars());
+	const char* ifn=NULL;
+	while ( (ifn=args.nextNonOpt())!=NULL) {
+		//input alignment files
+		bamreader.Add(ifn);
 	}
 	//deferred creation of output path
 	outfname="stdout";
@@ -872,6 +876,7 @@ GStr Process_Options(GArgs* args) {
 	 else { // stdout
 		tmpfname=outfname;
 		char *stime=sprintTime();
+		tmpfname.tr(":","-");
 		tmpfname+='.';
 		tmpfname+=stime;
 	 }
@@ -881,6 +886,20 @@ GStr Process_Options(GArgs* args) {
 			Gmkdir(out_dir.chars());
 		 }
 	 }
+
+	 { //prepare temp path
+		 GStr stempl(out_dir);
+		 stempl.chomp('/');
+		 stempl+="/tmp.XXXXXXXX";
+		 char* ctempl=Gstrdup(stempl.chars());
+	     Gmktempdir(ctempl);
+	     tmp_path=ctempl;
+	     tmp_path+='/';
+	     GFREE(ctempl);
+	 }
+
+	 tmpfname=tmp_path+tmpfname;
+
 	 if (ballgown) ballgown_dir=out_dir;
 	   else if (!ballgown_dir.is_empty()) {
 			ballgown=true;
@@ -897,11 +916,10 @@ GStr Process_Options(GArgs* args) {
 	 if (dbg_out==NULL) GError("Error creating debug output file %s\n", dbgfname.chars());
 #endif
 
-	 tmpfname+=".tmp";
+	 //tmpfname+=".tmp";
+	 tmpfname+=".gtf";
 	 f_out=fopen(tmpfname.chars(), "w");
 	 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
-
-	return(bamfile);
 }
 
 //---------------
