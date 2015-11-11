@@ -28,6 +28,9 @@ const int max_trf_number=40000; // maximum number of transfrag accepted so that 
 
 extern bool mergeMode;
 
+extern bool verbose;
+extern bool debugMode;
+
 //extern bool singlePass;
 
 //collect all refguide transcripts for a single genomic sequence
@@ -50,10 +53,10 @@ struct GRefData {
      }
      else { //adding first transcript, initialize storage
         gseq_id=t->gseq_id;
-        gseq_name=t->getGeneName();
-        if (gffr->gseqStats[gseq_id]==NULL)
+        gseq_name=t->getGSeqName();
+        if (gffr->gseqtable[gseq_id]==NULL)
             GError("Error: invalid genomic sequence data (%s)!\n",gseq_name);
-        rnas.setCapacity(gffr->gseqStats[gseq_id]->fcount);
+        rnas.setCapacity(gffr->gseqtable[gseq_id]->fcount);
      }
      rnas.Add(t);
      t->isUsed(true);

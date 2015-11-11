@@ -258,7 +258,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    //the list of GffObj is in gffr.gflst, sorted by chromosome and start-end coordinates
    //collect them in other data structures, if it's kept for later call gffobj->isUsed(true)
    // (otherwise it'll be deallocated when gffr is destroyed due to going out of scope)
-   refseqCount=gffr.gseqStats.Count();
+   refseqCount=gffr.gseqtable.Count();
    if (refseqCount==0 || gffr.gflst.Count()==0) {
 	   GError("Error: could not read reference annotation transcripts from GTF/GFF %s - invalid file?\n",
 			   guidegff.chars());
