@@ -1,5 +1,6 @@
 //#define GFF_DEBUG 1
 #include "rlink.h"
+#include "tmerge.h"
 #ifndef NOTHREADS
 #include "GThreads.h"
 #endif
@@ -134,7 +135,7 @@ bool ballgown=false;
 //(each exon is checked for this)
 
 bool mergeMode = false; //--merge option
-
+bool keepTempFiles = false; //--keeptmp
 //bool singlePass=true;
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -220,7 +221,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;merge;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:");
+   "debug;help;version;keeptmp;merge;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -235,6 +236,9 @@ int main(int argc, char * const argv[]) {
  GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
 
  int bamcount=bamreader.start(); //open input files
+ if (bamcount<1) {
+	 GError("%s. Error: no input files provided!\n");
+ }
 
 #ifdef DEBUGPRINT
   verbose=true;
@@ -380,11 +384,15 @@ if (ballgown)
 	 char xstrand=0;
 	 int nh=1;
 	 int hi=0;
+	 //for --merge:
+	 int findex=0; //ZF tag value = index of filename string in bamreader.files[] array
+	 double t_cov=0, t_fpkm=0, t_tpm=0; //ZS tag value = "cov|FPKMTPM"
 	 int gseq_id=lastref_id;  //current chr id
 	 bool new_bundle=false;
 	 //delete brec;
 	 if ((brec=bamreader.next())!=NULL) {
 		 if (brec->isUnmapped()) continue;
+
 		 refseqName=brec->refName();
 		 xstrand=brec->spliceStrand();
 		 if (xstrand=='.' && brec->exons.Count()>1)
@@ -417,6 +425,21 @@ if (ballgown)
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
+		 if (mergeMode) {
+		    findex=brec->tag_int("ZF");
+		    GStr score(brec->tag_str("ZS"));
+		    if (!score.is_empty()) {
+		      GStr srest=score.split('|');
+		      if (!score.is_empty())
+		         t_cov=score.asDouble();
+		      score=srest.split('|');
+		      if (!srest.is_empty())
+		    	 t_fpkm=srest.asDouble();
+		      srest=score.split('|');
+		      if (!score.is_empty())
+		         t_tpm=score.asDouble();
+		    }
+		 }
 		 if (!chr_changed && currentend>0 && pos>currentend+(int)bundledist)
 			   new_bundle=true;
 	 }
@@ -677,7 +700,9 @@ if (ballgown)
 	 fclose(t_out);
 	 if(geneabundance) fclose(g_out);
 	 GFREE(linebuf);
-	 remove(tmpfname.chars());
+	 if (!keepTempFiles) {
+	    remove(tmpfname.chars());
+	 }
  }
  else {
 	 fclose(f_out);
@@ -689,6 +714,12 @@ if (ballgown)
 	 rc_writeRC(guides_RC_tdata, guides_RC_exons, guides_RC_introns,
 			 f_tdata, f_edata, f_idata, f_e2t, f_i2t);
  }
+
+ if (!keepTempFiles) {
+   tmp_path.chomp('/');
+   remove(tmp_path);
+ }
+
 
  gffnames_unref(gseqNames); //deallocate names collection
 
@@ -722,6 +753,7 @@ void processOptions(GArgs& args) {
 	}
 	 debugMode=(args.getOpt("debug")!=NULL || args.getOpt('D')!=NULL);
 	 mergeMode=(args.getOpt("merge")!=NULL);
+	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
 	 fast=!(args.getOpt('F')!=NULL);
 	 verbose=(args.getOpt('v')!=NULL);
 	 if (verbose) {

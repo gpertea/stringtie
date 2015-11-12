@@ -1061,7 +1061,7 @@ class GffReader {
       transcriptsOnly=t_only;
       gflst.sortedByLoc(sortbyloc);
       }
-  GffReader(char* fn, bool t_only=false, bool sort=false):discarded_ids(true), phash(true),
+  GffReader(const char* fn, bool t_only=false, bool sort=false):discarded_ids(true), phash(true),
             gseqtable(1,true), gflst(sort), gseqStats(1,false) {
       gff_warns=gff_show_warnings;
       names=NULL;

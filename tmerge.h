@@ -4,6 +4,7 @@
 #include "GList.hh"
 #include "rlink.h"
 extern GStr tmp_path;
+extern bool keepTempFiles;
 /*struct TInFile {
 	GStr fpath;
 	int ftype; //0=bam file, 1=GTF transfrags
@@ -32,6 +33,12 @@ struct TInputRecord {
 			 return (strcmp(r1.refName(),r2.refName())>0);
 		 }
 	}
+	bool operator==(TInputRecord& o) {
+		 GBamRecord& r1=*brec;
+		 GBamRecord& r2=*(o.brec);
+		 return ( r1.refId()==r2.refId() && r1.start==r2.start && r1.end==r2.end
+				 && fidx==o.fidx && strcmp(r1.name(),r2.name())==0);
+	}
 
 	TInputRecord(GBamRecord* b=NULL, int i=0):brec(b),fidx(i) {}
 	~TInputRecord() {
@@ -42,11 +49,13 @@ struct TInputRecord {
 struct TInputFiles {
  protected:
 	TInputRecord* crec;
+	GStr convert2BAM(GStr& gtf);
  public:
 	GPVec<GBamReader> readers;
-	GPVec<GStr> files; //same order
+	GVec<GStr> files; //same order
+	GVec<GStr> tmpfiles; //all the temp files created
 	GList<TInputRecord> recs; //next record for each
-	TInputFiles():crec(NULL), readers(), files(),
+	TInputFiles():crec(NULL), readers(true), files(), tmpfiles(),
 			recs(true, true, true) { }
 	void Add(const char* fn);
 	int count() { return files.Count(); }
@@ -54,10 +63,6 @@ struct TInputFiles {
 	GBamRecord* next();
 	void stop(); //
 };
-
-
-
-
 
 
 #endif /* STRINGTIE_MERGE_H_ */

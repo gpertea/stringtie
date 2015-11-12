@@ -9,39 +9,24 @@ void TInputFiles::Add(const char* fn) {
 		files.Add(new GStr(fn));
 	}
 
-GBamRecord* TInputFiles::next() {
-	//must free old current record first
-	delete crec;
-	crec=NULL;
-    if (recs.Count()>0) {
-    	crec=recs.Pop();//lowest coordinate
-    	GBamRecord* rnext=readers[crec->fidx]->next();
-    	if (rnext)
-    		recs.Add(new TInputRecord(rnext,crec->fidx));
-    	return crec->brec;
-    }
-    else return NULL;
-}
-
 
 int gseqstat_cmpName(const pointer p1, const pointer p2) {
-	GSeqStat& g1=*((GffObj*)p1);
-	GSeqStat& g2=*((GffObj*)p2);
-	return strcmp(g1.gseqname, g2.gseqname);
+	return strcmp(((GSeqStat*)p1)->gseqname, ((GSeqStat*)p2)->gseqname);
 }
 
-
-GStr convert2BAM(GStr* gtf) {
+GStr TInputFiles::convert2BAM(GStr& gtf) {
   GStr bamfname(tmp_path);
-  bamfname+=*gtf;
+  bamfname+=gtf;
   GStr samhname(bamfname);
   bamfname+=".bam";
   samhname+=".sam";
+  tmpfiles.Add(bamfname);
+  tmpfiles.Add(samhname);
   FILE* samh=fopen(samhname.chars(), "w");
   if (samh==NULL) GError("Error creating file: %s\n",samhname.chars());
   fprintf(samh, "@HD\tVN:1.0\tSO:coordinate\n");
   //load GTF as sorted
-  GffReader gfr(gtf->chars(), true, true); //transcript only, sorted by location
+  GffReader gfr(gtf.chars(), true, true); //transcript only, sorted by location
   gfr.showWarnings(debugMode || verbose);
   gfr.readAll(true, true, true); //keep attributes, merge close exons, no_exon_attributes
   gfr.gseqStats.Sort(gseqstat_cmpName);
@@ -55,7 +40,7 @@ GStr convert2BAM(GStr* gtf) {
 	  GffObj& m = *gfr.gflst[i];
 	  int t_id=bw.get_tid(m.getGSeqName());
 	  if (t_id<0)
-		   GError("Error getting header ID# for gseq %s (file: %s)\n",m.getGSeqName(),gtf->chars());
+		   GError("Error getting header ID# for gseq %s (file: %s)\n",m.getGSeqName(),gtf.chars());
 	  GStr cigar;
 	  for (int k=0;k<m.exons.Count();++k) {
 		  if (k>0) {
@@ -70,25 +55,67 @@ GStr convert2BAM(GStr* gtf) {
 		   tag+=m.strand;
 	       brec.add_aux(tag.chars());
 	  }
-	  //TODO: add special int tag with file index value (qry#)
-	  //TODO: add cov, FPKM, TPM as special float tags
-  }
+	  GStr s("ZF:i:");
+	  s+=i;
+	  brec.add_aux(s.chars());
+	  char *av=m.getAttr("cov");
+	  if (av!=NULL) {
+		  s="ZS:Z:";
+		  s+=av;
+		  s+='|';
+		  av=m.getAttr("FPKM");
+		  if (av) s+=av;
+		  av=m.getAttr("TPM");
+		  if (av) { s+='|';s+=av; }
+	  }
+	  bw.write(&brec);
+  } //for each transcript
+  return bamfname;
 }
 
 
 int TInputFiles::start() {
-	GPVec<GStr> bamfiles(this->files);
-	if (mergeMode) {//convert to temp BAM files
+	GVec<GStr> bamfiles(this->files);
+	if (mergeMode) {//files are GTF/GFF, convert to temp BAM files
 		bamfiles.Clear();
 		for (int i=0;i<files.Count();++i) {
-			bamfiles.Add(new GStr(convert2BAM(files[i])));
+			GStr s=convert2BAM(files[i]);
+			bamfiles.Add(s);
 		}
 	}
 	//regular stringtie BAM input
 	for (int i=0;i<bamfiles.Count();++i) {
-		readers.Add(new GBamReader(bamfiles[i]->chars()));
+		GBamReader* bamreader=new GBamReader(bamfiles[i].chars());
+		readers.Add(bamreader);
+		GBamRecord* brec=bamreader->next();
+		if (brec)
+		   recs.Add(new TInputRecord(brec, i));
 	}
 	return readers.Count();
 }
 
+GBamRecord* TInputFiles::next() {
+	//must free old current record first
+	delete crec;
+	crec=NULL;
+    if (recs.Count()>0) {
+    	crec=recs.Pop();//lowest coordinate
+    	GBamRecord* rnext=readers[crec->fidx]->next();
+    	if (rnext)
+    		recs.Add(new TInputRecord(rnext,crec->fidx));
+    	return crec->brec;
+    }
+    else return NULL;
+}
+
+void TInputFiles::stop() {
+ for (int i=0;i<readers.Count();++i) {
+	 readers[i]->bclose();
+ }
+ if (!keepTempFiles) {
+	 for (int i=0;i<tmpfiles.Count();++i) {
+		 unlink(tmpfiles[i].chars());
+	 }
+ }
+}
 

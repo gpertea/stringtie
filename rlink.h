@@ -170,7 +170,6 @@ struct CJunction;
 struct CReadAln:public GSeg {
 	//DEBUG ONLY:
 	// GStr name;
-	// 0: strand; 1: NH; 2: pair's no; 3: coords of read; 4: junctions
 	char strand; // 1, 0 (unkown), -1 (reverse)
 	short int nh;
 	uint len;
@@ -180,7 +179,7 @@ struct CReadAln:public GSeg {
 	//int pair_idx;
 	GVec<GSeg> segs; //"exons"
 	GPVec<CJunction> juncs; //junction index in CJunction list
-	//DEBUG ONLY: (discard rname when no debugging needed)
+    //TODO: TAlnData to store transcript ID, file index, transcript scores etc.
 	CReadAln(char _strand=0, short int _nh=0,
 			int rstart=0, int rend=0, uint rlen=0 /*,  const char* rname=NULL */): GSeg(rstart, rend), //name(rname),
 					strand(_strand),nh(_nh),len(rlen), read_count(0), pair_count(),pair_idx(),
