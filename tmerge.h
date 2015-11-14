@@ -53,7 +53,7 @@ struct TInputFiles {
  public:
 	GPVec<GBamReader> readers;
 	GVec<GStr> files; //same order
-	GVec<GStr> tmpfiles; //all the temp files created
+	GVec<GStr> tmpfiles; //all the temp files created by this
 	GList<TInputRecord> recs; //next record for each
 	TInputFiles():crec(NULL), readers(true), files(), tmpfiles(),
 			recs(true, true, true) { }

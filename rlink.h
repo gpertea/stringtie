@@ -31,8 +31,6 @@ extern bool mergeMode;
 extern bool verbose;
 extern bool debugMode;
 
-//extern bool singlePass;
-
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
   GList<GffObj> rnas; //all transcripts on this genomic seq
@@ -165,6 +163,17 @@ struct CGene:public GSeg { // I don't necessarily need to make this a GSeg since
 	// getGeneID() and getGeneName() functions of gffobj return pointers to this attributes in gffobj so I don't need to clean them up here
 };
 
+//holding transcript info for --merge mode
+struct TAlnInfo {
+	GStr name; //transcript name
+	int fileidx; //index of transcript file in the TInputFiles.files array
+	double cov;
+	double fpkm;
+	double tpm;
+	TAlnInfo(const char* rname=NULL, int fidx=0):name(rname), fileidx(fidx),
+			cov(0),fpkm(0),tpm(0) { }
+};
+
 struct CJunction;
 
 struct CReadAln:public GSeg {
@@ -176,15 +185,14 @@ struct CReadAln:public GSeg {
 	float read_count;       // keeps count for all reads (including paired and unpaired)
 	GVec<float> pair_count;   // keeps count for all paired reads
 	GVec<int> pair_idx;     // keeps indeces for all pairs
-	//int pair_idx;
 	GVec<GSeg> segs; //"exons"
-	GPVec<CJunction> juncs; //junction index in CJunction list
-    //TODO: TAlnData to store transcript ID, file index, transcript scores etc.
+	GPVec<CJunction> juncs;
+    TAlnInfo* tinfo;
 	CReadAln(char _strand=0, short int _nh=0,
-			int rstart=0, int rend=0, uint rlen=0 /*,  const char* rname=NULL */): GSeg(rstart, rend), //name(rname),
-					strand(_strand),nh(_nh),len(rlen), read_count(0), pair_count(),pair_idx(),
-					//pair_idx(0),
-					segs(), juncs(false) { }
+			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
+					strand(_strand),nh(_nh), len(0), read_count(0), pair_count(),pair_idx(),
+					segs(), juncs(false), tinfo(tif) { }
+	~CReadAln() { delete tinfo; }
 };
 
 struct CGraphinfo {
@@ -302,9 +310,11 @@ struct GReadAlnData {
 	int nh;
 	int hi;
 	GPVec<CJunction> juncs;
+	TAlnInfo* tinfo;
 	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
-	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0, int hit_idx=0):brec(bamrec),
-			strand(nstrand), nh(num_hits), hi(hit_idx), juncs(true) { } //, g_exonovls(true)
+	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
+			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
+					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
 };
 
 struct CTCov { //covered transcript info

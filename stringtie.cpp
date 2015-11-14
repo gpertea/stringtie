@@ -136,7 +136,7 @@ bool ballgown=false;
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
-//bool singlePass=true;
+
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
 double Frag_Len=0;
@@ -374,6 +374,7 @@ if (ballgown)
 #endif
  GBamRecord* brec=NULL;
  bool more_alns=true;
+ TAlnInfo* tinfo=NULL; // for --merge
  int prev_pos=0;
  bool skipGseq=false;
  while (more_alns) {
@@ -384,9 +385,6 @@ if (ballgown)
 	 char xstrand=0;
 	 int nh=1;
 	 int hi=0;
-	 //for --merge:
-	 int findex=0; //ZF tag value = index of filename string in bamreader.files[] array
-	 double t_cov=0, t_fpkm=0, t_tpm=0; //ZS tag value = "cov|FPKMTPM"
 	 int gseq_id=lastref_id;  //current chr id
 	 bool new_bundle=false;
 	 //delete brec;
@@ -426,18 +424,18 @@ if (ballgown)
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
 		 if (mergeMode) {
-		    findex=brec->tag_int("ZF");
+		    tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
 		    GStr score(brec->tag_str("ZS"));
 		    if (!score.is_empty()) {
 		      GStr srest=score.split('|');
 		      if (!score.is_empty())
-		         t_cov=score.asDouble();
+		         tinfo->cov=score.asDouble();
 		      score=srest.split('|');
 		      if (!srest.is_empty())
-		    	 t_fpkm=srest.asDouble();
+		    	 tinfo->fpkm=srest.asDouble();
 		      srest=score.split('|');
 		      if (!score.is_empty())
-		         t_tpm=score.asDouble();
+		         tinfo->tpm=score.asDouble();
 		    }
 		 }
 		 if (!chr_changed && currentend>0 && pos>currentend+(int)bundledist)
@@ -585,8 +583,9 @@ if (ballgown)
 			 } while (cend_changed);
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
-	 GReadAlnData alndata(brec, 0, nh, hi);
-     bundle->evalReadAln(alndata, xstrand); //xstrand, nh);
+	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
+     bundle->evalReadAln(alndata, xstrand);
+     //check for overlaps with ref transcripts which may set xstrand
      if (xstrand=='+') alndata.strand=1;
 		else if (xstrand=='-') alndata.strand=-1;
      //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
@@ -1179,20 +1178,6 @@ bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount) {
 //prepare the next available bundle slot for loading
 int waitForData(BundleData* bundles) {
 	int bidx=-1;
-	/*
-	while (bidx<0) {
-	  dataMutex.lock();
-	  if (dataClear.Count()>0) {
-	    bidx=dataClear.Pop();
-	    bundles[bidx].status=BUNDLE_STATUS_LOADING;
-	    dataMutex.unlock();
-	    return bidx;
-	    }
-	  dataMutex.unlock();
-	  //this_thread::sleep_for(chrono::milliseconds(20));
-	}
-	return -1; // should NEVER happen
-	*/
 	dataMutex.lock();
 	while (dataClear.Count()==0) {
 		haveClear.wait(dataMutex);

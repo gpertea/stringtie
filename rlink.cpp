@@ -195,7 +195,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		n--;
 	}
 
-	if (bdata.end<currentend) { // I am not sure why this is done here?
+	if (bdata.end<currentend) {
 		bdata.start=currentstart;
 		bdata.end=currentend;
 	}
@@ -203,7 +203,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	//bdata.wnumreads+=float(1)/nh;
 
 	if (!match) { // if this is a new read I am seeing I need to set it up
-		readaln=new CReadAln(strand, nh, brec.start, brec.end);
+		readaln=new CReadAln(strand, nh, brec.start, brec.end, alndata.tinfo);
 		for (int i=0;i<brec.exons.Count();i++) {
 			readaln->len+=brec.exons[i].len();
 			if(i) {
@@ -216,8 +216,14 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		}
 		n=readlist.Add(readaln);  // reset n for the case there is no match
 	}
-	else {
-		if(nh<readlist[n]->nh) readlist[n]->nh=nh; // keep shortest nh so that I can see for each particular read the multi-hit proportion
+	else { //redundant read alignment matching a previous alignment
+		// keep shortest nh so that I can see for each particular read the multi-hit proportion
+		if(nh<readlist[n]->nh) readlist[n]->nh=nh;
+		//for mergeMode, we have to free the transcript info:
+		if (alndata.tinfo!=NULL) {
+			 delete alndata.tinfo;
+			 alndata.tinfo=NULL;
+		}
 	}
 
 	if((int)brec.end>currentend) {
@@ -279,130 +285,6 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		}
 	} //<-- if mate is mapped on the same chromosome
 }
-
-/*
-int processRead(int currentstart, int currentend, BundleData& bdata,
-		 GHash<int>& hashread,  GReadAlnData& alndata) { // some false positives should be eliminated here in order to break the bundle
-
-	GList<CReadAln>& readlist = bdata.readlist;    // list of reads gathered so far
-	GList<CJunction>& junction = bdata.junction;   // junctions added so far
-	GVec<float>& bpcov = bdata.bpcov;              // coverage data: this might also blow up MEMORY!!
-	GBamRecord& brec=*(alndata.brec);			   // bam record
-    char strand=alndata.strand;
-    int nh=alndata.nh;
-    int hi=alndata.hi;
-	int readstart=brec.start;
-	CReadAln* readaln=NULL;                        // readaln is initialized with NULL
-	bool covSaturated=false;                       // coverage is set to not saturated
-
-	if (bdata.end<currentend) { // I am setting the new bundle end here: I might want to delay this or do some checks first
-		bdata.start=currentstart;
-		bdata.end=currentend;
-	}
-
-	if (maxReadCov>0) { // this is by default set to 1,000,000
-		covSaturated=maxCovReached(currentstart, brec, bdata);
-		if (!covSaturated) readaln=new CReadAln(strand, nh, brec.start, brec.end);  // if coverage saturation is reached then readaln remains NULL
-	}
-
-	bdata.numreads++;                         // number of reads gets increased no matter what
-	//process cigar string
-	int leftsupport=0;
-	int rightsupport=brec.exons.Last().len(); // right support is set to length of last exon
-	int support=0;
-	int maxleftsupport=0;
-	int njunc=0;
-	GVec<int> leftsup;
-	GVec<int> rightsup;
-	GPVec<CJunction> newjunction(false);
-	for (int i=0;i<brec.exons.Count();i++) {
-		CJunction* nj=NULL;
-		if (i) { //deal with introns
-			GSeg seg(brec.exons[i-1].end, brec.exons[i].start);
-			leftsupport=brec.exons[i-1].len();
-			if (leftsupport>maxleftsupport) {
-				maxleftsupport=leftsupport;
-			}
-			leftsup.Add(maxleftsupport); // on the left, always add current max support
-			support=brec.exons[i].len();
-			rightsup.Add(support);       //..but on the right, real support value is added
-
-			int maxrightsupport = support > rightsupport ? support : rightsupport;
-			nj=add_junction(seg.start, seg.end, maxleftsupport, maxrightsupport, junction, strand, nh);
-			newjunction.Add(nj);
-			if (alndata.juncs.Count())
-				nj->guide_match=alndata.juncs[i-1]->guide_match;
-		}
-		cov_add(bpcov, brec.exons[i].start-currentstart,
-				brec.exons[i].end-currentstart, float(1)/nh);
-		if (readaln) {
-			if (nj) readaln->juncs.Add(nj);
-			readaln->segs.Add(brec.exons[i]);
-		}
-	}
-	njunc=newjunction.Count();
-	//--
-	if (njunc>1) { //2 or more introns
-		int maxrightsupport=rightsup[njunc-1];
-		for (int j=njunc-2;j>=0;j--) {
-			if (rightsup[j]>maxrightsupport) { maxrightsupport=rightsup[j];}
-			else { //adjust support on the right so that I don't exclude very short internal exons
-				if (rightsup[j]<junctionsupport && leftsup[j]>=junctionsupport && maxrightsupport>=junctionsupport){
-					newjunction[j]->nreads_good+=float(1)/nh;
-				}
-			}
-		}
-	}
-
-	if((int)brec.end>currentend) {
-		//return currentend;
-		currentend=brec.end;
-	  	bdata.end=currentend;
-	}
-	//if (bdata.firstPass == 1 || covSaturated) {
-	if (covSaturated) {
-		return(currentend); //for 1st-pass only, exit here
-	}
-
-	//--
-	GStr readname(brec.name());
-	if (readaln==NULL) {
-		//2nd pass
-		//TODO: we should try to see if we can collapse this read first
-		readaln=new CReadAln(strand, nh, brec.start, brec.end);
-	}
-	int n=readlist.Add(readaln);
-	if (brec.refId()==brec.mate_refId()) {
-		//only consider mate pairing data if mates are on the same chromosome/contig
-		//TODO: this should be reconsidered if we decide to care about FUSION transcripts!
-		GStr readname(brec.name());
-		int pairstart=brec.mate_start();
-		GStr id(readname); // init id with readname
-		id+=':';id+=readstart;id+=':';id+=hi;
-		if (readstart<=pairstart) {
-			//only add the first mate in a pair
-			if (!hashread[id.chars()])
-				hashread.Add(id.chars(), new int(n));
-		}
-		if (readstart>pairstart) {
-			//must have seen its pair earlier
-			GStr pairid(readname);
-			pairid+=':';pairid+=pairstart;pairid+=':';pairid+=hi;
-			const int* np=hashread[pairid.chars()];
-			if (np) {
-				readlist[n]->pair_idx=*np;
-				readlist[*np]->pair_idx=n;
-				//we can now discard this pair info
-				hashread.Remove(pairid.chars());
-				hashread.Remove(id.chars()); //just in case it exists
-			}
-		}
-	} //<-- if mate is mapped on the same chromosome
-
-	return currentend; //currentend already set earlier
-
-}
-*/
 
 int get_min_start(CGroup **currgroup) {
 	int nextgr=0;
