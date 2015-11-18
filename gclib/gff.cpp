@@ -1266,10 +1266,6 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 
 void GfList::finalize(GffReader* gfr, bool mergeCloseExons,
              bool keepAttrs, bool noExonAttr) { //if set, enforce sort by locus
-  if (mustSort) { //force (re-)sorting
-     this->setSorted(false);
-     this->setSorted((GCompareProc*)gfo_cmpByLoc);
-     }
   GList<GffObj> discarded(false,true,false);
   for (int i=0;i<Count();i++) {
     //finish the parsing for each GffObj
@@ -1289,6 +1285,10 @@ void GfList::finalize(GffReader* gfr, bool mergeCloseExons,
   if (discarded.Count()>0) {
           this->Pack();
           }
+  if (mustSort) { //force (re-)sorting
+     this->setSorted(false);
+     this->setSorted((GCompareProc*)gfo_cmpByLoc);
+     }
 }
 
 GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, bool noExonAttr) {
