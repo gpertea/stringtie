@@ -63,9 +63,9 @@
  -h prints help message and exits.\n\
  \n\
 Transcript merge usage: \n\
-  stringtie --merge [-G <guide_gff>] [-o <out_gtf>] strg1.gtf strg2.gtf ...\n\
+  stringtie --merge [-G <guide_gff>] [-o <out_gtf>] { gtf_list | strg1.gtf ...}\n\
 When run with the --merge option, StringTie will assemble transcripts\n\
-from multiple files generating a non-redundant set of isoforms.\n\
+from multiple transcript files generating a non-redundant set of isoforms.\n\
  "
 /* 
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\ \\ deprecated for now
@@ -235,7 +235,7 @@ int main(int argc, char * const argv[]) {
 
  GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
 
- int bamcount=bamreader.start(); //open input files
+ int bamcount=bamreader.start(); //setup and open input files
  if (bamcount<1) {
 	 GError("%s. Error: no input files provided!\n");
  }
@@ -885,8 +885,8 @@ void processOptions(GArgs& args) {
 	 //}
 	int numbam=args.startNonOpt();
 #ifndef GFF_DEBUG
-	if (numbam==0 || numbam>1) {
-	 	 GMessage("%s\nError: no BAM input file provided!\n",USAGE);
+	if (numbam < 0 ) {
+	 	 GMessage("%s\nError: no input file provided!\n",USAGE);
 	 	 exit(1);
 	}
 #endif

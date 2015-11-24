@@ -75,13 +75,44 @@ GStr TInputFiles::convert2BAM(GStr& gtf) {
 
 
 int TInputFiles::start() {
-	GVec<GStr> bamfiles(this->files);
+	GVec<GStr> bamfiles;
+	if (mergeMode && this->files.Count()==1) {
+		//special case, if it's only one file it must be a list (usually)
+		FILE* flst=fopen(this->files.First().chars(),"r");
+		if (flst==NULL) GError("Error: could not open input file %s!\n",
+				this->files.First().chars());
+		GVec<GStr> infiles;
+		char* line=NULL;
+		int lcap=5000;
+		GMALLOC(line, lcap);
+		bool firstline=true;
+		bool isalist=true;
+		while (fgetline(line,lcap,flst)) {
+			GStr s(line);
+			s.trim();
+			if (s[0]=='#') continue; //skip comments/header in the list file, if any
+			if (firstline) {
+				if (!fileExists(s.chars())) {
+					isalist=false;
+					break;
+				}
+				firstline=false;
+			}
+			if (!fileExists(s.chars()))
+				GError("Error opening transcript file %s !\n",s.chars());
+			//TODO refill files with the list
+		}
+		GFREE(line);
+		fclose(flst);
+	}
 	if (mergeMode) {//files are GTF/GFF, convert to temp BAM files
-		bamfiles.Clear();
 		for (int i=0;i<files.Count();++i) {
 			GStr s=convert2BAM(files[i]);
 			bamfiles.Add(s);
 		}
+	}
+	else {
+		bamfiles=files;
 	}
 	//regular stringtie BAM input
 	for (int i=0;i<bamfiles.Count();++i) {
