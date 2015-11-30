@@ -78,30 +78,33 @@ int TInputFiles::start() {
 	GVec<GStr> bamfiles;
 	if (mergeMode && this->files.Count()==1) {
 		//special case, if it's only one file it must be a list (usually)
+		GStr fname(this->files.First());
 		FILE* flst=fopen(this->files.First().chars(),"r");
 		if (flst==NULL) GError("Error: could not open input file %s!\n",
-				this->files.First().chars());
+				fname.chars());
 		GVec<GStr> infiles;
 		char* line=NULL;
 		int lcap=5000;
 		GMALLOC(line, lcap);
 		bool firstline=true;
-		bool isalist=true;
+		//bool isalist=true;
 		while (fgetline(line,lcap,flst)) {
 			GStr s(line);
 			s.trim();
-			if (s[0]=='#') continue; //skip comments/header in the list file, if any
+			if (s[0]=='#' || s.length()<2) continue; //skip comments/header in the list file, if any
 			if (firstline) {
 				if (!fileExists(s.chars())) {
-					isalist=false;
+					//isalist=false; //this shouldn't normally happen in mergeMode, with one input file
 					break;
 				}
 				firstline=false;
+				files.Clear();
 			}
 			if (!fileExists(s.chars()))
 				GError("Error opening transcript file %s !\n",s.chars());
-			//TODO refill files with the list
-		}
+			fname=s;
+			files.Add(fname);
+		} //for each line in the list file
 		GFREE(line);
 		fclose(flst);
 	}
