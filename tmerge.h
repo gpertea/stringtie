@@ -49,7 +49,7 @@ struct TInputRecord {
 struct TInputFiles {
  protected:
 	TInputRecord* crec;
-	GStr convert2BAM(GStr& gtf);
+	GStr convert2BAM(GStr& gtf, int idx);
  public:
 	GPVec<GBamReader> readers;
 	GVec<GStr> files; //same order

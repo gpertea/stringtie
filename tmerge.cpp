@@ -14,9 +14,9 @@ int gseqstat_cmpName(const pointer p1, const pointer p2) {
 	return strcmp(((GSeqStat*)p1)->gseqname, ((GSeqStat*)p2)->gseqname);
 }
 
-GStr TInputFiles::convert2BAM(GStr& gtf) {
+GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   GStr bamfname(tmp_path);
-  bamfname+=gtf;
+  bamfname.appendfmt("transcripts_s%04d",idx);
   GStr samhname(bamfname);
   bamfname+=".bam";
   samhname+=".sam";
@@ -34,6 +34,7 @@ GStr TInputFiles::convert2BAM(GStr& gtf) {
   	fprintf(samh, "@SQ\tSN:%s\tLN:%ul\n", gfr.gseqStats[i]->gseqname,
   			gfr.gseqStats[i]->maxcoord+500);
   }
+  fprintf(samh, "@CO\tfn:%s\n",gtf.chars());
   fclose(samh);
   GBamWriter bw(bamfname.chars(),samhname.chars());
   for (int i=0;i<gfr.gflst.Count();++i) {
@@ -110,7 +111,7 @@ int TInputFiles::start() {
 	}
 	if (mergeMode) {//files are GTF/GFF, convert to temp BAM files
 		for (int i=0;i<files.Count();++i) {
-			GStr s=convert2BAM(files[i]);
+			GStr s=convert2BAM(files[i], i);
 			bamfiles.Add(s);
 		}
 	}

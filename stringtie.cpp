@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.1.2"
+#define VERSION "1.1.3"
 
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
@@ -901,8 +901,10 @@ void processOptions(GArgs& args) {
 	 if (!tmpfname.is_empty() && tmpfname!="-") {
 		 outfname=tmpfname;
 		 int pidx=outfname.rindex('/');
-		 if (pidx>=0) //path given
+		 if (pidx>=0) {//path given
 			 out_dir=outfname.substr(0,pidx+1);
+			 tmpfname=outfname.substr(pidx+1);
+		 }
 	 }
 	 else { // stdout
 		tmpfname=outfname;
@@ -914,7 +916,9 @@ void processOptions(GArgs& args) {
 	 if (out_dir!="./") {
 		 if (fileExists(out_dir.chars())==0) {
 			//directory does not exist, create it
-			Gmkdir(out_dir.chars());
+			if (Gmkdir(out_dir.chars()) && !fileExists(out_dir.chars())) {
+				GError("Error: cannot create directory %s!\n", out_dir.chars());
+			}
 		 }
 	 }
 
@@ -937,7 +941,10 @@ void processOptions(GArgs& args) {
 			ballgown_dir.chomp('/');ballgown_dir+='/';
 			if (fileExists(ballgown_dir.chars())==0) {
 				//directory does not exist, create it
-				Gmkdir(ballgown_dir.chars());
+				if (Gmkdir(ballgown_dir.chars()) && !fileExists(ballgown_dir.chars())) {
+					GError("Error: cannot create directory %s!\n", ballgown_dir.chars());
+				}
+
 			}
 	   }
 #ifdef B_DEBUG
@@ -947,8 +954,7 @@ void processOptions(GArgs& args) {
 	 if (dbg_out==NULL) GError("Error creating debug output file %s\n", dbgfname.chars());
 #endif
 
-	 //tmpfname+=".tmp";
-	 tmpfname+=".gtf";
+	 tmpfname+=".tmp";
 	 f_out=fopen(tmpfname.chars(), "w");
 	 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
 }
