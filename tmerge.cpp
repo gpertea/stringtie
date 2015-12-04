@@ -31,7 +31,7 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   gfr.readAll(true, true, true); //keep attributes, merge close exons, no_exon_attributes
   gfr.gseqStats.Sort(gseqstat_cmpName);
   for (int i=0;i<gfr.gseqStats.Count();++i) {
-  	fprintf(samh, "@SQ\tSN:%s\tLN:%ul\n", gfr.gseqStats[i]->gseqname,
+  	fprintf(samh, "@SQ\tSN:%s\tLN:%u\n", gfr.gseqStats[i]->gseqname,
   			gfr.gseqStats[i]->maxcoord+500);
   }
   fprintf(samh, "@CO\tfn:%s\n",gtf.chars());
@@ -57,7 +57,7 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
 	       brec.add_aux(tag.chars());
 	  }
 	  GStr s("ZF:i:");
-	  s+=i;
+	  s+=idx;
 	  brec.add_aux(s.chars());
 	  char *av=m.getAttr("cov");
 	  if (av!=NULL) {
@@ -68,6 +68,7 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
 		  if (av) s+=av;
 		  av=m.getAttr("TPM");
 		  if (av) { s+='|';s+=av; }
+		  brec.add_aux(s.chars());
 	  }
 	  bw.write(&brec);
   } //for each transcript
