@@ -17,7 +17,8 @@ struct TInputRecord {
 		 //decreasing location sort
 		 GBamRecord& r1=*brec;
 		 GBamRecord& r2=*(o.brec);
-		 if (r1.refId()==r2.refId()) {
+		 int refcmp=strcmp(r1.refName(),r2.refName());
+		 if (refcmp==0) {
 		 //higher coords first
 			if (r1.start!=r2.start)
 				 return (r1.start>r2.start);
@@ -30,13 +31,13 @@ struct TInputRecord {
 			}
 		 }
 		 else { //use lexicographic order of ref seqs
-			 return (strcmp(r1.refName(),r2.refName())>0);
+			 return (refcmp>0);
 		 }
 	}
 	bool operator==(TInputRecord& o) {
 		 GBamRecord& r1=*brec;
 		 GBamRecord& r2=*(o.brec);
-		 return ( r1.refId()==r2.refId() && r1.start==r2.start && r1.end==r2.end
+		 return ( strcmp(r1.refName(),r2.refName())==0 && r1.start==r2.start && r1.end==r2.end
 				 && fidx==o.fidx && strcmp(r1.name(),r2.name())==0);
 	}
 

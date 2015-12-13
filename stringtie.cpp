@@ -428,7 +428,7 @@ if (ballgown)
 			 if (guided) {
 				 if (gseq_id>=refseqCount) {
 					 if (verbose)
-						 GMessage("WARNING: no reference transcripts found for genomic sequence \"%s\"! (different naming convention?)\n",
+						 GMessage("WARNING: no reference transcripts found for genomic sequence \"%s\"! (mismatched reference names?)\n",
 								refseqName);
 				 }
 				 else no_ref_used=false;
