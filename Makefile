@@ -43,7 +43,7 @@ endif
 
 
 BASEFLAGS  := -Wall -Wextra ${SEARCHDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 \
--D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti
+-D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti -D_DARWIN_C_SOURCE
 
 # C/C++ linker
 

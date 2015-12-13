@@ -32,7 +32,7 @@
 
 #define USAGE "StringTie v"VERSION" usage:\n\
  stringtie <input.bam ..> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
-  [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] \n\
+  [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
   [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>]\n\
   [-e] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
  Assemble RNA-Seq alignments into potential transcripts.\n\
@@ -63,15 +63,31 @@
  -h prints help message and exits.\n\
  \n\
 Transcript merge usage: \n\
-  stringtie --merge [-G <guide_gff>] [-o <out_gtf>] { gtf_list | strg1.gtf ...}\n\
+  stringtie --merge [Options] { gtf_list | strg1.gtf ...}\n\
 When run with the --merge option, StringTie will assemble transcripts\n\
 from multiple transcript files generating a non-redundant set of isoforms.\n\
- "
+ -G <guide_gff>    reference annotation to include in the merging (GTF/GFF3)\n\
+ -o <out_gtf>      output path/file name for the merged transcripts GTF (default:\n\
+                   stdout)\n\
+ -m <min_len>      minimum transcript length in the input to include in the merge\n\
+				   (default: 0; all input transcripts are merged)\n\
+ -c <min_cov>      minimum transcript coverage in the input to include in the merge\n\
+				   (default: 0; all input transcripts are merged)\n\
+ -F <min_fpkm>     minimum transcript fpkm in the input to include in the merge\n\
+				   (default: 0; all input transcripts are merged)\n\
+ -T <min_tpm>      minimum transcript tpm in the input to include in the merge\n\
+				   (default: 0; all input transcripts are merged)\n\
+ -f <min_iso>      minimum isoform fraction (default: 0.01)\n\
+ -p <CPUs>         number of threads (CPUs) to use (default: 1)\n\
+ -l <label>        name prefix for output transcripts (default: MSTRG)\n\
+  "
 /* 
+ -E                enable the name of the input transcripts to be included\n\
+                   in the merge output (default: no)\n\
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\ \\ deprecated for now
  -O disable the coverage saturation limit and use a slower two-pass approach\n\
     to process the input alignments, collapsing redundant reads\n\
- -F disable fast computing for transcript path; default: yes\n\
+ -Z disable fast computing for transcript path (no zoom); default: yes\n\
  -i the reference annotation contains partial transcripts\n\
  -w weight the maximum flow algorithm towards the transcript with higher rate (abundance); default: no\n\
  -y include EM algorithm in max flow estimation; default: no\n\
@@ -102,8 +118,9 @@ bool guided=false;
 bool trim=true;
 bool fast=true;
 bool eonly=false; // parameter -e
+bool enableNames=false;
 bool specific=false;
-bool complete=true;
+//bool complete=true; // set by parameter -i the reference annotation contains partial transcripts
 bool geneabundance=false;
 //bool partialcov=false;
 int num_cpus=1;
@@ -115,10 +132,13 @@ float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise co
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
 float mcov=0.95; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 
+float fpkm_thr=0;
+float tpm_thr=0;
+
 // different options of implementation reflected with the next three options
 bool includesource=true;
-bool EM=false;
-bool weight=false;
+//bool EM=false;
+//bool weight=false;
 
 float isofrac=0.1;
 GStr label("STRG");
@@ -136,6 +156,10 @@ bool ballgown=false;
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
+
+bool isfpkm=false;
+bool istpm=false;
+bool iscov=false;
 
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -221,7 +245,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;keeptmp;merge;exclude=yzwFShvtiex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:");
+   "debug;help;version;keeptmp;merge;exclude=zZSEhvtex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -584,16 +608,18 @@ if (ballgown)
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
 	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
-     bundle->evalReadAln(alndata, xstrand);
-     //check for overlaps with ref transcripts which may set xstrand
-     if (xstrand=='+') alndata.strand=1;
-		else if (xstrand=='-') alndata.strand=-1;
-     //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
-	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
-	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
-	 //if (!ballgown || ref_overlap)
-	 processRead(currentstart, currentend, *bundle, hashread, alndata);
+     bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
+     if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide
+    	 //check for overlaps with ref transcripts which may set xstrand
+    	 if (xstrand=='+') alndata.strand=1;
+    	 else if (xstrand=='-') alndata.strand=-1;
+    	 //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
+    	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
+    	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
+    	 //if (!ballgown || ref_overlap)
+    	 processRead(currentstart, currentend, *bundle, hashread, alndata);
 			  // *brec, strand, nh, hi);
+     }
  } //for each read alignment
  if (guided && no_ref_used)
     GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
@@ -625,94 +651,95 @@ if (ballgown)
  fclose(f_out);
  if (c_out && c_out!=stdout) fclose(c_out);
 
+if(!mergeMode) {
+	if(verbose) {
+		GMessage("Total count of aligned fragments: %g\n",Num_Fragments);
+		GMessage("Fragment coverage length:%g\n",Frag_Len/Num_Fragments);
+	}
 
- if(verbose) {
-	 GMessage("Total count of aligned fragments: %g\n",Num_Fragments);
-	 GMessage("Fragment coverage length:%g\n",Frag_Len/Num_Fragments);
- }
+	f_out=stdout;
+	if(outfname!="stdout") {
+		f_out=fopen(outfname.chars(), "w");
+		if (f_out==NULL) GError("Error creating output file %s\n", outfname.chars());
+	}
 
- f_out=stdout;
- if(outfname!="stdout") {
-	 f_out=fopen(outfname.chars(), "w");
-	 if (f_out==NULL) GError("Error creating output file %s\n", outfname.chars());
- }
+	fprintf(f_out,"# ");
+	args.printCmdLine(f_out);
+	fprintf(f_out,"# StringTie version %s\n",VERSION);
 
- fprintf(f_out,"# ");
- args.printCmdLine(f_out);
- fprintf(f_out,"# StringTie version %s\n",VERSION);
+	FILE *g_out=NULL;
+	if(geneabundance) {
+		g_out=fopen(genefname.chars(),"w");
+		if (g_out==NULL)
+			GError("Error creating gene abundance output file %s\n", genefname.chars());
+		fprintf(g_out,"Gene ID\tGene Name\tStrand\tStart\tEnd\tLength\tCoverage\tFPKM\tTPM\n");
+	}
 
- FILE *g_out=NULL;
- if(geneabundance) {
-	 g_out=fopen(genefname.chars(),"w");
-	 if (g_out==NULL) 
-	      GError("Error creating gene abundance output file %s\n", genefname.chars());
-	 fprintf(g_out,"Gene ID\tGene Name\tStrand\tStart\tEnd\tLength\tCoverage\tFPKM\tTPM\n");
- }
+	FILE* t_out=fopen(tmpfname.chars(),"rt");
+	if (t_out!=NULL) {
+		char* linebuf=NULL;
+		int linebuflen=5000;
+		GMALLOC(linebuf, linebuflen);
+		int nl;
+		int istr;
+		int tlen;
+		float tcov;
+		//float fpkm;
+		float calc_fpkm;
+		float calc_tpm;
+		int t_id;
+		while(fgetline(linebuf,linebuflen,t_out)) {
+			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
+			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
+			calc_fpkm=tcov*1000000000/Frag_Len;
+			calc_tpm=tcov*1000000/Cov_Sum;
+			/*
+		 	 double eff_len=1;
+		 	 if((float)tlen>AvgFrag) eff_len=tlen-AvgFrag+1;
+		 	 calc_fpkm2=calc_fpkm*tlen/eff_len;
+			 */
+			//fprintf(stderr,"tid=%d tlen=%d fpkm=%g calc_fpkm=%g tcov=%g new_fpkm=%g newcalc_fpkm=%g calc_fpkm3=%g\n",t_id,tlen,fpkm,calc_fpkm,tcov,tcov*tlen*1000000000/(efflen*SumReads),calc_fpkm2,calc_fpkm3);
+			if(istr) { // this is a transcript
+				if (ballgown && t_id>0) {
+					guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
+					guides_RC_tdata[t_id-1]->cov=tcov;
+				}
+				for(int i=0;i<nl;i++) {
+					fgetline(linebuf,linebuflen,t_out);
+					if(!i) {
+						//linebuf[strlen(line)-1]='\0';
+						fprintf(f_out,"%s",linebuf);
+						fprintf(f_out," FPKM \"%.6f\";",calc_fpkm);
+						fprintf(f_out," TPM \"%.6f\";",calc_tpm);
+						fprintf(f_out,"\n");
+					}
+					else fprintf(f_out,"%s\n",linebuf);
+				}
+			}
+			else { // this is a gene -> different file pointer
+				fgetline(linebuf,linebuflen,t_out);
+				fprintf(g_out,"%s\t%.6f\t%.6f\n",linebuf,calc_fpkm,calc_tpm);
+			}
+		}
+		fclose(f_out);
+		fclose(t_out);
+		if(geneabundance) fclose(g_out);
+		GFREE(linebuf);
+		if (!keepTempFiles) {
+			remove(tmpfname.chars());
+		}
+	}
+	else {
+		fclose(f_out);
+		GError("No temporary file %s present!\n",tmpfname.chars());
+	}
 
- FILE* t_out=fopen(tmpfname.chars(),"rt");
- if (t_out!=NULL) {
-	 char* linebuf=NULL;
-	 int linebuflen=5000;
-	 GMALLOC(linebuf, linebuflen);
-	 int nl;
-	 int istr;
-	 int tlen;
-	 float tcov;
-	 //float fpkm;
-	 float calc_fpkm;
-	 float calc_tpm;
-	 int t_id;
-	 while(fgetline(linebuf,linebuflen,t_out)) {
-		 //sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
-		 sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
-		 calc_fpkm=tcov*1000000000/Frag_Len;
-		 calc_tpm=tcov*1000000/Cov_Sum;
-		 /*
-		 double eff_len=1;
-		 if((float)tlen>AvgFrag) eff_len=tlen-AvgFrag+1;
-		 calc_fpkm2=calc_fpkm*tlen/eff_len;
-		 */
-		 //fprintf(stderr,"tid=%d tlen=%d fpkm=%g calc_fpkm=%g tcov=%g new_fpkm=%g newcalc_fpkm=%g calc_fpkm3=%g\n",t_id,tlen,fpkm,calc_fpkm,tcov,tcov*tlen*1000000000/(efflen*SumReads),calc_fpkm2,calc_fpkm3);
-		 if(istr) { // this is a transcript
-			 if (ballgown && t_id>0) {
-				 guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
-				 guides_RC_tdata[t_id-1]->cov=tcov;
-			 }
-			 for(int i=0;i<nl;i++) {
-				 fgetline(linebuf,linebuflen,t_out);
-				 if(!i) {
-					 //linebuf[strlen(line)-1]='\0';
-					 fprintf(f_out,"%s",linebuf);
-					 fprintf(f_out," FPKM \"%.6f\";",calc_fpkm);
-					 fprintf(f_out," TPM \"%.6f\";",calc_tpm);
-					 fprintf(f_out,"\n");
-				 }
-				 else fprintf(f_out,"%s\n",linebuf);
-			 }
-		 }
-		 else { // this is a gene -> different file pointer
-			 fgetline(linebuf,linebuflen,t_out);
-			 fprintf(g_out,"%s\t%.6f\t%.6f\n",linebuf,calc_fpkm,calc_tpm);
-		 }
-	 }
-	 fclose(f_out);
-	 fclose(t_out);
-	 if(geneabundance) fclose(g_out);
-	 GFREE(linebuf);
-	 if (!keepTempFiles) {
-	    remove(tmpfname.chars());
-	 }
- }
- else {
-	 fclose(f_out);
-	 GError("No temporary file %s present!\n",tmpfname.chars());
- }
-
- //lastly, for ballgown, rewrite the tdata file with updated cov and fpkm
- if (ballgown) {
-	 rc_writeRC(guides_RC_tdata, guides_RC_exons, guides_RC_introns,
-			 f_tdata, f_edata, f_idata, f_e2t, f_i2t);
- }
+	//lastly, for ballgown, rewrite the tdata file with updated cov and fpkm
+	if (ballgown) {
+		rc_writeRC(guides_RC_tdata, guides_RC_exons, guides_RC_introns,
+				f_tdata, f_edata, f_idata, f_e2t, f_i2t);
+	}
+}
 
  if (!keepTempFiles) {
    tmp_path.chomp('/');
@@ -753,23 +780,30 @@ void processOptions(GArgs& args) {
 	 debugMode=(args.getOpt("debug")!=NULL || args.getOpt('D')!=NULL);
 	 mergeMode=(args.getOpt("merge")!=NULL);
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
-	 fast=!(args.getOpt('F')!=NULL);
+	 fast=!(args.getOpt('Z')!=NULL);
 	 verbose=(args.getOpt('v')!=NULL);
 	 if (verbose) {
 	     fprintf(stderr, "Command line was:\n");
 	     args.printCmdLine(stderr);
 	 }
-	 complete=!(args.getOpt('i')!=NULL);
+	 //complete=!(args.getOpt('i')!=NULL);
 	 trim=!(args.getOpt('t')!=NULL);
 	 includesource=!(args.getOpt('z')!=NULL);
-	 EM=(args.getOpt('y')!=NULL);
-	 weight=(args.getOpt('w')!=NULL);
+	 //EM=(args.getOpt('y')!=NULL);
+	 //weight=(args.getOpt('w')!=NULL);
+
 	 GStr s=args.getOpt('m');
 	 if (!s.is_empty()) {
 	   mintranscriptlen=s.asInt();
-	   if (mintranscriptlen<30) 
-	     GError("Error: invalid -m value, must be >=30)\n");
+	   if (!mergeMode) {
+		   if (mintranscriptlen<30)
+			   GError("Error: invalid -m value, must be >=30)\n");
+	   }
+	   else if (mintranscriptlen<0) GError("Error: invalid -m value, must be >=0)\n");
 	 }
+	 else if(mergeMode) mintranscriptlen=0;
+
+
      s=args.getOpt('x');
      if (!s.is_empty()) {
     	 //split by comma and populate excludeGSeqs
@@ -804,15 +838,32 @@ void processOptions(GArgs& args) {
 	 if (!s.is_empty()) junctionsupport=(uint)s.asInt();
 	 s=args.getOpt('j');
 	 if (!s.is_empty()) junctionthr=s.asInt();
+
 	 s=args.getOpt('c');
 	 if (!s.is_empty()) {
 		 readthr=(float)s.asDouble();
-		 if (readthr<0.001) {
+		 if (readthr<0.001 && !mergeMode) {
 			 GError("Error: invalid -c value, must be >=0.001)\n");
 		 }
 	 }
+	 else if(mergeMode) readthr=0;
+
+	 s=args.getOpt('F');
+	 if (!s.is_empty()) {
+		 fpkm_thr=(float)s.asDouble();
+	 }
+	 else if(mergeMode) fpkm_thr=0;
+
+	 s=args.getOpt('T');
+	 if (!s.is_empty()) {
+		 tpm_thr=(float)s.asDouble();
+	 }
+	 else if(mergeMode) tpm_thr=0;
+
 	 s=args.getOpt('l');
 	 if (!s.is_empty()) label=s;
+	 else if(mergeMode) label="MSTRG";
+
 	 s=args.getOpt('f');
 	 if (!s.is_empty()) {
 		 isofrac=(float)s.asDouble();
@@ -857,6 +908,7 @@ void processOptions(GArgs& args) {
 	 }
 
 	 eonly=(args.getOpt('e')!=NULL);
+	 enableNames=(args.getOpt('E')!=NULL);
 	 if(eonly && !guided)
 		 GError("Error: invalid -e usage, GFF reference not given (-G option required).\n");
 
@@ -885,7 +937,7 @@ void processOptions(GArgs& args) {
 	 //}
 	int numbam=args.startNonOpt();
 #ifndef GFF_DEBUG
-	if (numbam < 0 ) {
+	if (numbam < 1 ) {
 	 	 GMessage("%s\nError: no input file provided!\n",USAGE);
 	 	 exit(1);
 	}
@@ -954,9 +1006,21 @@ void processOptions(GArgs& args) {
 	 if (dbg_out==NULL) GError("Error creating debug output file %s\n", dbgfname.chars());
 #endif
 
-	 tmpfname+=".tmp";
-	 f_out=fopen(tmpfname.chars(), "w");
-	 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
+	 if(mergeMode) {
+		 f_out=stdout;
+		 if(outfname!="stdout") {
+			 f_out=fopen(outfname.chars(), "w");
+			 if (f_out==NULL) GError("Error creating output file %s\n", outfname.chars());
+		 }
+		 fprintf(f_out,"# ");
+		 args.printCmdLine(f_out);
+		 fprintf(f_out,"# StringTie version %s\n",VERSION);
+	 }
+	 else {
+		 tmpfname+=".tmp";
+		 f_out=fopen(tmpfname.chars(), "w");
+		 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
+	 }
 }
 
 //---------------
@@ -1048,6 +1112,11 @@ void processBundle(BundleData* bundle) {
 #endif
 	//int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
 	int ngenes=infer_transcripts(bundle, fast);
+	if(mergeMode) {
+		isfpkm=false;
+		istpm=false;
+		iscov=false;
+	}
 	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
 	}
@@ -1055,7 +1124,8 @@ void processBundle(BundleData* bundle) {
 #ifndef NOTHREADS
 		GLockGuard<GFastMutex> lock(printMutex);
 #endif
-		GeneNo=printResults(bundle, ngenes, GeneNo, bundle->refseq);
+		if(mergeMode) GeneNo=printMergeResults(bundle, GeneNo,bundle->refseq);
+		else GeneNo=printResults(bundle, ngenes, GeneNo, bundle->refseq);
 	}
 
 	if (bundle->num_fragments) {

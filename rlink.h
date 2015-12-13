@@ -101,16 +101,53 @@ struct CTransfrag {
 	GBitVec pattern;
 	float abundance;
 	bool real;
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=true):nodes(_nodes),pattern(bit),abundance(abund),real(treal) {}
-	CTransfrag(float abund=0, bool treal=true):nodes(),pattern(),abundance(abund),real(treal) {}
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false):nodes(_nodes),pattern(bit),abundance(abund),real(treal) {}
+	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal) {
+	}
+};
+
+struct CMTransfrag { // this is the super-class for transfrag -> to use in case of merging transcripts
+	CTransfrag *transfrag;
+	GVec<int> read; // all reads' indeces that are connected to this transfrag
+	CMTransfrag(CTransfrag *t=NULL):transfrag(t),read() {}
 };
 
 struct CGuide {
 	CTransfrag *trf;
-	//char *id;
-	//CGuide(CTransfrag* _trf=NULL,char* _id=NULL):trf(_trf),id(_id) {}
-	GffObj* t;
-	CGuide(CTransfrag* _trf=NULL, GffObj* _t=NULL):trf(_trf),t(_t) {}
+	//GffObj* t; // this is what I was using before but I need to store the guide index in guides instead
+	//CGuide(CTransfrag* _trf=NULL, GffObj* _t=NULL):trf(_trf),t(_t) {}
+	int g; // stores guide index in guides instead of the actual pointer
+	CGuide(CTransfrag* _trf=NULL, int _g=-1):trf(_trf),g(_g) {}
+};
+
+struct CPartGuide {
+	int idx;
+	int olen; // overlap with node
+	int allolen; // overlap with all nodes
+	int glen; // guide length
+	bool terminal_in;
+	bool terminal_out;
+	float gcount;
+	float cov; // assigned overall coverage so far
+	float ncov; // new coverage in node
+	CPartGuide(int _idx=0, int _olen=0, int _aolen=0, int _glen=0):idx(_idx),olen(_olen),allolen(_aolen),glen(_glen),
+			terminal_in(false),terminal_out(false),gcount(0),cov(0),ncov(0) {}
+};
+
+struct CTrGuidePat { // remember abundances based on node guide pattern
+	GBitVec pat;
+	float abund;
+	bool terminal;
+	GVec<int> g;
+	CTrGuidePat():pat(),abund(0),terminal(false),g() {} // default constructor
+	CTrGuidePat(GBitVec p, float a, bool _t): pat(p),abund(a),terminal(_t),g() {}
+};
+
+struct CNodeGuide {
+	GVec<CPartGuide> guide;
+	GVec<CTrGuidePat> trcount;
+	float sumtrcount; // sum of all used in guides transfrag abundances -> this is needed in order to see if a guide would explain all of them
+	CNodeGuide():guide(),trcount(),sumtrcount(0) {}
 };
 
 struct CGroup:public GSeg {
@@ -126,6 +163,12 @@ struct CGroup:public GSeg {
 			cov_sum(_cov_sum), nread(_nread),multi(_multi), neg_prop(_neg_prop), next_gr(_next_gr) { }
 };
 
+struct CMerge {
+	GStr name;
+	GVec<int> fidx; // file indices for the transcripts in the merge
+	CMerge(const char* rname=NULL):name(rname),fidx() {}
+};
+
 struct CPrediction:public GSeg {
 	int geneno;
 	GffObj* t_eq; //equivalent reference transcript (guide)
@@ -137,17 +180,24 @@ struct CPrediction:public GSeg {
 	bool flag;
 	GVec<GSeg> exons;
 	GVec<float> exoncov;
+	GStr mergename;
 	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
 	int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),strand(_strand),
 	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
-			tlen(_len),flag(f),exons(),exoncov() {}
+			tlen(_len),flag(f),exons(),exoncov(),mergename() {}
 	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
 //			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
 			t_eq(c.t_eq), cov(c.cov), strand(c.strand), tlen(c.tlen), flag(c.flag),
-	      exons(c.exons),  exoncov(c.exoncov) {}
+	      exons(c.exons),  exoncov(c.exoncov), mergename() {}
 	~CPrediction() { //GFREE(id);
 		}
+};
+
+struct CPath {
+	GVec<int> nodes;
+	CPath():nodes() {}
+	CPath(GVec<int>& _n):nodes(_n) {}
 };
 
 // this class keeps the gene predictions (linked bundle nodes initially)
@@ -170,8 +220,9 @@ struct TAlnInfo {
 	double cov;
 	double fpkm;
 	double tpm;
+	int g;
 	TAlnInfo(const char* rname=NULL, int fidx=0):name(rname), fileidx(fidx),
-			cov(0),fpkm(0),tpm(0) { }
+			cov(0),fpkm(0),tpm(0),g(-1) { }
 };
 
 struct CJunction;
@@ -450,6 +501,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 void countFragment(BundleData& bdata, GBamRecord& brec, int hi,int nh);
 
 int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
+int printMergeResults(BundleData* bundleData, int geneno, GStr& refname);
 
 int infer_transcripts(BundleData* bundle, bool fast);
 

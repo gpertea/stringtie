@@ -287,6 +287,20 @@ struct RC_BundleData {
 	 }
  }
 
+ //for non-ballgown tracking of guide features
+ /*
+ void addTranscriptFeature(uint fstart, uint fend, char fstrand, GList<RC_Feature>& flist, GffObj& t) {
+	uint tidx=(uint)t.udata; //in non-Ballgown case, this is the index in the BundleData::keepguides array + 1
+	RC_Feature* feat=new RC_Feature(fstart, fend, fstrand, 0, tidx);
+	int fidx=-1;
+	RC_Feature* p=flist.AddIfNew(feat, true, &fidx);
+	if (p==feat) {//exon never seen before
+		//TODO: use some stable e_id index here and assign it to t.exons[eidx]->uptr->e_id (?) for quick retrieval
+	} else {//exon seen before, just update t_id list
+		p->t_ids.Add(tidx);
+	}
+ }
+*/
  uint addTranscript(GffObj& t) { //shouuld return the guide index in *guides_RC_tdata
    //if (!ps.rc_id_data()) return;
    //RC_ScaffIds& sdata = *(ps.rc_id_data());
