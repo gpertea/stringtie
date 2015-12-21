@@ -914,7 +914,6 @@ GffObj* GffReader::gfoAdd(GffObj* gfo) {
  GPVec<GffObj>* glst=phash.Find(gfo->gffID);
  if (glst==NULL)
 	 glst=new GPVec<GffObj>(false);
- //GfoHolder gh(gfo); //,idx);
  int i=glst->Add(gfo);
  phash.Add(gfo->gffID, glst);
  return glst->Get(i);
@@ -995,7 +994,6 @@ GffObj* GffReader::newGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr,
                           GffObj* parent, GffExon* pexon, GPVec<GffObj>* glst) {
   GffObj* newgfo=new GffObj(this, gffline, keepAttr, noExonAttr);
   GffObj* r=NULL;
-  //int gfoidx=gflst.Add(newgfo);
   gflst.Add(newgfo);
   r=(glst) ? gfoAdd(*glst, newgfo) : gfoAdd(newgfo);
   if (parent!=NULL) {
@@ -1130,6 +1128,7 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 						else exit(1);
 					}
 					//create a new entry with the same ID
+					/*
 					int distance=INT_MAX;
 					if (prevseen->isTranscript() && prevseen->strand==gffline->strand) {
 						if (prevseen->start>=gffline->fstart)
@@ -1146,14 +1145,16 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 									gffline->ID, gffline->fstart, gffline->fend, prevseen->start, prevseen->end);
 						}
 					}
-					else { //create a separate entry (true discontinuous feature)
+					else {
+					*/
+					//create a separate entry (true discontinuous feature)
 						prevseen=newGffRec(gffline, keepAttr, noExonAttr,
 								prevseen->parent, NULL, prevgflst);
 						if (gff_warns) {
 							GMessage("GFF Warning: duplicate feature ID %s (%d-%d) (discontinuous feature?)\n",
 									gffline->ID, gffline->fstart, gffline->fend);
 						}
-					}
+					//}
 				} //duplicate ID in the same locus
 			} //ID seen previously in the same locus
 		} //parent-like ID feature (non-exon)

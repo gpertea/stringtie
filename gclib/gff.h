@@ -1013,7 +1013,7 @@ class GffReader {
   bool transcriptsOnly; //keep only transcripts w/ their exon/CDS features
   GHash<int> discarded_ids; //for transcriptsOnly mode, keep track
                             // of discarded parent IDs
-  GHash< GPVec<GffObj> > phash; //transcript_id+contig (Parent~Contig) => [gflst index, GffObj]
+  GHash< GPVec<GffObj> > phash; //transcript_id => GPVec<GffObj>(false)
   //GHash<int> tids; //just for transcript_id uniqueness
   char* gfoBuildId(const char* id, const char* ctg);
   //void gfoRemove(const char* id, const char* ctg);
