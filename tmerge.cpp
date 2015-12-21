@@ -29,6 +29,8 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   GffReader gfr(gtf.chars(), true, true); //transcript only, sorted by location
   gfr.showWarnings(debugMode || verbose);
   gfr.readAll(true, true, true); //keep attributes, merge close exons, no_exon_attributes
+  if (gfr.gflst.Count()==0)
+	  GError("Error: no transcripts were found in input file %s\n", gtf.chars());
   gfr.gseqStats.Sort(gseqstat_cmpName);
   for (int i=0;i<gfr.gseqStats.Count();++i) {
   	fprintf(samh, "@SQ\tSN:%s\tLN:%u\n", gfr.gseqStats[i]->gseqname,
@@ -93,10 +95,13 @@ int TInputFiles::start() {
 		while (fgetline(line,lcap,flst)) {
 			GStr s(line);
 			s.trim();
-			if (s[0]=='#' || s.length()<2) continue; //skip comments/header in the list file, if any
+			if (s.length()<2 || s[0]=='#') continue; //skip comments/header in the list file, if any
 			if (firstline) {
 				if (!fileExists(s.chars())) {
-					//isalist=false; //this shouldn't normally happen in mergeMode, with one input file
+					//it must be a GFF
+					//this shouldn't normally happen in mergeMode, with one input file
+					if (s.count('\t')<8)
+						GError("Error: cannot find file '%s' and %s does not look like GFF!\n", s.chars(), fname.chars());
 					break;
 				}
 				firstline=false;

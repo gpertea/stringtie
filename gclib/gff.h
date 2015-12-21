@@ -453,6 +453,7 @@ class GffObj:public GSeg {
    friend class GffExon;
 public:
   static GffNames* names; // dictionary storage that holds the various attribute names etc.
+  //TODO: this makes the parser thread unsafe, use conditional compiling for names access!
   int track_id; // index of track name in names->tracks
   int gseq_id; // index of genomic sequence name in names->gseqs
   int ftype_id; // index of this record's feature name in names->feats, or the special gff_fid_mRNA value

@@ -2341,48 +2341,162 @@ void process_merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTrans
 
 }
 
-void extend_path_left(int n, int gno, GVec<int>& keept,GVec<int>& path, GBitVec &unionpat,GPVec<CGraphnode>& no2gnode,
-		GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,GVec<CPath>& leftpath) {
+
+
+void extend_path_left(int n, int gno, GVec<int>& keept, GBitVec &unionpat,GPVec<CGraphnode>& no2gnode,
+		GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,GVec<int>& leftpath) {
 
 	CGraphnode *node=no2gnode[n];
 
-	bool extended=false;
-	bool source=false;
+	int maxp=-1;
+	float maxabund=0;
 
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr," continue left node %d with %d parents and %d compatible transcripts:",n,node->parent.Count(),keept.Count());
+		//for(int i=0;i<keept.Count();i++) fprintf(stderr," %d",keept[i]);
+		fprintf(stderr,"\n");
+	}
+	*/
+
+	// this version takes the most abundant path only
 	for(int i=0;i<node->parent.Count();i++) {
 		int p=node->parent[i];
 		if(p) { // parent not source
-			if(unionpat[p]) { // there might be transcripts on the path
-				GVec<int> ekeept; // extend keept;
+			if(unionpat[p]) { // there might be transcripts on the path: this will not be true for fuzzy continuations
+				float sumabund=0;
 				for(int t=0;t<keept.Count();t++) if(mgt[keept[t]]->transfrag->pattern[p]) { // parent is on transcript
-					if(mgt[keept[t]]->transfrag->nodes.Last()==p) ekeept.Add(keept[t]);
+					if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nl]==p) {
+						sumabund+=mgt[keept[t]]->transfrag->abundance;
+					}
 					else {
 						int *pos=gpos[edge(p,n,gno)];
-						if(pos && mgt[keept[t]]->transfrag->pattern[*pos]) ekeept.Add(keept[t]);
+						if(pos && mgt[keept[t]]->transfrag->pattern[*pos]) {
+							sumabund+=mgt[keept[t]]->transfrag->abundance;
+						}
 					}
 				}
-				else if(mgt[keept[t]]->transfrag->nodes.Last()<p) ekeept.Add(keept[t]);
-				if(ekeept.Count()) { // if I can extend path
-					extended=true;
-					GVec<int> epath(path);
-					epath.Add(p);
-					extend_path_left(p,gno,ekeept,epath,unionpat,no2gnode,mgt,gpos,leftpath);
+				//else if(mgt[keept[t]]->transfrag->nodes.Last()<p) sumabund+=mgt[keept[t]]->transfrag->abundance; this transcript shouldn't contribute to the path chosen
+				if(sumabund>maxabund) {
+					maxabund=sumabund;
+					maxp=p;
 				}
 			}
 		}
-		else source=true; // source is present
 	}
 
-	if(source && !extended){ // only possible parent is source
-		CPath epath(path);
-		leftpath.Add(epath);
+	if(maxp>-1) { // I found a non-fuzzy way to continue
+		GVec<int> ekeept; // extend keept;
+		for(int t=0;t<keept.Count();t++) {
+			if(mgt[keept[t]]->transfrag->pattern[maxp]) { // parent is on transcript
+				if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nl]==maxp) ekeept.Add(keept[t]);
+				else {
+					int *pos=gpos[edge(maxp,n,gno)];
+					if(pos && mgt[keept[t]]->transfrag->pattern[*pos]) ekeept.Add(keept[t]);
+				}
+			}
+			else if(mgt[keept[t]]->transfrag->nodes.Last()<maxp) ekeept.Add(keept[t]); // keep upstream transcript just in case it might turn useful
+			else if(mgt[keept[t]]->transfrag->nodes[0]<=maxp && mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nf]>maxp){ // the transcript is fuzzy
+				ekeept.Add(keept[t]);
+			}
+		}
+		if(ekeept.Count()) { // if I can extend path
+			leftpath.Add(maxp);
+			extend_path_left(maxp,gno,ekeept,unionpat,no2gnode,mgt,gpos,leftpath);
+		}
 	}
-
-
+	else { // the path either stops here or it's fuzzy
+		int min=n;
+		GVec<int> path;
+		for(int t=0;t<keept.Count();t++) { // we need to check if transcripts are fuzzy because they might end further upstream
+			if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nf] >= n && mgt[keept[t]]->transfrag->nodes[0]<min) { // transcript is fuzzy and starts before min
+				for(int j=0;j<mgt[keept[t]]->transfrag->nodes.Count();j++) {
+					if(mgt[keept[t]]->transfrag->nodes[j]==min) break;
+					path.Add(mgt[keept[t]]->transfrag->nodes[j]);
+				}
+				min=mgt[keept[t]]->transfrag->nodes[0];
+			}
+		}
+		for(int i=path.Count()-1;i>=0;i--) leftpath.Add(path[i]);
+	}
 }
 
-int store_merge_prediction(GList<CPrediction>& pred,GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVec<int>& path,
-		GPVec<CGraphnode>& no2gnode,int strand,int geneno,bool& first,GList<CReadAln>& readlist,GPVec<GffObj>& guides) {
+/*   // needs more work
+void extend_path_left_EM(int n, int gno, GVec<int>& keept, GBitVec &unionpat,GPVec<CGraphnode>& no2gnode,
+		GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,GVec<int>& leftpath,int& start) {
+
+	CGraphnode *node=no2gnode[n];
+
+	int maxp=-1;
+	float maxabund=0;
+
+	// this version takes the most abundant path only
+	for(int i=0;i<node->parent.Count();i++) {
+		int p=node->parent[i];
+		if(p) { // parent not source
+			if(unionpat[p]) { // there might be transcripts on the path: this will not be true for fuzzy continuations
+				float sumabund=0;
+				for(int t=0;t<keept.Count();t++) if(mgt[keept[t]]->transfrag->pattern[p]) { // parent is on transcript
+					if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nl]==p) {
+						sumabund+=mgt[keept[t]]->transfrag->abundance;
+					}
+					else {
+						int *pos=gpos[edge(p,n,gno)];
+						if(pos && mgt[keept[t]]->transfrag->pattern[*pos]) {
+							sumabund+=mgt[keept[t]]->transfrag->abundance;
+						}
+					}
+				}
+				//else if(mgt[keept[t]]->transfrag->nodes.Last()<p) sumabund+=mgt[keept[t]]->transfrag->abundance; this transcript shouldn't contribute to the path chosen
+				if(sumabund>maxabund) {
+					maxabund=sumabund;
+					maxp=p;
+				}
+			}
+		}
+	}
+
+
+	if(maxp>-1) { // I found a non-fuzzy way to continue
+		GVec<int> ekeept; // extend keept;
+		for(int t=0;t<keept.Count();t++) {
+			if(mgt[keept[t]]->transfrag->pattern[maxp]) { // parent is on transcript
+				if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nl]==maxp) ekeept.Add(keept[t]);
+				else {
+					int *pos=gpos[edge(maxp,n,gno)];
+					if(pos && mgt[keept[t]]->transfrag->pattern[*pos]) ekeept.Add(keept[t]);
+				}
+			}
+			else if(mgt[keept[t]]->transfrag->nodes.Last()<maxp) ekeept.Add(keept[t]); // keep upstream transcript just in case it might turn useful
+			else if(mgt[keept[t]]->transfrag->nodes[0]<=maxp && mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nf]>maxp){ // the transcript is fuzzy
+				ekeept.Add(keept[t]);
+			}
+		}
+		if(ekeept.Count()) { // if I can extend path
+			leftpath.Add(maxp);
+			extend_path_left(maxp,gno,ekeept,unionpat,no2gnode,mgt,gpos,leftpath,start);
+		}
+	}
+	else { // the path either stops here or it's fuzzy
+		start=leftpath.Count()-1;
+		int min=n;
+		GVec<int> path;
+		for(int t=0;t<keept.Count();t++) { // we need to check if transcripts are fuzzy because they might end further upstream
+			if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nf] >= n && mgt[keept[t]]->transfrag->nodes[0]<min) { // transcript is fuzzy and starts before min
+				for(int j=0;j<mgt[keept[t]]->transfrag->nodes.Count();j++) {
+					if(mgt[keept[t]]->transfrag->nodes[j]==min) break;
+					path.Add(mgt[keept[t]]->transfrag->nodes[j]);
+				}
+				min=mgt[keept[t]]->transfrag->nodes[0];
+			}
+		}
+		for(int i=path.Count()-1;i>=0;i--) leftpath.Add(path[i]);
+	}
+}
+*/
+
+CPrediction* store_merge_prediction(GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVec<int>& path,
+		GPVec<CGraphnode>& no2gnode,int strand,int& geneno,bool& first,GList<CReadAln>& readlist,GPVec<GffObj>& guides) {
 
 	/*
 	{ // DEBUG ONLY
@@ -2395,18 +2509,14 @@ int store_merge_prediction(GList<CPrediction>& pred,GVec<int>& alltr,GPVec<CMTra
 	GffObj *t=NULL;
 	GStr name;
 
-	if(alltr.Count()==1 && mgt[alltr[0]]->transfrag->real) // this might be a guide
-		for(int j=0;j<mgt[alltr[0]]->read.Count();j++) {
-			int r=mgt[alltr[0]]->read[j];
-			if(readlist[r]->tinfo->g != -1) {
-				t=guides[readlist[r]->tinfo->g];
-				break;
-			}
-		}
-
-	if(enableNames) for(int i=0;i<alltr.Count();i++) {
+	// first compute coverage
+	float cov=0;
+	for(int i=0;i<alltr.Count();i++) {
 		int a=alltr[i];
-		for(int j=0;j<mgt[a]->read.Count();j++) {
+		cov+=mgt[alltr[i]]->transfrag->abundance;
+		fprintf(stderr,"Add transfrag %d(%d %d) with cov=%f\n",alltr[i],mgt[alltr[i]]->nf,mgt[alltr[i]]->nl-mgt[alltr[i]]->transfrag->nodes.Count()+1,mgt[alltr[i]]->transfrag->abundance);
+		mgt[alltr[i]]->transfrag->abundance=0;
+		if(enableNames || (alltr.Count()==1 && mgt[alltr[0]]->transfrag->real)) for(int j=0;j<mgt[a]->read.Count();j++) {
 			int r=mgt[a]->read[j];
 			if(readlist[r]->tinfo->g == -1) {
 				int fidx=1+readlist[r]->tinfo->fileidx;
@@ -2418,9 +2528,12 @@ int store_merge_prediction(GList<CPrediction>& pred,GVec<int>& alltr,GPVec<CMTra
 				name+=':';
 				name+=readlist[r]->tinfo->name;
 			}
+			else {
+				t=guides[readlist[r]->tinfo->g];
+				if(!enableNames) break;
+			}
 		}
 	}
-
 
 	int len=0;
 	CGraphnode *prevnode=NULL;
@@ -2451,7 +2564,158 @@ int store_merge_prediction(GList<CPrediction>& pred,GVec<int>& alltr,GPVec<CMTra
 	if(strand) { sign='+';}
 	if(first) { geneno++;}
 
-	CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, 0, sign, len);
+	CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, cov, sign, len);
+	p->exons=exons;
+	if(enableNames) p->mergename=name;
+	first=false;
+
+	return(p);
+}
+
+CPrediction* store_merge_prediction(float cov,GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVec<int>& path,
+		GPVec<CGraphnode>& no2gnode,int strand,int& geneno,bool& first,GList<CReadAln>& readlist,GPVec<GffObj>& guides, int g) {
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"  store prediction with cov=%f:",cov);
+		for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
+		fprintf(stderr,"\n");
+	}
+	*/
+
+	GffObj *t=NULL;
+	if(g>-1) t=guides[g];
+	GStr name;
+
+	if(enableNames) for(int i=0;i<alltr.Count();i++) {
+		int a=alltr[i];
+		for(int j=0;j<mgt[a]->read.Count();j++) {
+			int r=mgt[a]->read[j];
+			if(!name.is_empty()) {
+				name+=", ";
+			}
+			if(readlist[r]->tinfo->g == -1) {
+				int fidx=1+readlist[r]->tinfo->fileidx;
+				GStr fid(fidx);
+				name+=fid;
+				name+=':';
+				name+=readlist[r]->tinfo->name;
+			}
+			else {
+				name+=t->getID();
+			}
+		}
+	}
+
+	int len=0;
+	CGraphnode *prevnode=NULL;
+	GVec<GSeg> exons;
+
+	bool firstex=true;
+
+	for(int i=0;i<path.Count();i++) {
+
+		CGraphnode *node=no2gnode[path[i]];
+
+		uint nodestart=node->start;
+		uint nodeend=node->end;
+
+		if(!prevnode || firstex || node->start>prevnode->end+1) { // this is a new exon
+			GSeg exon(nodestart,nodeend);
+			exons.Add(exon);
+			firstex=false;
+		}
+		else if(!firstex) exons.Last().end=nodeend;
+
+		len+=nodeend-nodestart+1;
+
+		prevnode=node;
+	}
+
+	char sign='-';
+	if(strand) { sign='+';}
+	if(first) { geneno++;}
+
+	CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, cov, sign, len);
+	p->exons=exons;
+	if(enableNames) p->mergename=name;
+	first=false;
+
+	return(p);
+}
+
+/*   // needs more work
+int store_merge_prediction_EM(GList<CPrediction>& pred,GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVec<int>& path,
+		GPVec<CGraphnode>& no2gnode,int strand,int geneno,bool& first,GList<CReadAln>& readlist,GPVec<GffObj>& guides,float cov) {
+
+
+	{ // DEBUG ONLY
+		fprintf(stderr,"  geneno=%d first=",geneno);
+		if(first) fprintf(stderr,"1\n");
+		else fprintf(stderr,"0\n");
+		fprintf(stderr,"  store prediction:");
+		for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
+		fprintf(stderr,"\n");
+	}
+
+
+	GffObj *t=NULL;
+	GStr name;
+
+	// first compute coverage
+	//float cov=0;
+	for(int i=0;i<alltr.Count();i++) {
+		int a=alltr[i];
+		//cov+=mgt[alltr[0]]->transfrag->abundance;
+		if(enableNames || (alltr.Count()==1 && mgt[alltr[0]]->transfrag->real)) for(int j=0;j<mgt[a]->read.Count();j++) {
+			int r=mgt[a]->read[j];
+			if(readlist[r]->tinfo->g == -1) {
+				int fidx=1+readlist[r]->tinfo->fileidx;
+				GStr fid(fidx);
+				if(!name.is_empty()) {
+					name+=", ";
+				}
+				name+=fid;
+				name+=':';
+				name+=readlist[r]->tinfo->name;
+			}
+			else {
+				t=guides[readlist[r]->tinfo->g];
+				if(!enableNames) break;
+			}
+		}
+	}
+
+	int len=0;
+	CGraphnode *prevnode=NULL;
+	GVec<GSeg> exons;
+
+	bool firstex=true;
+
+	for(int i=0;i<path.Count();i++) {
+
+		CGraphnode *node=no2gnode[path[i]];
+
+		uint nodestart=node->start;
+		uint nodeend=node->end;
+
+		if(!prevnode || firstex || node->start>prevnode->end+1) { // this is a new exon
+			GSeg exon(nodestart,nodeend);
+			exons.Add(exon);
+			firstex=false;
+		}
+		else if(!firstex) exons.Last().end=nodeend;
+
+		len+=nodeend-nodestart+1;
+
+		prevnode=node;
+	}
+
+	char sign='-';
+	if(strand) { sign='+';}
+	if(first) { geneno++;}
+
+	CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, cov, sign, len);
 	p->exons=exons;
 	if(enableNames) p->mergename=name;
 	pred.Add(p);
@@ -2459,109 +2723,518 @@ int store_merge_prediction(GList<CPrediction>& pred,GVec<int>& alltr,GPVec<CMTra
 
 	return(geneno);
 }
+*/
 
-
-
-bool extend_path_right(int n, int gno, GVec<int>& keept,GVec<int>& path, GVec<int>& uniont, GBitVec &unionpat,
-		GPVec<CGraphnode>& no2gnode,GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,GVec<CPath>& leftpath,
-		int& geneno,int strand,GList<CPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides,bool& first) {
-
-	bool result=false;
+// this version only extends with the most abundant path
+void extend_path_right(int n, int gno, GVec<int>& keept,GVec<int>& path, GVec<int>& uniont, GBitVec &unionpat,
+		GPVec<CGraphnode>& no2gnode,GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,GVec<int>& leftpath,
+		int& geneno,int strand,GVec<CMPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides,bool& first) {
 
 	CGraphnode *node=no2gnode[n];
 
 	/*
 	{ // DEBUG ONLY
 		fprintf(stderr," continue node %d with %d children and %d compatible transcripts:",n,node->child.Count(),keept.Count());
-		for(int i=0;i<keept.Count();i++) fprintf(stderr," %d",keept[i]);
+		//for(int i=0;i<keept.Count();i++) fprintf(stderr," %d",keept[i]);
 		fprintf(stderr,"\n");
 	}
 	*/
 
-	bool extended=false;
-	bool sink=false;
+	int maxc=-1;
+	float maxabund=0;
 
 	for(int i=0;i<node->child.Count();i++) {
 		int c=node->child[i];
 		if(c<gno-1) { // child is no sink
 			if(unionpat[c]) { // there might be transcripts on the path
-				GVec<int> ekeept; // extend keept;
+				float sumabund=0;
 				for(int t=0;t<keept.Count();t++) if(mgt[keept[t]]->transfrag->pattern[c]) { // child is on transcript or transcript starts further downstream
-					if(mgt[keept[t]]->transfrag->nodes[0]==c) ekeept.Add(keept[t]);
+					if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nf]==c) {
+						sumabund+=mgt[keept[t]]->transfrag->abundance;
+					}
 					else {
 						int *pos=gpos[edge(n,c,gno)];
-						if(pos && mgt[keept[t]]->transfrag->pattern[*pos]) ekeept.Add(keept[t]);
+						if(pos && mgt[keept[t]]->transfrag->pattern[*pos]) {
+							sumabund+=mgt[keept[t]]->transfrag->abundance;
+						}
 					}
 				}
-				else if(mgt[keept[t]]->transfrag->nodes[0]>c) ekeept.Add(keept[t]);
-				if(ekeept.Count()) { // if I can extend path
-					extended=true;
-					GVec<int> epath(path);
-					epath.Add(c);
-					if(extend_path_right(c,gno,ekeept,epath,uniont,unionpat,no2gnode,mgt,gpos,leftpath,geneno,strand,pred,readlist,guides,first))
-						result=true;
+				//else if(mgt[keept[t]]->transfrag->nodes[0]>c) sumabund+=mgt[keept[t]]->transfrag->abundance;
+				if(sumabund>maxabund) { // if I can extend path
+					maxabund=sumabund;
+					maxc=c;
 				}
 			}
 		}
-		else sink=true; // sink is present
 	}
 
-	if(sink && !extended){ // only possible child is sink
-		for(int i=0;i<leftpath.Count();i++) { // for all possible extensions to the left
-			GBitVec pathpat(mgt[uniont[0]]->transfrag->pattern);
-			GVec<int> printpath(leftpath[i].nodes.Count());
-			for(int j=leftpath[i].nodes.Count()-1;j>=0;j--) {
-				printpath.Add(leftpath[i].nodes[j]);
-				pathpat[j]=1;
-				if(j) {
-					int *pos=gpos[edge(leftpath[i].nodes[j],leftpath[i].nodes[j-1],gno)];
-					if(pos) pathpat[*pos]=1;
-				}
+	if(maxc>-1) { // I found a non-fuzzy way to continue
+		GVec<int> ekeept; // extend keept;
+		for(int t=0;t<keept.Count();t++) {
+			if(mgt[keept[t]]->transfrag->pattern[maxc]) { // child is on transcript or
+				if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nl]==maxc)  ekeept.Add(keept[t]);
 				else {
-					int *pos=gpos[edge(leftpath[i].nodes[0],mgt[uniont[0]]->transfrag->nodes[0],gno)];
-					if(pos) pathpat[*pos]=1;
+					int *pos=gpos[edge(n,maxc,gno)];
+					if(pos && mgt[keept[t]]->transfrag->pattern[*pos])  ekeept.Add(keept[t]);
 				}
 			}
-			printpath.Add(mgt[uniont[0]]->transfrag->nodes);
-			for(int j=0;j<path.Count();j++) {
-				printpath.Add(path[j]);
-				pathpat[path[j]]=1;
-				if(j) {
-					int *pos=gpos[edge(path[j-1],path[j],gno)];
-					if(pos) pathpat[*pos]=1;
+			else if(mgt[keept[t]]->transfrag->nodes[0]>maxc) ekeept.Add(keept[t]); // transcript starts further downstream
+			else if(mgt[keept[t]]->transfrag->nodes.Last()>=maxc && mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nl]<maxc)
+				ekeept.Add(keept[t]);
+		}
+		if(ekeept.Count()) { // if I can extend path
+			path.Add(maxc);
+			extend_path_right(maxc,gno,ekeept,path,uniont,unionpat,no2gnode,mgt,gpos,leftpath,geneno,strand,pred,readlist,guides,first);
+		}
+	}
+	else { // only possible child is sink or fuzzy continuation
+
+		GBitVec pathpat(mgt[uniont[0]]->transfrag->pattern);
+		int nnodes=leftpath.Count()+mgt[uniont[0]]->transfrag->nodes.Count()+path.Count();
+		GVec<int> printpath(nnodes); // nnodes just sets up an initial capacity -> our best estimate so far
+		for(int j=leftpath.Count()-1;j>=0;j--) {
+			printpath.Add(leftpath[j]);
+			pathpat[leftpath[j]]=1;
+			int *pos=NULL;
+			if(j) pos=gpos[edge(leftpath[j],leftpath[j-1],gno)];
+			else pos=gpos[edge(leftpath[0],mgt[uniont[0]]->transfrag->nodes[mgt[uniont[0]]->nf],gno)];
+			if(pos) pathpat[*pos]=1;
+		}
+		for(int j=mgt[uniont[0]]->nf;j<=mgt[uniont[0]]->nl;j++) printpath.Add(mgt[uniont[0]]->transfrag->nodes[j]);
+
+		for(int j=0;j<path.Count();j++) {
+			printpath.Add(path[j]);
+			pathpat[path[j]]=1;
+			int *pos=NULL;
+			if(j) pos=gpos[edge(path[j-1],path[j],gno)];
+			else pos=gpos[edge(mgt[uniont[0]]->transfrag->nodes[mgt[uniont[0]]->nl],path[0],gno)];
+			if(pos) pathpat[*pos]=1;
+		}
+
+		// extend path with fuzzy nodes if present
+		path.Clear();
+		int max=n;
+		for(int t=0;t<keept.Count();t++) {
+			if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nl] <= n && mgt[keept[t]]->transfrag->nodes.Last()>max) { // transcript is fuzzy and starts before min
+				for(int j=mgt[keept[t]]->transfrag->nodes.Count()-1;j>=0;j--) {
+					if(mgt[keept[t]]->transfrag->nodes[j]==max) break;
+					path.Add(mgt[keept[t]]->transfrag->nodes[j]);
 				}
-				else {
-					int *pos=gpos[edge(mgt[uniont[0]]->transfrag->nodes.Last(),path[0],gno)];
-					if(pos) pathpat[*pos]=1;
-				}
+				max=mgt[keept[t]]->transfrag->nodes.Last();
 			}
+		}
+
+		for(int j=path.Count()-1;j>=0;j--) {
+			int *pos=NULL;
+			if(j==path.Count()-1) pos=gpos[edge(printpath.Last(),path[j],gno)];
+			else pos=gpos[edge(path[j],path[j+1],gno)];
+			if(pos) pathpat[*pos]=1;
+			printpath.Add(path[j]);
+		}
+
+		// only print transfrag if it's not real (and not printed already) or if it's not entirely equal to the path
+		if(!mgt[uniont[0]]->transfrag->real ||
+				(mgt[uniont[0]]->transfrag->pattern) != pathpat) {
+
 			GVec<int> alltr(1,uniont[0]);
 			for(int j=1;j<uniont.Count();j++) if((pathpat & mgt[uniont[j]]->transfrag->pattern) == mgt[uniont[j]]->transfrag->pattern) {
-				mgt[uniont[j]]->transfrag->abundance=0;
+				//mgt[uniont[j]]->transfrag->abundance=0;
 				alltr.Add(uniont[j]);
 			}
-			geneno=store_merge_prediction(pred,alltr,mgt,printpath,no2gnode,strand,geneno,first,readlist,guides);
+
+			CPrediction *p=store_merge_prediction(alltr,mgt,printpath,no2gnode,strand,geneno,first,readlist,guides);
+			CMPrediction mp(p);
+			mp.b=pathpat;
+			for(int i=0;i<printpath.Count();i++) {
+				mp.b[printpath[i]]=0;
+				if(i && no2gnode[printpath[i]]->start==no2gnode[printpath[i-1]]->end+1) {
+					int *pos=gpos[edge(printpath[i-1],printpath[i],gno)];
+					if(pos) mp.b[*pos]=0;
+				}
+			}
+			pred.Add(mp);
+		}
+
+	}
+
+}
+
+
+bool bfs(int n,GVec<float> *capacity,GVec<float> *flow,GVec<int> *link,GVec<int>& pred) {
+	GVec<int> color;
+	color.Resize(n+2,0);
+	int head=0;
+	int tail=0;
+	GVec<int> q;
+
+	// enque 0 (source)
+	q.cAdd(0);
+	tail++;
+	color[0]=1;
+	pred[0]=-1;
+	while(head!=tail) {
+		// deque
+		int u=q[head];
+		head++;
+		color[u]=2;
+		//for(int v=0;v<link[u].Count();v++)
+		for(int v=link[u].Count()-1;v>=0;v--) // do this so longer transcripts would have higher priority (be considered first)
+			if(!color[link[u][v]] && capacity[u][link[u][v]]-flow[u][link[u][v]]>epsilon) {
+				// enque v
+				q.Add(link[u][v]);
+				tail++;
+				color[link[u][v]]=1;
+				pred[link[u][v]]=u;
+			}
+	}
+
+	return(color[n-1]==2);
+}
+
+/*   // needs more work
+float merge_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CMTransfrag>& mgt,GPVec<CGraphnode>& no2gnode,
+		GVec<int>& alltr) {
+
+	float flux=0;
+	int n=path.Count();
+	GVec<float> *capacity=new GVec<float>[n]; // capacity of edges in network
+	GVec<float> *flow=new GVec<float>[n]; // flow in network
+	GVec<int> *link=new GVec<int>[n]; // for each node remembers it's neighbours
+	GVec<int> pred; // this stores the augmenting path
+	pred.Resize(n,-1);
+	GVec<int> node2path;
+	node2path.Resize(gno,-1);
+
+
+	{ // DEBUG ONLY
+		printTime(stderr);
+		fprintf(stderr,"Start max flow algorithm for path ");
+		printBitVec(pathpat);
+		fprintf(stderr," :");
+		for(int i=0;i<n;i++) fprintf(stderr," %d:%d",i,path[i]);
+		fprintf(stderr,"\n");
+		fprintf(stderr,"Used transcripts:");
+		for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d",i);
+		fprintf(stderr,"\n");
+	}
+
+
+	for(int i=0;i<n;i++) {
+		node2path[path[i]]=i;
+		capacity[i].Resize(n,0);
+		flow[i].Resize(n,0);
+	}
+
+	// establish capacities in the network
+	for(int i=0;i<n;i++) {
+		int nt=no2gnode[path[i]]->trf.Count();
+		//fprintf(stderr,"Node %d has %d transcripts\n",path[i],nt);
+		for(int j=0;j<nt;j++) {
+			int t=no2gnode[path[i]]->trf[j];
+			if(mgt[t]->transfrag->abundance && istranscript[t]) {
+				if(mgt[t]->transfrag->nodes[mgt[t]->nf]==path[i]) { // transfrag fuzzy starts at this node
+					int n1=i;
+					int n2=node2path[mgt[t]->transfrag->nodes[mgt[t]->nl]];
+					if(!no2gnode[path[i]]->rate) n1=0;
+					if(!no2gnode[mgt[t]->transfrag->nodes[mgt[t]->nl]]->rate) n2=n-1;
+					//fprintf(stderr,"path[%d]=%d t=%d n1=%d n2=%d ",i,path[i],t,n1,n2);
+					if(!capacity[n1][n2]) { // haven't seen this link before
+						link[n1].Add(n2);
+						link[n2].Add(n1);
+					}
+					capacity[n1][n2]+=mgt[t]->transfrag->abundance;
+					//fprintf(stderr,"capacity[%d][%d]=%f after adding transfrag[%d]->abundance=%f\n",n1,n2,capacity[n1][n2],t,mgt[t]->transfrag->abundance);
+				}
+			}
+		}
+	}
+
+	for(int i=0;i<n;i++) link[i].Sort();
+
+	GVec<float> rate;
+	rate.Resize(n,1);
+
+	while(bfs(n,capacity,flow,link,pred)) {
+		int r=0;
+		float increment=FLT_MAX;
+		rate[r++]=1;
+		for(int u=n-1;pred[u]>=0;u=pred[u]) {
+			float adjflux=(capacity[pred[u]][u]-flow[pred[u]][u])*rate[r-1];
+			increment = increment < adjflux ? increment : adjflux; // minimum flux increment on the path
+			if(pred[pred[u]]>=0) {
+				if(pred[u]<u) {
+					if(pred[pred[u]]<pred[u]) rate[r]=rate[r-1]*no2gnode[path[pred[u]]]->rate;
+					else rate[r]=rate[r-1];
+				}
+				else {
+					if(pred[pred[u]]<pred[u]) rate[r]=rate[r-1];
+					else rate[r]=rate[r-1]/no2gnode[path[pred[u]]]->rate;
+				}
+				r++;
+			}
+		}
+		r=0;
+		for(int u=n-1;pred[u]>=0;u=pred[u]) {
+			flow[pred[u]][u]+=increment/rate[r];
+			flow[u][pred[u]]-=increment/rate[r];
+			r++;
+		}
+		flux+=increment;
+	}
+
+
+	{ // DEBUG ONLY
+		fprintf(stderr,"Flow:");
+		for(int n1=0;n1<n;n1++)
+			for(int n2=n1+1;n2<n;n2++) if(flow[n1][n2]) fprintf(stderr," [%d][%d]=%f",n1,n2,flow[n1][n2]);
+		fprintf(stderr,"\n");
+	}
+
+
+	float fluxcov=0;
+
+	// adjust transfrag abundances
+	for(int i=0;i<n;i++) {
+		int nt=no2gnode[path[i]]->trf.Count();
+		float sumout=0;
+		int pos=-1;
+		for(int j=0;j<nt;j++) {
+			int t=no2gnode[path[i]]->trf[j];
+			if(istranscript[t] && mgt[t]->transfrag->abundance) {
+				if(mgt[t]->transfrag->nodes[mgt[t]->nf]==path[i]) { // transfrag starts at this node
+					int n1=i;
+					int n2=node2path[mgt[t]->transfrag->nodes[mgt[t]->nl]];
+					if(!no2gnode[path[i]]->rate) n1=0;
+					if(!no2gnode[mgt[t]->transfrag->nodes[mgt[t]->nl]]->rate) n2=n-1;
+					if(flow[n1][n2]>0) {
+						alltr.Add(t);
+						if(flow[n1][n2]<mgt[t]->transfrag->abundance) {
+							if(!i) sumout+=flow[n1][n2];
+							fluxcov+=flow[n1][n2];
+							mgt[t]->transfrag->abundance-=flow[n1][n2];
+							if(mgt[t]->transfrag->abundance<epsilon) mgt[t]->transfrag->abundance=0;
+							flow[n1][n2]=0;
+						}
+						else {
+							if(!i) sumout+=mgt[t]->transfrag->abundance;
+							fluxcov+=mgt[t]->transfrag->abundance;
+							flow[n1][n2]-=mgt[t]->transfrag->abundance;
+							mgt[t]->transfrag->abundance=0;
+						}
+					}
+				}
+				else if(!i && mgt[t]->transfrag->nodes[mgt[t]->nl]==path[i]) pos=j;
+			}
+		}
+
+		if(!i && pos>-1) { // this is first node -> adjust entering transfrag
+			int t=no2gnode[path[i]]->trf[pos];
+			float val=sumout/no2gnode[path[i]]->rate;
+			mgt[t]->transfrag->abundance-=val;
+			if(mgt[t]->transfrag->abundance<epsilon) mgt[t]->transfrag->abundance=0;
+		}
+
+	}
+
+	// clean up
+	delete [] capacity;
+	delete [] flow;
+	delete [] link;
+
+	return(flux);
+}
+
+
+bool extend_path_right_EM(int n, int gno, GVec<int>& keept,GVec<int>& path, GVec<int>& uniont, GBitVec &unionpat,
+		GPVec<CGraphnode>& no2gnode,GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,GVec<int>& leftpath,int start,
+		int& geneno,int strand,GList<CPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides,bool& first) {
+
+	bool result=false;
+
+	CGraphnode *node=no2gnode[n];
+
+
+	{ // DEBUG ONLY
+		fprintf(stderr," continue node %d with %d children and %d compatible transcripts:",n,node->child.Count(),keept.Count());
+		//for(int i=0;i<keept.Count();i++) fprintf(stderr," %d",keept[i]);
+		fprintf(stderr,"\n");
+	}
+
+
+	int maxc=-1;
+	float maxabund=0;
+
+	for(int i=0;i<node->child.Count();i++) {
+		int c=node->child[i];
+		if(c<gno-1) { // child is no sink
+			if(unionpat[c]) { // there might be transcripts on the path
+				float sumabund=0;
+				for(int t=0;t<keept.Count();t++) if(mgt[keept[t]]->transfrag->pattern[c]) { // child is on transcript or transcript starts further downstream
+					if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nf]==c) {
+						sumabund+=mgt[keept[t]]->transfrag->abundance;
+					}
+					else {
+						int *pos=gpos[edge(n,c,gno)];
+						if(pos && mgt[keept[t]]->transfrag->pattern[*pos]) {
+							sumabund+=mgt[keept[t]]->transfrag->abundance;
+						}
+					}
+				}
+				//else if(mgt[keept[t]]->transfrag->nodes[0]>c) sumabund+=mgt[keept[t]]->transfrag->abundance;
+				if(sumabund>maxabund) { // if I can extend path
+					maxabund=sumabund;
+					maxc=c;
+				}
+			}
+		}
+	}
+
+	if(maxc>-1) { // I found a non-fuzzy way to continue
+		GVec<int> ekeept; // extend keept;
+		for(int t=0;t<keept.Count();t++) {
+			if(mgt[keept[t]]->transfrag->pattern[maxc]) { // child is on transcript or
+				if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nf]==maxc)  ekeept.Add(keept[t]);
+				else {
+					int *pos=gpos[edge(n,maxc,gno)];
+					if(pos && mgt[keept[t]]->transfrag->pattern[*pos])  ekeept.Add(keept[t]);
+				}
+			}
+			else if(mgt[keept[t]]->transfrag->nodes[0]>maxc) ekeept.Add(keept[t]); // transcript starts further downstream
+			else if(mgt[keept[t]]->transfrag->nodes.Last()>=maxc && mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nl]<maxc)
+				ekeept.Add(keept[t]);
+		}
+		if(ekeept.Count()) { // if I can extend path
+			path.Add(maxc);
+			if(extend_path_right(maxc,gno,ekeept,path,uniont,unionpat,no2gnode,mgt,gpos,leftpath,start,geneno,strand,pred,readlist,guides,first))
+				result=true;
+		}
+	}
+	else { // only possible child is sink or fuzzy continuation
+
+		GBitVec pathpat(mgt[uniont[0]]->transfrag->pattern);
+		int nnodes=leftpath.Count()+mgt[uniont[0]]->transfrag->nodes.Count()+path.Count();
+		GVec<int> printpath(nnodes); // nnodes just sets up an initial capacity -> our best estimate so far
+		for(int j=start;j>=0;j--) {
+			printpath.Add(leftpath[j]);
+			pathpat[leftpath[j]]=1;
+			int *pos=NULL;
+			if(j) pos=gpos[edge(leftpath[j],leftpath[j-1],gno)];
+			else pos=gpos[edge(leftpath[0],mgt[uniont[0]]->transfrag->nodes[mgt[uniont[0]]->nf],gno)];
+			if(pos) pathpat[*pos]=1;
+		}
+		for(int j=mgt[uniont[0]]->nf;j<=mgt[uniont[0]]->nl;j++) printpath.Add(mgt[uniont[0]]->transfrag->nodes[j]);
+
+		for(int j=0;j<path.Count();j++) {
+			printpath.Add(path[j]);
+			pathpat[path[j]]=1;
+			int *pos=NULL;
+			if(j) pos=gpos[edge(path[j-1],path[j],gno)];
+			else pos=gpos[edge(mgt[uniont[0]]->transfrag->nodes.Last(),path[0],gno)];
+			if(pos) pathpat[*pos]=1;
+		}
+
+		// compute flow
+		GBitVec istranscript(mgt.Count());
+		for(int j=0;j<uniont.Count();j++) if((pathpat & mgt[uniont[j]]->transfrag->pattern) == mgt[uniont[j]]->transfrag->pattern) {
+			istranscript[uniont[j]]=1;
+			//fprintf(stderr,"Add t=%d\n",uniont[j]);
+		}
+		GVec<int> alltr;
+		float fluxcov=merge_max_flow(gno,printpath,istranscript,mgt,no2gnode,alltr);
+		//fprintf(stderr,"flux=%f\n",fluxcov);
+		if(fluxcov) {
+
+			// extend path with fuzzy nodes if present
+			path.Clear();
+			for(int j=leftpath.Count()-1;j>start;j--) path.Add(leftpath[j]);
+			leftpath.Clear();
+			leftpath.Add(path);
+			leftpath.Add(printpath);
+
+			path.Clear();
+			int max=n;
+			for(int t=0;t<keept.Count();t++) {
+				if(mgt[keept[t]]->transfrag->nodes[mgt[keept[t]]->nl] <= n && mgt[keept[t]]->transfrag->nodes.Last()>max) { // transcript is fuzzy and starts before min
+					for(int j=mgt[keept[t]]->transfrag->nodes.Count()-1;j>=0;j--) {
+						if(mgt[keept[t]]->transfrag->nodes[j]==max) break;
+						path.Add(mgt[keept[t]]->transfrag->nodes[j]);
+					}
+					max=mgt[keept[t]]->transfrag->nodes.Last();
+				}
+			}
+
+			for(int j=path.Count()-1;j>=0;j--) {
+				leftpath.Add(path[j]);
+			}
+
+			geneno=store_merge_prediction(pred,alltr,mgt,leftpath,no2gnode,strand,geneno,first,readlist,guides,fluxcov);
 
 			if(!result && (mgt[uniont[0]]->transfrag->pattern == pathpat)) result=true;
-
 		}
 	}
 
 	return(result);
 
 }
+*/
 
 int add_transfrag_to_prediction(GVec<int>& uniont, GBitVec &unionpat,int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,
-		int geneno,int strand,GList<CPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides,bool& first) {
+		int geneno,int strand,GVec<CMPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides,bool& first) {
 
-	GVec<CPath> leftpath; // initially this has no elements
+	GVec<int> leftpath; // initially this has no elements
 	GVec<int> path;
 
-	extend_path_left(mgt[uniont[0]]->transfrag->nodes[0],gno,uniont,path,unionpat,no2gnode,mgt,gpos,leftpath);
+	// first print transfrag if it's real so that I can give it all credit
+	if(mgt[uniont[0]]->transfrag->real) {
+		GVec<int> alltr(1,uniont[0]); // all transfrags used in creating path
+		CPrediction *p=store_merge_prediction(alltr,mgt,mgt[uniont[0]]->transfrag->nodes,no2gnode,strand,geneno,first,readlist,guides);
+		CMPrediction mp(p);
+		mp.b=mgt[uniont[0]]->transfrag->pattern;
+		for(int i=0;i<mgt[uniont[0]]->transfrag->nodes.Count();i++) {
+			mp.b[mgt[uniont[0]]->transfrag->nodes[i]]=0;
+			if(i && no2gnode[mgt[uniont[0]]->transfrag->nodes[i]]->start==no2gnode[mgt[uniont[0]]->transfrag->nodes[i-1]]->end+1) {
+				int *pos=gpos[edge(mgt[uniont[0]]->transfrag->nodes[i-1],mgt[uniont[0]]->transfrag->nodes[i],gno)];
+				if(pos) mp.b[*pos]=0;
+			}
+		}
+		pred.Add(mp);
+	}
+
+	//extend_path_left(mgt[uniont[0]]->transfrag->nodes[0],gno,uniont,path,unionpat,no2gnode,mgt,gpos,leftpath);
+	extend_path_left(mgt[uniont[0]]->transfrag->nodes[mgt[uniont[0]]->nf],gno,uniont,unionpat,no2gnode,mgt,gpos,leftpath);
 
 	path.Clear();
-	bool printtr=extend_path_right(mgt[uniont[0]]->transfrag->nodes.Last(),gno,uniont,path,uniont,unionpat,no2gnode,mgt,gpos,
+	extend_path_right(mgt[uniont[0]]->transfrag->nodes[mgt[uniont[0]]->nl],gno,uniont,path,uniont,unionpat,no2gnode,mgt,gpos,
 			leftpath,geneno,strand,pred,readlist,guides,first);
+
+	return(geneno);
+}
+
+/*    // needs more work
+int add_transfrag_to_prediction_EM(GVec<int>& uniont, GBitVec &unionpat,int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,
+		int geneno,int strand,GList<CPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides,bool& first) {
+
+	int t=uniont[0];
+	float abund=mgt[t]->transfrag->abundance;
+
+	GVec<int> leftpath; // initially this has no elements
+	GVec<int> path;
+
+	bool printtr=false;
+
+	while(mgt[t]->transfrag->abundance>isofrac*abund) {
+
+		leftpath.Clear();
+		path.Clear();
+		int start=-1;
+		extend_path_left(mgt[uniont[0]]->transfrag->nodes[mgt[uniont[0]]->nf],gno,uniont,unionpat,no2gnode,mgt,gpos,leftpath,start);
+
+		path.Clear();
+		int npred=pred.Count();
+		printtr=printtr or extend_path_right(mgt[uniont[0]]->transfrag->nodes[mgt[uniont[0]]->nl],gno,uniont,path,uniont,unionpat,no2gnode,mgt,gpos,
+			leftpath,start,geneno,strand,pred,readlist,guides,first);
+		if(npred==pred.Count()) break;
+	}
 
 	if(!printtr && mgt[uniont[0]]->transfrag->real) {
 		GVec<int> alltr(1,uniont[0]); // all transfrags used in creating path
@@ -2571,35 +3244,484 @@ int add_transfrag_to_prediction(GVec<int>& uniont, GBitVec &unionpat,int gno,GPV
 
 	return(geneno);
 }
+*/
 
+int mpredCmp(const pointer p1, const pointer p2) {
+	CMPrediction *a=(CMPrediction*)p1;
+	CMPrediction *b=(CMPrediction*)p2;
+	if(a->p->exons.Count() < b->p->exons.Count()) return 1;
+	if(a->p->exons.Count() > b->p->exons.Count()) return -1;
+	if(a->p->t_eq==NULL && b->p->t_eq!=NULL) return 1;
+	if(a->p->t_eq!=NULL && b->p->t_eq==NULL) return -1;
+	if(a->p->cov < b->p->cov) return 1;
+	if(a->p->cov > b->p->cov) return -1;
+	return 0;
+}
+
+bool merge_onpath(CTransfrag *t,int nf, int nl,GBitVec& pathpattern,int mini,int maxi,GPVec<CGraphnode>& no2gnode,int gno,
+		GIntHash<int>& gpos) {
+
+	if(t->nodes[nf]<mini) // mini can be reached through transcript
+		 if(!no2gnode[mini]->parentpat[t->nodes[nf]])	return false;
+
+	if(t->nodes[nl]>maxi) // from maxi I can reach end of transcript
+	    if(!no2gnode[maxi]->childpat[t->nodes[nl]]) return false;
+
+	int first=1;
+
+	for(int i=nf;i<=nl;i++) {
+		if(t->nodes[i]>=mini && t->nodes[i]<=maxi) {
+	      if(!pathpattern[t->nodes[i]]) return false;
+    	  int *pos=NULL;
+    	  if(i>nf) pos=gpos[edge(t->nodes[i-1],t->nodes[i],gno)];
+	      if(first) {
+	    	  first=0;
+	    	  if(pos && t->nodes[i]>mini && t->pattern[*pos])
+	    		  return false;
+	    	  if(i>nf && !no2gnode[mini]->parentpat[t->nodes[i-1]]) return false; // I can not reach mini from previous node in transfrag
+	      }
+	      else if(pos && t->pattern[*pos] && !pathpattern[*pos]) return false;
+	    }
+	    if(t->nodes[i]>maxi) {
+	    	int *pos=NULL;
+	    	if(i>nf) pos=gpos[edge(t->nodes[i-1],t->nodes[i],gno)];
+	    	if(pos && t->nodes[i-1]<maxi && t->pattern[*pos])
+	    		return false;
+	    	if(!no2gnode[maxi]->childpat[t->nodes[i]]) return false; // I can not reach this node from maxi
+	    	break;
+	    }
+	}
+
+	return true;
+}
+
+void add_transfrag_to_path(int t,GBitVec& tforlater,int& ntforlater, GPVec<CMTransfrag>& mgt,GBitVec& pathpat,int& min,int &max,
+		GPVec<CGraphnode>& no2gnode,int gno,GIntHash<int>& gpos,GVec<int>& alltr,float &cov){
+
+	if(merge_onpath(mgt[t]->transfrag,mgt[t]->nf,mgt[t]->nl,pathpat,min,max,no2gnode,gno,gpos)) { // I can add the transfrag if it's on path
+
+		//fprintf(stderr,"  Add t=%d\n",t);
+
+		pathpat = pathpat | mgt[t]->transfrag->pattern;
+		cov+=mgt[t]->transfrag->abundance;
+		mgt[t]->transfrag->abundance=0;
+		alltr.Add(t);
+		int prevmin=min;
+		int prevmax=max;
+		if(mgt[t]->transfrag->nodes[mgt[t]->nf]<min) min=mgt[t]->transfrag->nodes[mgt[t]->nf];
+		if(mgt[t]->transfrag->nodes[mgt[t]->nl]>max) max=mgt[t]->transfrag->nodes[mgt[t]->nl];
+		if(min<prevmin) {
+			int i=mgt[t]->nf;
+			while(ntforlater && mgt[t]->transfrag->nodes[i]<prevmin) { // for all nodes in transfrags that come before prevmin
+				CGraphnode *node=no2gnode[mgt[t]->transfrag->nodes[i]];
+				int nn=node->trf.Count();
+				for(int j=0;j<nn;j++){
+					int tj=node->trf[j];
+					if(tforlater[tj]) {
+						tforlater[tj]=0;
+						ntforlater--;
+						add_transfrag_to_path(tj,tforlater,ntforlater,mgt,pathpat,min,max,no2gnode,gno,gpos,alltr,cov);
+					}
+				}
+				i++;
+			}
+		}
+		if(mgt[t]->transfrag->nodes[mgt[t]->nl]>prevmax) { // my max could have been updated -> I do not need to check everything!
+			int i=mgt[t]->nl;
+			while(ntforlater && mgt[t]->transfrag->nodes[i]>prevmax) { // for all nodes in transfrags that come after prevmax
+				CGraphnode *node=no2gnode[mgt[t]->transfrag->nodes[i]];
+				int nn=node->trf.Count();
+				for(int j=0;j<nn;j++){
+					int tj=node->trf[j];
+					if(tforlater[tj]) {
+						tforlater[tj]=0;
+						ntforlater--;
+						add_transfrag_to_path(tj,tforlater,ntforlater,mgt,pathpat,min,max,no2gnode,gno,gpos,alltr,cov);
+					}
+				}
+				i--;
+			}
+		}
+	}
+
+}
 
 int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,
 		int geneno,int strand,GList<CPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides) {
 
 	mgt.Sort(mgtrabundCmp); // sort transfrags from the most abundant to the least, with guides coming in first
+	GVec<CMPrediction> localpred;
+	bool first=true;
 
+	// determine "fuzzy" starts and ends
 	int ng=0; // stores the number of guides
 	for(int t=0;t<mgt.Count();t++) {
-		if(mgt[t]->transfrag->real) ng++;
-		else break;
+		mgt[t]->nf=0;
+		mgt[t]->nl=mgt[t]->transfrag->nodes.Count()-1;
+		if(mgt[t]->transfrag->real) { // this is a guide => it has no fuzzy endings
+			ng++;
+			GVec<int> alltr(1,t); // all transfrags used in creating path
+			int g=-1;
+			for(int j=0;j<mgt[t]->read.Count();j++) {
+				int r=mgt[t]->read[j];
+				if(readlist[r]->tinfo->g > -1) {
+					g=readlist[r]->tinfo->g;
+					break;
+				}
+			}
+			CPrediction *p=store_merge_prediction(mgt[t]->transfrag->abundance,alltr,mgt,mgt[t]->transfrag->nodes,no2gnode,strand,geneno,first,readlist,guides,g);
+			mgt[t]->transfrag->abundance=0; // by making it 0 we only consider extentions worth taking
+			CMPrediction mp(p);
+			mp.b=mgt[t]->transfrag->pattern;
+			for(int i=0;i<mgt[t]->transfrag->nodes.Count();i++) {
+				mp.b[mgt[t]->transfrag->nodes[i]]=0;
+				if(i && no2gnode[mgt[t]->transfrag->nodes[i]]->start==no2gnode[mgt[t]->transfrag->nodes[i-1]]->end+1) {
+					int *pos=gpos[edge(mgt[t]->transfrag->nodes[i-1],mgt[t]->transfrag->nodes[i],gno)];
+					if(pos) mp.b[*pos]=0;
+				}
+			}
+			localpred.Add(mp);
+		}
+		/*else {
+			int i=0;
+			while(i<mgt[t]->transfrag->nodes.Count()) {
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>2) { mgt[t]->nf=i; break; }
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>1) { // two parents
+					// see if I can still continue
+					mgt[t]->nf=i; // I have to stop because both parents are not source
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent[0] && no2gnode[mgt[t]->transfrag->nodes[i]]->parent[1]) {
+						break;
+					} // else: if it's source, just ignore the source and go to the other checks below
+				}
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>2) break;
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>1) { // two children -> see if I can ignore one
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->child[0]<gno-1 && no2gnode[mgt[t]->transfrag->nodes[i]]->child[1]<gno-1) break;
+				}
+				if(i<mgt[t]->transfrag->nodes.Count()-1 && no2gnode[mgt[t]->transfrag->nodes[i]]->end+1 != no2gnode[mgt[t]->transfrag->nodes[i+1]]->start) break;
+				i++;
+			}
+
+
+			i=mgt[t]->transfrag->nodes.Count()-1;
+			while(i>=0) {
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>2) {mgt[t]->nl=i; break;}
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>1) { // two children
+					// see if I can still continue
+					mgt[t]->nl=i; // I have to stop because both parents are not sink
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->child[0]<gno-1 && no2gnode[mgt[t]->transfrag->nodes[i]]->child[1]<gno-1) {
+						break;
+					} // else: if on is sink, just ignore it and go to the other checks below
+				}
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>2) break;
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>1) { // two parents -> see if I can ignore one
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent[0] && no2gnode[mgt[t]->transfrag->nodes[i]]->parent[1]) break;
+				}
+				if(i && no2gnode[mgt[t]->transfrag->nodes[i]]->start != no2gnode[mgt[t]->transfrag->nodes[i-1]]->end+1) break;
+				i--;
+			}
+
+			// erase fuzzy pattern
+			for(i=0;i<mgt[t]->nf;i++) {
+				mgt[t]->transfrag->pattern[mgt[t]->transfrag->nodes[i]]=0;
+				int *pos=NULL;
+				if(i<mgt[t]->nf-1) {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[i],mgt[t]->transfrag->nodes[i+1],gno)];
+				}
+				else {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[i],mgt[t]->transfrag->nodes[mgt[t]->nf],gno)];
+				}
+				if(pos) mgt[t]->transfrag->pattern[*pos]=0;
+			}
+			for(i=mgt[t]->nl+1;i<mgt[t]->transfrag->nodes.Count();i++) {
+				mgt[t]->transfrag->pattern[mgt[t]->transfrag->nodes[i]]=0;
+				int *pos=NULL;
+				if(i>mgt[t]->nl+1) {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[i-1],mgt[t]->transfrag->nodes[i],gno)];
+				}
+				else {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[mgt[t]->nl],mgt[t]->transfrag->nodes[i],gno)];
+				}
+				if(pos) mgt[t]->transfrag->pattern[*pos]=0;
+			}
+		}*/
+		// add transfrag to node
+		//fprintf(stderr,"Add trf %d with abund=%f to nodes nf=%d(%d) and nl=%d(%d)\n",t,mgt[t]->transfrag->abundance, mgt[t]->transfrag->nodes[mgt[t]->nf],mgt[t]->nf,mgt[t]->transfrag->nodes[mgt[t]->nl],mgt[t]->nl);
+		no2gnode[mgt[t]->transfrag->nodes[mgt[t]->nf]]->trf.Add(t);
+		no2gnode[mgt[t]->transfrag->nodes[mgt[t]->nl]]->trf.Add(t);
+	}
+
+
+
+	// get compatibilities
+	for(int t1=0;t1<mgt.Count();t1++) if(mgt[t1]->transfrag->nodes[0] && mgt[t1]->transfrag->nodes.Last()<gno-1 && (mgt[t1]->transfrag->abundance || mgt[t1]->transfrag->real)) { // transfrags are processed in increasing order -> important for the later considerations
+
+		/*
+		{ // DEBUG ONLY
+			fprintf(stderr,"Start transcript %d(%d-%d) ",t1,mgt[t1]->nf,mgt[t1]->nl);
+			if(mgt[t1]->transfrag->real) fprintf(stderr,"1 out of %d :",mgt.Count());
+			else fprintf(stderr,"0 out of %d:",mgt.Count());
+			for(int i=0;i<mgt[t1]->transfrag->nodes.Count();i++) fprintf(stderr," %d",mgt[t1]->transfrag->nodes[i]);
+			fprintf(stderr,"\n");
+		}
+		*/
+
+		GVec<int> alltr(1,t1);
+		GBitVec pathpat(mgt[t1]->transfrag->pattern);
+		float cov=mgt[t1]->transfrag->abundance;
+		mgt[t1]->transfrag->abundance=0;
+
+		GBitVec tforlater(mgt.Count());
+		int ntforlater=0;
+
+		int min=mgt[t1]->transfrag->nodes[mgt[t1]->nf];
+		int max=mgt[t1]->transfrag->nodes[mgt[t1]->nl];
+
+		int start=ng;
+		if(t1+1>ng) start=t1+1;
+
+		for(int t2=start;t2<mgt.Count();t2++) if(mgt[t2]->transfrag->nodes[0] && mgt[t2]->transfrag->nodes.Last()<gno-1 && mgt[t2]->transfrag->abundance) { // only if the transfrag wasn't used already
+			if(mgt[t2]->transfrag->nodes[mgt[t2]->nl]<min || mgt[t2]->transfrag->nodes[mgt[t2]->nf]>max) { tforlater[t2]=1; ntforlater++;}
+			else if((mgt[t2]->transfrag->pattern & pathpat) == mgt[t2]->transfrag->pattern) { // t2 is included in path seen so far
+				//fprintf(stderr,"t2=%d included\n",t2);
+				cov+=mgt[t2]->transfrag->abundance;
+				mgt[t2]->transfrag->abundance=0;
+				alltr.Add(t2);
+			}
+			else {
+				add_transfrag_to_path(t2,tforlater,ntforlater,mgt,pathpat,min,max,no2gnode,gno,gpos,alltr,cov);
+			}
+		} // end for(int t2=t1+1;t2<transfrag.Count();t2++)
+
+		/*
+		{ // DEBUG ONLY
+			fprintf(stderr,"min=%d max=%d pathpat=",min,max);
+			printBitVec(pathpat);
+			fprintf(stderr,"\n");
+		}
+		*/
+
+		if(!mgt[t1]->transfrag->real || (min<mgt[t1]->transfrag->nodes[mgt[t1]->nf]) || (max>mgt[t1]->transfrag->nodes[mgt[t1]->nl])) { // if transfrag is not real or is extending beyond the initial transfrag
+			GVec<int> printpath;
+			if(alltr.Count()==1) printpath=mgt[t1]->transfrag->nodes; // only initial transfrag is in path
+			else {
+				for(int i=0;i<alltr.Count();i++) {
+					int t=alltr[i];
+					if(mgt[t]->transfrag->nodes[0]<min) { // only fuzzy continuations here
+						int j=0;
+						while(mgt[t]->transfrag->nodes[j]<min) { pathpat[j]=1;j++;}
+						min=mgt[t]->transfrag->nodes[0];
+					}
+					if(mgt[t]->transfrag->nodes.Last()>max) { // only fuzzy continuations here
+						int j=mgt[t]->transfrag->nodes.Count()-1;
+						while(mgt[t]->transfrag->nodes[j]>max) { pathpat[j]=1;j--;}
+						max=mgt[t]->transfrag->nodes.Last();
+					}
+				}
+
+				for(int i=1;i<gno-1;i++) {
+					if(pathpat[i]) {
+						printpath.Add(i);
+					}
+				}
+
+			}
+
+			CPrediction *p=store_merge_prediction(cov,alltr,mgt,printpath,no2gnode,strand,geneno,first,readlist,guides,-1);
+			CMPrediction mp(p);
+			mp.b=pathpat;
+			for(int i=0;i<printpath.Count();i++) {
+				mp.b[printpath[i]]=0;
+				if(i && no2gnode[printpath[i]]->start==no2gnode[printpath[i-1]]->end+1) {
+					int *pos=gpos[edge(printpath[i-1],printpath[i],gno)];
+					if(pos) mp.b[*pos]=0;
+				}
+			}
+			localpred.Add(mp);
+		}
+
+	} // end for(int t1=0;t1<transfrag.Count();t1++)
+
+	// process predictions
+	localpred.Sort(mpredCmp);
+	for(int i=localpred.Count()-1;i>=0;i--) {
+
+		/*
+		{ // DEBUG ONLY
+			fprintf(stderr,"Get ");
+			if(localpred[i].p->t_eq) fprintf(stderr,"guide ");
+			fprintf(stderr,"prediction %d-%d ",localpred[i].p->start,localpred[i].p->end);
+			printBitVec(localpred[i].b);
+			fprintf(stderr,"\n");
+		}
+		*/
+
+		if(localpred[i].p->t_eq==NULL) { // if a guide -> just store it
+			for(int j=0;j<i;j++) {
+
+				if((localpred[i].p->exons.Count()>1 && (localpred[i].p->exons.Count() <= localpred[j].p->exons.Count()) && ((localpred[i].b & localpred[j].b) == localpred[i].b)) ||
+						(localpred[i].p->exons.Count()==1 && localpred[j].p->exons.Count()==1 && localpred[j].p->overlap(localpred[i].p))) {
+
+					localpred[j].p->cov+=localpred[i].p->cov;
+					localpred[i].p->cov=0;
+					if(localpred[j].p->t_eq==NULL) { // see if I need to adjust start/end
+						if(localpred[i].p->start<localpred[j].p->start) {
+							localpred[j].p->start=localpred[i].p->start;
+							localpred[j].p->exons[0].start=localpred[i].p->exons[0].start;
+						}
+						if(localpred[i].p->end>localpred[j].p->end) {
+							localpred[j].p->end=localpred[i].p->end;
+							localpred[j].p->exons.Last().end=localpred[i].p->exons.Last().end;
+						}
+					}
+					break;
+				}
+			}
+		}
+
+
+		if(localpred[i].p->t_eq || localpred[i].p->cov) pred.Add(localpred[i].p);
+	}
+
+	return(geneno);
+}
+
+/*
+// this version just continues a transcript with the most abundant path
+int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,
+		int geneno,int strand,GList<CPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides) {
+
+	mgt.Sort(mgtrabundCmp); // sort transfrags from the most abundant to the least, with guides coming in first
+	GVec<CMPrediction> localpred;
+
+	// determine "fuzzy" starts and ends
+	int ng=0; // stores the number of guides
+	for(int t=0;t<mgt.Count();t++) {
+		mgt[t]->nf=0;
+		mgt[t]->nl=mgt[t]->transfrag->nodes.Count()-1;
+		if(mgt[t]->transfrag->real) { // this is a guide => it has no fuzzy endings
+			ng++;
+		}
+		else {
+
+			// see if previous nodes are all adjacent and reach the source --> why do I care about this??
+			// *  bool cont=true;
+			int n=mgt[t]->transfrag->nodes[0];
+
+			while(n) {
+				if(no2gnode[n]->parent.Count()>2) { cont=false; break;} // if more than one parent -> I can not continue
+				if(no2gnode[n]->parent.Count()>1) { // two parents -> check if one is source
+					if(no2gnode[n]->parent[0] && no2gnode[n]->parent[1]) { cont=false;break;} // both parents are not source
+					if(no2gnode[n]->parent[0] && no2gnode[no2gnode[n]->parent[0]]->end+1 != no2gnode[n]->start) {cont=false;break;} // the parent that continues is not adjacent
+					if(no2gnode[n]->parent[1] && no2gnode[no2gnode[n]->parent[1]]->end+1 != no2gnode[n]->start) {cont=false;break;}
+				}
+				else { // only one parent here
+					if(!no2gnode[n]->parent[0]) break; // if it's source then I am done
+					if(no2gnode[no2gnode[n]->parent[0]]->end+1 != no2gnode[n]->start) {cont=false;break;} // it's not adjacent
+				}
+				n--;
+			}
+
+			int i=0;
+			if(cont) while(i<mgt[t]->transfrag->nodes.Count()) {*   //
+			int i=0;
+			while(i<mgt[t]->transfrag->nodes.Count()) {
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>2) { mgt[t]->nf=i; break; }
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>1) { // two parents
+					// see if I can still continue
+					mgt[t]->nf=i; // I have to stop because both parents are not source
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent[0] && no2gnode[mgt[t]->transfrag->nodes[i]]->parent[1]) {
+						break;
+					} // else: if it's source, just ignore the source and go to the other checks below
+				}
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>2) break;
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>1) { // two children -> see if I can ignore one
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->child[0]<gno-1 && no2gnode[mgt[t]->transfrag->nodes[i]]->child[1]<gno-1) break;
+				}
+				if(i<mgt[t]->transfrag->nodes.Count()-1 && no2gnode[mgt[t]->transfrag->nodes[i]]->end+1 != no2gnode[mgt[t]->transfrag->nodes[i+1]]->start) break;
+				i++;
+			}
+
+
+			// see if next nodes are all adjacent and reach the sink -- why??
+			//  * cont=true;
+			n=mgt[t]->transfrag->nodes.Last();
+			while(n<gno-1) {
+				if(no2gnode[n]->child.Count()>2) { cont=false; break;} // if more than one child -> I can not continue
+				if(no2gnode[n]->child.Count()>1) { // two children -> check if one is sink
+					if(no2gnode[n]->child[0]<gno-1 && no2gnode[n]->child[1]<gno-1) { cont=false;break;} // both children are not sink
+					if(no2gnode[n]->child[0]<gno-1 && no2gnode[no2gnode[n]->child[0]]->start != no2gnode[n]->end) {cont=false;break;} // the parent that continues is not adjacent
+					if(no2gnode[n]->child[1]<gno-1 && no2gnode[no2gnode[n]->child[1]]->start != no2gnode[n]->end) {cont=false;break;} // the parent that continues is not adjacent
+				}
+				else { // only one child here
+					if(no2gnode[n]->child[0]==gno-1) break; // if it's sink then I am done
+					if(no2gnode[no2gnode[n]->child[0]]->start != no2gnode[n]->end+1) {cont=false;break;} // it's not adjacent
+				}
+				n++;
+			}
+
+			i=mgt[t]->transfrag->nodes.Count()-1;
+			if(cont) while(i>=0) {*   //
+			i=mgt[t]->transfrag->nodes.Count()-1;
+			while(i>=0) {
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>2) {mgt[t]->nl=i; break;}
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>1) { // two children
+					// see if I can still continue
+					mgt[t]->nl=i; // I have to stop because both parents are not sink
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->child[0]<gno-1 && no2gnode[mgt[t]->transfrag->nodes[i]]->child[1]<gno-1) {
+						break;
+					} // else: if on is sink, just ignore it and go to the other checks below
+				}
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>2) break;
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>1) { // two parents -> see if I can ignore one
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent[0] && no2gnode[mgt[t]->transfrag->nodes[i]]->parent[1]) break;
+				}
+				if(i && no2gnode[mgt[t]->transfrag->nodes[i]]->start != no2gnode[mgt[t]->transfrag->nodes[i-1]]->end+1) break;
+				i--;
+			}
+
+			// erase fuzzy pattern
+			for(i=0;i<mgt[t]->nf;i++) {
+				mgt[t]->transfrag->pattern[mgt[t]->transfrag->nodes[i]]=0;
+				int *pos=NULL;
+				if(i<mgt[t]->nf-1) {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[i],mgt[t]->transfrag->nodes[i+1],gno)];
+				}
+				else {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[i],mgt[t]->transfrag->nodes[mgt[t]->nf],gno)];
+				}
+				if(pos) mgt[t]->transfrag->pattern[*pos]=0;
+			}
+			for(i=mgt[t]->nl+1;i<mgt[t]->transfrag->nodes.Count();i++) {
+				mgt[t]->transfrag->pattern[mgt[t]->transfrag->nodes[i]]=0;
+				int *pos=NULL;
+				if(i>mgt[t]->nl+1) {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[i-1],mgt[t]->transfrag->nodes[i],gno)];
+				}
+				else {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[mgt[t]->nl],mgt[t]->transfrag->nodes[i],gno)];
+				}
+				if(pos) mgt[t]->transfrag->pattern[*pos]=0;
+			}
+
+		}
 	}
 
 	bool first=true;
 
 	// get compatibilities
-	for(int t1=0;t1<mgt.Count();t1++) if(mgt[t1]->transfrag->nodes[0] && mgt[t1]->transfrag->nodes.Last()<gno-1 && mgt[t1]->transfrag->abundance) { // transfrags are processed in increasing order -> important for the later considerations
+	for(int t1=0;t1<mgt.Count();t1++) if(mgt[t1]->transfrag->nodes[0] && mgt[t1]->transfrag->nodes.Last()<gno-1 && (mgt[t1]->transfrag->abundance || mgt[t1]->transfrag->real)) { // transfrags are processed in increasing order -> important for the later considerations
 
-		int n1=mgt[t1]->transfrag->nodes.Count();
+		int n1=mgt[t1]->nl+1;
 
-		/*
+
 		{ // DEBUG ONLY
-			fprintf(stderr,"Start transcript %d ",t1);
+			fprintf(stderr,"Start transcript %d(%d-%d) ",t1,mgt[t1]->nf,mgt[t1]->nl);
 			if(mgt[t1]->transfrag->real) fprintf(stderr,"1 out of %d :",mgt.Count());
 			else fprintf(stderr,"0 out of %d:",mgt.Count());
 			for(int i=0;i<n1;i++) fprintf(stderr," %d",mgt[t1]->transfrag->nodes[i]);
 			fprintf(stderr,"\n");
 		}
-		*/
+
 
 		GVec<int> uniont(1,t1);
 		GBitVec unionpat(mgt[t1]->transfrag->pattern);
@@ -2610,10 +3732,267 @@ int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mg
 		if(t1+1>ng) max=t1+1;
 
 		for(int t2=max;t2<mgt.Count();t2++) if(mgt[t2]->transfrag->nodes[0] && mgt[t2]->transfrag->nodes.Last()<gno-1 && mgt[t2]->transfrag->abundance) { // only if the transfrag wasn't used already
+			if((mgt[t2]->transfrag->pattern & mgt[t1]->transfrag->pattern) == mgt[t2]->transfrag->pattern) { // t2 is included in t1
+				mgt[t1]->transfrag->abundance+=mgt[t2]->transfrag->abundance;
+				mgt[t2]->transfrag->abundance=0;
+			}
+			else {
+				// here check compatibility between t1 and t2;
+				int n2=mgt[t2]->nl+1;
+				int i1=mgt[t1]->nf;
+				int i2=mgt[t2]->nf;
+				comp=true;
+				while(i1<n1 && i2<n2) {
+					if(mgt[t1]->transfrag->nodes[i1]==mgt[t2]->transfrag->nodes[i2]) {
+						if(i1==n1-1 || i2==n2-1) { // one transcript finishes -> no need to check anymore
+							i1=n1;i2=n2;
+						}
+						else { // advance the smallest one
+							if(mgt[t1]->transfrag->nodes[i1+1]<mgt[t2]->transfrag->nodes[i2+1]) i1++;
+							else i2++;
+						}
+					}
+					else if(mgt[t1]->transfrag->nodes[i1]<mgt[t2]->transfrag->nodes[i2]) {
+						i1++;
+						if(conflict(i1,mgt[t2]->transfrag->nodes[i2],mgt[t1]->transfrag->nodes,n1,no2gnode,mgt[t1]->transfrag->pattern,gno,gpos)) {
+							comp=false;
+							break;
+						}
+					}
+					else {
+						i2++;
+						if(conflict(i2,mgt[t1]->transfrag->nodes[i1],mgt[t2]->transfrag->nodes,n2,no2gnode,mgt[t2]->transfrag->pattern,gno,gpos)) {
+							comp=false;
+							break;
+						}
+					}
+				}
+				if(comp) {
+					uniont.Add(t2);
+					unionpat = unionpat | mgt[t2]->transfrag->pattern;
+					//fprintf(stderr," add transfrag %d\n",t2);
+				}
+			}
+		} // end for(int t2=t1+1;t2<transfrag.Count();t2++)
+
+		geneno=add_transfrag_to_prediction(uniont,unionpat,gno,no2gnode,mgt,gpos,geneno,strand,localpred,readlist,guides,first);
+
+	} // end for(int t1=0;t1<transfrag.Count();t1++)
+
+	// process predictions
+	localpred.Sort(mpredCmp);
+	for(int i=localpred.Count()-1;i>=0;i--) if(localpred[i].p->exons.Count()>1) { // only for two exon predictions
+
+
+		fprintf(stderr,"Get ");
+		if(localpred[i].p->t_eq) fprintf(stderr,"guide ");
+		fprintf(stderr,"prediction %d-%d ",localpred[i].p->start,localpred[i].p->end);
+		printBitVec(localpred[i].b);
+		fprintf(stderr,"\n");
+
+
+		if(localpred[i].p->t_eq==NULL) { // if a guide -> just store it
+			for(int j=0;j<i;j++) {
+				if((localpred[i].b & localpred[j].b) == localpred[i].b) {
+					localpred[j].p->cov+=localpred[i].p->cov;
+					localpred[i].p->cov=0;
+					if(localpred[j].p->t_eq==NULL) { // see if I need to adjust start/end
+						if(localpred[i].p->start<localpred[j].p->start) {
+							localpred[j].p->start=localpred[i].p->start;
+							localpred[j].p->exons[0].start=localpred[i].p->exons[0].start;
+						}
+						if(localpred[i].p->end>localpred[j].p->end) {
+							localpred[j].p->end=localpred[i].p->end;
+							localpred[j].p->exons.Last().end=localpred[i].p->exons.Last().end;
+						}
+					}
+				}
+			}
+
+		}
+
+		if(localpred[i].p->t_eq || localpred[i].p->cov) pred.Add(localpred[i].p);
+	}
+
+	return(geneno);
+}
+*/
+
+/*   // needs more work
+// this version uses the maximum flow algorithm to merge the transcripts: i.e. if 2 transcripts continue another one, the
+// abundance will be share proportionally among them: it might introduce too many errors (false positives) while dropping others
+int merge_transfrags_EM(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,
+		int geneno,int strand,GList<CPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides) {
+
+	mgt.Sort(mgtrabundCmp); // sort transfrags from the most abundant to the least, with guides coming in first
+
+	bool first=true;
+
+	// determine "fuzzy" starts and ends
+	int ng=0; // stores the number of guides
+	for(int t=0;t<mgt.Count();t++) {
+		mgt[t]->nf=0;
+		mgt[t]->nl=mgt[t]->transfrag->nodes.Count()-1;
+		if(mgt[t]->transfrag->real) { // this is a guide => it has no fuzzy endings
+			ng++;
+			GVec<int> alltr(1,t); // all transfrags used in creating path
+			geneno=store_merge_prediction(pred,alltr,mgt,mgt[t]->transfrag->nodes,no2gnode,strand,geneno,first,readlist,guides);
+		}
+		else {
+
+			// see if previous nodes are all adjacent and reach the source
+			bool cont=true;
+			int n=mgt[t]->transfrag->nodes[0];
+			while(n) {
+				if(no2gnode[n]->parent.Count()>2) { cont=false; break;} // if more than one parent -> I can not continue
+				if(no2gnode[n]->parent.Count()>1) { // two parents -> check if one is source
+					if(no2gnode[n]->parent[0] && no2gnode[n]->parent[1]) { cont=false;break;} // both parents are not source
+					if(no2gnode[n]->parent[0] && no2gnode[no2gnode[n]->parent[0]]->end+1 != no2gnode[n]->start) {cont=false;break;} // the parent that continues is not adjacent
+					if(no2gnode[n]->parent[1] && no2gnode[no2gnode[n]->parent[1]]->end+1 != no2gnode[n]->start) {cont=false;break;}
+				}
+				else { // only one parent here
+					if(!no2gnode[n]->parent[0]) break; // if it's source then I am done
+					if(no2gnode[no2gnode[n]->parent[0]]->end+1 != no2gnode[n]->start) {cont=false;break;} // it's not adjacent
+				}
+				n--;
+			}
+
+			int i=0;
+			if(cont) while(i<mgt[t]->transfrag->nodes.Count()) {
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>2) { mgt[t]->nf=i; break; }
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>1) { // two parents
+					// see if I can still continue
+					mgt[t]->nf=i; // I have to stop because both parents are not source
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent[0] && no2gnode[mgt[t]->transfrag->nodes[i]]->parent[1]) {
+						break;
+					} // else: if it's source, just ignore the source and go to the other checks below
+				}
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>2) break;
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>1) { // two children -> see if I can ignore one
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->child[0]<gno-1 && no2gnode[mgt[t]->transfrag->nodes[i]]->child[1]<gno-1) break;
+				}
+				if(i<mgt[t]->transfrag->nodes.Count()-1 && no2gnode[mgt[t]->transfrag->nodes[i]]->end+1 != no2gnode[mgt[t]->transfrag->nodes[i+1]]->start) break;
+				i++;
+			}
+
+
+			// see if next nodes are all adjacent and reach the sink
+			cont=true;
+			n=mgt[t]->transfrag->nodes.Last();
+			while(n<gno-1) {
+				if(no2gnode[n]->child.Count()>2) { cont=false; break;} // if more than one child -> I can not continue
+				if(no2gnode[n]->child.Count()>1) { // two children -> check if one is sink
+					if(no2gnode[n]->child[0]<gno-1 && no2gnode[n]->child[1]<gno-1) { cont=false;break;} // both children are not sink
+					if(no2gnode[n]->child[0]<gno-1 && no2gnode[no2gnode[n]->child[0]]->start != no2gnode[n]->end) {cont=false;break;} // the parent that continues is not adjacent
+					if(no2gnode[n]->child[1]<gno-1 && no2gnode[no2gnode[n]->child[1]]->start != no2gnode[n]->end) {cont=false;break;} // the parent that continues is not adjacent
+				}
+				else { // only one child here
+					if(no2gnode[n]->child[0]==gno-1) break; // if it's sink then I am done
+					if(no2gnode[no2gnode[n]->child[0]]->start != no2gnode[n]->end+1) {cont=false;break;} // it's not adjacent
+				}
+				n++;
+			}
+
+			i=mgt[t]->transfrag->nodes.Count()-1;
+			if(cont) while(i>=0) {
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>2) {mgt[t]->nl=i; break;}
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->child.Count()>1) { // two children
+					// see if I can still continue
+					mgt[t]->nl=i; // I have to stop because both parents are not sink
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->child[0]<gno-1 && no2gnode[mgt[t]->transfrag->nodes[i]]->child[1]<gno-1) {
+						break;
+					} // else: if on is sink, just ignore it and go to the other checks below
+				}
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>2) break;
+				if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent.Count()>1) { // two parents -> see if I can ignore one
+					if(no2gnode[mgt[t]->transfrag->nodes[i]]->parent[0] && no2gnode[mgt[t]->transfrag->nodes[i]]->parent[1]) break;
+				}
+				if(i && no2gnode[mgt[t]->transfrag->nodes[i]]->start != no2gnode[mgt[t]->transfrag->nodes[i-1]]->end+1) break;
+				i--;
+			}
+
+			// erase fuzzy pattern
+			for(i=0;i<mgt[t]->nf;i++) {
+				mgt[t]->transfrag->pattern[mgt[t]->transfrag->nodes[i]]=0;
+				int *pos=NULL;
+				if(i<mgt[t]->nf-1) {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[i],mgt[t]->transfrag->nodes[i+1],gno)];
+				}
+				else {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[i],mgt[t]->transfrag->nodes[mgt[t]->nf],gno)];
+				}
+				if(pos) mgt[t]->transfrag->pattern[*pos]=0;
+			}
+			for(i=mgt[t]->nl+1;i<mgt[t]->transfrag->nodes.Count();i++) {
+				mgt[t]->transfrag->pattern[mgt[t]->transfrag->nodes[i]]=0;
+				int *pos=NULL;
+				if(i>mgt[t]->nl+1) {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[i-1],mgt[t]->transfrag->nodes[i],gno)];
+				}
+				else {
+					pos=gpos[edge(mgt[t]->transfrag->nodes[mgt[t]->nl],mgt[t]->transfrag->nodes[i],gno)];
+				}
+				if(pos) mgt[t]->transfrag->pattern[*pos]=0;
+			}
+
+		}
+
+		// add transfrag to node
+		//fprintf(stderr,"Add trf %d with abund=%f to nodes nf=%d(%d) and nl=%d(%d)\n",t,mgt[t]->transfrag->abundance, mgt[t]->transfrag->nodes[mgt[t]->nf],mgt[t]->nf,mgt[t]->transfrag->nodes[mgt[t]->nl],mgt[t]->nl);
+		no2gnode[mgt[t]->transfrag->nodes[mgt[t]->nf]]->trf.Add(t);
+		no2gnode[mgt[t]->transfrag->nodes[mgt[t]->nl]]->trf.Add(t);
+
+	}
+
+	// compute node capacities
+	for(int i=1;i<gno-1;i++) {
+		CGraphnode *inode=no2gnode[i]; // this is here only because of the DEBUG option below
+		int nn=inode->trf.Count();
+		float abundin=0;
+		float abundout=0;
+		for(int j=0;j<nn;j++){
+			int t=inode->trf[j];
+			if(mgt[t]->transfrag->nodes[mgt[t]->nl]==i) { // transfrag ends at this node (in transfrag)
+				abundin+=mgt[t]->transfrag->abundance;
+			}
+			else if(mgt[t]->transfrag->nodes[mgt[t]->nf]==i) { // transfrag starts at this node (out transfrag)
+				abundout+=mgt[t]->transfrag->abundance;
+			}
+		}
+
+		if(abundin) inode->rate=abundout/abundin;
+		if(abundout) inode->capacity=abundout; // node capacity tells me how much of that node coverage I can use give how many transfrags leave the node
+		else inode->capacity=abundin;
+	} // end for i
+
+	// get compatibilities
+	for(int t1=0;t1<mgt.Count();t1++) if(mgt[t1]->transfrag->nodes[0] && mgt[t1]->transfrag->nodes.Last()<gno-1 && (mgt[t1]->transfrag->abundance || mgt[t1]->transfrag->real)) { // transfrags are processed in increasing order -> important for the later considerations
+
+		int n1=mgt[t1]->nl+1;
+
+
+		{ // DEBUG ONLY
+			fprintf(stderr,"Start transcript %d ",t1);
+			if(mgt[t1]->transfrag->real) fprintf(stderr,"1 out of %d :",mgt.Count());
+			else fprintf(stderr,"0 out of %d:",mgt.Count());
+			for(int i=0;i<n1;i++) fprintf(stderr," %d",mgt[t1]->transfrag->nodes[i]);
+			fprintf(stderr,"\n");
+		}
+
+
+		GVec<int> uniont(1,t1);
+		GBitVec unionpat(mgt[t1]->transfrag->pattern);
+
+		// set compatibilities with transfrags that are not guides
+		bool comp;
+		int max=t1+1;
+		//if(ng>max) max=ng;
+
+		for(int t2=max;t2<mgt.Count();t2++) if(mgt[t2]->transfrag->nodes[0] && mgt[t2]->transfrag->nodes.Last()<gno-1 && mgt[t2]->transfrag->abundance) { // only if the transfrag wasn't used already
 			// here check compatibility between t1 and t2;
-			int n2=mgt[t2]->transfrag->nodes.Count();
-			int i1=0;
-			int i2=0;
+			int n2=mgt[t2]->nl+1;
+			int i1=mgt[t1]->nf;
+			int i2=mgt[t2]->nf;
 			comp=true;
 			while(i1<n1 && i2<n2) {
 				if(mgt[t1]->transfrag->nodes[i1]==mgt[t2]->transfrag->nodes[i2]) {
@@ -2654,7 +4033,7 @@ int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mg
 
 	return(geneno);
 }
-
+*/
 
 bool is_compatible(int t1,int t2, int n,GBitVec& compatible) {
 	if(t1<t2) return(compatible[comptbl_pos(t1,t2,n)]);
@@ -3883,38 +5262,6 @@ void compute_capacity_back(int firstn, CTransfrag *t,float val,GVec<float>& capa
 }
 
 
-bool bfs(int n,GVec<float> *capacity,GVec<float> *flow,GVec<int> *link,GVec<int>& pred) {
-	GVec<int> color;
-	color.Resize(n+2,0);
-	int head=0;
-	int tail=0;
-	GVec<int> q;
-
-	// enque 0 (source)
-	q.cAdd(0);
-	tail++;
-	color[0]=1;
-	pred[0]=-1;
-	while(head!=tail) {
-		// deque
-		int u=q[head];
-		head++;
-		color[u]=2;
-		//for(int v=0;v<link[u].Count();v++)
-		for(int v=link[u].Count()-1;v>=0;v--) // do this so longer transcripts would have higher priority (be considered first)
-			if(!color[link[u][v]] && capacity[u][link[u][v]]-flow[u][link[u][v]]>epsilon) {
-				// enque v
-				q.Add(link[u][v]);
-				tail++;
-				color[link[u][v]]=1;
-				pred[link[u][v]]=u;
-			}
-	}
-
-	return(color[n-1]==2);
-}
-
-
 bool weight_bfs(int n,GVec<float> *capacity,GVec<float> *flow,GVec<int> *link,GVec<int>& pred) {
 	GVec<int> color;
 	color.Resize(n,0);
@@ -4609,6 +5956,9 @@ float max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag>& 
 
 	return(flux);
 }
+
+
+
 
 float guide_max_flow(bool adjust,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,
 		GVec<float>& nodecapacity,GBitVec& pathpat,GVec<float> *capacity,GVec<float> *flow,GVec<int> *link,GVec<int>& node2path) {
@@ -5801,6 +7151,16 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 void update_guide_pred(GList<CPrediction>& pred,int np, GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
 		GPVec<CGraphnode>& no2gnode,int gno,bool update) {
 
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Update guide ");
+		if(pred[np]->t_eq) fprintf(stderr,"%s ",pred[np]->t_eq->getID());
+		fprintf(stderr,"pred[%d]:",np);
+		for(int j=0;j<pred[np]->exons.Count();j++) fprintf(stderr," %d-%d",pred[np]->exons[j].start,pred[np]->exons[j].end);
+		fprintf(stderr,"\n");
+	}
+	*/
+
 	int e=0;
 	int nex=pred[np]->exons.Count();
 
@@ -6081,13 +7441,14 @@ CTransfrag *find_guide_partial_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int
 	bool terminal=false;
 	int lastnode=0; // lastnode intersected by guide
 	for(int i=1;i<gno-1;i++) {
-		int len=no2gnode[i]->overlapLen(guide->exons[e]->start,guide->exons[e]->end);
+		CGraphnode *inode=no2gnode[i];
+		int len=inode->overlapLen(guide->exons[e]->start,guide->exons[e]->end);
+		//fprintf(stderr,"...node %d-%d and guide exon %d-%d overlap with len=%d\n",no2gnode[i]->start,no2gnode[i]->end,guide->exons[e]->start,guide->exons[e]->end,len);
 		if(len) { // if node i intersects exon e of guide
 			guidepat[i]=1;
 			nodes.Add(i);
 			olen.Add(len);
 			olensum+=len;
-			CGraphnode *inode=no2gnode[i];
 			if(lastnode && inode->parentpat[lastnode]) { // the guide has intersected another node in the graph which was i's parent
 				if(guide->exons[e]->start==inode->start) {
 					if(terminal) { // lastnode ends the same as guide's exon
@@ -6109,6 +7470,11 @@ CTransfrag *find_guide_partial_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int
 				e++;
 				if(e==nex) break; // I've seen all guide's exons
 			}
+		}
+		else if(inode->start>guide->exons[e]->end){ // stay with the same node if node comes after exon
+			e++;
+			i--;
+			if(e==nex) break; // I've seen all guide's exons
 		}
 	}
 
@@ -6478,130 +7844,131 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 		}
 		*/
 
-		return(maxi);
+		//return(maxi);
 	}
+	else if(ng) {
+		bool cov=false; // tells me if max node coverage was determined
 
-	bool cov=false; // tells me if max node coverage was determined
+		GVec<float> flux;
+		GVec<float> **capacity=new GVec<float>*[ng];
+		GVec<float> **flow=new GVec<float>*[ng];
+		GVec<int> **link=new GVec<int>*[ng];
+		GVec<int> *node2path=new GVec<int>[ng];
 
-	GVec<float> flux;
-	GVec<float> **capacity=new GVec<float>*[ng];
-	GVec<float> **flow=new GVec<float>*[ng];
-	GVec<int> **link=new GVec<int>*[ng];
-	GVec<int> *node2path=new GVec<int>[ng];
+		// calculate maximum flow for each guide
+		for(int g=0;g<ng;g++) {
+			int n=guidetrf[g].trf->nodes.Count();
+			capacity[g]=new GVec<float>[n];
+			flow[g]=new GVec<float>[n];
+			link[g]=new GVec<int>[n];
 
-	// calculate maximum flow for each guide
-	for(int g=0;g<ng;g++) {
-		int n=guidetrf[g].trf->nodes.Count();
-		capacity[g]=new GVec<float>[n];
-		flow[g]=new GVec<float>[n];
-		link[g]=new GVec<int>[n];
+			//fprintf(stderr,"guide=%s ",guides[guidetrf[g].g]->getID());
 
-		//fprintf(stderr,"guide=%s ",guides[guidetrf[g].g]->getID());
-
-		float initflux=guideflow(gno,guidetrf[g].trf->nodes,istranscript,transfrag,no2gnode,guidetrf[g].trf->pattern,capacity[g],flow[g],link[g],node2path[g]);
-		flux.Add(initflux);
-		istranscript.reset();
-
-		/*
-		{ // DEBUG ONLY
-			fprintf(stderr," flux[%d]=%g\n",g,flux[g]);
-		}
-		*/
-	}
-
-
-	// adjust guide flow
-	for(int g=ng-1;g>=0;g--)
-		if(flux[g]>epsilon) {
-			//fprintf(stderr,"consider guide %d\n",g);
-			bool adjust=false;
-			for(int i=0;i<guidetrf[g].trf->nodes.Count();i++) { // for all nodes in guide g, recompute the capacities allowed
-				int n1=guidetrf[g].trf->nodes[i];
-				//fprintf(stderr,"n1=%d count=%d\n",n1,link[g][i].Count());
-				for(int j=0;j<link[g][i].Count();j++) {
-					int n2=guidetrf[g].trf->nodes[link[g][i][j]];
-					//fprintf(stderr,"  path %d-%d capacity=%g\n",n1,n2,capacity[g][i][link[g][i][j]]);
-					if(capacity[g][i][link[g][i][j]]) { // decrease capacity if there is any left already
-						float usedflow=0;
-						float varflow=0;
-						for(int r=0;r<ng;r++) {
-							if(r==g || sharedlink(gno,gpos,g,r,guidetrf,i,link[g][i][j])){ // the two guides share the path between n1 and n2
-
-								//fprintf(stderr,"Guides %d and %d share the path between %d and %d with flows %g and %g\n",g,r,n1,n2,flow[g][i][link[g][i][j]],flow[r][node2path[r][n1]][node2path[r][n2]]);
-
-								if(r>g) { // this is fixed flow
-									usedflow+=flow[r][node2path[r][n1]][node2path[r][n2]];
-								}
-								else { // this is variable flow
-									varflow+=flow[r][node2path[r][n1]][node2path[r][n2]];
-								}
-							}
-						}
-						if(varflow+usedflow>capacity[g][i][link[g][i][j]]) { // I need to adjust the flow
-							if(varflow) capacity[g][i][link[g][i][j]]=flow[g][i][link[g][i][j]]*(capacity[g][i][link[g][i][j]]-usedflow)/varflow;
-							else capacity[g][i][link[g][i][j]]=0; // this should never be the case
-							adjust=true;
-						}
-						else {
-							capacity[g][i][link[g][i][j]]=flow[g][i][link[g][i][j]]+capacity[g][i][link[g][i][j]]-usedflow-varflow; // this is how much I allow the flow to increase
-						}
-						//fprintf(stderr,"new capacity[%d][%d]=%g\n",i,link[g][i][j],capacity[g][i][link[g][i][j]]);
-					}
-				}
-			}
-
-			// recompute maxflow for the guide with adjustment for the new computed capacities only if adjust
-			// is true, otherwise there is no need to, but I still need to update the abundances
-			GVec<float> nodeflux;
-			//float fragno=0;
-			float newflux=guide_max_flow(adjust,guidetrf[g].trf->nodes,istranscript,transfrag,no2gnode,nodeflux,guidetrf[g].trf->pattern,capacity[g],flow[g],link[g],node2path[g]);
-			if(!newflux) newflux=flux[g];
+			float initflux=guideflow(gno,guidetrf[g].trf->nodes,istranscript,transfrag,no2gnode,guidetrf[g].trf->pattern,capacity[g],flow[g],link[g],node2path[g]);
+			flux.Add(initflux);
 			istranscript.reset();
 
-			//fprintf(stderr,"newflux=%g\n",newflux);
-
-			if(newflux>epsilon) {
-				bool include=true;
-				store_transcript(pred,guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,guides[guidetrf[g].g]);
-				if(eonly) guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
-				cov=true;
-				// Node coverages:
-				for(int i=1;i<gno-1;i++)
-					if(nodecov[i]>nodecov[maxi]) maxi=i;
-
-				//if(nodecov[maxi]<readthr) break; // no need to find other paths since they aren't any above allowed read threshold
-				//if(nodecov[maxi]<1) break; // I shouldn't be restricting this at all?
-
-				/*
-				{ // DEBUG ONLY
-				  fprintf(stderr,"\nAfter update:\n");
-				  for(int i=0;i<gno;i++) {
-					  fprintf(stderr,"Node %d: %f ",i,nodecov[i]);
-					  fprintf(stderr,"trf=");
-					  for(int t=0;t<no2gnode[i]->trf.Count();t++) fprintf(stderr," %d(%f)",no2gnode[i]->trf[t],transfrag[no2gnode[i]->trf[t]]->abundance);
-					  fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
-				  }
-				}
-				*/
-
-				nodeflux.Clear();
+			/*
+			{ // DEBUG ONLY
+			   fprintf(stderr," flux[%d]=%g\n",g,flux[g]);
 			}
+			*/
 		}
 
-	// clean up memory
 
-	for(int g=0;g<ng;g++) {
-		delete [] capacity[g];
-		delete [] flow[g];
-		delete [] link[g];
+		// adjust guide flow
+		for(int g=ng-1;g>=0;g--)
+			if(flux[g]>epsilon) {
+				//fprintf(stderr,"consider guide %d\n",g);
+				bool adjust=false;
+				for(int i=0;i<guidetrf[g].trf->nodes.Count();i++) { // for all nodes in guide g, recompute the capacities allowed
+					int n1=guidetrf[g].trf->nodes[i];
+					//fprintf(stderr,"n1=%d count=%d\n",n1,link[g][i].Count());
+					for(int j=0;j<link[g][i].Count();j++) {
+						int n2=guidetrf[g].trf->nodes[link[g][i][j]];
+						//fprintf(stderr,"  path %d-%d capacity=%g\n",n1,n2,capacity[g][i][link[g][i][j]]);
+						if(capacity[g][i][link[g][i][j]]) { // decrease capacity if there is any left already
+							float usedflow=0;
+							float varflow=0;
+							for(int r=0;r<ng;r++) {
+								if(r==g || sharedlink(gno,gpos,g,r,guidetrf,i,link[g][i][j])){ // the two guides share the path between n1 and n2
+
+									//fprintf(stderr,"Guides %d and %d share the path between %d and %d with flows %g and %g\n",g,r,n1,n2,flow[g][i][link[g][i][j]],flow[r][node2path[r][n1]][node2path[r][n2]]);
+
+									if(r>g) { // this is fixed flow
+										usedflow+=flow[r][node2path[r][n1]][node2path[r][n2]];
+									}
+									else { // this is variable flow
+										varflow+=flow[r][node2path[r][n1]][node2path[r][n2]];
+									}
+								}
+							}
+							if(varflow+usedflow>capacity[g][i][link[g][i][j]]) { // I need to adjust the flow
+								if(varflow) capacity[g][i][link[g][i][j]]=flow[g][i][link[g][i][j]]*(capacity[g][i][link[g][i][j]]-usedflow)/varflow;
+								else capacity[g][i][link[g][i][j]]=0; // this should never be the case
+								adjust=true;
+							}
+							else {
+								capacity[g][i][link[g][i][j]]=flow[g][i][link[g][i][j]]+capacity[g][i][link[g][i][j]]-usedflow-varflow; // this is how much I allow the flow to increase
+							}
+							//fprintf(stderr,"new capacity[%d][%d]=%g\n",i,link[g][i][j],capacity[g][i][link[g][i][j]]);
+						}
+					}
+				}
+
+				// recompute maxflow for the guide with adjustment for the new computed capacities only if adjust
+				// is true, otherwise there is no need to, but I still need to update the abundances
+				GVec<float> nodeflux;
+				//float fragno=0;
+				float newflux=guide_max_flow(adjust,guidetrf[g].trf->nodes,istranscript,transfrag,no2gnode,nodeflux,guidetrf[g].trf->pattern,capacity[g],flow[g],link[g],node2path[g]);
+				if(!newflux) newflux=flux[g];
+				istranscript.reset();
+
+				//fprintf(stderr,"newflux=%g\n",newflux);
+
+				if(newflux>epsilon) {
+					bool include=true;
+					store_transcript(pred,guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,guides[guidetrf[g].g]);
+					if(eonly) guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
+					cov=true;
+					// Node coverages:
+					for(int i=1;i<gno-1;i++)
+						if(nodecov[i]>nodecov[maxi]) maxi=i;
+
+					//if(nodecov[maxi]<readthr) break; // no need to find other paths since they aren't any above allowed read threshold
+					//if(nodecov[maxi]<1) break; // I shouldn't be restricting this at all?
+
+					/*
+					{ // DEBUG ONLY
+				  	  fprintf(stderr,"\nAfter update:\n");
+				  	  for(int i=0;i<gno;i++) {
+					  	  fprintf(stderr,"Node %d: %f ",i,nodecov[i]);
+					  	  fprintf(stderr,"trf=");
+					  	  for(int t=0;t<no2gnode[i]->trf.Count();t++) fprintf(stderr," %d(%f)",no2gnode[i]->trf[t],transfrag[no2gnode[i]->trf[t]]->abundance);
+					  	  fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
+				  	  }
+					}
+					*/
+
+					nodeflux.Clear();
+				}
+			}
+
+		// clean up memory
+
+		for(int g=0;g<ng;g++) {
+			delete [] capacity[g];
+			delete [] flow[g];
+			delete [] link[g];
+		}
+		delete [] capacity;
+		delete [] flow;
+		delete [] link;
+		delete [] node2path;
+
+		if(!cov) for(int i=2;i<gno-1;i++)
+			if(nodecov[i]>nodecov[maxi]) maxi=i;
 	}
-	delete [] capacity;
-	delete [] flow;
-	delete [] link;
-	delete [] node2path;
-
-	if(!cov) for(int i=2;i<gno-1;i++)
-		if(nodecov[i]>nodecov[maxi]) maxi=i;
 
 	if(eonly && nodecov[maxi]>epsilon) { // this is the end for eonly so I should make sure I use all reads
 
@@ -6620,10 +7987,12 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 		for(int g=0;g<guides.Count();g++) {
 			//fprintf(stderr,"Consider guide[%d out of %d] %s\n",g,guides.Count(),guides[g]->getID());
 			if((guides[g]->strand==strand) && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) { // if guide on the same strand and overlaps at all the graph
+				//fprintf(stderr,"...there is overlap\n");
 				olen.Clear();
 				int olensum;
 				CTransfrag *trguide=find_guide_partial_pat(guides[g],no2gnode,gno,edgeno,gpos,olen,olensum);
 				if(trguide) { // the guide can be found among the graph nodes
+					//fprintf(stderr,"...partial pattern found!\n");
 					CGuide newguide(trguide,g);
 					guidetrf.Add(newguide);
 					for(int i=0;i<trguide->nodes.Count();i++) {
@@ -7060,7 +8429,6 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 		maxi=0;
 	}
 
-
 	return(maxi);
 }
 
@@ -7130,6 +8498,7 @@ void collect_path(GPVec<CMTransfrag>& mgt,GVec<int>& alltr,GVec<int>& path,GPVec
 
 }
 
+/*
 int merge_transcripts(int gno, GPVec<CGraphnode>& no2gnode,GPVec<CMTransfrag>& mgt,
 		int geneno,int strand,GList<CPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides) {
 
@@ -7144,13 +8513,13 @@ int merge_transcripts(int gno, GPVec<CGraphnode>& no2gnode,GPVec<CMTransfrag>& m
 		for(int j=0;j<node->trf.Count();j++) {
 			int t=node->trf[j];
 
-			/*
+
 			{ // DEBUG ONLY
 				fprintf(stderr,"Source child %d with transcript(%f):",source->child[c],mgt[t]->transfrag->abundance);
 				for(int i=0;i<mgt[t]->transfrag->nodes.Count();i++) fprintf(stderr," %d",mgt[t]->transfrag->nodes[i]);
 				fprintf(stderr,"\n");
 			}
-			*/
+
 
 			if(mgt[t]->transfrag->abundance && mgt[t]->transfrag->nodes[0]) { // if I didn't use this transfrag
 				GVec<int> alltr(1,t); // all transfrags used in creating path
@@ -7169,6 +8538,7 @@ int merge_transcripts(int gno, GPVec<CGraphnode>& no2gnode,GPVec<CMTransfrag>& m
 	}
 	return(geneno);
 }
+*/
 
 int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GBitVec& compatible,
 		int geneno,int strand,GVec<CGuide>& guidetrf,GList<CPrediction>& pred,bool fast,GPVec<GffObj>& guides,GVec<int>& guidepred) {
@@ -7246,7 +8616,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 
 	//fprintf(stderr,"guide count=%d\n",guidetrf.Count());
 
-	if(guidetrf.Count()) maxi=guides_maxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred);
+	if(eonly || guidetrf.Count()) maxi=guides_maxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred);
 
 
 	if(nodecov[maxi]>=readthr) {
@@ -7651,14 +9021,36 @@ bool good_merge_junc(CJunction& jd,GList<CJunction>& junction) {
 
 	int j=nj-1;
 	float sumjunc=jd.nreads_good;
-	while(j>=0 && junction[j]->start==jd.start) { sumjunc+=junction[j]->nreads_good; j--;}
+	while(j>=0 && junction[j]->start==jd.start) {
+		sumjunc+=junction[j]->nreads_good; j--;
+		/*if(junction[j]->end==jd.end && junction[j]->strand && junction[j]->strand!=jd.strand) {
+			fprintf(stderr,"Found junction on strand %d matching to %d-%d\n",junction[j]->strand,junction[j]->start,junction[j]->end);
+			if(jd.nreads_good<junction[j]->nreads_good || junction[j]->guide_match) {
+				jd.strand=0;
+				return false;
+			}
+			else junction[j]->strand=0;
+		}*/
+	}
 	j=nj+1;
-	while(j<junction.Count() && junction[j]->start==jd.start) { sumjunc+=junction[j]->nreads_good; j++;}
+	while(j<junction.Count() && junction[j]->start==jd.start) {
+		sumjunc+=junction[j]->nreads_good; j++;
+		/*if(junction[j]->end==jd.end && junction[j]->strand && junction[j]->strand!=jd.strand) {
+			fprintf(stderr,"Found junction on strand %d matching to %d-%d\n",junction[j]->strand,junction[j]->start,junction[j]->end);
+			if(jd.nreads_good<junction[j]->nreads_good || junction[j]->guide_match) {
+				jd.strand=0;
+				return false;
+			}
+			else junction[j]->strand=0;
+		}*/
+	}
 
+	// this sorts some of the really bad junctions out
 	if(jd.nreads_good*100/sumjunc<isofrac) {
 		jd.strand=0;
 		return false;
 	}
+
 
 	return true;
 }
@@ -8204,7 +9596,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 		bnodeguides = new GVec<int>[bnode[1].Count()];
 	}
 
-	//if(guides.Count()) fprintf(stderr,"No of guides=%d partialcov=%d\n",guides.Count(),partialcov);
+	//if(guides.Count()) fprintf(stderr,"No of guides=%d\n",guides.Count());
 
 	/* if(partialcov) {
 		for(int g=0;g<guides.Count();g++) {
@@ -8367,22 +9759,30 @@ int build_graphs(BundleData* bdata, bool fast) {
 
     				while(g<ng && guides[g]->end<bnode[sno][bundle[sno][b]->startnode]->start) g++;
     				int cg=g;
-
+    				int nolap=0;
     				while(cg<ng && guides[cg]->start<=bnode[sno][bundle[sno][b]->lastnodeid]->end) { // this are potential guides that might overlap the current bundle, and they might introduce extra edges
-    					if(guides[cg]->strand==strnd) edgeno[s][b]+=2; // this is an overestimate: possibly I have both an extra source and an extra sink link
+    					if(guides[cg]->strand==strnd) {
+    						edgeno[s][b]+=2; // this is an overestimate: possibly I have both an extra source and an extra sink link
+    						nolap++;
+    					}
     					cg++;
     				}
 
     				/*
     				{ // DEBUG ONLY
-    				if(bundle[sno][b]->nread) {
-    					fprintf(stderr,"proc bundle[%d][%d] %f/%f is %f len=%d\n",sno,b,bundle[sno][b]->multi,bundle[sno][b]->nread,(float)bundle[sno][b]->multi/bundle[sno][b]->nread,bundle[sno][b]->len);
-    				} }
+    					if(bundle[sno][b]->nread) {
+    						fprintf(stderr,"proc bundle[%d][%d] %f/%f is %f len=%d and %d guides\n",sno,b,
+    								bundle[sno][b]->multi,bundle[sno][b]->nread,(float)bundle[sno][b]->multi/bundle[sno][b]->nread,
+    								bundle[sno][b]->len,nolap);
+    					}
+    				}
     				*/
 
     				// here I can add something in stringtie to lower the mintranscript len if there are guides?
 
-    				if(bundle[sno][b]->nread && (bundle[sno][b]->multi/bundle[sno][b]->nread)<=mcov && bundle[sno][b]->len >= mintranscriptlen ) { // bundle is worth processing: it might be that there are small transfrags from source to sink that are worth processing
+    				if(bundle[sno][b]->nread &&
+    						(((bundle[sno][b]->multi/bundle[sno][b]->nread)<=mcov && bundle[sno][b]->len >= mintranscriptlen)
+    								||nolap)) { // bundle is worth processing: it might be that there are small transfrags from source to sink that are worth processing
 
     					/*
     					// first identify drops/spikes in coverage points
@@ -8531,6 +9931,8 @@ int build_graphs(BundleData* bdata, bool fast) {
 #endif
 */
 
+    				//fprintf(stderr,"guidetrf no=%d\n",guidetrf.Count());
+
     				// find transcripts now
     				geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],compatible,
     						geneno,s,guidetrf,pred,fast,guides,guidepred);
@@ -8589,6 +9991,17 @@ int build_graphs(BundleData* bdata, bool fast) {
 #endif
 */
 
+    /*
+    { // DEBUG ONLY
+    	for(int i=0;i<pred.Count();i++) {
+    		if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
+    		fprintf(stderr,"pred[%d]:",i);
+    		for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
+    		fprintf(stderr,"\n");
+    	}
+    }
+    */
+
     // don't forget to clean up the allocated data here
     return(geneno);
 }
@@ -8613,13 +10026,13 @@ CReadAln *guide_to_read(GffObj *t, int g, GList<CJunction>& junction, int refend
 
 	char s=0;
 	if(t->strand=='-') s=-1;
-	else if(t->strand=='+') s=-1;
+	else if(t->strand=='+') s=1;
 
 	TAlnInfo *tif=new TAlnInfo();
 	tif->g=g;
 
 	CReadAln *r=new CReadAln(s,1,t->start,t->end,tif);
-	r->read_count=1;
+	r->read_count=0;
 
 	// add junction from start here --> needs to be specially handled in build_merge
 	CJunction* njsource=add_junction(0, t->start, junction, r->strand);
@@ -8707,7 +10120,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 				strand=1;
 				nj=add_junction(0, rd.start, junction, strand);
 				//if (nj) rd.juncs.Insert(0,nj); I don't do this anymore because I don't know the strand
-				nj=add_junction(rd.end, 0, junction, strand);
+				nj=add_junction(rd.end, refend, junction, strand);
 				//if (nj) rd.juncs.Add(nj);
 			}
 
@@ -8716,8 +10129,12 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 			else if(isfpkm) rd.read_count=rd.tinfo->fpkm;
 			else if(iscov) rd.read_count=rd.tinfo->cov;
 
-			if(!rd.read_count) rd.read_count=0.000001; // if fpkm is zero I don't want to ignore the transcript completely
-			//fprintf(stderr,"rd[%d].read_count=%f\n",n,rd.read_count);
+			/*
+			if(!rd.read_count) {
+				rd.read_count=0.000001; // if fpkm is zero I don't want to ignore the transcript completely
+				GError("rd[%d].read_count=%f name=%s\n",n,rd.read_count,rd.tinfo->name.chars());
+			}
+			*/
 
 			color=add_read_to_group(n,readlist,color,group,currgroup,startgroup,readgroup,equalcolor,merge);
 		}
@@ -8999,7 +10416,10 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 
     			if(t==1) { geneno++;}
     			char sign='.';
-    			CPrediction *p=new CPrediction(geneno-1, NULL, currbnode->start, currbnode->end, 0, sign, len);
+
+    			//fprintf(stderr,"Store unstranded prediction: geneno=%d start=%d end=%d cov=%f\n",geneno,currbnode->start,currbnode->end,currbnode->cov);
+
+    			CPrediction *p=new CPrediction(geneno-1, NULL, currbnode->start, currbnode->end, currbnode->cov, sign, len);
     			GSeg exon(currbnode->start,currbnode->end);
     			p->exons.Add(exon);
     			pred.Add(p);
@@ -9009,7 +10429,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
     	}
     }
 
-    //fprintf(stderr,"Done with unstranded bundles\n");
+    //fprintf(stderr,"Done with unstranded bundles geneno=%d\n",geneno);
 
 	// ### build graphs for stranded bundles here
     if(startgroup[0]!=NULL || startgroup[2]!=NULL) { //# there are stranded groups to process
@@ -9160,9 +10580,6 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
     						geneno,s,pred,readlist,guides);
     				*/
 
-    				merge_transfrags(graphno[s][b],no2gnode[s][b], mgt[s][b],gpos[s][b],geneno,s,pred,readlist,guides);
-
-
     				/*
     				{ //DEBUG ONLY
     					//printTime(stderr);
@@ -9175,17 +10592,20 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
     						for(int j=0;j<no2gnode[s][b][i]->trf.Count();j++) fprintf(stderr," %d",no2gnode[s][b][i]->trf[j]);
     						fprintf(stderr,"\n");
     					}
+    					mgt[s][b].Sort(mgtrabundCmp); // sort transfrags from the most abundant to the least, with guides coming in first
     					fprintf(stderr,"There are %d transfrags[%d][%d]:\n",mgt[s][b].Count(),s,b);
     					for(int t=0;t<mgt[s][b].Count();t++) {
-    						fprintf(stderr,"%d: ",t);
+    						fprintf(stderr,"%d (%d-%d): ",t,no2gnode[s][b][mgt[s][b][t]->transfrag->nodes[0]]->start,no2gnode[s][b][mgt[s][b][t]->transfrag->nodes.Last()]->end);
     						//printBitVec(transfrag[s][b][t]->pattern);
     						fprintf(stderr," %f:",mgt[s][b][t]->transfrag->abundance);
     						for(int i=0;i<mgt[s][b][t]->transfrag->nodes.Count();i++) fprintf(stderr," %d",mgt[s][b][t]->transfrag->nodes[i]);
     						fprintf(stderr,"\n");
     					}
-
     				}
     				*/
+
+    				geneno=merge_transfrags(graphno[s][b],no2gnode[s][b], mgt[s][b],gpos[s][b],geneno,s,pred,readlist,guides);
+    				//geneno=merge_transfrags_EM(graphno[s][b],no2gnode[s][b], mgt[s][b],gpos[s][b],geneno,s,pred,readlist,guides);
 
     			}
     			// clean up what can be cleaned
@@ -9299,6 +10719,7 @@ int infer_transcripts(BundleData* bundle, bool fast) {
 		geneno = build_graphs(bundle, fast);
 	}
 
+
 /*
 #ifdef GMEMTRACE
 	//double vm,rsm;
@@ -9315,7 +10736,6 @@ void printGff3Header(FILE* f, GArgs& args) {
   args.printCmdLine(f);
   fprintf(f, "##gff-version 3\n");
 }
-
 
 int predCmp(const pointer p1, const pointer p2) {
 	CPrediction *a=(CPrediction*)p1;
@@ -10062,24 +11482,30 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 			  }
 			  //fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
 			  fprintf(f_out,"1 %d %d %d %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id,pred[n]->cov);
-			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
-					  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-					  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno]);
+
+			  GStr geneid(label);geneid+='.';geneid+=genes[pred[n]->geneno];
+			  GStr trid(geneid); trid+='.';trid+=transcripts[pred[n]->geneno];
+			  if(eonly && pred[n]->t_eq && pred[n]->t_eq->getGeneID()) geneid=pred[n]->t_eq->getGeneID();
+			  if(eonly && pred[n]->t_eq) trid=pred[n]->t_eq->getID();
+
+			  fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; ",
+						  refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,geneid.chars(),trid.chars());
+
 			  if(pred[n]->t_eq) {
-				  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-				  if (pred[n]->t_eq->getGeneID())
+				  if(!eonly) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+				  if (!eonly && pred[n]->t_eq->getGeneID())
 				    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
 				  if (pred[n]->t_eq->getGeneName())
 				    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
 			  }
 			  fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
 			  for(int j=0;j<pred[n]->exons.Count();j++) {
-				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
-						  refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),genes[pred[n]->geneno],
-						  label.chars(),genes[pred[n]->geneno],transcripts[pred[n]->geneno],j+1); // maybe add exon coverage here
+				  fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; exon_number \"%d\"; ",
+						  refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,geneid.chars(),
+						  trid.chars(),j+1); // maybe add exon coverage here
 				  if(pred[n]->t_eq) {
-					  fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-					  if (pred[n]->t_eq->getGeneID())
+					  if(!eonly) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+					  if (!eonly && pred[n]->t_eq->getGeneID())
 					    	 fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
 					  if (pred[n]->t_eq->getGeneName())
 					    	 fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
@@ -10392,9 +11818,16 @@ void add_pred(GList<CPrediction>& pred,int x,int y, float cov) { // add single e
 
 }
 
-int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
+int printMergeResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) {
 	GList<CPrediction>& pred = bundleData->pred;
 	int npred=pred.Count();
+
+	GVec<float> maxabund(ngenes,float(0)); // compute maxabundance for each gene
+	for(int n=0;n<npred;n++) {
+		if(pred[n]->cov>maxabund[pred[n]->geneno]) {
+			maxabund[pred[n]->geneno]=pred[n]->cov;
+		}
+	}
 
 	// I should get the predictions in order of processing
 	int t; // transcript number
@@ -10402,34 +11835,47 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 	for(int n=0;n<npred;n++) {
 		if(pred[n]->geneno!=prevgene) {
 			t=0;
-			geneno++;
 			prevgene=pred[n]->geneno;
 		}
-		t++;
-		fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; ",
-				refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),geneno,
-				label.chars(),geneno,t);
-		if(pred[n]->t_eq) {
-			fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-			if (pred[n]->t_eq->getGeneID())
-				fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
-			if (pred[n]->t_eq->getGeneName())
-				fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
-		}
-		if(enableNames) fprintf(f_out,"input_transcripts \"%s\";\n",pred[n]->mergename.chars());
-		else fprintf(f_out,"\n");
-		for(int j=0;j<pred[n]->exons.Count();j++) {
-			fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s.%d.%d\"; exon_number \"%d\"; ",
-					refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),geneno,
-					label.chars(),geneno,t,j+1);
+		//fprintf(stderr,"maxabund=%f isofrac=%f pred[%d]->cov=%f\n",maxabund[pred[n]->geneno],isofrac,n,pred[n]->cov);
+		if(pred[n]->t_eq || !maxabund[pred[n]->geneno] || pred[n]->cov/maxabund[pred[n]->geneno]>isofrac){
+			if(!t) geneno++;
+			t++;
+			GStr trid;
+			if(pred[n]->t_eq) trid=pred[n]->t_eq->getID();
+			else {
+				trid=label+'.';
+				trid+=geneno;
+				trid+='.';
+				trid+=t;
+			}
+
+			fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s\"; ",
+					refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,label.chars(),geneno,
+					trid.chars());
+
 			if(pred[n]->t_eq) {
-				fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+				//fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+				if (pred[n]->t_eq->getGeneName())
+					fprintf(f_out,"gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
 				if (pred[n]->t_eq->getGeneID())
 					fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
-				if (pred[n]->t_eq->getGeneName())
-					fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
 			}
-			fprintf(f_out,"\n");
+			if(enableNames) fprintf(f_out,"input_transcripts \"%s\";\n",pred[n]->mergename.chars());
+			else fprintf(f_out,"\n");
+			for(int j=0;j<pred[n]->exons.Count();j++) {
+				fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s\"; exon_number \"%d\"; ",
+						refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,label.chars(),geneno,
+						trid.chars(),j+1);
+				if(pred[n]->t_eq) {
+					//fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+					if (pred[n]->t_eq->getGeneName())
+						fprintf(f_out,"gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+					if (pred[n]->t_eq->getGeneID())
+						fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+				}
+				fprintf(f_out,"\n");
+			}
 		}
 	}
 	return(geneno);

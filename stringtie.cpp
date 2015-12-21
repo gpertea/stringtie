@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.1.3"
+#define VERSION "1.2.0"
 
 //uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
@@ -70,13 +70,13 @@ from multiple transcript files generating a non-redundant set of isoforms.\n\
  -o <out_gtf>      output path/file name for the merged transcripts GTF (default:\n\
                    stdout)\n\
  -m <min_len>      minimum transcript length in the input to include in the merge\n\
-				   (default: 0; all input transcripts are merged)\n\
+                   (default: 50)\n\
  -c <min_cov>      minimum transcript coverage in the input to include in the merge\n\
-				   (default: 0; all input transcripts are merged)\n\
+                   (default: 0)\n\
  -F <min_fpkm>     minimum transcript fpkm in the input to include in the merge\n\
-				   (default: 0; all input transcripts are merged)\n\
+                   (default: 0)\n\
  -T <min_tpm>      minimum transcript tpm in the input to include in the merge\n\
-				   (default: 0; all input transcripts are merged)\n\
+                   (default: 0)\n\
  -f <min_iso>      minimum isoform fraction (default: 0.01)\n\
  -p <CPUs>         number of threads (CPUs) to use (default: 1)\n\
  -l <label>        name prefix for output transcripts (default: MSTRG)\n\
@@ -84,7 +84,7 @@ from multiple transcript files generating a non-redundant set of isoforms.\n\
 /* 
  -E                enable the name of the input transcripts to be included\n\
                    in the merge output (default: no)\n\
- -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\ \\ deprecated for now
+ -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 1)\n\ \\ deprecated for now
  -O disable the coverage saturation limit and use a slower two-pass approach\n\
     to process the input alignments, collapsing redundant reads\n\
  -Z disable fast computing for transcript path (no zoom); default: yes\n\
@@ -801,7 +801,7 @@ void processOptions(GArgs& args) {
 	   }
 	   else if (mintranscriptlen<0) GError("Error: invalid -m value, must be >=0)\n");
 	 }
-	 else if(mergeMode) mintranscriptlen=0;
+	 else if(mergeMode) mintranscriptlen=50;
 
 
      s=args.getOpt('x');
@@ -869,6 +869,7 @@ void processOptions(GArgs& args) {
 		 isofrac=(float)s.asDouble();
 		 if(isofrac>=1) GError("Miminum isoform fraction (-f coefficient: %f) needs to be less than 1\n",isofrac);
 	 }
+	 else if(mergeMode) isofrac=0.01;
 	 s=args.getOpt('M');
 	 if (!s.is_empty()) {
 		 mcov=(float)s.asDouble();
@@ -1112,6 +1113,7 @@ void processBundle(BundleData* bundle) {
 #endif
 	//int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
 	int ngenes=infer_transcripts(bundle, fast);
+
 	if(mergeMode) {
 		isfpkm=false;
 		istpm=false;
@@ -1124,7 +1126,7 @@ void processBundle(BundleData* bundle) {
 #ifndef NOTHREADS
 		GLockGuard<GFastMutex> lock(printMutex);
 #endif
-		if(mergeMode) GeneNo=printMergeResults(bundle, GeneNo,bundle->refseq);
+		if(mergeMode) GeneNo=printMergeResults(bundle, ngenes,GeneNo,bundle->refseq);
 		else GeneNo=printResults(bundle, ngenes, GeneNo, bundle->refseq);
 	}
 

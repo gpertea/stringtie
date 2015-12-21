@@ -1002,18 +1002,6 @@ GffObj* GffReader::newGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr,
     updateParent(r, parent);
     if (pexon!=NULL) parent->removeExon(pexon);
     }
-  /*
-  if (gff_warns) {
-    int* pcount=tids.Find(newgfo->gffID);
-    if (pcount!=NULL) {
-       if (gff_warns) GMessage("Warning: duplicate GFF ID: %s\n", newgfo->gffID);
-       (*pcount)++;
-       }
-     else {
-       tids.Add(newgfo->gffID,new int(1));
-       }
-    }
-  */
   return r;
 }
 
@@ -1114,11 +1102,11 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 		GffObj* prevseen=NULL;
 		GPVec<GffObj>* prevgflst=NULL;
 		if (gffline->ID && gffline->exontype==0) {
-			//>> for a parent-like IDed feature (mRNA, gene, etc.)
-			//look for same ID on the same chromosome/strand/locus
+			//parent-like feature ID (mRNA, gene, etc.)
+			//check if this ID was previously seen on the same chromosome/strand within GFF_MAX_LOCUS distance
 			prevseen=gfoFind(gffline->ID, prevgflst, gffline->gseqname, gffline->strand, gffline->fstart);
-			if (prevseen!=NULL) {
-				//same ID/chromosome combo encountered before
+			if (prevseen) {
+				//same ID seen in the same locus/region
 				if (prevseen->createdByExon()) {
 					if (gff_show_warnings && (prevseen->start<gffline->fstart ||
 							prevseen->end>gffline->fend))
@@ -1127,14 +1115,14 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 					//this line has the main attributes for this ID
 					updateGffRec(prevseen, gffline, keepAttr);
 				}
-				else {
-					//- duplicate ID -- this must be a discontinuous feature according to GFF3 specs
-					//   e.g. a trans-spliced transcript
+				else
+				{ //duplicate ID -- but this could also be a discontinuous feature according to GFF3 specs
+				  //e.g. a trans-spliced transcript - but segments should not overlap
 					if (prevseen->overlap(gffline->fstart, gffline->fend)) {
-						//overlapping with same ID not allowed
-						GMessage("GFF Error: duplicate/invalid '%s' feature ID=%s\n", gffline->ftype, gffline->ID);
+						//overlapping feature with same ID is going too far
+						GMessage("GFF Error: overlapping duplicate %s feature (ID=%s)\n", gffline->ftype, gffline->ID);
 						//validation_errors = true;
-						if (gff_warns) {
+						if (gff_warns) { //validation intent: just skip the feature, allow the user to see other errors
 							delete gffline;
 							gffline=NULL;
 							continue;
@@ -1153,18 +1141,26 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 						//exception: make this an exon of previous ID
 						//addExonFeature(prevseen, gffline, pex, noExonAttr);
 						prevseen->addExon(this, gffline, false, true);
+						if (gff_warns) {
+							GMessage("GFF Warning: duplicate feature ID %s (%d-%d) added as exon of previous %d-%d!\n",
+									gffline->ID, gffline->fstart, gffline->fend, prevseen->start, prevseen->end);
+						}
 					}
 					else { //create a separate entry (true discontinuous feature)
 						prevseen=newGffRec(gffline, keepAttr, noExonAttr,
 								prevseen->parent, NULL, prevgflst);
+						if (gff_warns) {
+							GMessage("GFF Warning: duplicate feature ID %s (%d-%d) (discontinuous feature?)\n",
+									gffline->ID, gffline->fstart, gffline->fend);
+						}
 					}
-				} //duplicate ID on the same chromosome
-			} //prevseeen != NULL
-		} //parent-like ID feature
+				} //duplicate ID in the same locus
+			} //ID seen previously in the same locus
+		} //parent-like ID feature (non-exon)
 		if (gffline->parents==NULL) {//start GFF3-like record with no parent (mRNA, gene)
 			if (!prevseen) newGffRec(gffline, keepAttr, noExonAttr, NULL, NULL, prevgflst);
 		}
-		else { //--- it's a child feature (exon/CDS but could still be a mRNA with gene(s) as parent)
+		else { //--- it's a child feature (exon/CDS or even a mRNA with a gene as parent)
 			//updates all the declared parents with this child
 			bool found_parent=false;
 			GffObj* newgfo=prevseen;
@@ -1212,7 +1208,7 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 						}
 					}
 					else { //potential exon subfeature?
-						//always discards dummy "intron" features
+						//always discard dummy "intron" features
 						if (!(gffline->exontype==exgffIntron && (parentgfo->isTranscript() || parentgfo->exons.Count()>0))) {
 							if (!addExonFeature(parentgfo, gffline, pex, noExonAttr))
 								validation_errors=true;

@@ -109,7 +109,9 @@ struct CTransfrag {
 struct CMTransfrag { // this is the super-class for transfrag -> to use in case of merging transcripts
 	CTransfrag *transfrag;
 	GVec<int> read; // all reads' indeces that are connected to this transfrag
-	CMTransfrag(CTransfrag *t=NULL):transfrag(t),read() {}
+	int nf;
+	int nl;
+	CMTransfrag(CTransfrag *t=NULL):transfrag(t),read(),nf(0),nl(0) {}
 };
 
 struct CGuide {
@@ -192,6 +194,12 @@ struct CPrediction:public GSeg {
 	      exons(c.exons),  exoncov(c.exoncov), mergename() {}
 	~CPrediction() { //GFREE(id);
 		}
+};
+
+struct CMPrediction {
+	CPrediction *p;
+	GBitVec b;
+	CMPrediction(CPrediction* _p=NULL): p(_p),b() {}
 };
 
 struct CPath {
@@ -501,7 +509,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 void countFragment(BundleData& bdata, GBamRecord& brec, int hi,int nh);
 
 int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
-int printMergeResults(BundleData* bundleData, int geneno, GStr& refname);
+int printMergeResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
 
 int infer_transcripts(BundleData* bundle, bool fast);
 
