@@ -2635,7 +2635,7 @@ CPrediction* store_merge_prediction(float cov,GVec<int>& alltr,GPVec<CMTransfrag
 	char sign='-';
 	if(strand) { sign='+';}
 	if(first) { geneno++;}
-
+	//TODO: fix memory leak for this dangling CPrediction pointer allocated here:
 	CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, cov, sign, len);
 	p->exons=exons;
 	if(enableNames) p->mergename=name;
@@ -10456,8 +10456,8 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
     	for(int sno=0;sno<3;sno+=2) { // skip neutral bundles -> those shouldn't have junctions
 
     		int s=sno/2; // adjusted strand due to ignoring neutral strand
-    		char strnd='-';
-    		if(s) strnd='+';
+    		//char strnd='-';
+    		//if(s) strnd='+';
 
     		bundle2graph[s]=NULL;
     		if(bnode[sno].Count()) bundle2graph[s]=new GVec<CGraphinfo>[bnode[sno].Count()];

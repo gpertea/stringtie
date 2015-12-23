@@ -6,7 +6,8 @@ void TInputFiles::Add(const char* fn) {
 			    GError("Error: input file %s cannot be found!\n",
 			            fn);
 		}
-		files.Add(new GStr(fn));
+		GStr sfn(fn);
+		files.Add(sfn);
 	}
 
 
