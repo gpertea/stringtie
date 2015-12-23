@@ -3525,7 +3525,7 @@ int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mg
 				}
 
 			}
-
+//TODO: memory leak here?
 			CPrediction *p=store_merge_prediction(cov,alltr,mgt,printpath,no2gnode,strand,geneno,first,readlist,guides,-1);
 			CMPrediction mp(p);
 			mp.b=pathpat;
