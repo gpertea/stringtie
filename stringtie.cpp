@@ -132,6 +132,8 @@ float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise co
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
 float mcov=0.95; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 
+int no_xs=0; // number of records without the xs tag
+
 float fpkm_thr=0;
 float tpm_thr=0;
 
@@ -417,8 +419,10 @@ if (ballgown)
 
 		 refseqName=brec->refName();
 		 xstrand=brec->spliceStrand();
-		 if (xstrand=='.' && brec->exons.Count()>1)
+		 if (xstrand=='.' && brec->exons.Count()>1) {
+			 no_xs++;
 			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
+		 }
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
@@ -650,6 +654,8 @@ if (ballgown)
  //if (f_out && f_out!=stdout) fclose(f_out);
  fclose(f_out);
  if (c_out && c_out!=stdout) fclose(c_out);
+
+ if(verbose) GMessage("Total number of records without the XS tag: %d\n",no_xs);
 
 if(!mergeMode) {
 	if(verbose) {

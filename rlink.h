@@ -21,8 +21,10 @@ const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
 const int MAX_MAXCOMP=200; // is 200 too much, or should I set it up to 150?
 
-const int longintron=20000; // don't trust introns longer than this unless there is higher evidence; 93.5% of all annotated introns are shorter than this
-const int longintronanchor=25; // I need a higher anchor for long introns
+const uint longintron=20000; // don't trust introns longer than this unless there is higher evidence; 93.5% of all human annotated introns are shorter than this
+const uint longintronanchor=20; // I need a higher anchor for long introns
+
+const float mismatchfrac=0.02;
 
 const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
@@ -172,7 +174,6 @@ struct CMerge {
 };
 
 struct CPrediction:public GSeg {
-	int refcount;
 	int geneno;
 	GffObj* t_eq; //equivalent reference transcript (guide)
 	//char *id;
@@ -185,7 +186,7 @@ struct CPrediction:public GSeg {
 	GVec<float> exoncov;
 	GStr mergename;
 	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
-	int _len=0,bool f=true):GSeg(gstart,gend), refcount(0), geneno(_geneno),t_eq(guide),cov(_cov),strand(_strand),
+	int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),strand(_strand),
 	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
 			tlen(_len),flag(f),exons(),exoncov(),mergename() {}
@@ -204,7 +205,7 @@ struct CPrediction:public GSeg {
 		mergename.clear();
 	}
 
-	CPrediction(CPrediction& c):GSeg(c.start, c.end), refcount(0), geneno(c.geneno),
+	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
 //			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
 			t_eq(c.t_eq), cov(c.cov), strand(c.strand), tlen(c.tlen), flag(c.flag),
 	      exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename) {}
@@ -215,16 +216,7 @@ struct CPrediction:public GSeg {
 struct CMPrediction {
 	CPrediction *p;
 	GBitVec b;
-	CMPrediction(CPrediction* _p=NULL): p(_p),b() { /* if (p) ++(p->refcount); */ }
-	~CMPrediction() {
-		/*
-		if (p) {
-			--(p->refcount);
-			if (p->refcount==0) delete p;
-
-		}
-		*/
-	}
+	CMPrediction(CPrediction* _p=NULL): p(_p),b() {}
 };
 
 struct CPath {
@@ -372,9 +364,10 @@ struct CJunction:public GSeg {
 	char guide_match; //exact match of a ref intron?
 	double nreads;
 	double nreads_good;
+	double nm;
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
 			strand(_strand), guide_match(0), nreads(0),
-			nreads_good(0) {}
+			nreads_good(0),nm(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;
 		if (start>b.start) return false;
@@ -399,6 +392,7 @@ struct GReadAlnData {
 	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
 			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
 					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
+	~GReadAlnData() { delete tinfo; }
 };
 
 struct CTCov { //covered transcript info

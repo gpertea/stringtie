@@ -224,13 +224,16 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			if(len<mintranscriptlen) return;
 		}
 		readaln=new CReadAln(strand, nh, brec.start, brec.end, alndata.tinfo);
+		alndata.tinfo=NULL; //alndata.tinfo was passed to CReadAln
 		for (int i=0;i<brec.exons.Count();i++) {
 			readaln->len+=brec.exons[i].len();
 			if(i) {
 				CJunction* nj=add_junction(brec.exons[i-1].end, brec.exons[i].start, junction, strand);
 				if (alndata.juncs.Count())
 					nj->guide_match=alndata.juncs[i-1]->guide_match;
-				if (nj) readaln->juncs.Add(nj);
+				if (nj) {
+					readaln->juncs.Add(nj);
+				}
 			}
 			readaln->segs.Add(brec.exons[i]);
 		}
@@ -239,11 +242,13 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	else { //redundant read alignment matching a previous alignment
 		// keep shortest nh so that I can see for each particular read the multi-hit proportion
 		if(nh<readlist[n]->nh) readlist[n]->nh=nh;
+		/*
 		//for mergeMode, we have to free the transcript info:
 		if (alndata.tinfo!=NULL) {
 			 delete alndata.tinfo;
 			 alndata.tinfo=NULL;
 		}
+		*/
 	}
 
 	if((int)brec.end>currentend) {
@@ -253,6 +258,17 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 
 	float rdcount=float(1)/nh;
 	readlist[n]->read_count+=rdcount; // increase single count just in case I don't see the pair
+
+	// store the mismatch count per junction so that I can eliminate it later
+	int nm=brec.tag_int("NM"); // read mismatch
+	if(!nm) {
+		nm=brec.tag_int("nM"); // paired mismatch : big problem with STAR alignments
+		if(brec.isPaired()) nm/=2;
+	}
+	// this counts reads over allowed fraction of mismatches and multi-mapped reads
+	if(nh>1 || nm/readlist[n]->len>mismatchfrac) for(int i=0;i<readlist[n]->juncs.Count();i++) {
+		readlist[n]->juncs[i]->nm+=rdcount;
+	}
 
 	// now set up the pairing
 	if (brec.refId()==brec.mate_refId()) {  //only consider mate pairing data if mates are on the same chromosome/contig
@@ -1333,6 +1349,8 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	}
 
+	//int seenjunc=0;
+
 	while(bundlenode!=NULL) {
 
 	    uint currentstart=bundlenode->start; // current start is bundlenode's start
@@ -1406,6 +1424,8 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    		uint pos=junction[njs]->start;
 	    		while(njs<njunctions && junction[njs]->start==pos ) { // remember ends here
 	    			if((junction[njs]->strand+1) == 2*s) {
+
+	    				//seenjunc++;
 	    				if(mergeMode && (int)junction[njs]->end==refend) { // this node goes straight to sink
 	    					sink->parent.Add(graphnode->nodeid); // graphnode is the parent of sink: check to see if I have a conflict with this
 	    					edgeno++; // count edge here
@@ -1493,7 +1513,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 		}
 	}
 
-	//fprintf(stderr,"This graph has %d nodes and %d edges\n",graphno,edgeno);
+	//fprintf(stderr,"This graph has %d nodes and %d edges and %d junctions\n",graphno,edgeno,seenjunc);
 	lastgpos=graphno; // nodes are from 0 to graphno-1, so the first "available" position in GBitVec is graphno
 
 	// now I can create the future transfrags because I know graphno
@@ -2635,7 +2655,7 @@ CPrediction* store_merge_prediction(float cov,GVec<int>& alltr,GPVec<CMTransfrag
 	char sign='-';
 	if(strand) { sign='+';}
 	if(first) { geneno++;}
-	//TODO: fix memory leak for this dangling CPrediction pointer allocated here:
+
 	CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, cov, sign, len);
 	p->exons=exons;
 	if(enableNames) p->mergename=name;
@@ -3525,7 +3545,7 @@ int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mg
 				}
 
 			}
-//TODO: memory leak here?
+
 			CPrediction *p=store_merge_prediction(cov,alltr,mgt,printpath,no2gnode,strand,geneno,first,readlist,guides,-1);
 			CMPrediction mp(p);
 			mp.b=pathpat;
@@ -3538,6 +3558,12 @@ int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mg
 			}
 			localpred.Add(mp);
 		}
+		/*// this will increase the guide's coverage and I am not sure it is fair since I am then eliminating based on isofrac fraction
+		else if(mgt[t1]->transfrag->real && cov) { // the transfrag is real but didn't extend past its limits
+			// I already added the transfrag to the localpred
+			localpred[t1].p->cov+=cov;
+		}
+		*/
 
 	} // end for(int t1=0;t1<transfrag.Count();t1++)
 
@@ -3556,7 +3582,7 @@ int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mg
 		*/
 
 		if(localpred[i].p->t_eq==NULL) { // if a guide -> just store it
-			for(int j=0;j<i;j++) {
+			for(int j=0;j<i;j++) if(localpred[j].p!=NULL) {
 
 				if((localpred[i].p->exons.Count()>1 && (localpred[i].p->exons.Count() <= localpred[j].p->exons.Count()) && ((localpred[i].b & localpred[j].b) == localpred[i].b)) ||
 						(localpred[i].p->exons.Count()==1 && localpred[j].p->exons.Count()==1 && localpred[j].p->overlap(localpred[i].p))) {
@@ -3580,6 +3606,10 @@ int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mg
 
 
 		if(localpred[i].p->t_eq || localpred[i].p->cov) pred.Add(localpred[i].p);
+		else { // I have a prediction that needs to be cleaned up
+			delete localpred[i].p;
+			localpred[i].p=NULL;
+		}
 	}
 
 	return(geneno);
@@ -7500,7 +7530,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 			CTransfrag *trguide=find_guide_pat(guides[g],no2gnode,gno,edgeno,gpos);
 			if(trguide) { // the guide can be found among the graph nodes
 				//CGuide newguide(trguide,guides[g]);
-				CGuide newguide(trguide,g);
+				CGuide newguide(trguide,g); //TODO: prevent memory leak for newly allocated trguide
 				guidetrf.Add(newguide);
 
 				//fprintf(stderr,"Added guidetrf with ID=%s overlapping transcript interval %d - %d\n",guides[g]->getID(),no2gnode[1]->start,no2gnode[gno-2]->end);
@@ -7642,7 +7672,8 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 					guidetrf[g].trf->pattern[*pos]=1;
 				}
 				else {
-					if(includesource) guidetrf[g].trf->nodes.Insert(0,source); // I need to comment this if I need path to include the source
+					if(includesource)
+						guidetrf[g].trf->nodes.Insert(0,source); // I need to comment this if I need path to include the source
 					guidetrf[g].trf->pattern[0]=1;
 					guidetrf[g].trf->pattern[*pos]=1;
 				}
@@ -7972,6 +8003,7 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 
 	if(eonly && nodecov[maxi]>epsilon) { // this is the end for eonly so I should make sure I use all reads
 
+		for(int g=0;g<guidetrf.Count();g++) delete guidetrf[g].trf;
 		guidetrf.Clear();
 
 		char strand='-';
@@ -8984,6 +9016,12 @@ bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov) {
 		return false;
 	}
 
+	if (jd.nm && round(jd.nm)==round(jd.nreads) && jd.end-jd.start>longintron) { // don't believe long intron if all junctions are from bad reads
+		jd.strand=0;
+		jd.nm=0;
+		return false;
+	}
+
 	/*
 	if ((int)(jd.end-jd.start)>longintron) { // I might want to reconsider this
 		int leftreach = jd.start-longintronanchor-refstart;
@@ -9083,6 +9121,11 @@ void update_junction_counts(CReadAln & rd) {
 	}
 	for(int i=1;i<nex;i++) {
 
+		if(rd.juncs[i-1]->nm && long(rd.juncs[i-1]->nm)>=long(rd.juncs[i-1]->nreads) && (rd.juncs[i-1]->end - rd.juncs[i-1]->start > longintron)) { // only the first time I am interested in checking if a junction is bad
+			rd.juncs[i-1]->strand=0;
+		}
+		rd.juncs[i-1]->nm=0;
+
 		rd.juncs[i-1]->nreads-=rd.read_count;
 		if(!rd.juncs[i-1]->nreads) rd.juncs[i-1]->strand=0;
 
@@ -9141,7 +9184,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 		while(i<rd.juncs.Count()) {
 			//leftlen=rd.segs[i].len();
 			CJunction& jd=*(rd.juncs[i]);
-			//fprintf(stderr, " %d-%d:%4.2f", jd.start, jd.end, jd.nreads_good);
+			//fprintf(stderr, " %d-%d:%4.2f nreads=%f nm=%f\n", jd.start, jd.end, jd.nreads_good,jd.nreads,jd.nm);
 			if(!jd.strand || !good_junc(jd,refstart,bpcov)) { // found a bad junction
 				//update_junction_counts(rd,bpcov,refstart);
 				update_junction_counts(rd);
@@ -9937,10 +9980,8 @@ int build_graphs(BundleData* bdata, bool fast) {
     				geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],compatible,
     						geneno,s,guidetrf,pred,fast,guides,guidepred);
 
-    				for(int g=0;g<guidetrf.Count();g++) {
-    					//GFREE(guidetrf[g].trf);
-    					delete guidetrf[g].trf;
-    				}
+    				for(int g=0;g<guidetrf.Count();g++) delete guidetrf[g].trf;
+
 
     				/*
     				{ //DEBUG ONLY
@@ -10027,6 +10068,7 @@ CReadAln *guide_to_read(GffObj *t, int g, GList<CJunction>& junction, int refend
 	char s=0;
 	if(t->strand=='-') s=-1;
 	else if(t->strand=='+') s=1;
+	else s=0;
 
 	TAlnInfo *tif=new TAlnInfo();
 	tif->g=g;
@@ -10667,10 +10709,10 @@ void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* 
 			cov_add(bpcov,sno,rd.segs[i].start-refstart,rd.segs[i].end-refstart,rd.read_count);
 		}
 		for(int i=1;i<nex;i++) {
-			//uint anchor=junctionsupport;
-			//if(anchor<longintron && rd.juncs[i-1]->len()>longintron) anchor=longintronanchor; // this if I want to use a different anchor for long introns
-			//if(leftsup[i-1]>=anchor && rightsup[nex-i-1]>=anchor) rd.juncs[i-1]->nreads_good+=rd.read_count;
-			if(leftsup[i-1]>=junctionsupport && rightsup[nex-i-1]>=junctionsupport) rd.juncs[i-1]->nreads_good+=rd.read_count;
+			uint anchor=junctionsupport;
+			if(anchor<longintronanchor && rd.juncs[i-1]->len()>longintron) anchor=longintronanchor; // I want to use a longer anchor for long introns to believe them
+			if(leftsup[i-1]>=anchor && rightsup[nex-i-1]>=anchor) rd.juncs[i-1]->nreads_good+=rd.read_count;
+			//if(leftsup[i-1]>=junctionsupport && rightsup[nex-i-1]>=junctionsupport) rd.juncs[i-1]->nreads_good+=rd.read_count;
 		}
 	}
 
