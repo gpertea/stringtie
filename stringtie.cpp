@@ -13,7 +13,6 @@
 
 #define VERSION "1.2.0"
 
-//uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
 
 #ifdef DEBUGPRINT
@@ -35,7 +34,7 @@
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
   [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>]\n\
   [-e] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
- Assemble RNA-Seq alignments into potential transcripts.\n\
+Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
  --version : print just the version at stdout and exit\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
@@ -47,10 +46,11 @@
  -j minimum junction coverage (default: 1)\n\
  -t disable trimming of predicted transcripts based on coverage\n\
     (default: coverage trimming is enabled)\n\
- -c minimum reads per bp coverage to consider for transcript assembly (default: 2.5)\n\
+ -c minimum reads per bp coverage to consider for transcript assembly\n\
+    (default: 2.5)\n\
  -v verbose (log bundle processing details)\n\
  -g gap between read mappings triggering a new bundle (default: 50)\n\
- -C output file with reference transcripts that are covered by reads\n\
+ -C output a file with reference transcripts that are covered by reads\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:0.95)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
@@ -58,29 +58,29 @@
     same directory as the output GTF (requires -G, -o recommended)\n\
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
- -e only estimates the abundance of given reference transcripts (requires -G)\n\
+ -e only estimate the abundance of given reference transcripts (requires -G)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
- -h prints help message and exits.\n\
- \n\
-Transcript merge usage: \n\
+ -h print this usage message and exit\n\
+\n\
+Transcript merge usage mode: \n\
   stringtie --merge [Options] { gtf_list | strg1.gtf ...}\n\
-When run with the --merge option, StringTie will assemble transcripts\n\
-from multiple transcript files generating a non-redundant set of isoforms.\n\
- -G <guide_gff>    reference annotation to include in the merging (GTF/GFF3)\n\
- -o <out_gtf>      output path/file name for the merged transcripts GTF (default:\n\
-                   stdout)\n\
- -m <min_len>      minimum transcript length in the input to include in the merge\n\
-                   (default: 50)\n\
- -c <min_cov>      minimum transcript coverage in the input to include in the merge\n\
-                   (default: 0)\n\
- -F <min_fpkm>     minimum transcript fpkm in the input to include in the merge\n\
-                   (default: 0)\n\
- -T <min_tpm>      minimum transcript tpm in the input to include in the merge\n\
-                   (default: 0)\n\
- -f <min_iso>      minimum isoform fraction (default: 0.01)\n\
- -p <CPUs>         number of threads (CPUs) to use (default: 1)\n\
- -l <label>        name prefix for output transcripts (default: MSTRG)\n\
-  "
+With this option StringTie will assemble transcripts from multiple\n\
+input files generating a unified non-redundant set of isoforms. In this mode\n\
+the following options are available:\n\
+  -G <guide_gff>   reference annotation to include in the merging (GTF/GFF3)\n\
+  -o <out_gtf>     output file name for the merged transcripts GTF\n\
+                    (default: stdout)\n\
+  -m <min_len>     minimum input transcript length to include in the merge\n\
+                    (default: 50)\n\
+  -c <min_cov>     minimum input transcript coverage to include in the merge\n\
+                    (default: 0)\n\
+  -F <min_fpkm>    minimum input transcript FPKM to include in the merge\n\
+                    (default: 0)\n\
+  -T <min_tpm>     minimum input transcript TPM to include in the merge\n\
+                    (default: 0)\n\
+  -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
+  -l <label>       name prefix for output transcripts (default: MSTRG)\n\
+"
 /* 
  -E                enable the name of the input transcripts to be included\n\
                    in the merge output (default: no)\n\
