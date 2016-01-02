@@ -1,6 +1,7 @@
 #include "GBase.h"
 #include <stdarg.h>
 #include <ctype.h>
+#include <errno.h>
 
 #ifndef S_ISDIR
 #define S_ISDIR(mode)  (((mode) & S_IFMT) == S_IFDIR)
@@ -188,7 +189,7 @@ int Gstrcmp(const char* a, const char* b, int n) {
 
 }
 
-int G_mkdir(const char* path, int perms=0775) {
+int G_mkdir(const char* path, int perms=(S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) ) {
  #ifdef __WIN32__
      return _mkdir(path);
  #else
@@ -200,6 +201,18 @@ int G_mkdir(const char* path, int perms=0775) {
  #endif
 }
 
+
+void Gmktempdir(char* templ) {
+#ifdef __WIN32__
+  int blen=strlen(templ);
+  if (_mktemp_s(templ, blen)!=0)
+	  GError("Error creating temp dir %s!\n", templ);
+#else
+  char* cdir=mkdtemp(templ);
+  if (cdir==NULL)
+	  GError("Error creating temp dir %s!\n", templ);
+#endif
+}
 
 int Gmkdir(const char *path, bool recursive, int perms) {
 	if (path==NULL || path[0]==0) return -1;
@@ -222,7 +235,10 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 		*psep=0; //now gpath is the path up to this /
 		ss=psep; ++ss; //ss repositioned just after the /
 		// create current level
-		if (fileExists(gpath)!=1 && G_mkdir(gpath, perms)!=0) {
+		int mkdir_err=0;
+		if (fileExists(gpath)!=1 && (mkdir_err=G_mkdir(gpath, perms))!=0 ) {
+			if (mkdir_err!=0)
+				 GMessage("Warning: failed at mkdir(%s): %s\n",gpath,strerror(errno));
 			GFREE(gpath);
 			return -1;
 		}

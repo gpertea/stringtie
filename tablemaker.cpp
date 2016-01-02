@@ -70,12 +70,14 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 	 return false; //nothing to do without transcripts
  //check this read alignment against ref exons and introns
  char strandbits=0;
+ bool result=false;
  for (int i=0;i<brec.exons.Count();i++) {
 	 if (ballgown)
 		 rc_data->updateCov(xstrand, nh, brec.exons[i].start, brec.exons[i].len());
 	 GArray<RC_ExonOvl> exonOverlaps(true, true); //overlaps sorted by decreasing length
 	 if (rc_data->findOvlExons(exonOverlaps, brec.exons[i].start,
 			 brec.exons[i].end, xstrand, mate_pos)) {
+		 result=true;
 		 int max_ovl=exonOverlaps[0].ovlen;
 		 //alndata.g_exonovls.Add(new GVec<RC_ExonOvl>(exonOverlaps));
 			 for (int k=0;k<exonOverlaps.Count();++k) {
@@ -109,7 +111,7 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
  if (xstrand=='.' && strandbits && strandbits<3) {
 	xstrand = (strandbits==1) ? '+' : '-';
  }
- return true;
+ return result;
 }
 
 FILE* rc_fwopen(const char* fname) {

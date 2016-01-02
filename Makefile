@@ -43,7 +43,7 @@ endif
 
 
 BASEFLAGS  := -Wall -Wextra ${SEARCHDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 \
--D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti
+-D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti -D_DARWIN_C_SOURCE
 
 # C/C++ linker
 
@@ -103,7 +103,7 @@ endif
 
 
 
-OBJS += rlink.o tablemaker.o
+OBJS += rlink.o tablemaker.o tmerge.o
  
 .PHONY : all debug clean cleanall cleanAll allclean release nothreads
 all:     stringtie
@@ -119,6 +119,7 @@ nothreads: stringtie
 ${GDIR}/GBam.o : $(GDIR)/GBam.h
 stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHash.hh $(GDIR)/GBam.h
 rlink.o : rlink.h tablemaker.h $(GDIR)/GBam.h $(GDIR)/GBitVec.h
+tmerge.o : rlink.h tmerge.h
 tablemaker.o : tablemaker.h rlink.h
 ${BAM}/libbam.a: 
 	cd ${BAM} && make lib

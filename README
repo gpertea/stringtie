@@ -43,6 +43,7 @@ The following optional parameters can be specified (use -h/--help to get the
 usage message):
 
  --version : print current version at stdout
+ -h print this usage message
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)
  -l name prefix for output transcripts (default: STRG)
  -f minimum isoform fraction (default: 0.1)
@@ -65,6 +66,24 @@ usage message):
     created under the directory path given as <dir_path>
  -e only estimates the abundance of given reference transcripts (requires -G)
  -x do not assemble any transcripts on the given reference sequence(s)
+Transcript merge usage mode:
+ stringtie --merge [Options] { gtf_list | strg1.gtf ...}
+With this option StringTie will assemble transcripts from multiple\n\
+input files generating a unified non-redundant set of isoforms. In this\n\
+usage mode the following options are available:\n\
+  -G <guide_gff>   reference annotation to include in the merging (GTF/GFF3)\n\
+  -o <out_gtf>     output file name for the merged transcripts GTF\n\
+                    (default: stdout)\n\
+  -m <min_len>     minimum input transcript length to include in the merge\n\
+                    (default: 50)\n\
+  -c <min_cov>     minimum input transcript coverage to include in the merge\n\
+                    (default: 0)\n\
+  -F <min_fpkm>    minimum input transcript FPKM to include in the merge\n\
+                    (default: 0)\n\
+  -T <min_tpm>     minimum input transcript TPM to include in the merge\n\
+                    (default: 0)\n\
+  -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
+  -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 
 Input files
 -----------
@@ -74,9 +93,9 @@ This file contains spliced read alignments such as the ones produced by TopHat o
 A text file in SAM format should be converted to BAM and sorted using the 
 samtools program:
 
-  samtools view -S -b input.sam | samtools sort - input.sorted
+  samtools view -Su alns.sam | samtools sort - alns.sorted
 
-The file resulted from the above command (input.sorted.bam) can be used 
+The file resulted from the above command (alns.sorted.bam) can be used 
 directly as input to StringTie. 
 
 Any SAM spliced read alignment (a read alignment across at least one junction)
