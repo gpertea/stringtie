@@ -55,7 +55,8 @@ int gfo_cmpByLoc(const pointer p1, const pointer p2) {
                               return (int)(g1.end-g2.end);
                         else return strcmp(g1.getID(), g2.getID());
              }
-             else return (int)(g1.gseq_id-g2.gseq_id);
+             else //return (int)(g1.gseq_id-g2.gseq_id); // input order !
+            	 return strcmp(g1.getGSeqName(), g2.getGSeqName()); //lexicographic !
 }
 
 char* GffLine::extractAttr(const char* attr, bool caseStrict, bool enforce_GTF2) {
@@ -695,6 +696,7 @@ chr1	hg18_knownGene	exon	69805456	69806912	0.000000	+	.
   // -- make sure any other related boundaries are updated:
   start=exons.First()->start;
   end=exons.Last()->end;
+  /*
   if (uptr!=NULL) { //collect stats about the underlying genomic sequence
     GSeqStat* gsd=(GSeqStat*)uptr;
     if (start<gsd->mincoord) gsd->mincoord=start;
@@ -704,6 +706,7 @@ chr1	hg18_knownGene	exon	69805456	69806912	0.000000	+	.
         gsd->maxfeat=this;
         }
     }
+  */
 }
 
 void GffObj::removeExon(int idx) {
@@ -770,7 +773,9 @@ GffObj::GffObj(GffReader *gfrd, GffLine* gffline, bool keepAttr, bool noExonAttr
   if (gfrd==NULL)
     GError("Cannot use this GffObj constructor with a NULL GffReader!\n");
   gffnames_ref(names);
-  if (gfrd->names==NULL) gfrd->names=names;
+  if (gfrd->names==NULL) {
+	  gfrd->names=names;
+  }
   //qlen=0;qstart=0;qend=0;
   gscore=0;
   uscore=0;
@@ -849,17 +854,9 @@ GffObj::GffObj(GffReader *gfrd, GffLine* gffline, bool keepAttr, bool noExonAttr
 	 geneID=Gstrdup(gffline->parents[0]);
      }
 
-  //GSeqStat* gsd=gfrd->gseqstats.AddIfNew(new GSeqStat(gseq_id,names->gseqs.lastNameUsed()),true);
-  GSeqStat* gsd=gfrd->gseqstats.AddIfNew(new GSeqStat(gseq_id,gffline->gseqname), true);
-  uptr=gsd;
-  /*
-  if (start<gsd->mincoord) gsd->mincoord=start;
-  if (end>gsd->maxcoord) gsd->maxcoord=end;
-    if (this->len()>gsd->maxfeat_len) {
-        gsd->maxfeat_len=this->len();
-        gsd->maxfeat=this;
-        }
-  */
+  //GSeqStat* gsd=gfrd->gseqstats.AddIfNew(new GSeqStat(gseq_id,gffline->gseqname), true);
+  //GSeqStat* gsd=gfrd->gseqtable[gseq_id];
+  //uptr=gsd;
 }
 
 GffLine* GffReader::nextGffLine() {
@@ -917,7 +914,6 @@ GffObj* GffReader::gfoAdd(GffObj* gfo) {
  GPVec<GffObj>* glst=phash.Find(gfo->gffID);
  if (glst==NULL)
 	 glst=new GPVec<GffObj>(false);
- //GfoHolder gh(gfo); //,idx);
  int i=glst->Add(gfo);
  phash.Add(gfo->gffID, glst);
  return glst->Get(i);
@@ -998,25 +994,12 @@ GffObj* GffReader::newGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr,
                           GffObj* parent, GffExon* pexon, GPVec<GffObj>* glst) {
   GffObj* newgfo=new GffObj(this, gffline, keepAttr, noExonAttr);
   GffObj* r=NULL;
-  //int gfoidx=gflst.Add(newgfo);
   gflst.Add(newgfo);
   r=(glst) ? gfoAdd(*glst, newgfo) : gfoAdd(newgfo);
   if (parent!=NULL) {
     updateParent(r, parent);
     if (pexon!=NULL) parent->removeExon(pexon);
     }
-  /*
-  if (gff_warns) {
-    int* pcount=tids.Find(newgfo->gffID);
-    if (pcount!=NULL) {
-       if (gff_warns) GMessage("Warning: duplicate GFF ID: %s\n", newgfo->gffID);
-       (*pcount)++;
-       }
-     else {
-       tids.Add(newgfo->gffID,new int(1));
-       }
-    }
-  */
   return r;
 }
 
@@ -1117,11 +1100,11 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 		GffObj* prevseen=NULL;
 		GPVec<GffObj>* prevgflst=NULL;
 		if (gffline->ID && gffline->exontype==0) {
-			//>> for a parent-like IDed feature (mRNA, gene, etc.)
-			//look for same ID on the same chromosome/strand/locus
+			//parent-like feature ID (mRNA, gene, etc.)
+			//check if this ID was previously seen on the same chromosome/strand within GFF_MAX_LOCUS distance
 			prevseen=gfoFind(gffline->ID, prevgflst, gffline->gseqname, gffline->strand, gffline->fstart);
-			if (prevseen!=NULL) {
-				//same ID/chromosome combo encountered before
+			if (prevseen) {
+				//same ID seen in the same locus/region
 				if (prevseen->createdByExon()) {
 					if (gff_show_warnings && (prevseen->start<gffline->fstart ||
 							prevseen->end>gffline->fend))
@@ -1130,14 +1113,14 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 					//this line has the main attributes for this ID
 					updateGffRec(prevseen, gffline, keepAttr);
 				}
-				else {
-					//- duplicate ID -- this must be a discontinuous feature according to GFF3 specs
-					//   e.g. a trans-spliced transcript
+				else
+				{ //duplicate ID -- but this could also be a discontinuous feature according to GFF3 specs
+				  //e.g. a trans-spliced transcript - but segments should not overlap
 					if (prevseen->overlap(gffline->fstart, gffline->fend)) {
-						//overlapping with same ID not allowed
-						GMessage("GFF Error: duplicate/invalid '%s' feature ID=%s\n", gffline->ftype, gffline->ID);
+						//overlapping feature with same ID is going too far
+						GMessage("GFF Error: overlapping duplicate %s feature (ID=%s)\n", gffline->ftype, gffline->ID);
 						//validation_errors = true;
-						if (gff_warns) {
+						if (gff_warns) { //validation intent: just skip the feature, allow the user to see other errors
 							delete gffline;
 							gffline=NULL;
 							continue;
@@ -1145,6 +1128,7 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 						else exit(1);
 					}
 					//create a new entry with the same ID
+					/*
 					int distance=INT_MAX;
 					if (prevseen->isTranscript() && prevseen->strand==gffline->strand) {
 						if (prevseen->start>=gffline->fstart)
@@ -1156,18 +1140,28 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 						//exception: make this an exon of previous ID
 						//addExonFeature(prevseen, gffline, pex, noExonAttr);
 						prevseen->addExon(this, gffline, false, true);
+						if (gff_warns) {
+							GMessage("GFF Warning: duplicate feature ID %s (%d-%d) added as exon of previous %d-%d!\n",
+									gffline->ID, gffline->fstart, gffline->fend, prevseen->start, prevseen->end);
+						}
 					}
-					else { //create a separate entry (true discontinuous feature)
+					else {
+					*/
+					//create a separate entry (true discontinuous feature)
 						prevseen=newGffRec(gffline, keepAttr, noExonAttr,
 								prevseen->parent, NULL, prevgflst);
-					}
-				} //duplicate ID on the same chromosome
-			} //prevseeen != NULL
-		} //parent-like ID feature
+						if (gff_warns) {
+							GMessage("GFF Warning: duplicate feature ID %s (%d-%d) (discontinuous feature?)\n",
+									gffline->ID, gffline->fstart, gffline->fend);
+						}
+					//}
+				} //duplicate ID in the same locus
+			} //ID seen previously in the same locus
+		} //parent-like ID feature (non-exon)
 		if (gffline->parents==NULL) {//start GFF3-like record with no parent (mRNA, gene)
 			if (!prevseen) newGffRec(gffline, keepAttr, noExonAttr, NULL, NULL, prevgflst);
 		}
-		else { //--- it's a child feature (exon/CDS but could still be a mRNA with gene(s) as parent)
+		else { //--- it's a child feature (exon/CDS or even a mRNA with a gene as parent)
 			//updates all the declared parents with this child
 			bool found_parent=false;
 			GffObj* newgfo=prevseen;
@@ -1215,7 +1209,7 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 						}
 					}
 					else { //potential exon subfeature?
-						//always discards dummy "intron" features
+						//always discard dummy "intron" features
 						if (!(gffline->exontype==exgffIntron && (parentgfo->isTranscript() || parentgfo->exons.Count()>0))) {
 							if (!addExonFeature(parentgfo, gffline, pex, noExonAttr))
 								validation_errors=true;
@@ -1257,10 +1251,6 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 	}//while gff lines
 	if (gflst.Count()>0) {
 		gflst.finalize(this, mergeCloseExons, keepAttr, noExonAttr); //force sorting by locus if so constructed
-		gseqStats.setCount(gseqstats.Last()->gseqid+1);
-		for (int gi=0;gi<gseqstats.Count();gi++) {
-			gseqStats.Put(gseqstats[gi]->gseqid, gseqstats[gi]); //copy the pointer only
-		}
 	}
 	// all gff records are now loaded in GList gflst
 	// so we can free the hash
@@ -1273,10 +1263,6 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 
 void GfList::finalize(GffReader* gfr, bool mergeCloseExons,
              bool keepAttrs, bool noExonAttr) { //if set, enforce sort by locus
-  if (mustSort) { //force (re-)sorting
-     this->setSorted(false);
-     this->setSorted((GCompareProc*)gfo_cmpByLoc);
-     }
   GList<GffObj> discarded(false,true,false);
   for (int i=0;i<Count();i++) {
     //finish the parsing for each GffObj
@@ -1296,94 +1282,106 @@ void GfList::finalize(GffReader* gfr, bool mergeCloseExons,
   if (discarded.Count()>0) {
           this->Pack();
           }
+  if (mustSort) { //force (re-)sorting
+     this->setSorted(false);
+     this->setSorted((GCompareProc*)gfo_cmpByLoc);
+     }
 }
 
 GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, bool noExonAttr) {
  //merge
  //always merge adjacent or overlapping segments
  //but if mergeCloseExons then merge even when distance is up to 5 bases
- udata=0;
- uptr=NULL;
  if (gfr->transcriptsOnly && !(isTranscript() || (isGene() && children.Count()==0))) {
-       isDiscarded(true);
-       }
- if (ftype_id==gff_fid_transcript && CDstart>0) {
-    ftype_id=gff_fid_mRNA;
-    //exon_ftype_id=gff_fid_exon;
-    }
- if (exons.Count()>0 && (isTranscript() || exon_ftype_id==gff_fid_exon)) {
-   if (mergeCloseExons) {
-     int mindist=mergeCloseExons ? 5:1;
-     for (int i=0;i<exons.Count()-1;i++) {
-       int ni=i+1;
-       uint mend=exons[i]->end;
-       while (ni<exons.Count()) {
-         int dist=(int)(exons[ni]->start-mend);
-         if (dist>mindist) break; //no merging with next segment
-         if (gfr!=NULL && gfr->gff_warns && dist!=0 && (exons[ni]->exontype!=exgffUTR && exons[i]->exontype!=exgffUTR)) {
-            GMessage("GFF warning: merging adjacent/overlapping segments of %s on %s (%d-%d, %d-%d)\n",
-                 gffID, getGSeqName(), exons[i]->start, exons[i]->end,exons[ni]->start, exons[ni]->end);
-            }
-         mend=exons[ni]->end;
-         covlen-=exons[i]->len();
-         exons[i]->end=mend;
-         covlen+=exons[i]->len();
-         covlen-=exons[ni]->len();
-         if (exons[ni]->attrs!=NULL && (exons[i]->attrs==NULL ||
-              exons[i]->attrs->Count()<exons[ni]->attrs->Count())) {
-                //use the other exon attributes, if more
-                delete(exons[i]->attrs);
-                exons[i]->attrs=exons[ni]->attrs;
-                exons[ni]->attrs=NULL;
-                }
-         exons.Delete(ni);
-         } //check for merge with next exon
-     } //for each exon
-   } //merge close exons
-   //shrink transcript to the exons' span
-   this->start=exons.First()->start;
-   this->end=exons.Last()->end;
-   //also update the stats for the reference sequence
-   if (uptr!=NULL) { //collect stats about the underlying genomic sequence
-       GSeqStat* gsd=(GSeqStat*)uptr;
-       if (start<gsd->mincoord) gsd->mincoord=start;
-       if (end>gsd->maxcoord) gsd->maxcoord=end;
-       if (this->len()>gsd->maxfeat_len) {
-          gsd->maxfeat_len=this->len();
-          gsd->maxfeat=this;
-          }
-       }
-   this->uptr=NULL;
-   this->udata=0;
+ 	isDiscarded(true);
  }
+ if (ftype_id==gff_fid_transcript && CDstart>0) {
+ 	ftype_id=gff_fid_mRNA;
+ 	//exon_ftype_id=gff_fid_exon;
+ }
+ if (exons.Count()>0 && (isTranscript() || exon_ftype_id==gff_fid_exon)) {
+ 	if (mergeCloseExons) {
+ 		int mindist=mergeCloseExons ? 5:1;
+ 		for (int i=0;i<exons.Count()-1;i++) {
+ 			int ni=i+1;
+ 			uint mend=exons[i]->end;
+ 			while (ni<exons.Count()) {
+ 				int dist=(int)(exons[ni]->start-mend);
+ 				if (dist>mindist) break; //no merging with next segment
+ 				if (gfr!=NULL && gfr->gff_warns && dist!=0 && (exons[ni]->exontype!=exgffUTR && exons[i]->exontype!=exgffUTR)) {
+ 					GMessage("GFF warning: merging adjacent/overlapping segments of %s on %s (%d-%d, %d-%d)\n",
+ 							gffID, getGSeqName(), exons[i]->start, exons[i]->end,exons[ni]->start, exons[ni]->end);
+ 				}
+ 				mend=exons[ni]->end;
+ 				covlen-=exons[i]->len();
+ 				exons[i]->end=mend;
+ 				covlen+=exons[i]->len();
+ 				covlen-=exons[ni]->len();
+ 				if (exons[ni]->attrs!=NULL && (exons[i]->attrs==NULL ||
+ 						exons[i]->attrs->Count()<exons[ni]->attrs->Count())) {
+ 					//use the other exon attributes, if more
+ 					delete(exons[i]->attrs);
+ 					exons[i]->attrs=exons[ni]->attrs;
+ 					exons[ni]->attrs=NULL;
+ 				}
+ 				exons.Delete(ni);
+ 			} //check for merge with next exon
+ 		} //for each exon
+ 	} //merge close exons
+ 	//shrink transcript to the exons' span
+ 	this->start=exons.First()->start;
+ 	this->end=exons.Last()->end;
+ 	//also update the stats for the reference sequence
+ 	if (!this->isDiscarded()) { //collect stats about the underlying genomic sequence
+ 		if (gfr->gseqtable.Count()<=gseq_id) {
+ 			gfr->gseqtable.setCount(gseq_id+1);
+ 		}
+ 		GSeqStat* gsd=gfr->gseqtable[gseq_id];
+ 		if (gsd==NULL) {
+ 			gsd=new GSeqStat(gseq_id,names->gseqs.getName(gseq_id));
+ 			gfr->gseqtable.Put(gseq_id, gsd);
+ 			gfr->gseqStats.Add(gsd);
+ 		}
+ 		gsd->fcount++;
+ 		if (start<gsd->mincoord) gsd->mincoord=start;
+ 		if (end>gsd->maxcoord) gsd->maxcoord=end;
+ 		if (this->len()>gsd->maxfeat_len) {
+ 			gsd->maxfeat_len=this->len();
+ 			gsd->maxfeat=this;
+ 		}
+ 	}
+ 	uptr=NULL;
+ 	udata=0;
+ }
+
  //attribute reduction for GTF records
  if (keepAttrs && !noExonAttr && !hasGffID()
-          && exons.Count()>0 && exons[0]->attrs!=NULL) {
-   bool attrs_discarded=false;
-   for (int a=0;a<exons[0]->attrs->Count();a++) {
-      int attr_name_id=exons[0]->attrs->Get(a)->attr_id;
-      char* attr_name=names->attrs.getName(attr_name_id);
-      char* attr_val =exons[0]->attrs->Get(a)->attr_val;
-      bool sameExonAttr=true;
-      for (int i=1;i<exons.Count();i++) {
-         char* ov=exons[i]->getAttr(attr_name_id);
-         if (ov==NULL || (strcmp(ov,attr_val)!=0)) { 
-             sameExonAttr=false; 
-             break;
-             }
-         }
-      if (sameExonAttr) {
-             //delete this attribute from exons level
-             attrs_discarded=true;
-             this->addAttr(attr_name, attr_val);
-             for (int i=1;i<exons.Count();i++) {
-                 removeExonAttr(*(exons[i]), attr_name_id);
-                 }
-             exons[0]->attrs->freeItem(a);
-             }
-      }
-   if (attrs_discarded) exons[0]->attrs->Pack();
-   }
+ 		&& exons.Count()>0 && exons[0]->attrs!=NULL) {
+ 	bool attrs_discarded=false;
+ 	for (int a=0;a<exons[0]->attrs->Count();a++) {
+ 		int attr_name_id=exons[0]->attrs->Get(a)->attr_id;
+ 		char* attr_name=names->attrs.getName(attr_name_id);
+ 		char* attr_val =exons[0]->attrs->Get(a)->attr_val;
+ 		bool sameExonAttr=true;
+ 		for (int i=1;i<exons.Count();i++) {
+ 			char* ov=exons[i]->getAttr(attr_name_id);
+ 			if (ov==NULL || (strcmp(ov,attr_val)!=0)) {
+ 				sameExonAttr=false;
+ 				break;
+ 			}
+ 		}
+ 		if (sameExonAttr) {
+ 			//delete this attribute from exons level
+ 			attrs_discarded=true;
+ 			this->addAttr(attr_name, attr_val);
+ 			for (int i=1;i<exons.Count();i++) {
+ 				removeExonAttr(*(exons[i]), attr_name_id);
+ 			}
+ 			exons[0]->attrs->freeItem(a);
+ 		}
+ 	}
+ 	if (attrs_discarded) exons[0]->attrs->Pack();
+ }
  return this;
 }
 

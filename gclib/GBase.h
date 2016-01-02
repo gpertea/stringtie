@@ -172,7 +172,7 @@ inline int iround(double x) {
 }
 
 int Gmkdir(const char *path, bool recursive=true, int perms=0775);
-
+void Gmktempdir(char* templ);
 
 /****************************************************************************/
 
