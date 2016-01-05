@@ -243,7 +243,7 @@ class GffNameInfo {
      }
 };
 
-class GffNameList:public GList<GffNameInfo> {
+class GffNameList:public GPVec<GffNameInfo> {
   friend class GffNameInfo;
   friend class GffNames;
 protected:
@@ -256,7 +256,8 @@ protected:
      byName.shkAdd(f->name,f);
      }
 public:
- GffNameList(int init_capacity=6):GList<GffNameInfo>(init_capacity, false,true,true), byName(false) {
+ //GffNameList(int init_capacity=6):GList<GffNameInfo>(init_capacity, false,true,true), byName(false) {
+  GffNameList(int init_capacity=6):GPVec<GffNameInfo>(init_capacity, true), byName(false) {
     idlast=-1;
     setCapacity(init_capacity);
     }
@@ -428,6 +429,7 @@ class GffCDSeg:public GSeg {
   char phase;
   int exonidx;
 };
+
 //one GFF mRNA object -- e.g. a mRNA with its exons and/or CDS segments
 class GffObj:public GSeg {
   //utility segment-merging function for addExon() 
@@ -451,6 +453,7 @@ class GffObj:public GSeg {
    friend class GffExon;
 public:
   static GffNames* names; // dictionary storage that holds the various attribute names etc.
+  //TODO: this makes the parser thread unsafe, use conditional compiling for names access!
   int track_id; // index of track name in names->tracks
   int gseq_id; // index of genomic sequence name in names->gseqs
   int ftype_id; // index of this record's feature name in names->feats, or the special gff_fid_mRNA value
@@ -1010,7 +1013,7 @@ class GffReader {
   bool transcriptsOnly; //keep only transcripts w/ their exon/CDS features
   GHash<int> discarded_ids; //for transcriptsOnly mode, keep track
                             // of discarded parent IDs
-  GHash< GPVec<GffObj> > phash; //transcript_id+contig (Parent~Contig) => [gflst index, GffObj]
+  GHash< GPVec<GffObj> > phash; //transcript_id => GPVec<GffObj>(false)
   //GHash<int> tids; //just for transcript_id uniqueness
   char* gfoBuildId(const char* id, const char* ctg);
   //void gfoRemove(const char* id, const char* ctg);
@@ -1024,12 +1027,12 @@ class GffReader {
   void subfPoolAdd(GHash<CNonExon>& pex, GffObj* newgfo);
   GffObj* promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonExon>& pex,
                                   bool keepAttr, bool noExonAttr);
-  GList<GSeqStat> gseqstats; //list of all genomic sequences seen by this reader, accumulates stats
 #ifdef CUFFLINKS
      boost::crc_32_type  _crc_result;
 #endif
  public:
-  GffNames* names; //just a pointer to the global static Gff names repository in GffObj
+  GPVec<GSeqStat> gseqtable; //table with all genomic sequences, but only current GXF gseq ID indices will have non-NULL
+  GffNames* names; //just a pointer to the global static Gff names repository
   GfList gflst; //accumulate GffObjs being read
   GffObj* newGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr,
                                GffObj* parent=NULL, GffExon* pexon=NULL, GPVec<GffObj>* glst=NULL);
@@ -1038,9 +1041,9 @@ class GffReader {
                                          bool keepAttr);
   GffObj* updateParent(GffObj* newgfh, GffObj* parent);
   bool addExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon>& pex, bool noExonAttr);
-  GPVec<GSeqStat> gseqStats; //only populated after finalize()
+  GPVec<GSeqStat> gseqStats; //populated after finalize() with only the ref seqs in this file
   GffReader(FILE* f=NULL, bool t_only=false, bool sortbyloc=false):discarded_ids(true),
-                       phash(true), gseqstats(true,true,true), gflst(sortbyloc), gseqStats(1, false) {
+                       phash(true), gseqtable(1,true), gflst(sortbyloc), gseqStats(1, false) {
       gff_warns=gff_show_warnings;
       names=NULL;
       gffline=NULL;
@@ -1059,8 +1062,8 @@ class GffReader {
       transcriptsOnly=t_only;
       gflst.sortedByLoc(sortbyloc);
       }
-  GffReader(char* fn, bool t_only=false, bool sort=false):discarded_ids(true), phash(true),
-            gseqstats(true,true,true), gflst(sort), gseqStats(1,false) {
+  GffReader(const char* fn, bool t_only=false, bool sort=false):discarded_ids(true), phash(true),
+            gseqtable(1,true), gflst(sort), gseqStats(1,false) {
       gff_warns=gff_show_warnings;
       names=NULL;
       fname=Gstrdup(fn);
@@ -1080,7 +1083,6 @@ class GffReader {
       gflst.Clear();
       discarded_ids.Clear();
       phash.Clear();
-      gseqstats.Clear();
       GFREE(fname);
       GFREE(linebuf);
       }

@@ -13,17 +13,17 @@ the following steps should be taken:
    in a directory of your choice, e.g.:
 
        cd ~/src/
-       tar xvfz ~/Downloads/stringtie-N.NN.tar.gz
+       tar xvfz ~/Downloads/stringtie-V.V.V.tar.gz
 
-   A directory called stringtie-N.NN (where N.NN is the current 
+   A directory called stringtie-V.V.V (where V.V.V is the current 
    numeric version of the program) will be created in the current directory.
     
-2.  Change to that directory and build the stringtie executable:
+2. Change to that directory and build the stringtie executable:
 
-       cd stringtie-N.NN
+       cd stringtie-V.V.V
        make release
 
-3.  Optionally, the stringtie executable can be copied to one of the 
+3. Optionally, the stringtie executable can be copied to one of the 
     shell's PATH directories for easy access, e.g.:
 
     cp stringtie ~/bin/
@@ -42,38 +42,61 @@ by TopHat).
 The following optional parameters can be specified (use -h/--help to get the
 usage message):
 
+ --version : print current version at stdout
+ -h print this usage message
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)
  -l name prefix for output transcripts (default: STRG)
  -f minimum isoform fraction (default: 0.1)
- -m minimum assembled transcript length to report (default 200bp)
+ -m minimum assembled transcript length to report (default 100bp)
  -o output path/file name for the assembled transcripts GTF (default: stdout)
  -a minimum anchor length for junctions (default: 10)
  -j minimum junction coverage (default: 1)
  -t disable trimming of predicted transcripts based on coverage
     (default: coverage trimming is enabled)
  -c minimum reads per bp coverage to consider for transcript assembly (default: 2.5)
- -s coverage saturation threshold; further read alignments will be
-    ignored in a region where a local coverage depth of <maxcov> 
-    is reached (default: 1,000,000);
  -v verbose (log bundle processing details)
  -g gap between read mappings triggering a new bundle (default: 50)
  -C output file with reference transcripts that are covered by reads
  -M fraction of bundle allowed to be covered by multi-hit reads (default:0.95)
  -p number of threads (CPUs) to use (default: 1)
+ -A gene abundance estimation output file name
  -B enable output of Ballgown table files which will be created in the
     same directory as the output GTF (requires -G, -o recommended)
  -b enable output of Ballgown table files but these files will be 
     created under the directory path given as <dir_path>
  -e only estimates the abundance of given reference transcripts (requires -G)
- 
+ -x do not assemble any transcripts on the given reference sequence(s)
+Transcript merge usage mode:
+ stringtie --merge [Options] { gtf_list | strg1.gtf ...}
+With this option StringTie will assemble transcripts from multiple\n\
+input files generating a unified non-redundant set of isoforms. In this\n\
+usage mode the following options are available:\n\
+  -G <guide_gff>   reference annotation to include in the merging (GTF/GFF3)\n\
+  -o <out_gtf>     output file name for the merged transcripts GTF\n\
+                    (default: stdout)\n\
+  -m <min_len>     minimum input transcript length to include in the merge\n\
+                    (default: 50)\n\
+  -c <min_cov>     minimum input transcript coverage to include in the merge\n\
+                    (default: 0)\n\
+  -F <min_fpkm>    minimum input transcript FPKM to include in the merge\n\
+                    (default: 0)\n\
+  -T <min_tpm>     minimum input transcript TPM to include in the merge\n\
+                    (default: 0)\n\
+  -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
+  -l <label>       name prefix for output transcripts (default: MSTRG)\n\
+
 Input files
 -----------
-StringTie takes as input a binary SAM (BAM) file which must be sorted by 
-reference position. This file contains spliced read alignments such as the 
-ones produced by TopHat. If you have a text file in SAM format you should
-first convert it to the BAM format using the samtools view command:
 
-  samtools view -S -b input.sam > input.bam
+StringTie takes as input a binary SAM (BAM) file sorted by reference position. 
+This file contains spliced read alignments such as the ones produced by TopHat or HISAT.
+A text file in SAM format should be converted to BAM and sorted using the 
+samtools program:
+
+  samtools view -Su alns.sam | samtools sort - alns.sorted
+
+The file resulted from the above command (alns.sorted.bam) can be used 
+directly as input to StringTie. 
 
 Any SAM spliced read alignment (a read alignment across at least one junction)
 needs to contain the tag XS to indicate which strand of the RNA that produced
@@ -84,7 +107,7 @@ properly sorted. For a SAM file, this can be done with the command:
 
   sort -k 3,3 -k 4,4n input.sam > input.sorted.sam
 
-For BAM files, the samtools program can be used to sort the alignments.
+For BAM files, the samtools program should be used to sort the alignments.
 
 Optionally, a reference annotation file in GTF/GFF3 format
 can be provided to StringTie. In this case, StringTie will check
