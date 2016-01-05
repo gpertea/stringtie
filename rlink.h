@@ -7,8 +7,9 @@
 #include "GBitVec.h"
 #include "time.h"
 #include "tablemaker.h"
+#include "GIntHash.hh"
 
-#define MAX_NODE 100000
+#define MAX_NODE 1000000
 
 #define DROP 0.5
 
@@ -20,12 +21,17 @@ const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
 const int MAX_MAXCOMP=200; // is 200 too much, or should I set it up to 150?
 
-const int longintron=20000; // don't trust introns longer than this unless there is higher evidence; 93.5% of all annotated introns are shorter than this
-const int longintronanchor=25; // I need a higher anchor for long introns
+const uint longintron=20000; // don't trust introns longer than this unless there is higher evidence; 93.5% of all human annotated introns are shorter than this
+const uint longintronanchor=20; // I need a higher anchor for long introns
+
+const float mismatchfrac=0.02;
 
 const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
-extern bool singlePass;
+extern bool mergeMode;
+
+extern bool verbose;
+extern bool debugMode;
 
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
@@ -47,14 +53,15 @@ struct GRefData {
      }
      else { //adding first transcript, initialize storage
         gseq_id=t->gseq_id;
-        gseq_name=t->getGeneName();
-        if (gffr->gseqStats[gseq_id]==NULL)
+        gseq_name=t->getGSeqName();
+        if (gffr->gseqtable[gseq_id]==NULL)
             GError("Error: invalid genomic sequence data (%s)!\n",gseq_name);
-        rnas.setCapacity(gffr->gseqStats[gseq_id]->fcount);
+        rnas.setCapacity(gffr->gseqtable[gseq_id]->fcount);
      }
      rnas.Add(t);
      t->isUsed(true);
   }
+
   bool operator==(GRefData& d){
     return gseq_id==d.gseq_id;
   }
@@ -71,7 +78,6 @@ struct CBundlenode:public GSeg {
 	CBundlenode(int rstart=0, int rend=0, float _cov=0, int _bid=-1, CBundlenode *_nextnode=NULL):GSeg(rstart, rend),
 			cov(_cov),bid(_bid),nextnode(_nextnode) {}
 };
-
 
 // bundle data structure, holds all data needed for
 // infering transcripts from a bundle
@@ -97,28 +103,74 @@ struct CTransfrag {
 	GBitVec pattern;
 	float abundance;
 	bool real;
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=true):nodes(_nodes),pattern(bit),abundance(abund),real(treal) {}
-	CTransfrag(float abund=0, bool treal=true):nodes(),pattern(),abundance(abund),real(treal) {}
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false):nodes(_nodes),pattern(bit),abundance(abund),real(treal) {}
+	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal) {
+	}
+};
+
+struct CMTransfrag { // this is the super-class for transfrag -> to use in case of merging transcripts
+	CTransfrag *transfrag;
+	GVec<int> read; // all reads' indeces that are connected to this transfrag
+	int nf;
+	int nl;
+	CMTransfrag(CTransfrag *t=NULL):transfrag(t),read(),nf(0),nl(0) {}
 };
 
 struct CGuide {
 	CTransfrag *trf;
-	//char *id;
-	//CGuide(CTransfrag* _trf=NULL,char* _id=NULL):trf(_trf),id(_id) {}
-	GffObj* t;
-	CGuide(CTransfrag* _trf=NULL, GffObj* _t=NULL):trf(_trf),t(_t) {}
+	//GffObj* t; // this is what I was using before but I need to store the guide index in guides instead
+	//CGuide(CTransfrag* _trf=NULL, GffObj* _t=NULL):trf(_trf),t(_t) {}
+	int g; // stores guide index in guides instead of the actual pointer
+	CGuide(CTransfrag* _trf=NULL, int _g=-1):trf(_trf),g(_g) {}
+};
+
+struct CPartGuide {
+	int idx;
+	int olen; // overlap with node
+	int allolen; // overlap with all nodes
+	int glen; // guide length
+	bool terminal_in;
+	bool terminal_out;
+	float gcount;
+	float cov; // assigned overall coverage so far
+	float ncov; // new coverage in node
+	CPartGuide(int _idx=0, int _olen=0, int _aolen=0, int _glen=0):idx(_idx),olen(_olen),allolen(_aolen),glen(_glen),
+			terminal_in(false),terminal_out(false),gcount(0),cov(0),ncov(0) {}
+};
+
+struct CTrGuidePat { // remember abundances based on node guide pattern
+	GBitVec pat;
+	float abund;
+	bool terminal;
+	GVec<int> g;
+	CTrGuidePat():pat(),abund(0),terminal(false),g() {} // default constructor
+	CTrGuidePat(GBitVec p, float a, bool _t): pat(p),abund(a),terminal(_t),g() {}
+};
+
+struct CNodeGuide {
+	GVec<CPartGuide> guide;
+	GVec<CTrGuidePat> trcount;
+	float sumtrcount; // sum of all used in guides transfrag abundances -> this is needed in order to see if a guide would explain all of them
+	CNodeGuide():guide(),trcount(),sumtrcount(0) {}
 };
 
 struct CGroup:public GSeg {
-	int grid;
 	int color;
+	int grid;
 	float cov_sum;
 	float nread;
 	float multi;
+	float neg_prop; // proportion of negative reads assigned to group out of all positives and negatives
 	CGroup *next_gr;
-	CGroup(int rstart=0, int rend=0, int _color=-1, int _grid=0, float _cov_sum=0,float _nread=0,float _multi=0,
-			CGroup *_next_gr=NULL): GSeg(rstart, rend), grid(_grid),
-			color(_color), cov_sum(_cov_sum), nread(_nread),multi(_multi), next_gr(_next_gr) { }
+	CGroup(int rstart=0, int rend=0, int _color=-1, int _grid=0, float _cov_sum=0,float _nread=0,float _multi=0,float _neg_prop=0,
+			CGroup *_next_gr=NULL): GSeg(rstart, rend), color(_color), grid(_grid),
+			cov_sum(_cov_sum), nread(_nread),multi(_multi), neg_prop(_neg_prop), next_gr(_next_gr) { }
+};
+
+struct CMerge {
+	GStr name;
+	GVec<int> fidx; // file indices for the transcripts in the merge
+	CMerge(const char* rname=NULL):name(rname),fidx() {}
 };
 
 struct CPrediction:public GSeg {
@@ -127,22 +179,75 @@ struct CPrediction:public GSeg {
 	//char *id;
 	float cov;
 	char strand;
-	float frag; // counted number of fragments associated with prediction
+	//float frag; // counted number of fragments associated with prediction
 	int tlen;
 	bool flag;
 	GVec<GSeg> exons;
 	GVec<float> exoncov;
-	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
-	int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),strand(_strand),frag(_frag),
+	GStr mergename;
+	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
+	int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),strand(_strand),
 	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
-			tlen(_len),flag(f),exons(),exoncov() {}
+			tlen(_len),flag(f),exons(),exoncov(),mergename() {}
+	void init(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
+	          int _len=0) {
+		geneno=_geneno;
+		t_eq=guide;
+		start=gstart;
+		end=gend;
+		cov=_cov;
+		strand=_strand;
+		tlen=_len;
+		flag=true;
+		exons.Clear();
+		exoncov.Clear();
+		mergename.clear();
+	}
+
 	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
 //			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
-			t_eq(c.t_eq), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
-	      exons(c.exons),  exoncov(c.exoncov) {}
+			t_eq(c.t_eq), cov(c.cov), strand(c.strand), tlen(c.tlen), flag(c.flag),
+	      exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename) {}
 	~CPrediction() { //GFREE(id);
 		}
+};
+
+struct CMPrediction {
+	CPrediction *p;
+	GBitVec b;
+	CMPrediction(CPrediction* _p=NULL): p(_p),b() {}
+};
+
+struct CPath {
+	GVec<int> nodes;
+	CPath():nodes() {}
+	CPath(GVec<int>& _n):nodes(_n) {}
+};
+
+// this class keeps the gene predictions (linked bundle nodes initially)
+struct CGene:public GSeg { // I don't necessarily need to make this a GSeg since I can get the start&end from the exons
+	char strand;
+	char* geneID;
+	char* geneName;
+	float cov;    // this is the actual gene coverage
+	float covsum; // this is a sum of transcripts coverages -> this is what we need for FPKM and TPM estimations
+	GVec<GSeg> exons;  // all possible exons in gene (those are bnodes in bundle)
+	CGene(int gstart=0, int gend=0, char _strand='.',char *gid=NULL, char *gname=NULL):GSeg(gstart,gend),
+		strand(_strand), geneID(gid), geneName(gname), exons() { cov=0; covsum=0;}
+	// getGeneID() and getGeneName() functions of gffobj return pointers to this attributes in gffobj so I don't need to clean them up here
+};
+
+//holding transcript info for --merge mode
+struct TAlnInfo {
+	GStr name; //transcript name
+	int fileidx; //index of transcript file in the TInputFiles.files array
+	double cov;
+	double fpkm;
+	double tpm;
+	int g;
+	TAlnInfo(const char* rname=NULL, int fidx=0):name(rname), fileidx(fidx),
+			cov(0),fpkm(0),tpm(0),g(-1) { }
 };
 
 struct CJunction;
@@ -150,16 +255,20 @@ struct CJunction;
 struct CReadAln:public GSeg {
 	//DEBUG ONLY:
 	// GStr name;
-	// 0: strand; 1: NH; 2: pair's no; 3: coords of read; 4: junctions
 	char strand; // 1, 0 (unkown), -1 (reverse)
 	short int nh;
-	int pair_idx; //mate index alignment in CReadAln list
+	uint len;
+	float read_count;       // keeps count for all reads (including paired and unpaired)
+	GVec<float> pair_count;   // keeps count for all paired reads
+	GVec<int> pair_idx;     // keeps indeces for all pairs
 	GVec<GSeg> segs; //"exons"
-	GPVec<CJunction> juncs; //junction index in CJunction list
-	//DEBUG ONLY: (discard rname when no debugging needed)
+	GPVec<CJunction> juncs;
+    TAlnInfo* tinfo;
 	CReadAln(char _strand=0, short int _nh=0,
-			int rstart=0, int rend=0 /*,  const char* rname=NULL */): GSeg(rstart, rend), //name(rname),
-					strand(_strand), nh(_nh), pair_idx(-1), segs(), juncs(false) { }
+			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
+					strand(_strand),nh(_nh), len(0), read_count(0), pair_count(),pair_idx(),
+					segs(), juncs(false), tinfo(tif) { }
+	~CReadAln() { delete tinfo; }
 };
 
 struct CGraphinfo {
@@ -238,23 +347,27 @@ struct CGraphnode:public GSeg {
 	float cov;
 	float capacity; // sum of all transcripts abundances exiting and through node
 	float rate; // conversion rate between in and out transfrags of node
-	float frag; // number of fragments included in node
+	//float frag; // number of fragments included in node
 	GVec<int> child;
 	GVec<int> parent;
 	GBitVec childpat;
 	GBitVec parentpat;
 	GVec<int> trf; // transfrags that pass the node
-	CGraphnode(int s=0,int e=0,int id=MAX_NODE,float nodecov=0,float cap=0,float r=0,float f=0):GSeg(s,e),nodeid(id),
-			cov(nodecov),capacity(cap),rate(r),frag(f),child(),parent(),childpat(),parentpat(),trf(){}
+	//CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float cap=0,float r=0,float f=0):GSeg(s,e),nodeid(id),cov(nodecov),capacity(cap),rate(r),frag(f),child(),parent(),childpat(),parentpat(),trf(){}
+	CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float cap=0,float r=0):GSeg(s,e),
+			nodeid(id),cov(nodecov),capacity(cap),rate(r),child(),parent(),childpat(),parentpat(),trf(){}
 };
 
 // # 0: strand; 1: start; 2: end; 3: nreads; 4: nreads_good;
 struct CJunction:public GSeg {
-	char strand; //-1,0,1 (unsigned byte)
+	char strand; //-1,0,1
+	char guide_match; //exact match of a ref intron?
 	double nreads;
 	double nreads_good;
+	double nm;
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
-			strand(_strand), nreads(0), nreads_good(0) {}
+			strand(_strand), guide_match(0), nreads(0),
+			nreads_good(0),nm(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;
 		if (start>b.start) return false;
@@ -266,6 +379,20 @@ struct CJunction:public GSeg {
 	bool operator==(CJunction& b) {
 		return (start==b.start && end==b.end && strand==b.strand);
 	}
+};
+
+struct GReadAlnData {
+	GBamRecord* brec;
+	char strand; //-1, 0, 1
+	int nh;
+	int hi;
+	GPVec<CJunction> juncs;
+	TAlnInfo* tinfo;
+	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
+	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
+			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
+					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
+	~GReadAlnData() { delete tinfo; }
 };
 
 struct CTCov { //covered transcript info
@@ -308,21 +435,39 @@ struct BundleData {
  int idx; //index in the main bundles array
  int start;
  int end;
- bool covSaturated;
- int numreads;
- int num_fragments; //aligned read/pairs
- int frag_len;
+ //bool covSaturated;
+ unsigned long numreads; // number of reads in bundles
+ /*
+ float wnumreads; // NEW: weighted numreads; a multi-mapped read mapped in 2 places will contribute only 0.5
+ double sumreads; // sum of all reads' lengths in bundle
+ double sumfrag; // sum of all fragment lengths (this includes the insertion so it is an estimate)
+ float num_reads; // number of all reads in bundle that we considered (weighted)
+ float num_cov; // how many coverages we added (weighted) to obtain sumcov
+ float num_frag; // how many fragments we added to obtain sumfrag
+ double num_fragments3;
+ double sum_fragments3;
+*/
+ double num_fragments; //aligned read/pairs
+ double frag_len;
+ double sum_cov; // sum of all transcripts coverages --> needed to compute TPMs
+
  GStr refseq;
  GList<CReadAln> readlist;
- GVec<float> bpcov;
+ GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
  GPVec<GffObj> keepguides;
  GPVec<CTCov> covguides;
  GList<CPrediction> pred;
  RC_BundleData* rc_data;
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
-		 covSaturated(false), numreads(0), num_fragments(0), frag_len(0),refseq(), readlist(false,true),
-		 bpcov(1024), junction(true, true, true), keepguides(false), pred(false), rc_data(NULL) { }
+		 //covSaturated(false),
+		 numreads(0),
+		 num_fragments(0), frag_len(0),sum_cov(0),
+		 refseq(), readlist(false,true), //bpcov(1024),
+		 junction(true, true, true),
+		 keepguides(false), pred(false), rc_data(NULL) {
+	 for(int i=0;i<3;i++) 	bpcov[i].setCapacity(1024);
+ }
 
  void getReady(int currentstart, int currentend) {
 	 start=currentstart;
@@ -330,10 +475,12 @@ struct BundleData {
 	 //refseq=ref;
 	 status=BUNDLE_STATUS_READY;
  }
- void rc_init(GffObj* t) {
+ void rc_init(GffObj* t, GPVec<RC_TData>* rc_tdata,
+		 GPVec<RC_Feature>* rc_edata, GPVec<RC_Feature>* rc_idata) {
 	  if (rc_data==NULL) {
-	  	rc_data = new RC_BundleData(t->start, t->end);
-	    }
+	  	rc_data = new RC_BundleData(t->start, t->end,
+	  			rc_tdata, rc_edata, rc_idata);
+	  }
  }
  /* after reference annotation was loaded
  void rc_finalize_refs() {
@@ -342,24 +489,29 @@ struct BundleData {
 	}
 	Not needed here, we update the coverage span as each transcript is added
  */
- void rc_store_t(GffObj* scaff);
+ void keepGuide(GffObj* scaff, GPVec<RC_TData>* rc_tdata=NULL,
+		 GPVec<RC_Feature>* rc_edata=NULL, GPVec<RC_Feature>* rc_idata=NULL);
 
- bool rc_count_hit(GBamRecord& brec, char strand, int nh); //, int hi);
+ //bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
+ bool evalReadAln(GReadAlnData& alndata, char& strand);
 
  void Clear() {
 	keepguides.Clear();
 	pred.Clear();
 	readlist.Clear();
-	bpcov.Clear();
-	bpcov.setCapacity(1024);
+	for(int i=0;i<3;i++) {
+		bpcov[i].Clear();
+		bpcov[i].setCapacity(1024);
+	}
 	junction.Clear();
 	start=0;
 	end=0;
 	status=BUNDLE_STATUS_CLEAR;
-	covSaturated=false;
+	//covSaturated=false;
 	numreads=0;
 	num_fragments=0;
 	frag_len=0;
+	sum_cov=0;
 	delete rc_data;
 	rc_data=NULL;
  }
@@ -369,71 +521,14 @@ struct BundleData {
  }
 };
 
-/*
-struct BundleData {
- BundleStatus status;
- int numreads;
- //GBamReader bamreader;
- int64_t bamStart; //start of bundle in BAM file
- char firstPass; //0=2nd pass, 1=1st pass, 2=single pass requested
- int idx; //index in the main bundles array
- int start;
- int end;
- bool covSaturated;
- GStr refseq;
- GList<CReadAln> readlist;
- GVec<float> bpcov;
- GList<CJunction> junction;
- GPVec<GffObj> keepguides;
- GList<CPrediction> pred;
- BundleData():status(BUNDLE_STATUS_CLEAR), numreads(0), bamStart(-1), 
-         firstPass(singlePass ? 2 : 1),
-		 idx(0), start(0), end(0), covSaturated(false), refseq(), readlist(false,true),
-		 bpcov(1024), junction(true, true, true), keepguides(false), pred(false) { }
+void processRead(int currentstart, int currentend, BundleData& bdata,
+		 GHash<int>& hashread, GReadAlnData& alndata);
+		 //GBamRecord& brec, char strand, int nh, int hi);
 
-  void getReady(int currentstart, int currentend, GStr& ref) {
-	 start=currentstart;
-	 end=currentend;
-	 refseq=ref;
-	 status=BUNDLE_STATUS_READY;
-  }
-
- void Clear() {
-	keepguides.Clear();
-	pred.Clear();
-	status=BUNDLE_STATUS_CLEAR;
-	numreads=0;
-	bamStart=-1;
-	firstPass = singlePass ? 2 : 1;
-	start=0;
-	end=0;
-	covSaturated=false;
-	refseq="";
-	readlist.Clear();
-	bpcov.Clear();
-	bpcov.setCapacity(1024);
-	junction.Clear();
- }
-
- ~BundleData() {
-	Clear();
- }
-};
-*/
-int processRead(int currentstart, int currentend, BundleData& bdata,
-		 GHash<int>& hashread, GBamRecord& brec, char strand, int nh, int hi);
-
-void countRead(BundleData& bdata, GBamRecord& brec, int hi);
-
-//int process_read(int currentstart, int currentend, GList<CReadAln>& readlist, GHash<int>& hashread,
-//		GList<CJunction>& junction, GBamRecord& brec, char strand, int nh, int hi, GVec<float>& bpcov);
+void countFragment(BundleData& bdata, GBamRecord& brec, int hi,int nh);
 
 int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
-
-//int print_transcripts(GList<CPrediction>& pred, int ngenes, int geneno, GStr& refname);
-
-//int infer_transcripts(int refstart, GList<CReadAln>& readlist,
-//		GList<CJunction>& junction, GPVec<GffObj>& guides, GVec<float>& bpcov, GList<CPrediction>& pred, bool fast);
+int printMergeResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
 
 int infer_transcripts(BundleData* bundle, bool fast);
 

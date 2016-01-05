@@ -1,17 +1,18 @@
+//#define GFF_DEBUG 1
 #include "rlink.h"
+#include "tmerge.h"
 #ifndef NOTHREADS
 #include "GThreads.h"
 #endif
 
-//#undef GMEMTRACE //-- comment out to track memory use for GDEBUG in Linux
+//#define GMEMTRACE 1  //debugging mem allocation
 
 #ifdef GMEMTRACE
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.0.3"
+#define VERSION "1.2.0"
 
-//uncomment this to show DBGPRINT messages (for threads)
 //#define DEBUGPRINT 1
 
 #ifdef DEBUGPRINT
@@ -29,42 +30,64 @@
 #endif
 
 #define USAGE "StringTie v"VERSION" usage:\n\
- stringtie <input.bam> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
-  [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-n sens]\n\
-  [-C <coverage_file_name>] [-s <maxcov>] [-c <min_bundle_cov>] [-g <bdist>]\n\
-  {-B | -b <dir_path>} [-e]\n\
-\nAssemble RNA-Seq alignments into potential transcripts.\n\
- \n\
+ stringtie <input.bam ..> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
+  [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
+  [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>]\n\
+  [-e] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
+Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
+ --version : print just the version at stdout and exit\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.1)\n\
- -m minimum assembled transcript length (default: 100)\n\
+ -m minimum assembled transcript length (default: 200)\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -a minimum anchor length for junctions (default: 10)\n\
  -j minimum junction coverage (default: 1)\n\
  -t disable trimming of predicted transcripts based on coverage\n\
     (default: coverage trimming is enabled)\n\
- -c minimum reads per bp coverage to consider for transcript assembly (default: 2.5)\n\
- -s coverage saturation threshold; further read alignments will be\n\
-    ignored in a region where a local coverage depth of <maxcov> \n\
-    is reached (default: 1,000,000);\n\
+ -c minimum reads per bp coverage to consider for transcript assembly\n\
+    (default: 2.5)\n\
  -v verbose (log bundle processing details)\n\
  -g gap between read mappings triggering a new bundle (default: 50)\n\
- -C output file with reference transcripts that are covered by reads\n\
+ -C output a file with reference transcripts that are covered by reads\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:0.95)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
+ -A gene abundance estimation output file\n\
  -B enable output of Ballgown table files which will be created in the\n\
     same directory as the output GTF (requires -G, -o recommended)\n\
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
- -e only estimates the abundance of given reference transcripts (requires -G)\n\
- "
+ -e only estimate the abundance of given reference transcripts (requires -G)\n\
+ -x do not assemble any transcripts on the given reference sequence(s)\n\
+ -h print this usage message and exit\n\
+\n\
+Transcript merge usage mode: \n\
+  stringtie --merge [Options] { gtf_list | strg1.gtf ...}\n\
+With this option StringTie will assemble transcripts from multiple\n\
+input files generating a unified non-redundant set of isoforms. In this mode\n\
+the following options are available:\n\
+  -G <guide_gff>   reference annotation to include in the merging (GTF/GFF3)\n\
+  -o <out_gtf>     output file name for the merged transcripts GTF\n\
+                    (default: stdout)\n\
+  -m <min_len>     minimum input transcript length to include in the merge\n\
+                    (default: 50)\n\
+  -c <min_cov>     minimum input transcript coverage to include in the merge\n\
+                    (default: 0)\n\
+  -F <min_fpkm>    minimum input transcript FPKM to include in the merge\n\
+                    (default: 0)\n\
+  -T <min_tpm>     minimum input transcript TPM to include in the merge\n\
+                    (default: 0)\n\
+  -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
+  -l <label>       name prefix for output transcripts (default: MSTRG)\n\
+"
 /* 
- -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 0)\n\
+ -E                enable the name of the input transcripts to be included\n\
+                   in the merge output (default: no)\n\
+ -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 1)\n\ \\ deprecated for now
  -O disable the coverage saturation limit and use a slower two-pass approach\n\
     to process the input alignments, collapsing redundant reads\n\
- -x disable fast computing for transcript path; default: yes\n\
+ -Z disable fast computing for transcript path (no zoom); default: yes\n\
  -i the reference annotation contains partial transcripts\n\
  -w weight the maximum flow algorithm towards the transcript with higher rate (abundance); default: no\n\
  -y include EM algorithm in max flow estimation; default: no\n\
@@ -73,34 +96,51 @@
  -M fraction of bundle allowed to be covered by multi-hit reads (paper uses default: 1)\n\
  -c minimum bundle reads per bp coverage to consider for assembly (paper uses default: 3)\n\
  -S more sensitive run (default: no) disabled for now \n\
+ -s coverage saturation threshold; further read alignments will be\n\
+    ignored in a region where a local coverage depth of <maxcov> \n\
+    is reached (default: 1,000,000);\n\ \\ deprecated
 */
 //---- globals
 
 FILE* f_out=NULL;
 FILE* c_out=NULL;
+//#define B_DEBUG 1
+#ifdef B_DEBUG
+ FILE* dbg_out=NULL;
+#endif
+
 GStr outfname;
 GStr out_dir;
+GStr tmp_path;
 GStr tmpfname;
+GStr genefname;
 bool guided=false;
 bool trim=true;
 bool fast=true;
 bool eonly=false; // parameter -e
+bool enableNames=false;
 bool specific=false;
-bool complete=true;
-bool partialcov=false;
+//bool complete=true; // set by parameter -i the reference annotation contains partial transcripts
+bool geneabundance=false;
+//bool partialcov=false;
 int num_cpus=1;
-int mintranscriptlen=100; // minimum length for a transcript to be printed
+int mintranscriptlen=200; // minimum length for a transcript to be printed
 int sensitivitylevel=1;
-int junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
+uint junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise considered noise; paper uses 3
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
 float mcov=0.95; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 
+int no_xs=0; // number of records without the xs tag
+
+float fpkm_thr=0;
+float tpm_thr=0;
+
 // different options of implementation reflected with the next three options
 bool includesource=true;
-bool EM=false;
-bool weight=false;
+//bool EM=false;
+//bool weight=false;
 
 float isofrac=0.1;
 GStr label("STRG");
@@ -112,15 +152,21 @@ bool debugMode=false;
 bool verbose=false;
 bool ballgown=false;
 
-int maxReadCov=1000000; //max local read coverage (changed with -s option)
+//int maxReadCov=1000000; //max local read coverage (changed with -s option)
 //no more reads will be considered for a bundle if the local coverage exceeds this value
 //(each exon is checked for this)
 
-bool singlePass=true; //-O will set this to False
+bool mergeMode = false; //--merge option
+bool keepTempFiles = false; //--keeptmp
+
+bool isfpkm=false;
+bool istpm=false;
+bool iscov=false;
 
 int GeneNo=0; //-- global "gene" counter
-unsigned long long int Num_Fragments=0; //global fragment counter (aligned pairs)
-unsigned long long int Frag_Len=0;
+double Num_Fragments=0; //global fragment counter (aligned pairs)
+double Frag_Len=0;
+double Cov_Sum=0;
 //bool firstPrint=true; //just for writing the GFF header before the first transcript is printed
 
 GffNames* gseqNames=NULL; //used as a dictionary for genomic sequence names and ids
@@ -137,28 +183,42 @@ int refseqCount=0;
 
 #ifndef NOTHREADS
 
-GFastMutex dataMutex; //to manage availability of data records ready to be loaded by main thread
+GMutex dataMutex; //manage availability of data records ready to be loaded by main thread
 GVec<int> dataClear; //indexes of data bundles cleared for loading by main thread (clear data pool)
-
-GFastMutex waitMutex; // for main program to make sure there are threads ready/waiting
-int threadsWaiting=0; // how many worker threads are waiting
-
-GFastMutex printMutex; //for writing the output to file
-GFastMutex logMutex; //only when verbose - to avoid mangling the log output
-GMutex queueMutex; //whenever bundleQueue is updated
-GFastMutex bamReadingMutex;
-GConditionVar haveBundles; //will notify all threads when bundles are pushed in the ready queue
-                           //or no more bundles are coming
-
+GConditionVar haveBundles; //will notify a thread that a bundle was loaded in the ready queue
+                           //(or that no more bundles are coming)
 int bundleWork=1; // bit 0 set if bundles are still being prepared (BAM file not exhausted yet)
                   // bit 1 set if there are Bundles ready in the queue
+
+
+//GFastMutex waitMutex;
+GMutex waitMutex; // controls threadsWaiting (idle threads counter)
+
+int threadsWaiting; // idle worker threads
+GConditionVar haveThreads; //will notify the bundle loader when a thread
+                          //is available to process the currently loaded bundle
+
+GConditionVar haveClear; //will notify when bundle buf space available
+
+GMutex queueMutex; //controls bundleQueue and bundles access
+
+GFastMutex printMutex; //for writing the output to file
+
+GFastMutex logMutex; //only when verbose - to avoid mangling the log output
+
+GFastMutex bamReadingMutex;
+
+GFastMutex countMutex;
+
 #endif
+
+GHash<int> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
 
 bool NoMoreBundles=false;
 bool moreBundles(); //thread-safe retrieves NoMoreBundles
 void noMoreBundles(); //sets NoMoreBundles to true
 //--
-GStr Process_Options(GArgs* args);
+void processOptions(GArgs& args);
 char* sprintTime();
 
 void processBundle(BundleData* bundle);
@@ -167,6 +227,8 @@ void processBundle(BundleData* bundle);
 #ifndef NOTHREADS
 
 bool waitForThreads(); //wait for at least 1 worker thread to enter "ready" state
+
+bool noThreadsWaiting();
 
 void workerThread(GThreadData& td); // Thread function
 
@@ -177,22 +239,32 @@ bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount);
 int waitForData(BundleData* bundles);
 #endif
 
+
+TInputFiles bamreader;
+
 int main(int argc, char * const argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;xyzwShvtien:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:");
+   "debug;help;version;keeptmp;merge;exclude=zZSEhvtex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
- GStr bamfname=Process_Options(&args);
- // == Done argument processing.
+ processOptions(args);
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
- GPVec<RC_ScaffData> refguides_RC_Data(true);
- GPVec<RC_Feature> refguides_RC_exons(true);
- GPVec<RC_Feature> refguides_RC_introns(true);
+
+ //table indexes for Ballgown Raw Counts data (-B/-b option)
+ GPVec<RC_TData> guides_RC_tdata(true); //raw count data for all guide transcripts
+ GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
+ GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
+
  GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
+
+ int bamcount=bamreader.start(); //setup and open input files
+ if (bamcount<1) {
+	 GError("%s. Error: no input files provided!\n");
+ }
 
 #ifdef DEBUGPRINT
   verbose=true;
@@ -216,35 +288,46 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    //the list of GffObj is in gffr.gflst, sorted by chromosome and start-end coordinates
    //collect them in other data structures, if it's kept for later call gffobj->isUsed(true)
    // (otherwise it'll be deallocated when gffr is destroyed due to going out of scope)
-   refseqCount=gffr.gseqStats.Count();
+   refseqCount=gffr.gseqtable.Count();
    if (refseqCount==0 || gffr.gflst.Count()==0) {
 	   GError("Error: could not read reference annotation transcripts from GTF/GFF %s - invalid file?\n",
 			   guidegff.chars());
    }
    refguides.setCount(refseqCount); //maximum gseqid
-   uint cur_tid=0;
-   uint cur_exon_id=0;
-   uint cur_intron_id=0;
-   std::set<RC_ScaffSeg> exons;
-   std::set<RC_ScaffSeg> introns;
+   uint c_tid=0;
+   uint c_exon_id=0;
+   uint c_intron_id=0;
+   GList<RC_Feature> uexons(true, false, true); //sorted, free items, unique
+   GList<RC_Feature> uintrons(true, false, true);
    //assign unique transcript IDs based on the sorted order
-   int last_refid=0;
+   int last_refid=-1;
+   bool skipGseq=false;
    for (int i=0;i<gffr.gflst.Count();i++) {
 	   GffObj* m=gffr.gflst[i];
-	   if (ballgown) {
-		   RC_ScaffData* tdata=new RC_ScaffData(*m, ++cur_tid);
-		   m->uptr=tdata;
-		   if (last_refid!=m->gseq_id) {
-			   //chromosome switch
-			   exons.clear();
-			   introns.clear();
-			   last_refid=m->gseq_id;
+	   if (last_refid!=m->gseq_id) {
+		   //chromosome switch
+		   if (ballgown) { //prepare memory storage/tables for all guides on this chromosome
+			   uexons.Clear();
+			   uintrons.Clear();
 		   }
-		   refguides_RC_Data.Add(tdata);
-		   tdata->rc_addFeatures(cur_exon_id, exons, refguides_RC_exons,
-				   cur_intron_id, introns, refguides_RC_introns);
+		   last_refid=m->gseq_id;
+		   skipGseq=excludeGseqs.hasKey(m->getGSeqName());
 	   }
-
+	   //sanity check: make sure there are no exonless "genes" or other
+	   if (skipGseq) continue;
+	   if (m->exons.Count()==0) {
+		    if (verbose)
+		    	GMessage("Warning: exonless GFF object %s found, added implicit exon %d-%d.\n",
+		    			m->getID(),m->start, m->end);
+		    m->exons.Add(new GffExon(m->start, m->end));
+	   }
+	   if (ballgown) {
+		   RC_TData* tdata=new RC_TData(*m, ++c_tid);
+		   m->uptr=tdata;
+		   guides_RC_tdata.Add(tdata);
+		   tdata->rc_addFeatures(c_exon_id, uexons, guides_RC_exons,
+		          c_intron_id, uintrons, guides_RC_introns);
+	   }
 	   GRefData& grefdata = refguides[m->gseq_id];
 	   grefdata.add(&gffr, m); //transcripts already sorted by location
    }
@@ -255,16 +338,28 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 	fclose(f);
  }
 
+#ifdef GFF_DEBUG
+  for (int r=0;r<refguides.Count();++r) {
+	  GRefData& grefdata = refguides[r];
+      for (int k=0;k<grefdata.rnas.Count();++k) {
+    	  GMessage("#transcript #%d : %s (%d exons)\n", k, grefdata.rnas[k]->getID(), grefdata.rnas[k]->exons.Count());
+    	  grefdata.rnas[k]->printGff(stderr);
+      }
+  }
+  GMessage("GFF Debug mode, exiting...\n");
+  exit(0);
+#endif
+
  // --- here we do the input processing
  gseqNames=GffObj::names; //might have been populated already by gff data
  gffnames_ref(gseqNames);  //initialize the names collection if not guided
 
- GBamReader bamreader(bamfname.chars());
+ //GBamReader bamreader(bamfname.chars());
+
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
- //my %hashjunction;  //junction coords and strand => junction index
- // we won't need this because we can quick-search in junction GList directly
- //my @guides=(); //set of annotation transcript for the current locus
+
+ //set of annotation transcript for the current locus
  GList<GffObj>* guides=NULL; //list of transcripts on a specific chromosome
 
  int currentstart=0, currentend=0;
@@ -285,9 +380,13 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 #ifndef NOTHREADS
- GThread* threads=new GThread[num_cpus];
- GPVec<BundleData> bundleQueue(false);
- BundleData* bundles=new BundleData[num_cpus+1]; //extra one being prepared while all others are processed
+ GThread* threads=new GThread[num_cpus]; //bundle processing threads
+
+ GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
+
+ BundleData* bundles=new BundleData[num_cpus+1];
+ //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
+
  dataClear.setCapacity(num_cpus+1);
  for (int b=0;b<num_cpus;b++) {
 	 threads[b].kickStart(workerThread, (void*) &bundleQueue);
@@ -301,30 +400,39 @@ if (ballgown)
 #endif
  GBamRecord* brec=NULL;
  bool more_alns=true;
+ TAlnInfo* tinfo=NULL; // for --merge
  int prev_pos=0;
+ bool skipGseq=false;
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;
 	 const char* refseqName=NULL;
-	 char strand=0;
+	 //char strand=0;
 	 char xstrand=0;
 	 int nh=1;
 	 int hi=0;
 	 int gseq_id=lastref_id;  //current chr id
 	 bool new_bundle=false;
-	 delete brec;
+	 //delete brec;
 	 if ((brec=bamreader.next())!=NULL) {
 		 if (brec->isUnmapped()) continue;
+
 		 refseqName=brec->refName();
+		 xstrand=brec->spliceStrand();
+		 if (xstrand=='.' && brec->exons.Count()>1) {
+			 no_xs++;
+			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
+		 }
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
 		 if (chr_changed) {
+			 skipGseq=excludeGseqs.hasKey(refseqName);
 			 gseq_id=gseqNames->gseqs.addName(refseqName);
 			 if (guided) {
 				 if (gseq_id>=refseqCount) {
 					 if (verbose)
-						 GMessage("WARNING: no reference transcripts found for genomic sequence \"%s\"! (different naming convention?)\n",
+						 GMessage("WARNING: no reference transcripts found for genomic sequence \"%s\"! (mismatched reference names?)\n",
 								refseqName);
 				 }
 				 else no_ref_used=false;
@@ -337,14 +445,27 @@ if (ballgown)
 			 prev_pos=0;
 		 }
 		 if (pos<prev_pos) GError(ERR_BAM_SORT);
-		 alncounts[gseq_id]++;
 		 prev_pos=pos;
-		 xstrand=brec->spliceStrand();
-		 if (xstrand=='+') strand=1;
-		 else if (xstrand=='-') strand=-1;
+		 if (skipGseq) continue;
+		 alncounts[gseq_id]++;
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
+		 if (mergeMode) {
+		    tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
+		    GStr score(brec->tag_str("ZS"));
+		    if (!score.is_empty()) {
+		      GStr srest=score.split('|');
+		      if (!score.is_empty())
+		         tinfo->cov=score.asDouble();
+		      score=srest.split('|');
+		      if (!srest.is_empty())
+		    	 tinfo->fpkm=srest.asDouble();
+		      srest=score.split('|');
+		      if (!score.is_empty())
+		         tinfo->tpm=score.asDouble();
+		    }
+		 }
 		 if (!chr_changed && currentend>0 && pos>currentend+(int)bundledist)
 			   new_bundle=true;
 	 }
@@ -352,37 +473,43 @@ if (ballgown)
 		 more_alns=false;
 		 new_bundle=true; //fake a new start (end of last bundle)
 	 }
+
 	 if (new_bundle || chr_changed) {
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
-			 if (guides && ng_end>=ng_start) {
-				 for (int gi=ng_start;gi<=ng_end;gi++)
-					 bundle->keepguides.Add((*guides)[gi]);
-			 }
-			// geneno=infer_transcripts(geneno, lastref, $label,\@readlist,$readthr,\@junction,$junctionthr,$mintranscriptlen,\@keepguides);
 			// (readthr, junctionthr, mintranscriptlen are globals)
-			/* if (ballgown && bundle->rc_data) {
-				bundle->rc_data->setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
-			}*/
 			bundle->getReady(currentstart, currentend);
 #ifndef NOTHREADS
-			//push this in the bundle queue, where it'll be picked up by the threads
+			//push this in the bundle queue where it'll be picked up by the threads
 			DBGPRINT2("##> Locking queueMutex to push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
+			int qCount=0;
 			queueMutex.lock();
 			bundleQueue.Push(bundle);
 			bundleWork |= 0x02; //set bit 1
-			int qCount=bundleQueue.Count();
+			qCount=bundleQueue.Count();
 			queueMutex.unlock();
-			do {
-			     waitForThreads();
-			     DBGPRINT("##> NOTIFY any thread...\n");
-			     haveBundles.notify_one();
-			     //this_thread::sleep_for(chrono::milliseconds(1));
-			     sleep(0);
-			} while (!queuePopped(bundleQueue, qCount));
+			DBGPRINT2("##> bundleQueue.Count()=%d)\n", qCount);
+			//wait for a thread to pop this bundle from the queue
+			waitMutex.lock();
+			DBGPRINT("##> waiting for a thread to become available..\n");
+			while (threadsWaiting==0) {
+				haveThreads.wait(waitMutex);
+			}
+			waitMutex.unlock();
+			haveBundles.notify_one();
+			this_thread::yield();
+			queueMutex.lock();
+			while (bundleQueue.Count()==qCount) {
+				queueMutex.unlock();
+				haveBundles.notify_one();
+				this_thread::yield();
+				queueMutex.lock();
+			}
+			queueMutex.unlock();
+
 #else //no threads
-			Num_Fragments+=bundle->num_fragments;
-			Frag_Len+=bundle->frag_len;
+			//Num_Fragments+=bundle->num_fragments;
+			//Frag_Len+=bundle->frag_len;
 			processBundle(bundle);
 #endif
 			// ncluster++; used it for debug purposes only
@@ -390,11 +517,11 @@ if (ballgown)
 		 else { //no read alignments in this bundle?
 			bundle->Clear();
 #ifndef NOTHREADS
-	dataMutex.lock();
-	dataClear.Push(bundle->idx);
-	dataMutex.unlock();
+			dataMutex.lock();
+			dataClear.Push(bundle->idx);
+			dataMutex.unlock();
 #endif
-		 }
+		 } //nothing to do with this bundle
 
 		 if (chr_changed) {
 			 if (guided) {
@@ -415,16 +542,17 @@ if (ballgown)
 		 if (!more_alns) {
 				if (verbose) {
 #ifndef NOTHREADS
-						GLockGuard<GFastMutex> lock(logMutex);
+					GLockGuard<GFastMutex> lock(logMutex);
 #endif
 					printTime(stderr);
-					GMessage(" %llu aligned fragments found.\n", Num_Fragments);
+					if(Num_Fragments) GMessage(" %g aligned fragments found.\n", Num_Fragments);
 					//GMessage(" Done reading alignments.\n");
 				}
 			 noMoreBundles();
 			 break;
 		 }
 #ifndef NOTHREADS
+
 		 int new_bidx=waitForData(bundles);
 		 if (new_bidx<0) {
 			 //should never happen!
@@ -437,80 +565,73 @@ if (ballgown)
 		 currentend=brec->end;
 		 if (guides) { //guided and guides!=NULL
 			 ng_start=ng_end+1;
-			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) { ng_start++; } // skip guides that have no read coverage
-			 //if(ng_start<ng && (int)(*guides)[ng_start]->start<pos) {
+			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
+				 // skip guides that have no read coverage
+				 ng_start++;
+			 }
 			 int ng_ovlstart=ng_start;
-			 //add all guides overlapping the current read
+			 //add all guides overlapping the current read and other guides that overlap them
 			 while (ng_ovlstart<ng && (int)(*guides)[ng_ovlstart]->start<=currentend) {
 				 if (currentstart>(int)(*guides)[ng_ovlstart]->start)
 					 currentstart=(*guides)[ng_ovlstart]->start;
 				 if (currentend<(int)(*guides)[ng_ovlstart]->end)
 					 currentend=(*guides)[ng_ovlstart]->end;
-				 if (ballgown) bundle->rc_store_t((*guides)[ng_ovlstart]);
+				  bundle->keepGuide((*guides)[ng_ovlstart],
+						   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
 				 ng_ovlstart++;
 			 }
-			 if (ng_ovlstart>ng_start) ng_end=ng_ovlstart-1;
-				 /*
-				 while(ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=pos) {
-					 ng_end++;
-					 if(currentend<(int)(*guides)[ng_end]->end) {
-						 currentend=(*guides)[ng_end]->end;
-					 }
-				 }
-				 */
+			 ng_end=ng_ovlstart-1; //MUST update ng_end here, even if no overlaps were found
 		 } //guides present on the current chromosome
 		bundle->refseq=lastref;
 		bundle->start=currentstart;
 		bundle->end=currentend;
-	 } //<---- new bundle
-	 //currentend=process_read(currentstart, currentend, bundle->readlist, hashread,
-		//	 bundle->junction, *brec, strand, nh, hi, bundle->bpcov);
-     //currentend=
+	 } //<---- new bundle just started
+
 	 if (currentend<(int)brec->end) {
-		 //current read just pushed upper boundary of the bundle
-		 //this might never happen if a longer guide was added already to the bundle
+		 //current read extends the bundle
+		 //this might not happen if a longer guide had already been added to the bundle
 		 currentend=brec->end;
 		 if (guides) { //add any newly overlapping guides to bundle
 			 bool cend_changed;
 			 do {
 				 cend_changed=false;
 				 while (ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=currentend) {
-					 ng_end++;
-					 //more transcripts overlapping this bundle
-					 if (ballgown) bundle->rc_store_t((*guides)[ng_end]);
-					 if(currentend<(int)(*guides)[ng_end]->end) {
-						 currentend=(*guides)[ng_end]->end;
-						 cend_changed=true;
-					 }
+					 ++ng_end;
+					 //more transcripts overlapping this bundle?
+					 if ((int)(*guides)[ng_end]->end>=currentstart) {
+						 //it should really overlap the bundle
+						 bundle->keepGuide((*guides)[ng_end],
+								  &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+						 if(currentend<(int)(*guides)[ng_end]->end) {
+							 currentend=(*guides)[ng_end]->end;
+							 cend_changed=true;
+						 }
+				 	 }
 				 }
 			 } while (cend_changed);
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
-     bool ref_overlap=false;
-	 if (ballgown && bundle->rc_data) ref_overlap=bundle->rc_count_hit(*brec, xstrand, nh);
-	 countRead(*bundle, *brec, hi);
-	 if (!ballgown || ref_overlap) {
-	    processRead(currentstart, currentend, *bundle, hashread, *brec, strand, nh, hi);
-	 }
-   //update current end to be at least as big as the start of the read pair in the fragment?? -> maybe not because then I could introduce some false positives with paired reads mapped badly
-
-	 /*
-	 if(guides) { // I need to adjust end according to guides
-		 while( ng_end+1 < ng && (int)(*guides)[ng_end+1]->start<=currentend) {
-			 ng_end++;
-			 if(currentend < (int)(*guides)[ng_end]->end) {
-				 currentend=(*guides)[ng_end]->end;
-			 }
-		 }
-	 }
-	 */
+	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
+     bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
+     if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide
+    	 //check for overlaps with ref transcripts which may set xstrand
+    	 if (xstrand=='+') alndata.strand=1;
+    	 else if (xstrand=='-') alndata.strand=-1;
+    	 //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
+    	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
+    	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
+    	 //if (!ballgown || ref_overlap)
+    	 processRead(currentstart, currentend, *bundle, hashread, alndata);
+			  // *brec, strand, nh, hi);
+     }
  } //for each read alignment
  if (guided && no_ref_used)
     GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
     		"Please make sure the -G annotation file uses the same naming convention for the genome sequences.\n");
  //cleaning up
  delete brec;
- bamreader.bclose();
+ //bamreader.bclose();
+ bamreader.stop(); //close all BAM files
 #ifndef NOTHREADS
  for (int t=0;t<num_cpus;t++)
 	 threads[t].join();
@@ -527,68 +648,110 @@ if (ballgown)
  }
 #endif
 
+#ifdef B_DEBUG
+ fclose(dbg_out);
+#endif
  //if (f_out && f_out!=stdout) fclose(f_out);
  fclose(f_out);
+ if (c_out && c_out!=stdout) fclose(c_out);
 
- // write the FPKMs
+ if(verbose) GMessage("Total number of records without the XS tag: %d\n",no_xs);
 
- if(verbose) {
-	 GMessage("Total count of aligned fragments: %llu\n",Num_Fragments);
-	 //GMessage("Fragment length:%llu\n",Frag_Len);
-	 GMessage("Average fragment length:%g\n",(float)Frag_Len/Num_Fragments);
+if(!mergeMode) {
+	if(verbose) {
+		GMessage("Total count of aligned fragments: %g\n",Num_Fragments);
+		GMessage("Fragment coverage length:%g\n",Frag_Len/Num_Fragments);
+	}
+
+	f_out=stdout;
+	if(outfname!="stdout") {
+		f_out=fopen(outfname.chars(), "w");
+		if (f_out==NULL) GError("Error creating output file %s\n", outfname.chars());
+	}
+
+	fprintf(f_out,"# ");
+	args.printCmdLine(f_out);
+	fprintf(f_out,"# StringTie version %s\n",VERSION);
+
+	FILE *g_out=NULL;
+	if(geneabundance) {
+		g_out=fopen(genefname.chars(),"w");
+		if (g_out==NULL)
+			GError("Error creating gene abundance output file %s\n", genefname.chars());
+		fprintf(g_out,"Gene ID\tGene Name\tStrand\tStart\tEnd\tLength\tCoverage\tFPKM\tTPM\n");
+	}
+
+	FILE* t_out=fopen(tmpfname.chars(),"rt");
+	if (t_out!=NULL) {
+		char* linebuf=NULL;
+		int linebuflen=5000;
+		GMALLOC(linebuf, linebuflen);
+		int nl;
+		int istr;
+		int tlen;
+		float tcov;
+		//float fpkm;
+		float calc_fpkm;
+		float calc_tpm;
+		int t_id;
+		while(fgetline(linebuf,linebuflen,t_out)) {
+			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
+			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
+			calc_fpkm=tcov*1000000000/Frag_Len;
+			calc_tpm=tcov*1000000/Cov_Sum;
+			/*
+		 	 double eff_len=1;
+		 	 if((float)tlen>AvgFrag) eff_len=tlen-AvgFrag+1;
+		 	 calc_fpkm2=calc_fpkm*tlen/eff_len;
+			 */
+			//fprintf(stderr,"tid=%d tlen=%d fpkm=%g calc_fpkm=%g tcov=%g new_fpkm=%g newcalc_fpkm=%g calc_fpkm3=%g\n",t_id,tlen,fpkm,calc_fpkm,tcov,tcov*tlen*1000000000/(efflen*SumReads),calc_fpkm2,calc_fpkm3);
+			if(istr) { // this is a transcript
+				if (ballgown && t_id>0) {
+					guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
+					guides_RC_tdata[t_id-1]->cov=tcov;
+				}
+				for(int i=0;i<nl;i++) {
+					fgetline(linebuf,linebuflen,t_out);
+					if(!i) {
+						//linebuf[strlen(line)-1]='\0';
+						fprintf(f_out,"%s",linebuf);
+						fprintf(f_out," FPKM \"%.6f\";",calc_fpkm);
+						fprintf(f_out," TPM \"%.6f\";",calc_tpm);
+						fprintf(f_out,"\n");
+					}
+					else fprintf(f_out,"%s\n",linebuf);
+				}
+			}
+			else { // this is a gene -> different file pointer
+				fgetline(linebuf,linebuflen,t_out);
+				fprintf(g_out,"%s\t%.6f\t%.6f\n",linebuf,calc_fpkm,calc_tpm);
+			}
+		}
+		fclose(f_out);
+		fclose(t_out);
+		if(geneabundance) fclose(g_out);
+		GFREE(linebuf);
+		if (!keepTempFiles) {
+			remove(tmpfname.chars());
+		}
+	}
+	else {
+		fclose(f_out);
+		GError("No temporary file %s present!\n",tmpfname.chars());
+	}
+
+	//lastly, for ballgown, rewrite the tdata file with updated cov and fpkm
+	if (ballgown) {
+		rc_writeRC(guides_RC_tdata, guides_RC_exons, guides_RC_introns,
+				f_tdata, f_edata, f_idata, f_e2t, f_i2t);
+	}
+}
+
+ if (!keepTempFiles) {
+   tmp_path.chomp('/');
+   remove(tmp_path);
  }
 
- f_out=stdout;
- if(outfname!="stdout") {
-	 f_out=fopen(outfname.chars(), "w");
-	 if (f_out==NULL) GError("Error creating output file %s\n", outfname.chars());
- }
- FILE* t_out=fopen(tmpfname.chars(),"rt");
- if (t_out!=NULL) {
-	 char* linebuf=NULL;
-	 int linebuflen=5000;
-     GMALLOC(linebuf, linebuflen);
-	 int nl;
-	 int tlen;
-	 float tcov;
-	 float fpkm;
-	 float calc_fpkm;
-	 int t_id;
-	 while(fgetline(linebuf,linebuflen,t_out)) {
-		 sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
-		 calc_fpkm=tcov*1000000000/Frag_Len;
-		 if (ballgown && t_id>0) {
-			 refguides_RC_Data[t_id-1]->fpkm=calc_fpkm;
-			 refguides_RC_Data[t_id-1]->cov=tcov;
-		 }
-		 for(int i=0;i<nl;i++) {
-			 fgetline(linebuf,linebuflen,t_out);
-			 if(!i) {
-				 //linebuf[strlen(line)-1]='\0';
-				 fprintf(f_out,"%s",linebuf);
-				 fprintf(f_out," FPKM \"%.6f\";",calc_fpkm);
-				 //fprintf(f_out,"FPKM \"%.6f\"; calculated_FPKM \"%.6f\";",tcov*1000000000/Frag_Len,fpkm*1000000000/(Num_Fragments*tlen));
-				 //fprintf(f_out,"flen \"%.6f\"; FPKM \"%.6f\";",fpkm,fpkm*1000000000/Num_Fragments);
-				 fprintf(f_out,"\n");
-			 }
-			 else fprintf(f_out,"%s\n",linebuf);
-		 }
-	 }
-	 fclose(f_out);
-	 fclose(t_out);
-	 GFREE(linebuf);
-	 remove(tmpfname.chars());
- }
- else {
-	 fclose(f_out);
-	 GError("No temporary file %s present!\n",tmpfname.chars());
- }
-
- //lastly, for ballgown, rewrite the tdata file with updated cov and fpkm
- if (ballgown) {
-	 rc_writeRC(refguides_RC_Data, refguides_RC_exons, refguides_RC_introns,
-			 f_tdata, f_edata, f_idata, f_e2t, f_i2t);
- }
 
  gffnames_unref(gseqNames); //deallocate names collection
 
@@ -609,34 +772,54 @@ char* sprintTime() {
 	return(sbuf);
 }
 
+void processOptions(GArgs& args) {
 
-GStr Process_Options(GArgs* args) {
 
-	if (args->getOpt('h') || args->getOpt("help")) {
-		GMessage("%s",USAGE);
-	    exit(1);
+	if (args.getOpt('h') || args.getOpt("help")) {
+		fprintf(stdout,"%s",USAGE);
+	    exit(0);
 	}
-
-	 debugMode=(args->getOpt("debug")!=NULL || args->getOpt('D')!=NULL);
-	 fast=!(args->getOpt('x')!=NULL);
-	 verbose=(args->getOpt('v')!=NULL);
+	if (args.getOpt("version")) {
+	   fprintf(stdout,"%s\n",VERSION);
+	   exit(0);
+	}
+	 debugMode=(args.getOpt("debug")!=NULL || args.getOpt('D')!=NULL);
+	 mergeMode=(args.getOpt("merge")!=NULL);
+	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
+	 fast=!(args.getOpt('Z')!=NULL);
+	 verbose=(args.getOpt('v')!=NULL);
 	 if (verbose) {
 	     fprintf(stderr, "Command line was:\n");
-	     args->printCmdLine(stderr);
+	     args.printCmdLine(stderr);
 	 }
-	 complete=!(args->getOpt('i')!=NULL);
-	 trim=!(args->getOpt('t')!=NULL);
-	 includesource=!(args->getOpt('z')!=NULL);
-	 EM=(args->getOpt('y')!=NULL);
-	 weight=(args->getOpt('w')!=NULL);
-	 GStr s=args->getOpt('m');
+	 //complete=!(args.getOpt('i')!=NULL);
+	 trim=!(args.getOpt('t')!=NULL);
+	 includesource=!(args.getOpt('z')!=NULL);
+	 //EM=(args.getOpt('y')!=NULL);
+	 //weight=(args.getOpt('w')!=NULL);
+
+	 GStr s=args.getOpt('m');
 	 if (!s.is_empty()) {
 	   mintranscriptlen=s.asInt();
-	   if (mintranscriptlen<30) 
-	     GError("Error: invalid -m value, must be >=30)\n");
+	   if (!mergeMode) {
+		   if (mintranscriptlen<30)
+			   GError("Error: invalid -m value, must be >=30)\n");
+	   }
+	   else if (mintranscriptlen<0) GError("Error: invalid -m value, must be >=0)\n");
 	 }
+	 else if(mergeMode) mintranscriptlen=50;
 
-	 s=args->getOpt('n');
+
+     s=args.getOpt('x');
+     if (!s.is_empty()) {
+    	 //split by comma and populate excludeGSeqs
+    	 s.startTokenize(" ,\t");
+    	 GStr chrname;
+    	 while (s.nextToken(chrname)) {
+    		 excludeGseqs.Add(chrname.chars(),new int(0));
+    	 }
+     }
+	 s=args.getOpt('n');
 	 if (!s.is_empty()) {
 		 sensitivitylevel=s.asInt();
 		 if(sensitivitylevel<0) {
@@ -649,145 +832,202 @@ GStr Process_Options(GArgs* args) {
 		 }
 	 }
 
-	 s=args->getOpt('g');
+	 s=args.getOpt('g');
 	 if (!s.is_empty()) bundledist=s.asInt();
-	 s=args->getOpt('p');
+	 s=args.getOpt('p');
 	 if (!s.is_empty()) {
 		   num_cpus=s.asInt();
 		   if (num_cpus<=0) num_cpus=1;
 	 }
 
-	 s=args->getOpt('a');
-	 if (!s.is_empty()) junctionsupport=s.asInt();
-	 s=args->getOpt('j');
+	 s=args.getOpt('a');
+	 if (!s.is_empty()) junctionsupport=(uint)s.asInt();
+	 s=args.getOpt('j');
 	 if (!s.is_empty()) junctionthr=s.asInt();
-	 s=args->getOpt('c');
+
+	 s=args.getOpt('c');
 	 if (!s.is_empty()) {
 		 readthr=(float)s.asDouble();
-		 if (readthr<0.001) {
+		 if (readthr<0.001 && !mergeMode) {
 			 GError("Error: invalid -c value, must be >=0.001)\n");
 		 }
 	 }
-	 s=args->getOpt('l');
+	 else if(mergeMode) readthr=0;
+
+	 s=args.getOpt('F');
+	 if (!s.is_empty()) {
+		 fpkm_thr=(float)s.asDouble();
+	 }
+	 else if(mergeMode) fpkm_thr=0;
+
+	 s=args.getOpt('T');
+	 if (!s.is_empty()) {
+		 tpm_thr=(float)s.asDouble();
+	 }
+	 else if(mergeMode) tpm_thr=0;
+
+	 s=args.getOpt('l');
 	 if (!s.is_empty()) label=s;
-	 s=args->getOpt('f');
+	 else if(mergeMode) label="MSTRG";
+
+	 s=args.getOpt('f');
 	 if (!s.is_empty()) {
 		 isofrac=(float)s.asDouble();
 		 if(isofrac>=1) GError("Miminum isoform fraction (-f coefficient: %f) needs to be less than 1\n",isofrac);
 	 }
-	 s=args->getOpt('M');
+	 else if(mergeMode) isofrac=0.01;
+	 s=args.getOpt('M');
 	 if (!s.is_empty()) {
 		 mcov=(float)s.asDouble();
 	 }
 
-	 //f_out=stdout;
-	 tmpfname=args->getOpt('o');
-	 outfname="stdout";
-	 out_dir="./";
-	 if (!tmpfname.is_empty() && tmpfname!="-") {
-		 outfname=tmpfname;
-		 int pidx=outfname.rindex('/');
-		 if (pidx>=0) //path given
-			 out_dir=outfname.substr(0,pidx+1);
-	 }
-	 else { // stdout
-		tmpfname=outfname;
-		char *stime=sprintTime();
-		tmpfname+='.';
-		tmpfname+=stime;
-	 }
-	 if (out_dir!="./") {
-		 if (fileExists(out_dir.chars())==0) {
-			//directory does not exist, create it
-			Gmkdir(out_dir.chars());
-		 }
-	 }
-	 tmpfname+=".tmp";
-	 f_out=fopen(tmpfname.chars(), "w");
-	 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
-
-     /*
-	 if (args->getOpt('O')) {
-		 singlePass=false;
-		 maxReadCov=0;
-	 }
-     */
-
-	 if (args->getOpt('S')) {
-		 sensitivitylevel=2;
+	 genefname=args.getOpt('A');
+	 if(!genefname.is_empty()) {
+		 geneabundance=true;
 	 }
 
-	 s=args->getOpt('s');
+	 tmpfname=args.getOpt('o');
+
+	 if (args.getOpt('S')) {
+		 // sensitivitylevel=2; no longer supported from version 1.0.3
+		 sensitivitylevel=1;
+	 }
+
+	 // coverage saturation no longer used after version 1.0.4; left here for compatibility with previous versions
+	 s=args.getOpt('s');
 	 if (!s.is_empty()) {
+		 GMessage("Coverage saturation parameter is deprecated starting at version 1.0.5");
+		 /*
 		 int r=s.asInt();
 		 if (r<2) {
 			 GMessage("Warning: invalid -s value, setting coverage saturation threshold, using default (%d)\n", maxReadCov);
 		 }
 		 else maxReadCov=r;
+		 */
 	 }
-	 /*
-	 {//DEBUG ONLY:
-		 GStr fname(outfname);
-		 fname+=".reads";
-		 unlink(fname.chars());
-	 }
-	 */
 
-	 if (args->getOpt('G')) {
-	   guidegff=args->getOpt('G');
+	 if (args.getOpt('G')) {
+	   guidegff=args.getOpt('G');
 	   if (fileExists(guidegff.chars())>1)
 	        guided=true;
 	   else GError("Error: reference annotation file (%s) not found.\n",
 	             guidegff.chars());
 	 }
 
-	 eonly=(args->getOpt('e')!=NULL);
+	 eonly=(args.getOpt('e')!=NULL);
+	 enableNames=(args.getOpt('E')!=NULL);
 	 if(eonly && !guided)
 		 GError("Error: invalid -e usage, GFF reference not given (-G option required).\n");
 
-	 ballgown_dir=args->getOpt('b');
-	 ballgown=(args->getOpt('B')!=NULL);
+	 ballgown_dir=args.getOpt('b');
+	 ballgown=(args.getOpt('B')!=NULL);
 	 if (ballgown && !ballgown_dir.is_empty()) {
 		 GError("Error: please use either -B or -b <path> options, not both.");
 	 }
-	 if (ballgown) ballgown_dir=out_dir;
-	 else if (!ballgown_dir.is_empty()) {
-		    ballgown=true;
-		    ballgown_dir.chomp('/');ballgown_dir+='/';
-			if (fileExists(ballgown_dir.chars())==0) {
-				//directory does not exist, create it
-				Gmkdir(ballgown_dir.chars());
-			}
-	 	  }
-	 if (ballgown && !guided)
+	 if ((ballgown || !ballgown_dir.is_empty()) && !guided)
 		 GError("Error: invalid -B/-b usage, GFF reference not given (-G option required).\n");
 
-	 s=args->getOpt('P');
+	 /* s=args->getOpt('P');
 	 if (!s.is_empty()) {
 		 if(!guided) GError("Error: option -G with reference annotation file has to be specified.\n");
 		 c_out=fopen(s.chars(), "w");
 		 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
 		 partialcov=true;
 	 }
-	 else {
-		 s=args->getOpt('C');
+	 else { */
+		 s=args.getOpt('C');
 		 if (!s.is_empty()) {
 			 if(!guided) GError("Error: invalid -C usage, GFF reference not given (-G option required).\n");
 			 c_out=fopen(s.chars(), "w");
 			 if (c_out==NULL) GError("Error creating output file %s\n", s.chars());
-			 num_cpus=1;
+		 }
+	 //}
+	int numbam=args.startNonOpt();
+#ifndef GFF_DEBUG
+	if (numbam < 1 ) {
+	 	 GMessage("%s\nError: no input file provided!\n",USAGE);
+	 	 exit(1);
+	}
+#endif
+	const char* ifn=NULL;
+	while ( (ifn=args.nextNonOpt())!=NULL) {
+		//input alignment files
+		bamreader.Add(ifn);
+	}
+	//deferred creation of output path
+	outfname="stdout";
+	out_dir="./";
+	 if (!tmpfname.is_empty() && tmpfname!="-") {
+		 outfname=tmpfname;
+		 int pidx=outfname.rindex('/');
+		 if (pidx>=0) {//path given
+			 out_dir=outfname.substr(0,pidx+1);
+			 tmpfname=outfname.substr(pidx+1);
+		 }
+	 }
+	 else { // stdout
+		tmpfname=outfname;
+		char *stime=sprintTime();
+		tmpfname.tr(":","-");
+		tmpfname+='.';
+		tmpfname+=stime;
+	 }
+	 if (out_dir!="./") {
+		 if (fileExists(out_dir.chars())==0) {
+			//directory does not exist, create it
+			if (Gmkdir(out_dir.chars()) && !fileExists(out_dir.chars())) {
+				GError("Error: cannot create directory %s!\n", out_dir.chars());
+			}
 		 }
 	 }
 
-	 int numbam=args->startNonOpt();
-	 if (numbam==0 || numbam>1) {
-	 	 GMessage("%s\nError: no BAM input file provided!\n",USAGE);
-	 	 exit(1);
+	 { //prepare temp path
+		 GStr stempl(out_dir);
+		 stempl.chomp('/');
+		 stempl+="/tmp.XXXXXXXX";
+		 char* ctempl=Gstrdup(stempl.chars());
+	     Gmktempdir(ctempl);
+	     tmp_path=ctempl;
+	     tmp_path+='/';
+	     GFREE(ctempl);
 	 }
 
-	 s=args->nextNonOpt();
+	 tmpfname=tmp_path+tmpfname;
 
-	 return(s);
+	 if (ballgown) ballgown_dir=out_dir;
+	   else if (!ballgown_dir.is_empty()) {
+			ballgown=true;
+			ballgown_dir.chomp('/');ballgown_dir+='/';
+			if (fileExists(ballgown_dir.chars())==0) {
+				//directory does not exist, create it
+				if (Gmkdir(ballgown_dir.chars()) && !fileExists(ballgown_dir.chars())) {
+					GError("Error: cannot create directory %s!\n", ballgown_dir.chars());
+				}
+
+			}
+	   }
+#ifdef B_DEBUG
+	 GStr dbgfname(tmpfname);
+	 dbgfname+=".dbg";
+	 dbg_out=fopen(dbgfname.chars(), "w");
+	 if (dbg_out==NULL) GError("Error creating debug output file %s\n", dbgfname.chars());
+#endif
+
+	 if(mergeMode) {
+		 f_out=stdout;
+		 if(outfname!="stdout") {
+			 f_out=fopen(outfname.chars(), "w");
+			 if (f_out==NULL) GError("Error creating output file %s\n", outfname.chars());
+		 }
+		 fprintf(f_out,"# ");
+		 args.printCmdLine(f_out);
+		 fprintf(f_out,"# StringTie version %s\n",VERSION);
+	 }
+	 else {
+		 tmpfname+=".tmp";
+		 f_out=fopen(tmpfname.chars(), "w");
+		 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
+	 }
 }
 
 //---------------
@@ -800,7 +1040,7 @@ bool moreBundles() { //getter (interogation)
   return v;
 }
 
-void noMoreBundles() { //setter
+void noMoreBundles() {
 #ifndef NOTHREADS
 		bamReadingMutex.lock();
 		NoMoreBundles=true;
@@ -816,11 +1056,11 @@ void noMoreBundles() { //setter
 		  if (areThreadsWaiting) {
 		    DBGPRINT("##> NOTIFY ALL workers: no more data!\n");
 		    haveBundles.notify_all();
-		    this_thread::sleep_for(chrono::milliseconds(30));
+		    this_thread::sleep_for(chrono::milliseconds(10));
 		    waitMutex.lock();
 		     areThreadsWaiting=(threadsWaiting>0);
 		    waitMutex.unlock();
-		    this_thread::sleep_for(chrono::milliseconds(30));
+		    this_thread::sleep_for(chrono::milliseconds(10));
 		  }
 		} while (areThreadsWaiting); //paranoid check that all threads stopped waiting
 #else
@@ -828,87 +1068,18 @@ void noMoreBundles() { //setter
 #endif
 }
 
-/*
-void processBundle1stPass(BundleData* bundle) {
-	// code executed on bundle data after 1st pass
-	//bundle->readlist() is empty here also no pairs data are available
-	//just splice sites and coverage info for the bundle
-	//TODO: build the groups here (bundle->groups) so processRead() can
-	//collapse reads efficiently in 2nd pass
-	if (verbose) {
-		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%d) (%djs) begins 1st pass processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end,
-				bundle->numreads, bundle->junction.Count());
-	}
-	// generate groups here, storing them in some bundle->groups data structure
-	if (verbose) {
-//	#ifndef NOTHREADS
-//			GLockGuard<GFastMutex> lock(logMutex);
-//	#endif
-	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d(%d) 1st pass done.\n",bundle->refseq.chars(),
-	  		bundle->start, bundle->end, bundle->numreads);
-	}
-}
-
-*/
-
-/*
 void processBundle(BundleData* bundle) {
 	if (verbose) {
 	#ifndef NOTHREADS
 			GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%d) (%djs) begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->junction.Count());
-#ifdef GMEMTRACE
-		double vm,rsm;
-		get_mem_usage(vm, rsm);
-		GMessage(" memory usage: %6.1fMB\n",rsm/1024);
-		if (rsm>maxMemRS) {
-			maxMemRS=rsm;
-			maxMemVM=vm;
-			maxMemBundle.format("%s:%d-%d(%d)", bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads);
-		}
-#endif
-	}
-	int ngenes=infer_transcripts(bundle->start,bundle->readlist,
-	        bundle->junction, bundle->keepguides, bundle->bpcov, bundle->pred);
-	if (bundle->pred.Count()>0) {
-#ifndef NOTHREADS
-		GLockGuard<GFastMutex> lock(printMutex);
-#endif
-		GeneNo=print_transcripts(bundle->pred, ngenes, GeneNo, bundle->refseq);
-	}
-	if (verbose) {
-	#ifndef NOTHREADS
-			GLockGuard<GFastMutex> lock(logMutex);
-	#endif
-	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
-	  		bundle->start, bundle->end, bundle->numreads, bundle->pred.Count());
-	}
-	bundle->Clear(); //full clear (after the 2nd pass unless singlePass was requested)
-#ifndef NOTHREADS
-	dataMutex.lock();
-	dataClear.Push(bundle->idx);
-	dataMutex.unlock();
-#endif
-}
-
-*/
-
-void processBundle(BundleData* bundle) {
-	if (verbose) {
-	#ifndef NOTHREADS
-			GLockGuard<GFastMutex> lock(logMutex);
-	#endif
-		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%d) (%djs, %d guides) loaded, begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, 
-                bundle->junction.Count(), bundle->keepguides.Count());
+		/*GMessage(">bundle %s:%d-%d(%d) (%djs, %d guides) loaded, begins processing...\n",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
+                bundle->junction.Count(), bundle->keepguides.Count());*/
+		GMessage(">bundle %s:%d-%d(%lu) (%d guides) loaded, begins processing...\n",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
+                bundle->keepguides.Count());
 #ifdef GMEMTRACE
 		double vm,rsm;
 		get_mem_usage(vm, rsm);
@@ -920,21 +1091,76 @@ void processBundle(BundleData* bundle) {
 		}
 #endif
 	}
-	int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
-	if (bundle->rc_data) {
+#ifdef B_DEBUG
+	for (int i=0;i<bundle->keepguides.Count();++i) {
+		GffObj& t=*(bundle->keepguides[i]);
+		RC_TData* tdata=(RC_TData*)(t.uptr);
+		fprintf(dbg_out, ">%s (t_id=%d) %s%c %d %d\n", t.getID(), tdata->t_id, t.getGSeqName(), t.strand, t.start, t.end );
+		for (int fe=0;fe < tdata->t_exons.Count(); ++fe) {
+			RC_Feature& exoninfo = *(tdata->t_exons[fe]);
+			fprintf(dbg_out, "%d\texon\t%d\t%d\t%c\t%d\t%d\n", exoninfo.id, exoninfo.l, exoninfo.r,
+					    exoninfo.strand, exoninfo.rcount, exoninfo.ucount);
+			if (! (exoninfo==*(bundle->rc_data->guides_RC_exons->Get(exoninfo.id-1))))
+				 GError("exoninfo with id (%d) not matching!\n", exoninfo.id);
+		}
+		for (int fi=0;fi < tdata->t_introns.Count(); ++fi) {
+			RC_Feature& introninfo = *(tdata->t_introns[fi]);
+			fprintf(dbg_out, "%d\tintron\t%d\t%d\t%c\t%d\t%d\n", introninfo.id, introninfo.l, introninfo.r,
+					introninfo.strand, introninfo.rcount, introninfo.ucount);
+			if (! (introninfo==*(bundle->rc_data->guides_RC_introns->Get(introninfo.id-1))))
+				 GError("introninfo with id (%d) not matching!\n", introninfo.id);
+		}
+		//check that IDs are properly assigned
+		if (tdata->t_id!=(uint)t.udata) GError("tdata->t_id(%d) not matching t.udata(%d)!\n",tdata->t_id, t.udata);
+		if (tdata->t_id!=bundle->rc_data->guides_RC_tdata->Get(tdata->t_id-1)->t_id)
+			 GError("tdata->t_id(%d) not matching rc_data[t_id-1]->t_id (%d)\n", tdata->t_id, bundle->rc_data->g_tdata[tdata->t_id-1]->t_id);
+
+	}
+#endif
+	//int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
+	int ngenes=infer_transcripts(bundle, fast);
+
+	if(mergeMode) {
+		isfpkm=false;
+		istpm=false;
+		iscov=false;
+	}
+	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
 	}
-	if (bundle->pred.Count()>0) {
+	if (bundle->pred.Count()>0 || ((eonly || geneabundance) && bundle->keepguides.Count()>0)) {
 #ifndef NOTHREADS
 		GLockGuard<GFastMutex> lock(printMutex);
 #endif
-		GeneNo=printResults(bundle, ngenes, GeneNo, bundle->refseq);
+		if(mergeMode) GeneNo=printMergeResults(bundle, ngenes,GeneNo,bundle->refseq);
+		else GeneNo=printResults(bundle, ngenes, GeneNo, bundle->refseq);
 	}
+
+	if (bundle->num_fragments) {
+		#ifndef NOTHREADS
+				GLockGuard<GFastMutex> lock(countMutex);
+		#endif
+		Num_Fragments+=bundle->num_fragments;
+		Frag_Len+=bundle->frag_len;
+		Cov_Sum+=bundle->sum_cov;
+	}
+
 	if (verbose) {
-	#ifndef NOTHREADS
-			GLockGuard<GFastMutex> lock(logMutex);
-	#endif
+		#ifndef NOTHREADS
+				GLockGuard<GFastMutex> lock(logMutex);
+		#endif
 	  printTime(stderr);
+	  /*
+	  SumReads+=bundle->sumreads;
+	  SumFrag+=bundle->sumfrag;
+	  NumCov+=bundle->num_cov;
+	  NumReads+=bundle->num_reads;
+	  NumFrag+=bundle->num_frag;
+	  NumFrag3+=bundle->num_fragments3;
+	  SumFrag3+=bundle->sum_fragments3;
+	  fprintf(stderr,"Number of fragments in bundle: %g with length %g\n",bundle->num_fragments,bundle->frag_len);
+	  */
+	  fprintf(stderr,"Number of fragments in bundle: %g with sum %g\n",bundle->num_fragments,bundle->frag_len);
 	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
 	  		bundle->start, bundle->end, bundle->readlist.Count(), bundle->pred.Count());
 	#ifdef GMEMTRACE
@@ -949,29 +1175,33 @@ void processBundle(BundleData* bundle) {
 	#endif
 	    }
 	bundle->Clear();
-#ifndef NOTHREADS
-	dataMutex.lock();
-	dataClear.Push(bundle->idx);
-	dataMutex.unlock();
-#endif
 }
 
 #ifndef NOTHREADS
 
+
+bool noThreadsWaiting() {
+	waitMutex.lock();
+	int v=threadsWaiting;
+	waitMutex.unlock();
+	return (v<1);
+}
+
 bool waitForThreads() {
 	bool noneWaiting=true;
-	DBGPRINT("##> waiting for workers to enter wait state..\n");
+	DBGPRINT("##> waiting for a thread to become available..\n");
 	while (noneWaiting) {
 	  waitMutex.lock();
 	  noneWaiting=(threadsWaiting<1);
 	  waitMutex.unlock();
-	  if (noneWaiting)
-	    this_thread::sleep_for(chrono::milliseconds(30));
+	  if (noneWaiting) {
+		DBGPRINT("##>all threads busy, sleep_for 2ms\n");
+	    this_thread::sleep_for(chrono::milliseconds(2));
+	  }
 	}
  DBGPRINT("##> there are workers ready now.\n");
  return(!noneWaiting);
 }
-
 
 void workerThread(GThreadData& td) {
 	GPVec<BundleData>* bundleQueue = (GPVec<BundleData>*)td.udata;
@@ -983,26 +1213,38 @@ void workerThread(GThreadData& td) {
 		DBGPRINT3("---->> Thread%d: waiting.. (queue len=%d)\n",td.thread->get_id(), bundleQueue->Count());
 		waitMutex.lock();
 		 threadsWaiting++;
+		queueMutex.unlock();
 		waitMutex.unlock();
-		haveBundles.wait(queueMutex);
+		haveThreads.notify_one(); //in case main thread is waiting
+		this_thread::yield();
+		queueMutex.lock();
+		while (bundleWork && bundleQueue->Count()==0) {
+		    haveBundles.wait(queueMutex);//unlocks queueMutex and wait until notified
+		               //when notified, locks queueMutex and resume
+		}
 		waitMutex.lock();
-		 if (threadsWaiting>0) threadsWaiting--;
+		if (threadsWaiting>0) threadsWaiting--;
 		waitMutex.unlock();
 		DBGPRINT3("---->> Thread%d: awakened! (queue len=%d)\n",td.thread->get_id(),bundleQueue->Count());
 		BundleData* readyBundle=NULL;
 		if ((bundleWork & 0x02)!=0 && (readyBundle=bundleQueue->Pop())!=NULL) { //is bit 1 set?
-			 //while ()!=NULL) {
 				if (bundleQueue->Count()==0)
 					 bundleWork &= ~(int)0x02; //clear bit 1 (queue is empty)
-				Num_Fragments+=readyBundle->num_fragments;
-				Frag_Len+=readyBundle->frag_len;
+				//Num_Fragments+=readyBundle->num_fragments;
+				//Frag_Len+=readyBundle->frag_len;
 				queueMutex.unlock();
 				processBundle(readyBundle);
 				DBGPRINT2("---->> Thread%d processed bundle, now locking back queueMutex\n", td.thread->get_id());
+				dataMutex.lock();
+				dataClear.Push(readyBundle->idx);
+				dataMutex.unlock();
+				haveClear.notify_one(); //inform main thread
+				this_thread::yield();
 				queueMutex.lock();
 				DBGPRINT2("---->> Thread%d locked back queueMutex\n", td.thread->get_id());
-			// }
+
 		}
+		//haveThreads.notify_one();
 	} //while there is reason to live
 	queueMutex.unlock();
 	DBGPRINT2("---->> Thread%d DONE.\n", td.thread->get_id());
@@ -1017,21 +1259,19 @@ bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount) {
   return (c==0 || c<prevCount);
 }
 
-//prepare the next free bundle for loading
+//prepare the next available bundle slot for loading
 int waitForData(BundleData* bundles) {
 	int bidx=-1;
-	while (bidx<0) {
-	  dataMutex.lock();
-	  if (dataClear.Count()>0) {
-	    bidx=dataClear.Pop();
-	    bundles[bidx].status=BUNDLE_STATUS_LOADING;
-	    dataMutex.unlock();
-	    return bidx;
-	    }
-	  dataMutex.unlock();
-	  this_thread::sleep_for(chrono::milliseconds(20));
+	dataMutex.lock();
+	while (dataClear.Count()==0) {
+		haveClear.wait(dataMutex);
 	}
-	return -1; // should NEVER happen
+	bidx=dataClear.Pop();
+	if (bidx>=0) {
+	  bundles[bidx].status=BUNDLE_STATUS_LOADING;
+	}
+	dataMutex.unlock();
+	return bidx;
 }
 
 #endif

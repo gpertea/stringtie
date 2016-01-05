@@ -9,11 +9,11 @@ echo "-------------------"
 /bin/rm -rf $linpack
 /bin/rm -f $linpack.tar.gz
 mkdir $linpack
-make clean
+make cleanall
 make release
 cp -p LICENSE README stringtie $linpack/
 tar cvfz $linpack.tar.gz $linpack
 ls -l $linpack.tar.gz
 echo "If you're on igmN machines you can also update the web files:"
 echo "cp $linpack.tar.gz $pack.tar.gz  ~/html/software/stringtie/dl/"
-echo "perl -i -pe 's/stringtie\-\d\.\d+\.\d+\./stringtie-$ver./g' ~/html/software/stringtie/index.shtml"
+echo "perl -i -pe 's/stringtie\-\d\.\d+\.\d+\./stringtie-$ver./g' ~/html/software/stringtie/home.shtml"
