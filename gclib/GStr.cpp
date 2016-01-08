@@ -679,17 +679,23 @@ GStr GStr::substr(int idx, int len) const {
     // A negative idx specifies an idx from the right of the string.
     if (idx < 0)
         idx += length();
-
-    // A length of -1 specifies the rest of the string.
-    if (len < 0  || len>length()-idx)
+    else if (idx>=length()) {
+             len=0;
+             idx=length();
+             }
+    if (len) {
+      // A length of -1 specifies the rest of the string.
+      if (len < 0  || len>length()-idx)
         len = length() - idx;
-    
-    if (idx<0 || idx>=length() || len<0 )
+      if (idx<0 || idx>=length() || len<0 )
         invalid_args_error("substr()");
+    }
 
     GStr newstring;
-    newstring.replace_data(len);
-    ::memcpy(newstring.chrs(), &chars()[idx], len);
+    if (len) {
+      newstring.replace_data(len);
+      ::memcpy(newstring.chrs(), &chars()[idx], len);
+    }
     return newstring;
 }
 
