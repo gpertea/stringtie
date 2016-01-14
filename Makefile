@@ -4,7 +4,7 @@ BAM := ./samtools-0.1.18
 
 GDIR :=./gclib
 
-SEARCHDIRS := -I. -I${GDIR} -I${BAM}
+INCDIRS := -I. -I${GDIR} -I${BAM}
 
 #CC := clang++
 CC      := g++
@@ -42,7 +42,7 @@ EXE =
 endif
 
 
-BASEFLAGS  := -Wall -Wextra ${SEARCHDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 \
+BASEFLAGS  := -Wall -Wextra ${INCDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 \
 -D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti -D_DARWIN_C_SOURCE
 
 # C/C++ linker
@@ -65,13 +65,28 @@ endif
 
 ###----- generic build rule
 
-ifneq (,$(findstring release,$(MAKECMDGOALS)))
+#ifneq (,$(findstring release,$(MAKECMDGOALS)))
+ifneq (,$(filter %release %static, $(MAKECMDGOALS)))
+  # -- release build
   CFLAGS := -O3 -DNDEBUG -g $(BASEFLAGS)
   LDFLAGS := -g -L${BAM} ${LFLAGS}
+  ifneq (,$(findstring static,$(MAKECMDGOALS)))
+    LDFLAGS += -static-libstdc++ -static-libgcc
+  endif
 else
-  #make memcheck : use the statically linked address sanitizer in gcc 4.9.x
   ifneq (,$(filter %memcheck %memdebug, $(MAKECMDGOALS)))
+     #make memcheck : use the statically linked address sanitizer in gcc 4.9.x
+     GCCVER49 := $(shell expr `g++ -dumpversion | cut -f1,2 -d.` \>= 4.9)
+     ifeq "$(GCCVER49)" "0"
+       $(error gcc version 4.9 or greater is required for this build target)
+     endif
      CFLAGS := -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
+     GCCVER5 := $(shell expr `g++ -dumpversion | cut -f1 -d.` \>= 5)
+     ifeq "$(GCCVER5)" "1"
+       CFLAGS += -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=vptr
+       CFLAGS += -fsanitize=float-cast-overflow -fsanitize=object-size
+       #CFLAGS += -fcheck-pointer-bounds -mmpx
+     endif
      CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector $(CFLAGS)
      LDFLAGS := -g -L${BAM}
      #LIBS := -Wl,-Bstatic -lasan -lubsan -Wl,-Bdynamic -ldl $(LIBS)
@@ -105,15 +120,9 @@ endif
 
 OBJS += rlink.o tablemaker.o tmerge.o
  
-.PHONY : all debug clean cleanall cleanAll allclean release nothreads
-all:     stringtie
-release: stringtie
-debug:   stringtie
-memcheck: stringtie
-memdebug: stringtie
-memusage:  stringtie
-memuse:    stringtie
-memtrace:  stringtie
+all release static debug: stringtie
+memcheck memdebug: stringtie
+memuse memusage memtrace: stringtie
 nothreads: stringtie
 
 ${GDIR}/GBam.o : $(GDIR)/GBam.h
@@ -125,6 +134,8 @@ ${BAM}/libbam.a:
 	cd ${BAM} && make lib
 stringtie: ${BAM}/libbam.a $(OBJS) stringtie.o
 	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LIBS}
+
+.PHONY : clean cleanall cleanAll allclean
 
 # target for removing all object files
 
