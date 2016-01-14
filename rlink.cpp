@@ -936,6 +936,7 @@ float compute_chi(GArray<float>& winleft, GArray<float>& winright, float sumleft
 		float mur=mul;
 		mul*=sumleft;
 		mur*=sumright;
+		//TODO: float division by zero here, winleft/winright not filled properly?
 		chi+= (winleft[j]-mul)/mul+(winright[j]-mur)/mur;
 	}
 	return(chi);
@@ -7530,11 +7531,9 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 			CTransfrag *trguide=find_guide_pat(guides[g],no2gnode,gno,edgeno,gpos);
 			if(trguide) { // the guide can be found among the graph nodes
 				//CGuide newguide(trguide,guides[g]);
-				CGuide newguide(trguide,g); //TODO: prevent memory leak for newly allocated trguide
+				CGuide newguide(trguide,g);
 				guidetrf.Add(newguide);
-
 				//fprintf(stderr,"Added guidetrf with ID=%s overlapping transcript interval %d - %d\n",guides[g]->getID(),no2gnode[1]->start,no2gnode[gno-2]->end);
-
 				/*
 				{ // DEBUG ONLY
 					fprintf(stderr,"s=%d strand = %c trguide[%d]=",s,strand,g);
@@ -11860,10 +11859,91 @@ void add_pred(GList<CPrediction>& pred,int x,int y, float cov) { // add single e
 
 }
 
-int printMergeResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) {
+int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 	GList<CPrediction>& pred = bundleData->pred;
 	int npred=pred.Count();
 
+	// this version sorts the predictions according to their start and only eliminates predictions that are overlaped by others that are more abundant within the threshold
+	GVec<bool> keep(npred,bool(true));
+	pred.setSorted(predCmp);
+	for(int n=0;n<npred;n++) if(keep[n]){
+		int m=n+1;
+		while(m<npred && pred[m]->start<=pred[n]->end) { // prediction m overlaps prediction n
+			if(keep[m]) {
+				if(!pred[n]->t_eq && pred[n]->cov<isofrac*pred[m]->cov) { // only eliminate prediction if it's not guide
+					keep[n]=false;
+					break;
+				}
+				if(!pred[m]->t_eq && pred[m]->cov<isofrac*pred[n]->cov) keep[m]=false;
+			}
+			m++;
+		}
+	}
+
+	int n=0;
+	while(n<npred) {
+		if(keep[n]){
+			uint currentend=pred[n]->end;
+			int t=0;
+			int m=n;
+			while(m<npred && pred[m]->start<=currentend) {
+				if(keep[m] && pred[m]->geneno ==pred[n]->geneno) { // this is a prediction worth printing
+					if(!t) geneno++;
+					t++;
+					if(pred[m]->end>currentend) currentend=pred[m]->end;
+					GStr trid;
+					if(pred[m]->t_eq) trid=pred[m]->t_eq->getID();
+					else {
+						trid=label+'.';
+						trid+=geneno;
+						trid+='.';
+						trid+=t;
+					}
+
+					fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s\"; ",
+						refname.chars(),pred[m]->start,pred[m]->end,pred[m]->strand,label.chars(),geneno,
+						trid.chars());
+
+					if(pred[m]->t_eq) {
+						//fprintf(f_out,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
+						if (pred[m]->t_eq->getGeneName())
+							fprintf(f_out,"gene_name \"%s\"; ",pred[m]->t_eq->getGeneName());
+						if (pred[m]->t_eq->getGeneID())
+							fprintf(f_out,"ref_gene_id \"%s\"; ",pred[m]->t_eq->getGeneID());
+					}
+					if(enableNames) fprintf(f_out,"input_transcripts \"%s\";\n",pred[m]->mergename.chars());
+					else fprintf(f_out,"\n");
+					for(int j=0;j<pred[m]->exons.Count();j++) {
+						fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s\"; exon_number \"%d\"; ",
+							refname.chars(),pred[m]->exons[j].start,pred[m]->exons[j].end,pred[m]->strand,label.chars(),geneno,
+							trid.chars(),j+1);
+						if(pred[m]->t_eq) {
+							//fprintf(f_out,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
+							if (pred[m]->t_eq->getGeneName())
+								fprintf(f_out,"gene_name \"%s\"; ",pred[m]->t_eq->getGeneName());
+							if (pred[m]->t_eq->getGeneID())
+								fprintf(f_out,"ref_gene_id \"%s\"; ",pred[m]->t_eq->getGeneID());
+						}
+						fprintf(f_out,"\n");
+					}
+					keep[m]=false; // no need to print it again
+				} // end if keep[m]
+				m++;
+			} // end while(m<npred ...)
+		} // end if keep[n]
+		n++;
+	}
+	return(geneno);
+}
+
+/* this version will not always update the geneno correctly; plus it eliminates all transcripts with coverage under thresholds within the gene cluster:
+ * e.g. if t1 overlaps t2, and t2 overlaps t3, but t3 does not overlap t1 but is larger than the isofrac than both t1, and t2 it will eliminate both t1 and t2
+int printMergeResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) {
+
+	GList<CPrediction>& pred = bundleData->pred;
+	int npred=pred.Count();
+
+	//
 	GVec<float> maxabund(ngenes,float(0)); // compute maxabundance for each gene
 	for(int n=0;n<npred;n++) {
 		if(pred[n]->cov>maxabund[pred[n]->geneno]) {
@@ -11920,8 +12000,10 @@ int printMergeResults(BundleData* bundleData, int ngenes, int geneno, GStr& refn
 			}
 		}
 	}
+
 	return(geneno);
 }
+*/
 
 int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) {
 

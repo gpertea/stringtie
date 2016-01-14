@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.2.0"
+#define VERSION "1.2.1"
 
 //#define DEBUGPRINT 1
 
@@ -75,9 +75,9 @@ the following options are available:\n\
   -c <min_cov>     minimum input transcript coverage to include in the merge\n\
                     (default: 0)\n\
   -F <min_fpkm>    minimum input transcript FPKM to include in the merge\n\
-                    (default: 0)\n\
+                    (default: 1.0)\n\
   -T <min_tpm>     minimum input transcript TPM to include in the merge\n\
-                    (default: 0)\n\
+                    (default: 1.0)\n\
   -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
@@ -1132,7 +1132,7 @@ void processBundle(BundleData* bundle) {
 #ifndef NOTHREADS
 		GLockGuard<GFastMutex> lock(printMutex);
 #endif
-		if(mergeMode) GeneNo=printMergeResults(bundle, ngenes,GeneNo,bundle->refseq);
+		if(mergeMode) GeneNo=printMergeResults(bundle, GeneNo,bundle->refseq);
 		else GeneNo=printResults(bundle, ngenes, GeneNo, bundle->refseq);
 	}
 
