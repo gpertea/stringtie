@@ -49,8 +49,8 @@ struct RC_TSeg {
 */
 
 struct RC_Feature { //exon or intron of a reference transcript
-	uint id; //feature id (>0) only used with -B (full Ballgown data)
-	         //it's the index in the global refguides_RC_exons/introns array + 1
+	uint id; //feature id (>0), +1 to the index either in global guides_RC_exons/introns if ballgown,
+	         //                                 or in bundle_RC_exons/introns if not ballgown
 	GVec<uint> t_ids; //transcripts owning this feature
 	 //if -B, this is the index in the global refguides_RC_Data array + 1
 	 // otherwise it is the index in the BundleData::keepguides array + 1
@@ -128,6 +128,25 @@ struct RC_Feature { //exon or intron of a reference transcript
 	 }
 };
 
+//for locus tracking and coverage, keep merged exons/introns in the locus
+struct GSegInfo {
+	int t_id;  //index of RC_TData in the guides_RC_data table + 1
+	int exonum; //exon number
+	GSegInfo(int tid=-1, int en=-1):t_id(tid), exonum(en) { }
+};
+class GMSeg:public GSeg {
+  public:
+    GVec<GSegInfo> msegs; //keep track of exons contributing to this merged exon
+    GMSeg(int l=0, int r=0, int tid=-1, int eno=-1):GSeg(l,r), msegs(tid, eno) {
+    }
+};
+
+//reference locus - formed by exon-overlapping transcripts
+class GRefLocus:public GSeg {
+	GArray<GMSeg> mexons; //merged exons in this locus (from any transcript)
+	GPVec<GffObj> rnas; //transcripts in this locus
+};
+
 struct RC_ExonOvl {
 	RC_Feature* feature; //pointer to an item of RC_BundleData::g_exons
 	int mate_ovl; // = 1 if the mate of this read overlaps the same exon
@@ -167,27 +186,23 @@ struct RC_TData { //storing RC data for a transcript
 	//only used with -B (full Ballgown data)
 	GffObj* ref_t;
 	uint t_id;
-	//GStr t_name; //original GFF ID for the transcript
 	int l;
 	int r;
-	//char strand;
-	//int num_exons;
+	char in_bundle; // 1 if used by read bundles, 2 if it has any direct read overlap
+	GRefLocus* locus; //pointer to a locus info
 	int eff_len;
 	double cov;
 	double fpkm;
 	//char strand;
     GPVec<RC_Feature> t_exons;
     GPVec<RC_Feature> t_introns;
-    //int e_idx_cache;
-    //int i_idx_cache;
 	void rc_addFeatures(uint& c_e_id, GList<RC_Feature>& fexons, GPVec<RC_Feature>& edata,
 	                      uint& c_i_id, GList<RC_Feature>& fintrons, GPVec<RC_Feature>& idata);
 	void addFeature(int fl, int fr, GPVec<RC_Feature>& fvec, uint& f_id,
 			          GList<RC_Feature>& fset, GPVec<RC_Feature>& fdata,
 					  int& cache_idx);
-	RC_TData(GffObj& s, uint id=0):ref_t(&s), t_id(id), l(s.start), r(s.end), //t_name(s.getID()),
-			//num_exons(s.exons.Count()),
-			eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
+	RC_TData(GffObj& s, uint id=0):ref_t(&s), t_id(id), l(s.start), r(s.end),
+			in_bundle(0), locus(NULL), eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
 			t_exons(false), t_introns(false) { //, e_idx_cache(-1), i_idx_cache(-1) {
 	}
 
@@ -196,7 +211,6 @@ struct RC_TData { //storing RC data for a transcript
     	if (r != o.r) return (r < o.r);
     	if (char c=(ref_t->strand - o.ref_t->strand)) return (c<0);
 	    return (strcmp(ref_t->getID(), o.ref_t->getID())<0);
-		//return false;
     }
     bool operator==(const RC_TData& o) const {
     	if (t_id!=0 && o.t_id!=0) return (t_id==o.t_id);
@@ -236,8 +250,8 @@ struct RC_BundleData {
  int rmax;
  GPVec<RC_TData> g_tdata; //raw counting data for all transcripts in this bundle
  // RC_TData::t_id-1 = the element index in this array
- GList<RC_Feature> g_exons; //set of guide exons in this bundle, sorted by their start coordinate
- GList<RC_Feature> g_introns; //set of guide introns in this bundle, sorted by their start coordinate
+ GList<RC_Feature> g_exons; //set of guide exons in this bundle, sorted by start coordinate
+ GList<RC_Feature> g_introns; //set of guide introns in this bundle, sorted by start coordinate
  //RC_FeatIt xcache; //cache the first exon overlapping xcache_pos to speed up exon-overlap queries (findOvlExons())
  int xcache; //exons index of the first exon overlapping xcache_pos
  int xcache_pos; // left coordinate of last cached exon overlap query (findOvlExons())
@@ -250,10 +264,11 @@ struct RC_BundleData {
 
  //-- when no global Ballgown data is to be generated, these are
  // local (bundle) stable order tables of guide features
- GPVec<RC_TData>* guides_RC_tdata; //just a pointer to the current RC tdata table
+ GPVec<RC_TData>* bundle_RC_tdata; //pointer to the global RC tdata table
    // RC_Feature::id-1 = the index in these arrays:
- GPVec<RC_Feature>* guides_RC_exons;
- GPVec<RC_Feature>* guides_RC_introns;
+ GPVec<RC_Feature>* bundle_RC_exons;  //pointers to global (if ballgown)
+ GPVec<RC_Feature>* bundle_RC_introns;// OR local exon/intron RC data
+ //local exon/intron ids within the bundle
  uint c_exon_id;
  uint c_intron_id;
  //--
@@ -263,16 +278,18 @@ struct RC_BundleData {
 	           // features:(sorted, free, unique)
 	 g_exons(true, false, true), g_introns(true, false, true),
 			 xcache(0), xcache_pos(0),
-			 guides_RC_tdata(rc_tdata), guides_RC_exons(rc_exons), guides_RC_introns(rc_introns),
+			 bundle_RC_tdata(rc_tdata), bundle_RC_exons(rc_exons), bundle_RC_introns(rc_introns),
 			 c_exon_id(0), c_intron_id(0)
  {
 	 if (ballgown) {
 		 if (rmax>lmin) updateCovSpan();
 	 }else {
-		 g_tdata.setFreeItem(true);
-		 guides_RC_tdata   = &g_tdata;
-		 guides_RC_exons  = new GPVec<RC_Feature>(true);
-		 guides_RC_introns= new GPVec<RC_Feature>(true);
+		 //g_tdata.setFreeItem(true);
+		 //guides_RC_tdata   = &g_tdata;
+		 //-- override the passed rc_exons/rc_introns if not ballgown
+		 //-- because these are now locally maintained so they'll be deallocated with the bundle
+		 bundle_RC_exons  = new GPVec<RC_Feature>(true);
+		 bundle_RC_introns= new GPVec<RC_Feature>(true);
 	 }
  }
 
@@ -282,72 +299,46 @@ struct RC_BundleData {
 	 r_cov.clear();
 	 r_mcov.clear();
 	 if (!ballgown) {
-		 delete guides_RC_exons;
-		 delete guides_RC_introns;
+		 delete bundle_RC_exons;
+		 delete bundle_RC_introns;
 	 }
  }
 
- //for non-ballgown tracking of guide features
- /*
- void addTranscriptFeature(uint fstart, uint fend, char fstrand, GList<RC_Feature>& flist, GffObj& t) {
-	uint tidx=(uint)t.udata; //in non-Ballgown case, this is the index in the BundleData::keepguides array + 1
-	RC_Feature* feat=new RC_Feature(fstart, fend, fstrand, 0, tidx);
-	int fidx=-1;
-	RC_Feature* p=flist.AddIfNew(feat, true, &fidx);
-	if (p==feat) {//exon never seen before
-		//TODO: use some stable e_id index here and assign it to t.exons[eidx]->uptr->e_id (?) for quick retrieval
-	} else {//exon seen before, just update t_id list
-		p->t_ids.Add(tidx);
-	}
- }
-*/
- uint addTranscript(GffObj& t) { //shouuld return the guide index in *guides_RC_tdata
-   //if (!ps.rc_id_data()) return;
-   //RC_ScaffIds& sdata = *(ps.rc_id_data());
-  bool boundary_changed=false;
-  if (lmin==0 || lmin>(int)t.start) { lmin=t.start; boundary_changed=true; }
-  if (rmax==0 || rmax<(int)t.end) { rmax=t.end; boundary_changed=true; }
-  RC_TData* tdata=NULL;
+ uint addTranscript(GffObj& t) { //should return the guide index in *guides_RC_tdata
+	bool boundary_changed=false;
+	if (lmin==0 || lmin>(int)t.start) { lmin=t.start; boundary_changed=true; }
+	if (rmax==0 || rmax<(int)t.end) { rmax=t.end; boundary_changed=true; }
+	GASSERT(t.uptr); //we should always have a RC_TData for each guide
+	RC_TData* tdata=(RC_TData*)(t.uptr);
+  /*RC_TData* tdata=NULL;
   if (ballgown) {
-	  tdata=(RC_TData*)(t.uptr);
+     tdata=(RC_TData*)(t.uptr);
   }
   else {
-	  //int c_tid=g_tdata.Count();
-	  //add RC transcript data locally for the bundle
-	   tdata=new RC_TData(t, g_tdata.Count()+1);
-	   t.uptr=tdata;
-	   //guides_RC_Data.Add(tdata);
-	   tdata->rc_addFeatures(c_exon_id, g_exons, *guides_RC_exons,
-			   c_intron_id, g_introns, *guides_RC_introns);
-  }
-  //if (ballgown) { //ballgown case
-	   //RC_TData& sdata=*(RC_TData*)(t.uptr);
-	   g_tdata.Add(tdata);
-	   if (ballgown) {
-		   if (boundary_changed) updateCovSpan();
-		   //need to add exons and introns because rc_addFeatures()
-		   // was NOT using g_exons and g_introns as unique sets if ballgown
-		   for (int i=0;i<tdata->t_exons.Count();i++) {
-			 g_exons.Add(tdata->t_exons[i]);
-		   }
-		   for (int i=0;i<tdata->t_introns.Count();i++) {
-			   g_introns.Add(tdata->t_introns[i]);
-		   }
+    //add RC transcript data locally for the bundle
+    tdata=new RC_TData(t, g_tdata.Count()+1);
+    t.uptr=tdata;
+      //guides_RC_Data.Add(tdata);
+      tdata->rc_addFeatures(c_exon_id, g_exons, *guides_RC_exons,
+        c_intron_id, g_introns, *guides_RC_introns);
+  }*/
+	g_tdata.Add(tdata);
+	if (ballgown) {
+	   if (boundary_changed) updateCovSpan();
+	   //rc_addFeatures() called before, but we still need to add exons
+	   // and introns to the local sets: g_exons, g_introns
+	   for (int i=0;i<tdata->t_exons.Count();i++) {
+		 g_exons.Add(tdata->t_exons[i]);
 	   }
-   //} //if ballgown
-  /*
-   else { //non-ballgown, regular storage of bundle guides data
-	   //use GffObj::udata as tid, it's the index in bundledata::keepguides
-	   for (int i=0;i<t.exons.Count();++i) {
-           addTranscriptFeature(t.exons[i]->start, t.exons[i]->end, t.strand, g_exons, t);
-		   if (i>0) {
-			 //add intron
-			 addTranscriptFeature(t.exons[i-1]->end+1, t.exons[i]->start-1, t.strand, g_introns, t);
-		   }
+	   for (int i=0;i<tdata->t_introns.Count();i++) {
+		   g_introns.Add(tdata->t_introns[i]);
 	   }
-   } //no ballgown coverage
-  */
-  return tdata->t_id;
+	}
+	else {
+		tdata->rc_addFeatures(c_exon_id, g_exons, *bundle_RC_exons,
+		        c_intron_id, g_introns, *bundle_RC_introns);
+	}
+ return tdata->t_id;
  }
 
  void updateCovSpan() {
