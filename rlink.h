@@ -36,6 +36,7 @@ extern bool debugMode;
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
   GList<GffObj> rnas; //all transcripts on this genomic seq
+  GList<GRefLocus> loci;
   int gseq_id;
   const char* gseq_name;
    //GList<GTData> tdata; //transcript data (uptr holder for all rnas loaded here)
@@ -60,6 +61,7 @@ struct GRefData {
      }
      rnas.Add(t);
      t->isUsed(true);
+     //setLocus(t); //use the GRefLocus::mexons to quickly find an overlap with existing loci, or create a new one
   }
 
   bool operator==(GRefData& d){
