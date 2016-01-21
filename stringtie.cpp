@@ -255,7 +255,7 @@ int main(int argc, char * const argv[]) {
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
 
  //table indexes for Ballgown Raw Counts data (-B/-b option)
- GPVec<RC_TData> guides_RC_tdata(true); //raw count data for all guide transcripts
+ GPVec<RC_TData> guides_RC_tdata(true); //raw count data or other info for all guide transcripts
  GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
  GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
 
@@ -321,10 +321,11 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		    			m->getID(),m->start, m->end);
 		    m->exons.Add(new GffExon(m->start, m->end));
 	   }
+	   //TODO: always keep a RC_TData pointer around, with additional info about guides
+	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
+	   m->uptr=tdata;
+	   guides_RC_tdata.Add(tdata);
 	   if (ballgown) {
-		   RC_TData* tdata=new RC_TData(*m, ++c_tid);
-		   m->uptr=tdata;
-		   guides_RC_tdata.Add(tdata);
 		   tdata->rc_addFeatures(c_exon_id, uexons, guides_RC_exons,
 		          c_intron_id, uintrons, guides_RC_introns);
 	   }
