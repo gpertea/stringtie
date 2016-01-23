@@ -36,7 +36,7 @@ extern bool debugMode;
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
   GList<GffObj> rnas; //all transcripts on this genomic seq
-  GList<GRefLocus> loci;
+  //GList<GRefLocus> loci;
   int gseq_id;
   const char* gseq_name;
    //GList<GTData> tdata; //transcript data (uptr holder for all rnas loaded here)
@@ -44,7 +44,6 @@ struct GRefData {
     gseq_id=gid;
     if (gseq_id>=0)
        gseq_name=GffObj::names->gseqs.getName(gseq_id);
-
   }
 
   void add(GffReader* gffr, GffObj* t) {
