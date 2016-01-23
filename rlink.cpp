@@ -112,7 +112,7 @@ void cov_add(GVec<float>* bpcov, int sno, int i, int j, float v) {
 	if(sno!=1) neutral=true;
 	if (j>=bpcov[sno].Count())
 		for(int s=0;s<3;s++) bpcov[s].Resize(j+1, 0);
-	for (int k=i;k<j;k++) {
+	for (int k=i;k<=j;k++) {
 		bpcov[sno][k]+=v;
 		if(neutral) bpcov[1][k]+=v;
 	}
@@ -396,12 +396,12 @@ void set_strandcol(CGroup *prevgroup, CGroup *group, int grcol, GVec<int>& eqcol
 
 }
 
-void add_group_to_bundle(CGroup *group, CBundle *bundle, GPVec<CBundlenode>& bnode){
+void add_group_to_bundle(CGroup *group, CBundle *bundle, GPVec<CBundlenode>& bnode, uint bundledist){
 
 	CBundlenode *currlastnode=bnode[bundle->lastnodeid];
 	int bid=bnode.Count();
 
-	if(group->start > currlastnode->end) { // group after last bnode
+	if(group->start > currlastnode->end + bundledist) { // group after last bnode
 		CBundlenode *currbnode=new CBundlenode(group->start,group->end,group->cov_sum,bid);
 		currlastnode->nextnode=currbnode;
 		bnode.Add(currbnode);
@@ -411,7 +411,7 @@ void add_group_to_bundle(CGroup *group, CBundle *bundle, GPVec<CBundlenode>& bno
 		bundle->nread+=group->nread;
 		bundle->multi+=group->multi;
 	}
-	else { // group overlaps bnode
+	else { // group overlaps bnode within bundledist
 		if(currlastnode->end < group->end) {
 		    bundle->len+= group->end - currlastnode->end;
 		    currlastnode->end= group->end;
@@ -937,7 +937,8 @@ float compute_chi(GArray<float>& winleft, GArray<float>& winright, float sumleft
 		mul*=sumleft;
 		mur*=sumright;
 		//TODO: float division by zero here, winleft/winright not filled properly?
-		chi+= (winleft[j]-mul)/mul+(winright[j]-mur)/mur;
+		if(mul) chi+= (winleft[j]-mul)/mul;
+		if(mur) chi+=(winright[j]-mur)/mur;
 	}
 	return(chi);
 }
@@ -963,16 +964,23 @@ void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint
 
 	for(uint i=start;i<=end;i++) {
 
+		cov=bpcov[sno][i-refstart];
+		if(bpcov[1][i-refstart]>cov) cov+=(bpcov[1][i-refstart]-bpcov[0][i-refstart]-bpcov[2][i-refstart])/bpcov[1][i-refstart];
+
+		/*
+		{ // DEBUG ONLY
+			if(cov==0) {
+				fprintf(stderr,"sno=%d start=%d end=%d bpcov[0,1,2][%d]=%g, %g, %g\n",sno,start,end,i,bpcov[0][i-refstart],bpcov[1][i-refstart],bpcov[2][i-refstart]);
+			}
+		}
+		*/
+
 		if(i-start<2*CHI_WIN-1)  { // I have to compute the sumleft and sumright first
 			if(i-start<CHI_WIN) {
-				cov=bpcov[sno][i-refstart];
-				if(bpcov[1][i-refstart]>cov) cov+=(bpcov[1][i-refstart]-bpcov[0][i-refstart]-bpcov[2][i-refstart])/bpcov[1][i-refstart];
 				sumleft+=cov;
 				winleft.Add(cov);
 			}
 			else {
-				cov=bpcov[sno][i-refstart];
-				if(bpcov[1][i-refstart]>cov) cov+=(bpcov[1][i-refstart]-bpcov[0][i-refstart]-bpcov[2][i-refstart])/bpcov[1][i-refstart];
 				sumright+=cov;
 				winright.Add(cov);
 				if(i-start==2*CHI_WIN-2) {
@@ -982,8 +990,6 @@ void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint
 			}
 	    }
 	    else { // I can do the actual sumleft, sumright comparision
-			cov=bpcov[sno][i-refstart];
-			if(bpcov[1][i-refstart]>cov) cov+=(bpcov[1][i-refstart]-bpcov[0][i-refstart]-bpcov[2][i-refstart])/bpcov[1][i-refstart];
 	    	sumright+=cov;
 			winright.Add(cov);
 
@@ -9271,7 +9277,6 @@ int build_graphs(BundleData* bdata, bool fast) {
 
 					GStr bstart((int)lastgroup->end);
 			    	GStr bend((int)procgroup->start);
-
 			    	if(!boundaryleft[bstart.chars()] && !boundaryright[bend.chars()] && (procgroup->start-lastgroup->end<=bundledist ||
 						(guides.Count()  && guide_exon_overlap(guides,sno,lastgroup->end,procgroup->start)))) {
 
@@ -9358,15 +9363,16 @@ int build_graphs(BundleData* bdata, bool fast) {
 
 		if(nextgr == 1) { // unknown strand group
 
-			if(prevgroup[0]!=NULL && currgroup[nextgr]->start <= prevgroup[0]->end) { // overlaps previous negative group
+			if(prevgroup[0]!=NULL && currgroup[nextgr]->start <= prevgroup[0]->end+bundledist) { // overlaps previous negative group ; this needs bundledist
 				//fprintf(stderr,"\tovlp to neg group: %u-%u\n",prevgroup[0]->start,prevgroup[0]->end);
 				set_strandcol(currgroup[nextgr],prevgroup[0],prevgroup[0]->color,eqnegcol,equalcolor);
 				uint maxstart = currgroup[nextgr]->start > prevgroup[0]->start ? currgroup[nextgr]->start : prevgroup[0]->start;
 				uint minend = currgroup[nextgr]->end < prevgroup[0]->end ? currgroup[nextgr]->end : prevgroup[0]->end;
+				if(minend<maxstart) minend=maxstart; // this can only happen if bundledist >0
 				currgroup[nextgr]->neg_prop+=prevgroup[0]->cov_sum*(minend-maxstart+1)/prevgroup[0]->len();
 			}
 
-			while(currgroup[0]!=NULL && currgroup[nextgr]->start <= currgroup[0]->end && currgroup[0]->start <= currgroup[nextgr]->end) { // overlaps current negative strand group
+			while(currgroup[0]!=NULL && currgroup[nextgr]->start <= currgroup[0]->end+bundledist && currgroup[0]->start <= currgroup[nextgr]->end +bundledist) { // overlaps current negative strand group
 				//fprintf(stderr,"\tovlp to neg group: %u-%u\n",currgroup[0]->start,currgroup[0]->end);
 
 				int grcol = currgroup[0]->color;    // set smallest color for currgroup[$nextgr]
@@ -9379,6 +9385,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 				set_strandcol(currgroup[nextgr],currgroup[0],currgroup[0]->color,eqnegcol,equalcolor);
 				uint maxstart = currgroup[nextgr]->start > currgroup[0]->start ? currgroup[nextgr]->start : currgroup[0]->start;
 				uint minend = currgroup[nextgr]->end < currgroup[0]->end ? currgroup[nextgr]->end : currgroup[0]->end;
+				if(minend<maxstart) minend=maxstart;
 				currgroup[nextgr]->neg_prop+=currgroup[0]->cov_sum*(minend-maxstart+1)/currgroup[0]->len();
 
 
@@ -9387,17 +9394,18 @@ int build_graphs(BundleData* bdata, bool fast) {
 			}
 
 			float pos_prop=0;
-			if(prevgroup[2]!=NULL && currgroup[nextgr]->start <= prevgroup[2]->end) { // overlaps positive strand group
+			if(prevgroup[2]!=NULL && currgroup[nextgr]->start <= prevgroup[2]->end + bundledist) { // overlaps positive strand group
 				//fprintf(stderr,"\tovlp to pos group: %u-%u\n",prevgroup[2]->start,prevgroup[2]->end);
 				set_strandcol(currgroup[nextgr],prevgroup[2],prevgroup[2]->color,eqposcol,equalcolor);
 				if(currgroup[nextgr]->neg_prop) {
 					uint maxstart = currgroup[nextgr]->start > prevgroup[2]->start ? currgroup[nextgr]->start : prevgroup[2]->start;
 					uint minend = currgroup[nextgr]->end < prevgroup[2]->end ? currgroup[nextgr]->end : prevgroup[2]->end;
+					if(minend<maxstart) minend=maxstart; // this can only happen if bundledist >0
 					pos_prop+=prevgroup[2]->cov_sum*(minend-maxstart+1)/prevgroup[2]->len();
 				}
 			}
 
-			while(currgroup[2]!=NULL && currgroup[nextgr]->start <= currgroup[2]->end && currgroup[2]->start <= currgroup[nextgr]->end) { // overlaps positive strand group
+			while(currgroup[2]!=NULL && currgroup[nextgr]->start <= currgroup[2]->end +bundledist && currgroup[2]->start <= currgroup[nextgr]->end + bundledist) { // overlaps positive strand group
 				//fprintf(stderr,"\tovlp to pos group: %u-%u\n",currgroup[2]->start,currgroup[2]->end);
 
 				int grcol = currgroup[2]->color;    // set smallest color for currgroup[$nextgr]
@@ -9410,6 +9418,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 				if(currgroup[nextgr]->neg_prop) {
 					uint maxstart = currgroup[nextgr]->start > currgroup[2]->start ? currgroup[nextgr]->start : currgroup[2]->start;
 					uint minend = currgroup[nextgr]->end < currgroup[2]->end ? currgroup[nextgr]->end : currgroup[2]->end;
+					if(minend<maxstart) minend=maxstart; // this can only happen if bundledist >0
 					pos_prop+=currgroup[2]->cov_sum*(minend-maxstart+1)/currgroup[2]->len();
 				}
 
@@ -9546,7 +9555,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 			int bno=bundlecol[grcol];
 
 			if(bno>-1) { // bundle for group has been created before
-				add_group_to_bundle(currgroup[nextgr],bundle[nextgr][bno],bnode[nextgr]);
+				add_group_to_bundle(currgroup[nextgr],bundle[nextgr][bno],bnode[nextgr],bundledist);
 			}
 			else { // create new bundle
 				bno=create_bundle(bundle[nextgr],currgroup[nextgr],bnode[nextgr]);
@@ -9571,7 +9580,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 				int bno=bundlecol[negcol];
 				if(bno>-1) { // bundle for group has been created before
 					// print STDERR "Add neutral group ",$currgroup[$nextgr][3]," to neg bundle $bno\n";
-					add_group_to_bundle(currgroup[nextgr],bundle[0][bno],bnode[0]);
+					add_group_to_bundle(currgroup[nextgr],bundle[0][bno],bnode[0],bundledist); // this needs bundledist
 				}
 				else { // create new bundle
 					bno=create_bundle(bundle[0],currgroup[nextgr],bnode[0]);
@@ -9594,7 +9603,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 				int bno=bundlecol[poscol];
 				if(bno>-1) { // bundle for group has been created before
 					//print STDERR "Add neutral group ",$currgroup[$nextgr][3]," to pos bundle $bno\n";
-					add_group_to_bundle(currgroup[nextgr],bundle[2][bno],bnode[2]);
+					add_group_to_bundle(currgroup[nextgr],bundle[2][bno],bnode[2],bundledist);
 				}
 				else { // create new bundle
 					bno=create_bundle(bundle[2],currgroup[nextgr],bnode[2]);
@@ -10354,7 +10363,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 			int bno=bundlecol[grcol];
 
 			if(bno>-1) { // bundle for group has been created before
-				add_group_to_bundle(currgroup[nextgr],bundle[nextgr][bno],bnode[nextgr]);
+				add_group_to_bundle(currgroup[nextgr],bundle[nextgr][bno],bnode[nextgr],bundledist);
 			}
 			else { // create new bundle
 				bno=create_bundle(bundle[nextgr],currgroup[nextgr],bnode[nextgr]);
@@ -10375,7 +10384,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 				int bno=bundlecol[negcol];
 				if(bno>-1) { // bundle for group has been created before
 					// print STDERR "Add neutral group ",$currgroup[$nextgr][3]," to neg bundle $bno\n";
-					add_group_to_bundle(currgroup[nextgr],bundle[0][bno],bnode[0]);
+					add_group_to_bundle(currgroup[nextgr],bundle[0][bno],bnode[0],bundledist);
 				}
 				else { // create new bundle
 					bno=create_bundle(bundle[0],currgroup[nextgr],bnode[0]);
@@ -10394,7 +10403,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 				int bno=bundlecol[poscol];
 				if(bno>-1) { // bundle for group has been created before
 					//print STDERR "Add neutral group ",$currgroup[$nextgr][3]," to pos bundle $bno\n";
-					add_group_to_bundle(currgroup[nextgr],bundle[2][bno],bnode[2]);
+					add_group_to_bundle(currgroup[nextgr],bundle[2][bno],bnode[2],bundledist);
 				}
 				else { // create new bundle
 					bno=create_bundle(bundle[2],currgroup[nextgr],bnode[2]);
@@ -12287,7 +12296,7 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 				fprintf(f_out,"%s\t",refgene[i].geneID);
 				if(refgene[i].geneName) fprintf(f_out,"%s\t",refgene[i].geneName);
 				else fprintf(f_out,"-\t");
-				fprintf(f_out,"%c\t%d\t%d\t%d\t%.6f\n",refgene[i].strand,refgene[i].start,refgene[i].end,glen,refgene[i].cov);
+				fprintf(f_out,"%s\t%c\t%d\t%d\t%d\t%.6f\n",refname.chars(),refgene[i].strand,refgene[i].start,refgene[i].end,glen,refgene[i].cov);
 			}
 		}
 	}
@@ -12321,7 +12330,7 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 				fprintf(f_out,"0 1 %d 0 %.6f\n",glen, predgene[i].covsum);
 				fprintf(f_out,"%s.%d\t",label.chars(),startgno+i);
 				fprintf(f_out,"-\t");
-				fprintf(f_out,"%c\t%d\t%d\t%d\t%.6f\n",predgene[i].strand,predgene[i].start,predgene[i].end,glen,predgene[i].cov);
+				fprintf(f_out,"%s\t%c\t%d\t%d\t%d\t%.6f\n",refname.chars(),predgene[i].strand,predgene[i].start,predgene[i].end,glen,predgene[i].cov);
 			}
 		}
 	}
