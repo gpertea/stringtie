@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.2.1"
+#define VERSION "1.2.2"
 
 //#define DEBUGPRINT 1
 
@@ -223,6 +223,8 @@ char* sprintTime();
 
 void processBundle(BundleData* bundle);
 //void processBundle1stPass(BundleData* bundle); //two-pass testing
+
+void writeUnbundledGuides(GVec<GRefData>& refdata, const FILE* fout, const FILE* gout);
 
 #ifndef NOTHREADS
 
@@ -626,13 +628,17 @@ if (ballgown)
 			  // *brec, strand, nh, hi);
      }
  } //for each read alignment
- if (guided && no_ref_used)
-    GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
-    		"Please make sure the -G annotation file uses the same naming convention for the genome sequences.\n");
+
  //cleaning up
  delete brec;
  //bamreader.bclose();
  bamreader.stop(); //close all BAM files
+
+ if (guided && no_ref_used) {
+	    GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
+	    		"Please make sure the -G annotation file uses the same naming convention for the genome sequences.\n");
+ }
+
 #ifndef NOTHREADS
  for (int t=0;t<num_cpus;t++)
 	 threads[t].join();
@@ -679,11 +685,11 @@ if(!mergeMode) {
 		g_out=fopen(genefname.chars(),"w");
 		if (g_out==NULL)
 			GError("Error creating gene abundance output file %s\n", genefname.chars());
-		fprintf(g_out,"Gene ID\tGene Name\tStrand\tStart\tEnd\tLength\tCoverage\tFPKM\tTPM\n");
+		fprintf(g_out,"Gene ID\tGene Name\tReference\tStrand\tStart\tEnd\tLength\tCoverage\tFPKM\tTPM\n");
 	}
 
-	FILE* t_out=fopen(tmpfname.chars(),"rt");
-	if (t_out!=NULL) {
+	FILE* ftmp_in=fopen(tmpfname.chars(),"rt");
+	if (ftmp_in!=NULL) {
 		char* linebuf=NULL;
 		int linebuflen=5000;
 		GMALLOC(linebuf, linebuflen);
@@ -695,7 +701,7 @@ if(!mergeMode) {
 		float calc_fpkm;
 		float calc_tpm;
 		int t_id;
-		while(fgetline(linebuf,linebuflen,t_out)) {
+		while(fgetline(linebuf,linebuflen,ftmp_in)) {
 			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
 			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
 			calc_fpkm=tcov*1000000000/Frag_Len;
@@ -712,7 +718,7 @@ if(!mergeMode) {
 					guides_RC_tdata[t_id-1]->cov=tcov;
 				}
 				for(int i=0;i<nl;i++) {
-					fgetline(linebuf,linebuflen,t_out);
+					fgetline(linebuf,linebuflen,ftmp_in);
 					if(!i) {
 						//linebuf[strlen(line)-1]='\0';
 						fprintf(f_out,"%s",linebuf);
@@ -724,12 +730,15 @@ if(!mergeMode) {
 				}
 			}
 			else { // this is a gene -> different file pointer
-				fgetline(linebuf,linebuflen,t_out);
-				fprintf(g_out,"%s\t%.6f\t%.6f\n",linebuf,calc_fpkm,calc_tpm);
+				fgetline(linebuf, linebuflen, ftmp_in);
+				fprintf(g_out, "%s\t%.6f\t%.6f\n", linebuf, calc_fpkm, calc_tpm);
 			}
 		}
+		if (guided) {
+			writeUnbundledGuides(refguides, f_out, g_out);
+		}
 		fclose(f_out);
-		fclose(t_out);
+		fclose(ftmp_in);
 		if(geneabundance) fclose(g_out);
 		GFREE(linebuf);
 		if (!keepTempFiles) {
@@ -1274,5 +1283,24 @@ int waitForData(BundleData* bundles) {
 	dataMutex.unlock();
 	return bidx;
 }
+
+void writeUnbundledGuides(GVec<GRefData>& refdata, const FILE* fout, const FILE* gout) {
+ for (int g=0;g<refdata.Count();++g) {
+	 GRefData& crefd=refdata[g];
+	 if (crefd.rnas.Count()==0) continue;
+	 GHash<CGene> geneabs; //gene_id abundances (all zero), accumulating coords
+	 for (int i=0;i<crefd.rnas.Count();++i) {
+		 GffObj &t = *crefd.rnas[i];
+		 RC_TData &td = *(RC_TData*) (t.uptr);
+		 if (td.in_bundle) continue;
+		 //TODO: write these guides to output
+		 //      for -e and --merge
+		 //     and collect gene_id coords
+
+	 }
+ }
+}
+
+
 
 #endif

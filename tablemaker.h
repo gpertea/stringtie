@@ -127,7 +127,7 @@ struct RC_Feature { //exon or intron of a reference transcript
         }
 	 }
 };
-
+/*
 //for locus tracking and coverage, keep merged exons/introns in the locus
 struct GSegInfo {
 	int t_id;  //index of RC_TData in the guides_RC_data table + 1
@@ -146,6 +146,7 @@ class GRefLocus:public GSeg {
 	GArray<GMSeg> mexons; //merged exons in this locus (from any transcript)
 	GPVec<GffObj> rnas; //transcripts in this locus
 };
+*/
 
 struct RC_ExonOvl {
 	RC_Feature* feature; //pointer to an item of RC_BundleData::g_exons
@@ -189,7 +190,7 @@ struct RC_TData { //storing RC data for a transcript
 	int l;
 	int r;
 	char in_bundle; // 1 if used by read bundles, 2 if it has any direct read overlap
-	GRefLocus* locus; //pointer to a locus info
+	//GRefLocus* locus; //pointer to a locus info
 	int eff_len;
 	double cov;
 	double fpkm;
@@ -202,7 +203,7 @@ struct RC_TData { //storing RC data for a transcript
 			          GList<RC_Feature>& fset, GPVec<RC_Feature>& fdata,
 					  int& cache_idx);
 	RC_TData(GffObj& s, uint id=0):ref_t(&s), t_id(id), l(s.start), r(s.end),
-			in_bundle(0), locus(NULL), eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
+			in_bundle(0), eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
 			t_exons(false), t_introns(false) { //, e_idx_cache(-1), i_idx_cache(-1) {
 	}
 
@@ -310,6 +311,7 @@ struct RC_BundleData {
 	if (rmax==0 || rmax<(int)t.end) { rmax=t.end; boundary_changed=true; }
 	GASSERT(t.uptr); //we should always have a RC_TData for each guide
 	RC_TData* tdata=(RC_TData*)(t.uptr);
+	tdata->in_bundle=1; //tag this guide
   /*RC_TData* tdata=NULL;
   if (ballgown) {
      tdata=(RC_TData*)(t.uptr);
