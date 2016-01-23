@@ -325,7 +325,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
 	   m->uptr=tdata;
 	   guides_RC_tdata.Add(tdata);
-	   if (ballgown) {
+	   if (ballgown) { //already gather exon & intron info for all ref transcripts
 		   tdata->rc_addFeatures(c_exon_id, uexons, guides_RC_exons,
 		          c_intron_id, uintrons, guides_RC_introns);
 	   }
