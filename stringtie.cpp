@@ -224,7 +224,7 @@ char* sprintTime();
 void processBundle(BundleData* bundle);
 //void processBundle1stPass(BundleData* bundle); //two-pass testing
 
-void writeUnbundledGuides(GVec<GRefData>& refdata, const FILE* fout, const FILE* gout);
+void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout=NULL);
 
 #ifndef NOTHREADS
 
@@ -658,11 +658,14 @@ if (ballgown)
 #ifdef B_DEBUG
  fclose(dbg_out);
 #endif
- //if (f_out && f_out!=stdout) fclose(f_out);
+ if (mergeMode && guided )
+	 writeUnbundledGuides(refguides, f_out);
+
  fclose(f_out);
  if (c_out && c_out!=stdout) fclose(c_out);
 
- if(verbose) GMessage("Total number of records without the XS tag: %d\n",no_xs);
+ if(verbose)
+	 GMessage("Total number of records without the XS tag: %d\n",no_xs);
 
 if(!mergeMode) {
 	if(verbose) {
@@ -1284,19 +1287,82 @@ int waitForData(BundleData* bundles) {
 	return bidx;
 }
 
-void writeUnbundledGuides(GVec<GRefData>& refdata, const FILE* fout, const FILE* gout) {
+void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
  for (int g=0;g<refdata.Count();++g) {
 	 GRefData& crefd=refdata[g];
 	 if (crefd.rnas.Count()==0) continue;
-	 GHash<CGene> geneabs; //gene_id abundances (all zero), accumulating coords
-	 for (int i=0;i<crefd.rnas.Count();++i) {
-		 GffObj &t = *crefd.rnas[i];
+	 GHash<CGene> geneabs;
+	 //gene_id abundances (0), accumulating coords
+	 for (int m=0;m<crefd.rnas.Count();++m) {
+		 GffObj &t = *crefd.rnas[m];
 		 RC_TData &td = *(RC_TData*) (t.uptr);
 		 if (td.in_bundle) continue;
-		 //TODO: write these guides to output
-		 //      for -e and --merge
-		 //     and collect gene_id coords
-
+		 //write these guides to output
+		 //for --merge and -e
+		 if (mergeMode || eonly) {
+			  fprintf(fout, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\ttranscript_id \"%s\";",
+					  crefd.gseq_name, t.getTrackName(), t.start, t.end, t.strand, t.getID());
+			  if (t.getGeneID())
+				  fprintf(fout, " gene_id \"%s\";", t.getGeneID());
+			  if (eonly) {
+				if (t.getGeneName())
+					  fprintf(fout, " ref_gene_name \"%s\";", t.getGeneName());
+			    fprintf(fout, " cov \"0.0\"; FPKM \"0.0\"; TPM \"0.0\";");
+			  }
+			  else { //merge_mode
+				  if (t.getGeneName())
+					  fprintf(fout, " gene_name \"%s\";", t.getGeneName());
+				  if (t.getGeneID())
+					  fprintf(fout, " ref_gene_id \"%s\";", t.getGeneID());
+			  }
+			  fprintf(fout, "\n");
+			  for (int e=0;e<t.exons.Count();++e) {
+				  fprintf(fout,"%s\t%s\texon\t%d\t%d\t.\t%c\t.\ttranscript_id \"%s\"; exon_number \"%d\";",
+						  crefd.gseq_name, t.getTrackName(), t.exons[e]->start, t.exons[e]->end, t.strand,
+						  t.getID(), e+1);
+				  if (t.getGeneID())
+					  fprintf(fout, " gene_id \"%s\";",  t.getGeneID());
+				  if (eonly) {
+					  if (t.getGeneName())
+						  fprintf(fout, " ref_gene_name \"%s\";", t.getGeneName());
+					  fprintf(fout, " cov \"0.0\";");
+				  }
+				  else { //mergeMode
+					  if (t.getGeneName())
+						  fprintf(fout, " gene_name \"%s\";", t.getGeneName());
+					  if (t.getGeneID())
+						  fprintf(fout, " ref_gene_id \"%s\";",  t.getGeneID());
+				  }
+				  fprintf(fout, "\n");
+			  }
+		 }
+		 if (gout!=NULL) {
+			 //gather coords for this gene_id
+			 char* geneid=t.getGeneID();
+			 if (geneid==NULL) geneid=t.getGeneName();
+			 if (geneid!=NULL) {
+				 CGene* gloc=geneabs.Find(geneid);
+				 if (gloc) {
+					 if (gloc->strand!=t.strand)
+						 GMessage("Warning: gene \"%s\" (on %s) has reference transcripts on both strands?\n",
+								  geneid, crefd.gseq_name);
+					 if (t.start<gloc->start) gloc->start=t.start;
+					 if (t.end>gloc->end) gloc->end=t.end;
+				 } else {
+					 //add new geneid locus
+					 geneabs.Add(geneid, new CGene(t.start, t.end, t.strand, t.getGeneID(), t.getGeneName()));
+				 }
+			 }
+			 if (m==crefd.rnas.Count()-1) {
+				 //write unbundled genes from this chromosome
+				 geneabs.startIterate();
+				 while (CGene* g=geneabs.NextData()) {
+				    fprintf(gout, "%s\t%s\t%s\t%c\t%d\t%d\t%d\t0.0\t0.0\t0.0\n",
+				    		g->geneID, g->geneName, crefd.gseq_name,
+							g->strand, g->start, g->end, g->len());
+				 }
+			 }
+		 } //if geneabundance
 	 }
  }
 }
