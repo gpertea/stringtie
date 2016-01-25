@@ -1192,7 +1192,6 @@ void processBundle(BundleData* bundle) {
 
 #ifndef NOTHREADS
 
-
 bool noThreadsWaiting() {
 	waitMutex.lock();
 	int v=threadsWaiting;
@@ -1287,6 +1286,17 @@ int waitForData(BundleData* bundles) {
 	return bidx;
 }
 
+void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) {
+				 //write unbundled genes from this chromosome
+	geneabs.startIterate();
+	while (CGene* g=geneabs.NextData()) {
+	    fprintf(gout, "%s\t%s\t%s\t%c\t%d\t%d\t%d\t0.0\t0.0\t0.0\n",
+	    		g->geneID, g->geneName, refseq,
+				g->strand, g->start, g->end, g->len());
+	}
+	geneabs.Clear();
+}
+
 void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
  for (int g=0;g<refdata.Count();++g) {
 	 GRefData& crefd=refdata[g];
@@ -1296,7 +1306,11 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 	 for (int m=0;m<crefd.rnas.Count();++m) {
 		 GffObj &t = *crefd.rnas[m];
 		 RC_TData &td = *(RC_TData*) (t.uptr);
-		 if (td.in_bundle) continue;
+		 if (td.in_bundle) {
+			 if (gout && m==crefd.rnas.Count()-1)
+			 		writeUnbundledGenes(geneabs, crefd.gseq_name, gout);
+			 continue;
+		 }
 		 //write these guides to output
 		 //for --merge and -e
 		 if (mergeMode || eonly) {
@@ -1353,15 +1367,8 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 					 geneabs.Add(geneid, new CGene(t.start, t.end, t.strand, t.getGeneID(), t.getGeneName()));
 				 }
 			 }
-			 if (m==crefd.rnas.Count()-1) {
-				 //write unbundled genes from this chromosome
-				 geneabs.startIterate();
-				 while (CGene* g=geneabs.NextData()) {
-				    fprintf(gout, "%s\t%s\t%s\t%c\t%d\t%d\t%d\t0.0\t0.0\t0.0\n",
-				    		g->geneID, g->geneName, crefd.gseq_name,
-							g->strand, g->start, g->end, g->len());
-				 }
-			 }
+			 if (m==crefd.rnas.Count()-1)
+				  writeUnbundledGenes(geneabs, crefd.gseq_name, gout);
 		 } //if geneabundance
 	 }
  }
