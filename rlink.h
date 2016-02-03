@@ -16,6 +16,10 @@
 #define CHI_WIN 100
 #define CHI_THR 50
 
+#define IS_FPKM_FLAG 1
+#define IS_TPM_FLAG 2
+#define IS_COV_FLAG 4
+
 const double epsilon=0.00000001; //-E
 const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
@@ -248,7 +252,7 @@ struct TAlnInfo {
 	double tpm;
 	int g;
 	TAlnInfo(const char* rname=NULL, int fidx=0):name(rname), fileidx(fidx),
-			cov(0),fpkm(0),tpm(0),g(-1) { }
+			cov(-1),fpkm(-1),tpm(-1),g(-1) { }
 };
 
 struct CJunction;
@@ -451,6 +455,7 @@ struct BundleData {
  double num_fragments; //aligned read/pairs
  double frag_len;
  double sum_cov; // sum of all transcripts coverages --> needed to compute TPMs
+ char covflags;
 
  GStr refseq;
  GList<CReadAln> readlist;
@@ -463,7 +468,7 @@ struct BundleData {
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 //covSaturated(false),
 		 numreads(0),
-		 num_fragments(0), frag_len(0),sum_cov(0),
+		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
 		 refseq(), readlist(false,true), //bpcov(1024),
 		 junction(true, true, true),
 		 keepguides(false), pred(false), rc_data(NULL) {
@@ -499,6 +504,7 @@ struct BundleData {
  void Clear() {
 	keepguides.Clear();
 	pred.Clear();
+	pred.setSorted(false);
 	readlist.Clear();
 	for(int i=0;i<3;i++) {
 		bpcov[i].Clear();
@@ -513,6 +519,7 @@ struct BundleData {
 	num_fragments=0;
 	frag_len=0;
 	sum_cov=0;
+	covflags=0;
 	delete rc_data;
 	rc_data=NULL;
  }

@@ -248,6 +248,15 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 	return 0;
 }
 
+FILE* Gfopen(const char *path, char *mode) {
+	FILE* f=NULL;
+	if (mode==NULL) f=fopen(path, "rb");
+	    	   else f=fopen(path, mode);
+	if (f==NULL)
+		GMessage("Error opening file '%s':  %s\n", path, strerror(errno));
+	return f;
+}
+
 bool GstrEq(const char* a, const char* b) {
 	 if (a==NULL || b==NULL) return false;
 	 register int i=0;

@@ -240,6 +240,9 @@ char* strupper(char * str);
 void* Gmemscan(void *mem, unsigned int len,
                   void *part, unsigned int partlen);
 
+
+FILE* Gfopen(const char *path, char *mode=NULL);
+
 // test if a char is in a string:
 bool chrInStr(char c, const char* str);
 

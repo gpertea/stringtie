@@ -125,7 +125,7 @@ bool geneabundance=false;
 //bool partialcov=false;
 int num_cpus=1;
 int mintranscriptlen=200; // minimum length for a transcript to be printed
-int sensitivitylevel=1;
+//int sensitivitylevel=1;
 uint junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise considered noise; paper uses 3
@@ -134,8 +134,8 @@ float mcov=0.95; // fraction of bundle allowed to be covered by multi-hit reads 
 
 int no_xs=0; // number of records without the xs tag
 
-float fpkm_thr=0;
-float tpm_thr=0;
+float fpkm_thr=1;
+float tpm_thr=1;
 
 // different options of implementation reflected with the next three options
 bool includesource=true;
@@ -158,10 +158,6 @@ bool ballgown=false;
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
-
-bool isfpkm=false;
-bool istpm=false;
-bool iscov=false;
 
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -361,7 +357,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
-
+ //GHash<int> bgeneids(false); //guide gene IDs/names in the bundle
  //set of annotation transcript for the current locus
  GList<GffObj>* guides=NULL; //list of transcripts on a specific chromosome
 
@@ -478,6 +474,7 @@ if (ballgown)
 	 }
 
 	 if (new_bundle || chr_changed) {
+		 //bgeneids.Clear();
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			// (readthr, junctionthr, mintranscriptlen are globals)
@@ -569,26 +566,48 @@ if (ballgown)
 		 if (guides) { //guided and guides!=NULL
 			 ng_start=ng_end+1;
 			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
-				 // skip guides that have no read coverage
+				 // for now, skip guides which have no overlap with current read
 				 ng_start++;
 			 }
-			 int ng_ovlstart=ng_start;
+			 int ng_ovl=ng_start;
 			 //add all guides overlapping the current read and other guides that overlap them
-			 while (ng_ovlstart<ng && (int)(*guides)[ng_ovlstart]->start<=currentend) {
-				 if (currentstart>(int)(*guides)[ng_ovlstart]->start)
-					 currentstart=(*guides)[ng_ovlstart]->start;
-				 if (currentend<(int)(*guides)[ng_ovlstart]->end)
-					 currentend=(*guides)[ng_ovlstart]->end;
-				  bundle->keepGuide((*guides)[ng_ovlstart],
+			 while (ng_ovl<ng && (int)(*guides)[ng_ovl]->start<=currentend) { //while guide overlap
+				 if (currentstart>(int)(*guides)[ng_ovl]->start)
+					 currentstart=(*guides)[ng_ovl]->start;
+				 if (currentend<(int)(*guides)[ng_ovl]->end)
+					 currentend=(*guides)[ng_ovl]->end;
+				 if (ng_ovl==ng_start && ng_ovl>0) { //first time only, we have to check back all possible transitive guide overlaps
+					 //char* geneid=(*guides)[ng_ovlstart]->getGeneID();
+					 //if (geneid==NULL) geneid=(*guides)[ng_ovlstart]->getGeneName();
+					 //if (geneid && !bgeneids.hasKey(geneid))
+					 //  bgeneids.shkAdd(geneid, &ng); //whatever pointer to int
+					 int g_back=ng_ovl; //start from the overlapping guide, going backwards
+					 int g_ovl_start=ng_ovl;
+					 while (g_back>ng_end+1) {
+						 --g_back;
+						 //if overlap, set g_back_start=g_back and update currentstart
+						 if (currentstart<=(int)(*guides)[g_back]->end) {
+							 g_ovl_start=g_back;
+							 if (currentstart>(int)(*guides)[g_back]->start)
+								  currentstart=(int)(*guides)[g_back]->start;
+						 }
+					 } //while checking previous guides that could be pulled in this bundle
+					 for (int gb=g_ovl_start;gb<=ng_ovl;++gb) {
+						 bundle->keepGuide((*guides)[gb],
+								   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+					 }
+				 } //needed to check previous guides for overlaps
+				 else
+				    bundle->keepGuide((*guides)[ng_ovl],
 						   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
-				 ng_ovlstart++;
-			 }
-			 ng_end=ng_ovlstart-1; //MUST update ng_end here, even if no overlaps were found
+				 ng_ovl++;
+			 } //while guide overlap
+			 ng_end=ng_ovl-1; //MUST update ng_end here, even if no overlaps were found
 		 } //guides present on the current chromosome
 		bundle->refseq=lastref;
 		bundle->start=currentstart;
 		bundle->end=currentend;
-	 } //<---- new bundle just started
+	 } //<---- new bundle started
 
 	 if (currentend<(int)brec->end) {
 		 //current read extends the bundle
@@ -832,6 +851,8 @@ void processOptions(GArgs& args) {
     		 excludeGseqs.Add(chrname.chars(),new int(0));
     	 }
      }
+
+     /*
 	 s=args.getOpt('n');
 	 if (!s.is_empty()) {
 		 sensitivitylevel=s.asInt();
@@ -844,6 +865,7 @@ void processOptions(GArgs& args) {
 			 GMessage("sensitivity level out of range: setting sensitivity level at 2\n");
 		 }
 	 }
+	*/
 
 	 s=args.getOpt('g');
 	 if (!s.is_empty()) bundledist=s.asInt();
@@ -871,13 +893,13 @@ void processOptions(GArgs& args) {
 	 if (!s.is_empty()) {
 		 fpkm_thr=(float)s.asDouble();
 	 }
-	 else if(mergeMode) fpkm_thr=0;
+	 //else if(mergeMode) fpkm_thr=0;
 
 	 s=args.getOpt('T');
 	 if (!s.is_empty()) {
 		 tpm_thr=(float)s.asDouble();
 	 }
-	 else if(mergeMode) tpm_thr=0;
+	 //else if(mergeMode) tpm_thr=0;
 
 	 s=args.getOpt('l');
 	 if (!s.is_empty()) label=s;
@@ -901,10 +923,12 @@ void processOptions(GArgs& args) {
 
 	 tmpfname=args.getOpt('o');
 
+	 /*
 	 if (args.getOpt('S')) {
 		 // sensitivitylevel=2; no longer supported from version 1.0.3
 		 sensitivitylevel=1;
 	 }
+	*/
 
 	 // coverage saturation no longer used after version 1.0.4; left here for compatibility with previous versions
 	 s=args.getOpt('s');
@@ -1133,11 +1157,6 @@ void processBundle(BundleData* bundle) {
 	//int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
 	int ngenes=infer_transcripts(bundle, fast);
 
-	if(mergeMode) {
-		isfpkm=false;
-		istpm=false;
-		iscov=false;
-	}
 	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
 	}
@@ -1286,6 +1305,8 @@ int waitForData(BundleData* bundles) {
 	return bidx;
 }
 
+#endif
+
 void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) {
 				 //write unbundled genes from this chromosome
 	geneabs.startIterate();
@@ -1314,10 +1335,11 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 		 //write these guides to output
 		 //for --merge and -e
 		 if (mergeMode || eonly) {
-			  fprintf(fout, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\ttranscript_id \"%s\";",
-					  crefd.gseq_name, t.getTrackName(), t.start, t.end, t.strand, t.getID());
+			  fprintf(fout, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",
+					  crefd.gseq_name, t.getTrackName(), t.start, t.end, t.strand);
 			  if (t.getGeneID())
-				  fprintf(fout, " gene_id \"%s\";", t.getGeneID());
+				  fprintf(fout, "gene_id \"%s\"; ", t.getGeneID());
+			  fprintf(fout, "transcript_id \"%s\";",t.getID());
 			  if (eonly) {
 				if (t.getGeneName())
 					  fprintf(fout, " ref_gene_name \"%s\";", t.getGeneName());
@@ -1331,11 +1353,12 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 			  }
 			  fprintf(fout, "\n");
 			  for (int e=0;e<t.exons.Count();++e) {
-				  fprintf(fout,"%s\t%s\texon\t%d\t%d\t.\t%c\t.\ttranscript_id \"%s\"; exon_number \"%d\";",
-						  crefd.gseq_name, t.getTrackName(), t.exons[e]->start, t.exons[e]->end, t.strand,
-						  t.getID(), e+1);
+				  fprintf(fout,"%s\t%s\texon\t%d\t%d\t.\t%c\t.\t",
+						  crefd.gseq_name, t.getTrackName(), t.exons[e]->start, t.exons[e]->end, t.strand);
 				  if (t.getGeneID())
-					  fprintf(fout, " gene_id \"%s\";",  t.getGeneID());
+					  fprintf(fout, "gene_id \"%s\"; ",  t.getGeneID());
+				  fprintf(fout,"transcript_id \"%s\"; exon_number \"%d\";",
+						  t.getID(), e+1);
 				  if (eonly) {
 					  if (t.getGeneName())
 						  fprintf(fout, " ref_gene_name \"%s\";", t.getGeneName());
@@ -1376,4 +1399,4 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 
 
 
-#endif
+
