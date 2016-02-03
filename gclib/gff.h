@@ -1079,6 +1079,7 @@ class GffReader {
       delete gffline;
       gffline=NULL;
       fpos=0;
+      if (fh) fclose(fh);
       gflst.freeUnused();
       gflst.Clear();
       discarded_ids.Clear();
