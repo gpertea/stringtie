@@ -334,7 +334,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		 printTime(stderr);
 		 GMessage(" %d reference transcripts loaded.\n", gffr.gflst.Count());
 	 }
-	fclose(f);
+	//fclose(f); GffReader will close it anyway
  }
 
 #ifdef GFF_DEBUG
