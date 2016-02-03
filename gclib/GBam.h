@@ -203,7 +203,17 @@ class GBamReader {
       //BAM files have the zlib signature bytes at the beginning: 1F 8B 08
       //if that's not present, we assume sam file
       FILE* f=Gfopen(filename);
-      if (f==NULL) exit(1); //GError("Error opening file %s!\n", filename);
+      if (f==NULL) {
+          //DEBUG only: make the program suspend itself indefinitely
+          /*int selfpid=getpid();
+          GMessage("DEBUG STOP ( pid: %d ) entering wait loop, kill to terminate..\n",
+             selfpid);
+          while (true) {
+           sleep(5);
+          }
+          */
+          exit(1); //GError("Error opening file %s!\n", filename);
+          }
       byte fsig[3];
       size_t rd=fread(fsig, 1, 3, f);
       fclose(f);
