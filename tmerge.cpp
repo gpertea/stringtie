@@ -118,14 +118,20 @@ int TInputFiles::start() {
 	}
 	if (mergeMode) {//files are GTF/GFF, convert to temp BAM files
 		for (int i=0;i<files.Count();++i) {
-			GStr s=convert2BAM(files[i], i);
-			bamfiles.Add(s);
+			//crude way to bypass GTF conversion when resuming/debugging
+			if (files[i].endsWith(".bam")) {
+				bamfiles.Add(files[i]);
+			}
+			else {
+				GStr s=convert2BAM(files[i], i);
+				bamfiles.Add(s);
+			}
 		}
 	}
 	else {
 		bamfiles=files;
 	}
-	//regular stringtie BAM input
+	//stringtie multi-BAM input
 	for (int i=0;i<bamfiles.Count();++i) {
 		GBamReader* bamreader=new GBamReader(bamfiles[i].chars());
 		readers.Add(bamreader);
