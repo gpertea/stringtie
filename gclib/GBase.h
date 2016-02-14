@@ -171,7 +171,7 @@ inline int iround(double x) {
    return (int)floor(x + 0.5);
 }
 
-int Gmkdir(const char *path, bool recursive=true, int perms=0775);
+int Gmkdir(const char *path, bool recursive=true, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH));
 void Gmktempdir(char* templ);
 
 /****************************************************************************/
@@ -444,7 +444,7 @@ const char* getFileExt(const char* filepath);
 
 
 int fileExists(const char* fname);
-//returns 0 if file entry doesn't exist
+//returns 0 if path doesn't exist
 //        1 if it's a directory
 //        2 if it's a regular file
 //        3 otherwise (?)
