@@ -79,11 +79,15 @@ the following options are available:\n\
   -T <min_tpm>     minimum input transcript TPM to include in the merge\n\
                     (default: 1.0)\n\
   -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
+  -g <gap_len>     gap between transcripts to merge together (default: 250)\n\
+  -i               keep merged transcripts with retained introns; be default\n\
+  	  	  	  	   these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
 /* 
- -E                enable the name of the input transcripts to be included\n\
-                   in the merge output (default: no)\n\
+ -e (mergeMode)  include estimated coverage information in the preidcted transcript\n\
+ -E (mergeMode)   enable the name of the input transcripts to be included\n\
+                  in the merge output (default: no)\n\
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 1)\n\ \\ deprecated for now
  -O disable the coverage saturation limit and use a slower two-pass approach\n\
     to process the input alignments, collapsing redundant reads\n\
@@ -117,10 +121,12 @@ GStr genefname;
 bool guided=false;
 bool trim=true;
 bool fast=true;
-bool eonly=false; // parameter -e
+bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
 bool enableNames=false;
+bool includecov=false;
 bool specific=false;
 //bool complete=true; // set by parameter -i the reference annotation contains partial transcripts
+bool retained_intron=false; // set by parameter -i for merge option
 bool geneabundance=false;
 //bool partialcov=false;
 int num_cpus=1;
@@ -245,7 +251,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;keeptmp;merge;exclude=zZSEhvtex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;keeptmp;merge;exclude=zZSEihvtex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -319,7 +325,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		    			m->getID(),m->start, m->end);
 		    m->exons.Add(new GffExon(m->start, m->end));
 	   }
-	   //TODO: always keep a RC_TData pointer around, with additional info about guides
+	   //DONE: always keep a RC_TData pointer around, with additional info about guides
 	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
 	   m->uptr=tdata;
 	   guides_RC_tdata.Add(tdata);
@@ -874,9 +880,13 @@ void processOptions(GArgs& args) {
 		   num_cpus=s.asInt();
 		   if (num_cpus<=0) num_cpus=1;
 	 }
+	 else if(mergeMode) bundledist=250; // should figure out here a reasonable parameter for merge
 
 	 s=args.getOpt('a');
-	 if (!s.is_empty()) junctionsupport=(uint)s.asInt();
+	 if (!s.is_empty()) {
+		 junctionsupport=(uint)s.asInt();
+	 }
+
 	 s=args.getOpt('j');
 	 if (!s.is_empty()) junctionthr=s.asInt();
 
@@ -951,10 +961,18 @@ void processOptions(GArgs& args) {
 	             guidegff.chars());
 	 }
 
-	 eonly=(args.getOpt('e')!=NULL);
 	 enableNames=(args.getOpt('E')!=NULL);
-	 if(eonly && !guided)
+
+	 retained_intron=(args.getOpt('i')!=NULL);
+
+	 eonly=(args.getOpt('e')!=NULL);
+	 if(eonly && mergeMode) {
+		 eonly=false;
+		 includecov=true;
+	 }
+	 else if(eonly && !guided)
 		 GError("Error: invalid -e usage, GFF reference not given (-G option required).\n");
+
 
 	 ballgown_dir=args.getOpt('b');
 	 ballgown=(args.getOpt('B')!=NULL);

@@ -118,7 +118,8 @@ struct CMTransfrag { // this is the super-class for transfrag -> to use in case 
 	GVec<int> read; // all reads' indeces that are connected to this transfrag
 	int nf;
 	int nl;
-	CMTransfrag(CTransfrag *t=NULL):transfrag(t),read(),nf(0),nl(0) {}
+	uint len;
+	CMTransfrag(CTransfrag *t=NULL):transfrag(t),read(),nf(0),nl(0),len(0) {}
 };
 
 struct CGuide {
@@ -220,8 +221,11 @@ struct CPrediction:public GSeg {
 
 struct CMPrediction {
 	CPrediction *p;
-	GBitVec b;
-	CMPrediction(CPrediction* _p=NULL): p(_p),b() {}
+	GVec<int> nodes;
+	GBitVec pat; // pattern of nodes and introns in prediction
+	GBitVec b; // not retained introns
+	CMPrediction(CPrediction* _p=NULL): p(_p),nodes(),pat(),b() {}
+	CMPrediction(CPrediction* _p,GVec<int>& _nodes,GBitVec& _pat, GBitVec& _b): p(_p),nodes(_nodes),pat(_pat),b(_b) {}
 };
 
 struct CPath {
@@ -265,7 +269,7 @@ struct CReadAln:public GSeg {
 	uint len;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
 	GVec<float> pair_count;   // keeps count for all paired reads
-	GVec<int> pair_idx;     // keeps indeces for all pairs
+	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
 	GPVec<CJunction> juncs;
     TAlnInfo* tinfo;
