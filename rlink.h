@@ -480,11 +480,18 @@ struct BundleData {
  }
 
  void getReady(int currentstart, int currentend) {
+	 //this is only called when the bundle is valid and going to be processed
 	 start=currentstart;
 	 end=currentend;
 	 //refseq=ref;
+	 //tag all these guides
+	 for (int i=0;i<this->keepguides.Count();++i) {
+		 RC_TData* tdata=(RC_TData*)(keepguides[i]->uptr);
+		 tdata->in_bundle=1;
+	 }
 	 status=BUNDLE_STATUS_READY;
  }
+
  void rc_init(GffObj* t, GPVec<RC_TData>* rc_tdata,
 		 GPVec<RC_Feature>* rc_edata, GPVec<RC_Feature>* rc_idata) {
 	  if (rc_data==NULL) {
