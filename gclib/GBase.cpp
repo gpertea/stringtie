@@ -230,20 +230,25 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 	else {
 		GMALLOC(gpath, plen+2);
 		strcpy(gpath,path);
-		gpath[plen]='/';
-		gpath[plen+1]=0;
+		strcat(gpath, "/");
+		++plen;
 	}
-	char* ss=gpath;
-	char* psep = NULL;
-	while (*ss!=0 && (psep=strchr(ss, '/'))!=NULL)  {
-		*psep=0; //now gpath is the path up to this /
-		ss=psep; ++ss; //ss repositioned just after the /
-		// create current level if it doesn't exist
-		if (fileExists(gpath)) { //path exists
-		    *psep='/';
-		    continue; //assume it's a directory or a symlink to one
-		              //if not, it'll fail later
-		}
+	//char* ss=gpath+plen-1;
+	char* psep = gpath+plen-1; //start at the last /
+	GDynArray<char*> dirstack(4); // stack of directories that should be created
+    *psep='\0';
+    int fexists=0;
+	while ((fexists=fileExists(gpath))!=0) {
+      dirstack.Push(psep);
+      GMessage("******** added %s to dirstack!\n",gpath);
+      do { --psep; } while (psep>gpath && *psep!='/');
+      if (psep<=gpath) break;
+      *psep='\0';
+	}
+	*psep=''
+	while (dirstack.Count()>0) {
+		psep=dirstack.Pop();
+		GMessage("********** popped %s from dirstack.\n",gpath);
 		int mkdir_err=0;
 		if ((mkdir_err=G_mkdir(gpath, perms))!=0) {
 				GMessage("Warning: mkdir(%s) failed: %s\n", gpath, strerror(errno));
@@ -475,36 +480,40 @@ char* fgetline(char* & buf, int& buf_cap, FILE *stream, off_t* f_pos, int* linel
   }
 
 char* GLineReader::getLine(FILE* stream, off_t& f_pos) {
-   if (pushed) { pushed=false; return buf; }
+   if (pushed) { pushed=false; return buf(); }
    //reads a char at a time until \n and/or \r are encountered
-   len=0;
+   //len=0;
    int c=0;
    while ((c=getc(stream))!=EOF) {
-     if (len>=allocated-1) {
-        allocated+=1024;
-        GREALLOC(buf, allocated);
-     }
+     //if (len>=allocated-1) {
+     //   allocated+=1024;
+     //   GREALLOC(buf, allocated);
+     //}
      if (c=='\n' || c=='\r') {
-       buf[len]='\0';
+       //buf[len]='\0';
+       buf.Push('\0');
        if (c=='\r') { //DOS file -- special case
          if ((c=getc(stream))!='\n') ungetc(c,stream);
                                 else f_pos++;
          }
        f_pos++;
        lcount++;
-       return buf;
+       return buf();
        }
      f_pos++;
-     buf[len]=(char)c;
-     len++;
+     //buf[len]=(char)c;
+     buf.Push(c);
+     //len++;
      } //while i<buf_cap-1
    if (c==EOF) {
      isEOF=true;
-     if (len==0) return NULL;
+     //if (len==0) return NULL;
+     if (buf.Count()==0) return NULL;
      }
-   buf[len]='\0';
+   //buf[len]='\0';
+   buf.Push('\0');
    lcount++;
-   return buf;
+   return buf();
 }
 
 

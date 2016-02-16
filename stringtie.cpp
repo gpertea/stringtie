@@ -713,7 +713,7 @@ if(!mergeMode) {
 		g_out=fopen(genefname.chars(),"w");
 		if (g_out==NULL)
 			GError("Error creating gene abundance output file %s\n", genefname.chars());
-		fprintf(g_out,"Gene ID\tGene Name\tReference\tStrand\tStart\tEnd\tLength\tCoverage\tFPKM\tTPM\n");
+		fprintf(g_out,"Gene ID\tGene Name\tReference\tStrand\tStart\tEnd\tCoverage\tFPKM\tTPM\n");
 	}
 
 	FILE* ftmp_in=fopen(tmpfname.chars(),"rt");
@@ -1013,6 +1013,8 @@ void processOptions(GArgs& args) {
 	outfname="stdout";
 	out_dir="./";
 	 if (!tmpfname.is_empty() && tmpfname!="-") {
+		 if (tmpfname[0]=='.' && tmpfname[1]=='/')
+			 tmpfname.cut(0,2);
 		 outfname=tmpfname;
 		 int pidx=outfname.rindex('/');
 		 if (pidx>=0) {//path given
@@ -1034,6 +1036,26 @@ void processOptions(GArgs& args) {
 				GError("Error: cannot create directory %s!\n", out_dir.chars());
 			}
 		 }
+	 }
+	 if (!genefname.is_empty()) {
+		 if (genefname[0]=='.' && genefname[1]=='/')
+		 			 genefname.cut(0,2);
+	 //attempt to create the gene abundance path
+		 GStr genefdir("./");
+		 int pidx=genefname.rindex('/');
+		 if (pidx>=0) { //get the path part
+				 genefdir=genefname.substr(0,pidx+1);
+				 //genefname=genefname.substr(pidx+1);
+		 }
+		 if (genefdir!="./") {
+			 if (fileExists(genefdir.chars())==0) {
+				//directory does not exist, create it
+				if (Gmkdir(genefdir.chars()) || !fileExists(genefdir.chars())) {
+					GError("Error: cannot create directory %s!\n", genefdir.chars());
+				}
+			 }
+		 }
+
 	 }
 
 	 { //prepare temp path
@@ -1329,9 +1351,9 @@ void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) 
 				 //write unbundled genes from this chromosome
 	geneabs.startIterate();
 	while (CGene* g=geneabs.NextData()) {
-	    fprintf(gout, "%s\t%s\t%s\t%c\t%d\t%d\t%d\t0.0\t0.0\t0.0\n",
+	    fprintf(gout, "%s\t%s\t%s\t%c\t%d\t%d\t0.0\t0.0\t0.0\n",
 	    		g->geneID, g->geneName, refseq,
-				g->strand, g->start, g->end, g->len());
+	    		g->strand, g->start, g->end);
 	}
 	geneabs.Clear();
 }
