@@ -311,7 +311,7 @@ struct RC_BundleData {
 	if (rmax==0 || rmax<(int)t.end) { rmax=t.end; boundary_changed=true; }
 	GASSERT(t.uptr); //we should always have a RC_TData for each guide
 	RC_TData* tdata=(RC_TData*)(t.uptr);
-	tdata->in_bundle=1; //tag this guide
+	//tdata->in_bundle=1; //don't tag here, it might be in a read-no-overlap bundle
   /*RC_TData* tdata=NULL;
   if (ballgown) {
      tdata=(RC_TData*)(t.uptr);
