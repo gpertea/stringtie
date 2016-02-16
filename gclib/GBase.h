@@ -1,9 +1,9 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#ifndef _POSIX_SOURCE
-//mostly for MinGW
-#define _POSIX_SOURCE
-#endif
+//#ifndef _POSIX_SOURCE
+////mostly for MinGW;breaks mkdtemp and possibly other functions on OS X
+//#define _POSIX_SOURCE
+//#endif
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
