@@ -12030,6 +12030,7 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 						   */
 						  refgene[gno].cov+=pred[n]->cov*pred[n]->tlen;
 						  refgene[gno].covsum+=pred[n]->cov;
+
 					  }
 				  }
 			  }
@@ -12800,7 +12801,7 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 	// I am done printing all transcripts, now evaluate/print the gene abundances
 	GVec<float>* bpcov = bundleData->bpcov;
 	int refstart=bundleData->start;
-	if(eonly  || geneabundance) { // I only need to evaluate the refgene coverages if I geneabundance is required, or these are the only gene coverages
+	if(eonly  || geneabundance) { // I only need to evaluate the refgene coverages if geneabundance is required, or these are the only gene coverages
 		for(int i=0;i<refgene.Count();i++) {
 			float cov=0;
 			int s=1; // strand of gene
@@ -12809,38 +12810,46 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 			int glen=0;
 			for(int j=0;j<refgene[i].exons.Count();j++) { // evaluate unused coverage
 				glen+=refgene[i].exons[j].len();
-				int start=(int)refgene[i].exons[j].start-refstart;
-				int end=(int)refgene[i].exons[j].end-refstart+1;
-				if(start<0) start=0;
-				if(end>=bpcov[1].Count()) end=bpcov[1].Count()-1;
-				//fprintf(stderr,"geneid=%s ex[%d]: start=%d end=%d gene_start=%d gene_end=%d guides.count=%d refstart=%d\n",
+				if(!eonly) {
+					int start=(int)refgene[i].exons[j].start-refstart;
+					int end=(int)refgene[i].exons[j].end-refstart+1;
+					if(start<0) start=0;
+					if(end>=bpcov[1].Count()) end=bpcov[1].Count()-1;
+					//fprintf(stderr,"geneid=%s ex[%d]: start=%d end=%d gene_start=%d gene_end=%d guides.count=%d refstart=%d\n",
 						//refgene[i].geneID,j,refgene[i].exons[j].start,refgene[i].exons[j].end,refgene[i].start,refgene[i].end,guides.Count(),refstart);
-				for(int k=start;k<end;k++) {
-					switch(s) {
-					case 0:
-						//cov+=bpcov[1][k]-bpcov[2][k];
-						if(bpcov[2][k]) cov+=bpcov[0][k]+(bpcov[1][k]-bpcov[0][k]-bpcov[2][k])*bpcov[0][k]/(bpcov[0][k]+bpcov[2][k]);
-						else cov+=bpcov[1][k];
-						break;
-					case 1: cov+=bpcov[1][k]-bpcov[2][k]-bpcov[0][k];break;
-					case 2:
-						//cov+=bpcov[1][k]-bpcov[0][k];
-						if(bpcov[0][k]) cov+=bpcov[2][k]+(bpcov[1][k]-bpcov[0][k]-bpcov[2][k])*bpcov[2][k]/(bpcov[0][k]+bpcov[2][k]);
-						else cov+=bpcov[1][k];
-						break;
+					for(int k=start;k<end;k++) {
+						switch(s) {
+						case 0:
+							//cov+=bpcov[1][k]-bpcov[2][k];
+							if(bpcov[2][k]) cov+=bpcov[0][k]+(bpcov[1][k]-bpcov[0][k]-bpcov[2][k])*bpcov[0][k]/(bpcov[0][k]+bpcov[2][k]);
+							else cov+=bpcov[1][k];
+							break;
+						case 1: cov+=bpcov[1][k]-bpcov[2][k]-bpcov[0][k];break;
+						case 2:
+							//cov+=bpcov[1][k]-bpcov[0][k];
+							if(bpcov[0][k]) cov+=bpcov[2][k]+(bpcov[1][k]-bpcov[0][k]-bpcov[2][k])*bpcov[2][k]/(bpcov[0][k]+bpcov[2][k]);
+							else cov+=bpcov[1][k];
+							break;
+						}
 					}
 				}
 			}
-			refgene[i].cov=cov-refgene[i].cov;
-			if(refgene[i].cov>epsilon) refgene[i].covsum+=refgene[i].cov/glen;
+
 			if(eonly) bundleData->sum_cov+=refgene[i].covsum;
+			else {
+				refgene[i].cov=cov-refgene[i].cov;
+				if(refgene[i].cov>epsilon) refgene[i].covsum+=refgene[i].cov/glen;
+			}
+
 			if(geneabundance) {
-				refgene[i].cov=cov/glen; // only if I want to store the real gene coverage
+				if(!eonly) refgene[i].cov=cov/glen; // only if I want to store the real gene coverage
+				else refgene[i].cov/=glen;
 				fprintf(f_out,"0 1 %d 0 %.6f\n",glen, refgene[i].covsum);
 				fprintf(f_out,"%s\t",refgene[i].geneID);
 				if(refgene[i].geneName) fprintf(f_out,"%s\t",refgene[i].geneName);
 				else fprintf(f_out,"-\t");
-				fprintf(f_out,"%s\t%c\t%d\t%d\t%d\t%.6f\n",refname.chars(),refgene[i].strand,refgene[i].start,refgene[i].end,glen,refgene[i].cov);
+				//fprintf(f_out,"%s\t%c\t%d\t%d\t%d\t%.6f\n",refname.chars(),refgene[i].strand,refgene[i].start,refgene[i].end,glen,refgene[i].cov);
+				fprintf(f_out,"%s\t%c\t%d\t%d\t%.6f\n",refname.chars(),refgene[i].strand,refgene[i].start,refgene[i].end,refgene[i].cov);
 			}
 		}
 	}
@@ -12882,7 +12891,8 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 				fprintf(f_out,"0 1 %d 0 %.6f\n",glen, predgene[i].covsum);
 				fprintf(f_out,"%s.%d\t",label.chars(),startgno+i);
 				fprintf(f_out,"-\t");
-				fprintf(f_out,"%s\t%c\t%d\t%d\t%d\t%.6f\n",refname.chars(),predgene[i].strand,predgene[i].start,predgene[i].end,glen,predgene[i].cov);
+				//fprintf(f_out,"%s\t%c\t%d\t%d\t%d\t%.6f\n",refname.chars(),predgene[i].strand,predgene[i].start,predgene[i].end,glen,predgene[i].cov);
+				fprintf(f_out,"%s\t%c\t%d\t%d\t%.6f\n",refname.chars(),predgene[i].strand,predgene[i].start,predgene[i].end,predgene[i].cov);
 			}
 		}
 	}
