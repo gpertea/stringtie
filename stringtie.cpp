@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.2.1"
+#define VERSION "1.2.2"
 
 //#define DEBUGPRINT 1
 
@@ -79,11 +79,15 @@ the following options are available:\n\
   -T <min_tpm>     minimum input transcript TPM to include in the merge\n\
                     (default: 1.0)\n\
   -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
+  -g <gap_len>     gap between transcripts to merge together (default: 250)\n\
+  -i               keep merged transcripts with retained introns; be default\n\
+  	  	  	  	   these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
 /* 
- -E                enable the name of the input transcripts to be included\n\
-                   in the merge output (default: no)\n\
+ -e (mergeMode)  include estimated coverage information in the preidcted transcript\n\
+ -E (mergeMode)   enable the name of the input transcripts to be included\n\
+                  in the merge output (default: no)\n\
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 1)\n\ \\ deprecated for now
  -O disable the coverage saturation limit and use a slower two-pass approach\n\
     to process the input alignments, collapsing redundant reads\n\
@@ -117,15 +121,17 @@ GStr genefname;
 bool guided=false;
 bool trim=true;
 bool fast=true;
-bool eonly=false; // parameter -e
+bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
 bool enableNames=false;
+bool includecov=false;
 bool specific=false;
 //bool complete=true; // set by parameter -i the reference annotation contains partial transcripts
+bool retained_intron=false; // set by parameter -i for merge option
 bool geneabundance=false;
 //bool partialcov=false;
 int num_cpus=1;
 int mintranscriptlen=200; // minimum length for a transcript to be printed
-int sensitivitylevel=1;
+//int sensitivitylevel=1;
 uint junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise considered noise; paper uses 3
@@ -134,8 +140,8 @@ float mcov=0.95; // fraction of bundle allowed to be covered by multi-hit reads 
 
 int no_xs=0; // number of records without the xs tag
 
-float fpkm_thr=0;
-float tpm_thr=0;
+float fpkm_thr=1;
+float tpm_thr=1;
 
 // different options of implementation reflected with the next three options
 bool includesource=true;
@@ -158,10 +164,6 @@ bool ballgown=false;
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
-
-bool isfpkm=false;
-bool istpm=false;
-bool iscov=false;
 
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -224,6 +226,8 @@ char* sprintTime();
 void processBundle(BundleData* bundle);
 //void processBundle1stPass(BundleData* bundle); //two-pass testing
 
+void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout=NULL);
+
 #ifndef NOTHREADS
 
 bool waitForThreads(); //wait for at least 1 worker thread to enter "ready" state
@@ -247,7 +251,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;keeptmp;merge;exclude=zZSEhvtex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;keeptmp;merge;exclude=zZSEihvtex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -255,7 +259,7 @@ int main(int argc, char * const argv[]) {
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
 
  //table indexes for Ballgown Raw Counts data (-B/-b option)
- GPVec<RC_TData> guides_RC_tdata(true); //raw count data for all guide transcripts
+ GPVec<RC_TData> guides_RC_tdata(true); //raw count data or other info for all guide transcripts
  GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
  GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
 
@@ -321,10 +325,11 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		    			m->getID(),m->start, m->end);
 		    m->exons.Add(new GffExon(m->start, m->end));
 	   }
-	   if (ballgown) {
-		   RC_TData* tdata=new RC_TData(*m, ++c_tid);
-		   m->uptr=tdata;
-		   guides_RC_tdata.Add(tdata);
+	   //DONE: always keep a RC_TData pointer around, with additional info about guides
+	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
+	   m->uptr=tdata;
+	   guides_RC_tdata.Add(tdata);
+	   if (ballgown) { //already gather exon & intron info for all ref transcripts
 		   tdata->rc_addFeatures(c_exon_id, uexons, guides_RC_exons,
 		          c_intron_id, uintrons, guides_RC_introns);
 	   }
@@ -335,7 +340,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		 printTime(stderr);
 		 GMessage(" %d reference transcripts loaded.\n", gffr.gflst.Count());
 	 }
-	fclose(f);
+	//fclose(f); GffReader will close it anyway
  }
 
 #ifdef GFF_DEBUG
@@ -358,7 +363,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
-
+ //GHash<int> bgeneids(false); //guide gene IDs/names in the bundle
  //set of annotation transcript for the current locus
  GList<GffObj>* guides=NULL; //list of transcripts on a specific chromosome
 
@@ -475,6 +480,7 @@ if (ballgown)
 	 }
 
 	 if (new_bundle || chr_changed) {
+		 //bgeneids.Clear();
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			// (readthr, junctionthr, mintranscriptlen are globals)
@@ -566,26 +572,48 @@ if (ballgown)
 		 if (guides) { //guided and guides!=NULL
 			 ng_start=ng_end+1;
 			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
-				 // skip guides that have no read coverage
+				 // for now, skip guides which have no overlap with current read
 				 ng_start++;
 			 }
-			 int ng_ovlstart=ng_start;
+			 int ng_ovl=ng_start;
 			 //add all guides overlapping the current read and other guides that overlap them
-			 while (ng_ovlstart<ng && (int)(*guides)[ng_ovlstart]->start<=currentend) {
-				 if (currentstart>(int)(*guides)[ng_ovlstart]->start)
-					 currentstart=(*guides)[ng_ovlstart]->start;
-				 if (currentend<(int)(*guides)[ng_ovlstart]->end)
-					 currentend=(*guides)[ng_ovlstart]->end;
-				  bundle->keepGuide((*guides)[ng_ovlstart],
+			 while (ng_ovl<ng && (int)(*guides)[ng_ovl]->start<=currentend) { //while guide overlap
+				 if (currentstart>(int)(*guides)[ng_ovl]->start)
+					 currentstart=(*guides)[ng_ovl]->start;
+				 if (currentend<(int)(*guides)[ng_ovl]->end)
+					 currentend=(*guides)[ng_ovl]->end;
+				 if (ng_ovl==ng_start && ng_ovl>0) { //first time only, we have to check back all possible transitive guide overlaps
+					 //char* geneid=(*guides)[ng_ovlstart]->getGeneID();
+					 //if (geneid==NULL) geneid=(*guides)[ng_ovlstart]->getGeneName();
+					 //if (geneid && !bgeneids.hasKey(geneid))
+					 //  bgeneids.shkAdd(geneid, &ng); //whatever pointer to int
+					 int g_back=ng_ovl; //start from the overlapping guide, going backwards
+					 int g_ovl_start=ng_ovl;
+					 while (g_back>ng_end+1) {
+						 --g_back;
+						 //if overlap, set g_back_start=g_back and update currentstart
+						 if (currentstart<=(int)(*guides)[g_back]->end) {
+							 g_ovl_start=g_back;
+							 if (currentstart>(int)(*guides)[g_back]->start)
+								  currentstart=(int)(*guides)[g_back]->start;
+						 }
+					 } //while checking previous guides that could be pulled in this bundle
+					 for (int gb=g_ovl_start;gb<=ng_ovl;++gb) {
+						 bundle->keepGuide((*guides)[gb],
+								   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+					 }
+				 } //needed to check previous guides for overlaps
+				 else
+				    bundle->keepGuide((*guides)[ng_ovl],
 						   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
-				 ng_ovlstart++;
-			 }
-			 ng_end=ng_ovlstart-1; //MUST update ng_end here, even if no overlaps were found
+				 ng_ovl++;
+			 } //while guide overlap
+			 ng_end=ng_ovl-1; //MUST update ng_end here, even if no overlaps were found
 		 } //guides present on the current chromosome
 		bundle->refseq=lastref;
 		bundle->start=currentstart;
 		bundle->end=currentend;
-	 } //<---- new bundle just started
+	 } //<---- new bundle started
 
 	 if (currentend<(int)brec->end) {
 		 //current read extends the bundle
@@ -625,13 +653,17 @@ if (ballgown)
 			  // *brec, strand, nh, hi);
      }
  } //for each read alignment
- if (guided && no_ref_used)
-    GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
-    		"Please make sure the -G annotation file uses the same naming convention for the genome sequences.\n");
+
  //cleaning up
  delete brec;
  //bamreader.bclose();
  bamreader.stop(); //close all BAM files
+
+ if (guided && no_ref_used) {
+	    GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
+	    		"Please make sure the -G annotation file uses the same naming convention for the genome sequences.\n");
+ }
+
 #ifndef NOTHREADS
  for (int t=0;t<num_cpus;t++)
 	 threads[t].join();
@@ -651,11 +683,14 @@ if (ballgown)
 #ifdef B_DEBUG
  fclose(dbg_out);
 #endif
- //if (f_out && f_out!=stdout) fclose(f_out);
+ if (mergeMode && guided )
+	 writeUnbundledGuides(refguides, f_out);
+
  fclose(f_out);
  if (c_out && c_out!=stdout) fclose(c_out);
 
- if(verbose) GMessage("Total number of records without the XS tag: %d\n",no_xs);
+ if(verbose)
+	 GMessage("Total number of records without the XS tag: %d\n",no_xs);
 
 if(!mergeMode) {
 	if(verbose) {
@@ -678,11 +713,11 @@ if(!mergeMode) {
 		g_out=fopen(genefname.chars(),"w");
 		if (g_out==NULL)
 			GError("Error creating gene abundance output file %s\n", genefname.chars());
-		fprintf(g_out,"Gene ID\tGene Name\tStrand\tStart\tEnd\tLength\tCoverage\tFPKM\tTPM\n");
+		fprintf(g_out,"Gene ID\tGene Name\tReference\tStrand\tStart\tEnd\tCoverage\tFPKM\tTPM\n");
 	}
 
-	FILE* t_out=fopen(tmpfname.chars(),"rt");
-	if (t_out!=NULL) {
+	FILE* ftmp_in=fopen(tmpfname.chars(),"rt");
+	if (ftmp_in!=NULL) {
 		char* linebuf=NULL;
 		int linebuflen=5000;
 		GMALLOC(linebuf, linebuflen);
@@ -694,7 +729,7 @@ if(!mergeMode) {
 		float calc_fpkm;
 		float calc_tpm;
 		int t_id;
-		while(fgetline(linebuf,linebuflen,t_out)) {
+		while(fgetline(linebuf,linebuflen,ftmp_in)) {
 			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
 			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
 			calc_fpkm=tcov*1000000000/Frag_Len;
@@ -711,7 +746,7 @@ if(!mergeMode) {
 					guides_RC_tdata[t_id-1]->cov=tcov;
 				}
 				for(int i=0;i<nl;i++) {
-					fgetline(linebuf,linebuflen,t_out);
+					fgetline(linebuf,linebuflen,ftmp_in);
 					if(!i) {
 						//linebuf[strlen(line)-1]='\0';
 						fprintf(f_out,"%s",linebuf);
@@ -723,12 +758,15 @@ if(!mergeMode) {
 				}
 			}
 			else { // this is a gene -> different file pointer
-				fgetline(linebuf,linebuflen,t_out);
-				fprintf(g_out,"%s\t%.6f\t%.6f\n",linebuf,calc_fpkm,calc_tpm);
+				fgetline(linebuf, linebuflen, ftmp_in);
+				fprintf(g_out, "%s\t%.6f\t%.6f\n", linebuf, calc_fpkm, calc_tpm);
 			}
 		}
+		if (guided) {
+			writeUnbundledGuides(refguides, f_out, g_out);
+		}
 		fclose(f_out);
-		fclose(t_out);
+		fclose(ftmp_in);
 		if(geneabundance) fclose(g_out);
 		GFREE(linebuf);
 		if (!keepTempFiles) {
@@ -819,6 +857,8 @@ void processOptions(GArgs& args) {
     		 excludeGseqs.Add(chrname.chars(),new int(0));
     	 }
      }
+
+     /*
 	 s=args.getOpt('n');
 	 if (!s.is_empty()) {
 		 sensitivitylevel=s.asInt();
@@ -831,6 +871,7 @@ void processOptions(GArgs& args) {
 			 GMessage("sensitivity level out of range: setting sensitivity level at 2\n");
 		 }
 	 }
+	*/
 
 	 s=args.getOpt('g');
 	 if (!s.is_empty()) bundledist=s.asInt();
@@ -839,9 +880,13 @@ void processOptions(GArgs& args) {
 		   num_cpus=s.asInt();
 		   if (num_cpus<=0) num_cpus=1;
 	 }
+	 else if(mergeMode) bundledist=250; // should figure out here a reasonable parameter for merge
 
 	 s=args.getOpt('a');
-	 if (!s.is_empty()) junctionsupport=(uint)s.asInt();
+	 if (!s.is_empty()) {
+		 junctionsupport=(uint)s.asInt();
+	 }
+
 	 s=args.getOpt('j');
 	 if (!s.is_empty()) junctionthr=s.asInt();
 
@@ -858,13 +903,13 @@ void processOptions(GArgs& args) {
 	 if (!s.is_empty()) {
 		 fpkm_thr=(float)s.asDouble();
 	 }
-	 else if(mergeMode) fpkm_thr=0;
+	 //else if(mergeMode) fpkm_thr=0;
 
 	 s=args.getOpt('T');
 	 if (!s.is_empty()) {
 		 tpm_thr=(float)s.asDouble();
 	 }
-	 else if(mergeMode) tpm_thr=0;
+	 //else if(mergeMode) tpm_thr=0;
 
 	 s=args.getOpt('l');
 	 if (!s.is_empty()) label=s;
@@ -888,10 +933,12 @@ void processOptions(GArgs& args) {
 
 	 tmpfname=args.getOpt('o');
 
+	 /*
 	 if (args.getOpt('S')) {
 		 // sensitivitylevel=2; no longer supported from version 1.0.3
 		 sensitivitylevel=1;
 	 }
+	*/
 
 	 // coverage saturation no longer used after version 1.0.4; left here for compatibility with previous versions
 	 s=args.getOpt('s');
@@ -914,10 +961,18 @@ void processOptions(GArgs& args) {
 	             guidegff.chars());
 	 }
 
-	 eonly=(args.getOpt('e')!=NULL);
 	 enableNames=(args.getOpt('E')!=NULL);
-	 if(eonly && !guided)
+
+	 retained_intron=(args.getOpt('i')!=NULL);
+
+	 eonly=(args.getOpt('e')!=NULL);
+	 if(eonly && mergeMode) {
+		 eonly=false;
+		 includecov=true;
+	 }
+	 else if(eonly && !guided)
 		 GError("Error: invalid -e usage, GFF reference not given (-G option required).\n");
+
 
 	 ballgown_dir=args.getOpt('b');
 	 ballgown=(args.getOpt('B')!=NULL);
@@ -958,6 +1013,8 @@ void processOptions(GArgs& args) {
 	outfname="stdout";
 	out_dir="./";
 	 if (!tmpfname.is_empty() && tmpfname!="-") {
+		 if (tmpfname[0]=='.' && tmpfname[1]=='/')
+			 tmpfname.cut(0,2);
 		 outfname=tmpfname;
 		 int pidx=outfname.rindex('/');
 		 if (pidx>=0) {//path given
@@ -979,6 +1036,26 @@ void processOptions(GArgs& args) {
 				GError("Error: cannot create directory %s!\n", out_dir.chars());
 			}
 		 }
+	 }
+	 if (!genefname.is_empty()) {
+		 if (genefname[0]=='.' && genefname[1]=='/')
+		 			 genefname.cut(0,2);
+	 //attempt to create the gene abundance path
+		 GStr genefdir("./");
+		 int pidx=genefname.rindex('/');
+		 if (pidx>=0) { //get the path part
+				 genefdir=genefname.substr(0,pidx+1);
+				 //genefname=genefname.substr(pidx+1);
+		 }
+		 if (genefdir!="./") {
+			 if (fileExists(genefdir.chars())==0) {
+				//directory does not exist, create it
+				if (Gmkdir(genefdir.chars()) || !fileExists(genefdir.chars())) {
+					GError("Error: cannot create directory %s!\n", genefdir.chars());
+				}
+			 }
+		 }
+
 	 }
 
 	 { //prepare temp path
@@ -1120,11 +1197,6 @@ void processBundle(BundleData* bundle) {
 	//int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
 	int ngenes=infer_transcripts(bundle, fast);
 
-	if(mergeMode) {
-		isfpkm=false;
-		istpm=false;
-		iscov=false;
-	}
 	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
 	}
@@ -1178,7 +1250,6 @@ void processBundle(BundleData* bundle) {
 }
 
 #ifndef NOTHREADS
-
 
 bool noThreadsWaiting() {
 	waitMutex.lock();
@@ -1275,3 +1346,97 @@ int waitForData(BundleData* bundles) {
 }
 
 #endif
+
+void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) {
+				 //write unbundled genes from this chromosome
+	geneabs.startIterate();
+	while (CGene* g=geneabs.NextData()) {
+	    fprintf(gout, "%s\t%s\t%s\t%c\t%d\t%d\t0.0\t0.0\t0.0\n",
+	    		g->geneID, g->geneName, refseq,
+	    		g->strand, g->start, g->end);
+	}
+	geneabs.Clear();
+}
+
+void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
+ for (int g=0;g<refdata.Count();++g) {
+	 GRefData& crefd=refdata[g];
+	 if (crefd.rnas.Count()==0) continue;
+	 GHash<CGene> geneabs;
+	 //gene_id abundances (0), accumulating coords
+	 for (int m=0;m<crefd.rnas.Count();++m) {
+		 GffObj &t = *crefd.rnas[m];
+		 RC_TData &td = *(RC_TData*) (t.uptr);
+		 if (td.in_bundle) {
+			 if (gout && m==crefd.rnas.Count()-1)
+			 		writeUnbundledGenes(geneabs, crefd.gseq_name, gout);
+			 continue;
+		 }
+		 //write these guides to output
+		 //for --merge and -e
+		 if (mergeMode || eonly) {
+			  fprintf(fout, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",
+					  crefd.gseq_name, t.getTrackName(), t.start, t.end, t.strand);
+			  if (t.getGeneID())
+				  fprintf(fout, "gene_id \"%s\"; ", t.getGeneID());
+			  fprintf(fout, "transcript_id \"%s\";",t.getID());
+			  if (eonly) {
+				if (t.getGeneName())
+					  fprintf(fout, " ref_gene_name \"%s\";", t.getGeneName());
+			    fprintf(fout, " cov \"0.0\"; FPKM \"0.0\"; TPM \"0.0\";");
+			  }
+			  else { //merge_mode
+				  if (t.getGeneName())
+					  fprintf(fout, " gene_name \"%s\";", t.getGeneName());
+				  if (t.getGeneID())
+					  fprintf(fout, " ref_gene_id \"%s\";", t.getGeneID());
+			  }
+			  fprintf(fout, "\n");
+			  for (int e=0;e<t.exons.Count();++e) {
+				  fprintf(fout,"%s\t%s\texon\t%d\t%d\t.\t%c\t.\t",
+						  crefd.gseq_name, t.getTrackName(), t.exons[e]->start, t.exons[e]->end, t.strand);
+				  if (t.getGeneID())
+					  fprintf(fout, "gene_id \"%s\"; ",  t.getGeneID());
+				  fprintf(fout,"transcript_id \"%s\"; exon_number \"%d\";",
+						  t.getID(), e+1);
+				  if (eonly) {
+					  if (t.getGeneName())
+						  fprintf(fout, " ref_gene_name \"%s\";", t.getGeneName());
+					  fprintf(fout, " cov \"0.0\";");
+				  }
+				  else { //mergeMode
+					  if (t.getGeneName())
+						  fprintf(fout, " gene_name \"%s\";", t.getGeneName());
+					  if (t.getGeneID())
+						  fprintf(fout, " ref_gene_id \"%s\";",  t.getGeneID());
+				  }
+				  fprintf(fout, "\n");
+			  }
+		 }
+		 if (gout!=NULL) {
+			 //gather coords for this gene_id
+			 char* geneid=t.getGeneID();
+			 if (geneid==NULL) geneid=t.getGeneName();
+			 if (geneid!=NULL) {
+				 CGene* gloc=geneabs.Find(geneid);
+				 if (gloc) {
+					 if (gloc->strand!=t.strand)
+						 GMessage("Warning: gene \"%s\" (on %s) has reference transcripts on both strands?\n",
+								  geneid, crefd.gseq_name);
+					 if (t.start<gloc->start) gloc->start=t.start;
+					 if (t.end>gloc->end) gloc->end=t.end;
+				 } else {
+					 //add new geneid locus
+					 geneabs.Add(geneid, new CGene(t.start, t.end, t.strand, t.getGeneID(), t.getGeneName()));
+				 }
+			 }
+			 if (m==crefd.rnas.Count()-1)
+				  writeUnbundledGenes(geneabs, crefd.gseq_name, gout);
+		 } //if geneabundance
+	 }
+ }
+}
+
+
+
+

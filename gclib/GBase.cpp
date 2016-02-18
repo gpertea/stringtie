@@ -189,15 +189,12 @@ int Gstrcmp(const char* a, const char* b, int n) {
 
 }
 
-int G_mkdir(const char* path, int perms=(S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) ) {
+int G_mkdir(const char* path, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) ) {
+   //int perms=(S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) ) {
  #ifdef __WIN32__
      return _mkdir(path);
  #else
- //#if _POSIX_C_SOURCE
- //    return ::mkdir(path);
- //#else
-     return mkdir(path, perms); // not sure if this works on mac
- //#endif
+     return  mkdir(path, perms);
  #endif
 }
 
@@ -210,13 +207,20 @@ void Gmktempdir(char* templ) {
 #else
   char* cdir=mkdtemp(templ);
   if (cdir==NULL)
-	  GError("Error creating temp dir %s!\n", templ);
+	  GError("Error creating temp dir %s!(%s)\n", templ, strerror(errno));
 #endif
 }
 
 int Gmkdir(const char *path, bool recursive, int perms) {
 	if (path==NULL || path[0]==0) return -1;
-	if (!recursive) return G_mkdir(path, perms);
+	mode_t process_mask = umask(0); //is this really needed?
+	if (!recursive) {
+	   int r=G_mkdir(path, perms);
+	   if (r!=0) 
+	      GMessage("Warning: G_mkdir(%s) failed: %s\n", path, strerror(errno));
+	   umask(process_mask);
+	   return r;
+	   }
 	int plen=strlen(path);
 	char* gpath=NULL;
 	//make sure gpath ends with /
@@ -226,26 +230,46 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 	else {
 		GMALLOC(gpath, plen+2);
 		strcpy(gpath,path);
-		gpath[plen]='/';
-		gpath[plen+1]=0;
+		strcat(gpath, "/");
+		++plen;
 	}
-	char* ss=gpath;
-	char* psep = NULL;
-	while (*ss!=0 && (psep=strchr(ss, '/'))!=NULL)  {
-		*psep=0; //now gpath is the path up to this /
-		ss=psep; ++ss; //ss repositioned just after the /
-		// create current level
+	//char* ss=gpath+plen-1;
+	char* psep = gpath+plen-1; //start at the last /
+	GDynArray<char*> dirstack(4); // stack of directories that should be created
+	while (psep>gpath && *(psep-1)=='/') --psep; //skip double slashes
+    *psep='\0';
+    int fexists=0;
+	while ((fexists=fileExists(gpath))==0) {
+      dirstack.Push(psep);
+      do { --psep; } while (psep>gpath && *psep!='/');
+      if (psep<=gpath) { psep=NULL; break; }
+      while (psep>gpath && *(psep-1)=='/') --psep;
+      *psep='\0';
+	}
+	if (psep) *psep='/';
+	while (dirstack.Count()>0) {
+		psep=dirstack.Pop();
 		int mkdir_err=0;
-		if (fileExists(gpath)!=1 && (mkdir_err=G_mkdir(gpath, perms))!=0 ) {
-			if (mkdir_err!=0)
-				 GMessage("Warning: failed at mkdir(%s): %s\n",gpath,strerror(errno));
+		if ((mkdir_err=G_mkdir(gpath, perms))!=0) {
+				GMessage("Warning: mkdir(%s) failed: %s\n", gpath, strerror(errno));
 			GFREE(gpath);
+			umask(process_mask);
 			return -1;
 		}
 		*psep='/';
 	}
 	GFREE(gpath);
+	umask(process_mask);
 	return 0;
+}
+
+FILE* Gfopen(const char *path, char *mode) {
+	FILE* f=NULL;
+	if (mode==NULL) f=fopen(path, "rb");
+	    	   else f=fopen(path, mode);
+	if (f==NULL)
+		GMessage("Error opening file '%s':  %s\n", path, strerror(errno));
+	return f;
 }
 
 bool GstrEq(const char* a, const char* b) {
@@ -428,14 +452,15 @@ char* rstrchr(char* str, char ch) {  /* returns a pointer to the rightmost
   */
 char* fgetline(char* & buf, int& buf_cap, FILE *stream, off_t* f_pos, int* linelen) {
   //reads a char at a time until \n and/or \r are encountered
-  int i=0;
+  //int i=0;
   int c=0;
+  GDynArray<char> arr(buf, buf_cap);
   off_t fpos=(f_pos!=NULL) ? *f_pos : 0;
   while ((c=getc(stream))!=EOF) {
-    if (i>=buf_cap-1) {
-       buf_cap+=1024;
-       GREALLOC(buf, buf_cap);
-       }
+    //if (i>=buf_cap-1) {
+    //   buf_cap+=1024;
+    //   GREALLOC(buf, buf_cap);
+    //   }
     if (c=='\n' || c=='\r') {
        if (c=='\r') {
          if ((c=getc(stream))!='\n') ungetc(c,stream);
@@ -445,47 +470,57 @@ char* fgetline(char* & buf, int& buf_cap, FILE *stream, off_t* f_pos, int* linel
        break;
        }
     fpos++;
-    buf[i]=(char)c;
-    i++;
+    //buf[i]=(char)c;
+    arr.Push((char)c);
+    //i++;
     } //while i<buf_cap-1
-  if (linelen!=NULL) *linelen=i;
+  //if (linelen!=NULL) *linelen=i;
+  if (linelen!=NULL) *linelen=arr.Count();
   if (f_pos!=NULL) *f_pos=fpos;
-  if (c==EOF && i==0) return NULL;
-  buf[i]='\0';
+  //if (c==EOF && i==0) return NULL;
+  if (c==EOF && arr.Count()==0) return NULL;
+  //buf[i]='\0';
+  arr.Push('\0');
+  buf=arr();
+  buf_cap=arr.Capacity();
   return buf;
   }
 
 char* GLineReader::getLine(FILE* stream, off_t& f_pos) {
-   if (pushed) { pushed=false; return buf; }
+   if (pushed) { pushed=false; return buf(); }
    //reads a char at a time until \n and/or \r are encountered
-   len=0;
+   //len=0;
    int c=0;
    while ((c=getc(stream))!=EOF) {
-     if (len>=allocated-1) {
-        allocated+=1024;
-        GREALLOC(buf, allocated);
-     }
+     //if (len>=allocated-1) {
+     //   allocated+=1024;
+     //   GREALLOC(buf, allocated);
+     //}
      if (c=='\n' || c=='\r') {
-       buf[len]='\0';
+       //buf[len]='\0';
+       buf.Push('\0');
        if (c=='\r') { //DOS file -- special case
          if ((c=getc(stream))!='\n') ungetc(c,stream);
                                 else f_pos++;
          }
        f_pos++;
        lcount++;
-       return buf;
+       return buf();
        }
      f_pos++;
-     buf[len]=(char)c;
-     len++;
+     //buf[len]=(char)c;
+     buf.Push(c);
+     //len++;
      } //while i<buf_cap-1
    if (c==EOF) {
      isEOF=true;
-     if (len==0) return NULL;
+     //if (len==0) return NULL;
+     if (buf.Count()==0) return NULL;
      }
-   buf[len]='\0';
+   //buf[len]='\0';
+   buf.Push('\0');
    lcount++;
-   return buf;
+   return buf();
 }
 
 
@@ -690,12 +725,12 @@ const char* getFileExt(const char* filepath) {
 int fileExists(const char* fname) {
   struct stat stFileInfo;
   int r=0;
-  // Attempt to get the file attributes
+  // Attempt to get the path attributes
   int fs = stat(fname,&stFileInfo);
   if (fs == 0) {
       r=3;
       // We were able to get the file attributes
-      // so the file obviously exists.
+      // so the path exists
       if (S_ISREG (stFileInfo.st_mode)) {
          r=2;
          }
@@ -706,14 +741,6 @@ int fileExists(const char* fname) {
   return r;
 }
 
-/*bool fileExists(const char* filepath) {
-  if (filepath==NULL) return false;
-  FILE* ft=fopen(filepath, "rb");
-  if (ft==NULL) return false;
-  fclose(ft);
-  return true;
-}
-*/
 int64 fileSize(const char* fpath) {
   struct stat results;
   if (stat(fpath, &results) == 0)

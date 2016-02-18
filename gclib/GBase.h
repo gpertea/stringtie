@@ -1,9 +1,9 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#ifndef _POSIX_SOURCE
-//mostly for MinGW
-#define _POSIX_SOURCE
-#endif
+//#ifndef _POSIX_SOURCE
+////mostly for MinGW;breaks mkdtemp and possibly other functions on OS X
+//#define _POSIX_SOURCE
+//#endif
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -171,7 +171,7 @@ inline int iround(double x) {
    return (int)floor(x + 0.5);
 }
 
-int Gmkdir(const char *path, bool recursive=true, int perms=0775);
+int Gmkdir(const char *path, bool recursive=true, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH));
 void Gmktempdir(char* templ);
 
 /****************************************************************************/
@@ -239,6 +239,9 @@ char* strupper(char * str);
 //for a substring:
 void* Gmemscan(void *mem, unsigned int len,
                   void *part, unsigned int partlen);
+
+
+FILE* Gfopen(const char *path, char *mode=NULL);
 
 // test if a char is in a string:
 bool chrInStr(char c, const char* str);
@@ -353,64 +356,175 @@ class GSeg {
      }
 };
 
+//basic dynamic array template for primitive types
+//which can only grow (reallocate) as needed
+#define GDynArray_INDEX_ERR "Error: invalid index (%d) in dynamic array!\n"
+ #if defined(NDEBUG) || defined(NODEBUG) || defined(_NDEBUG) || defined(NO_DEBUG)
+ #define GDynArray_TEST_INDEX(x)
+#else
+ #define GDynArray_TEST_INDEX(x) \
+ if (x>=fCount) GError(GDynArray_INDEX_ERR, x)
+#endif
+
+#define GDynArray_MAXCOUNT UINT_MAX-1
+#define GDynArray_NOIDX UINT_MAX
+
+template<class OBJ> class GDynArray {
+ protected:
+	bool byptr;
+    OBJ *fArray;
+    uint fCount;
+    uint fCapacity; // size of allocated memory
+	const static uint dyn_array_defcap = 16; // initial capacity (in elements)
+ public:
+    GDynArray(int initcap=dyn_array_defcap):byptr(false), fArray(NULL), fCount(0),
+	     fCapacity(initcap) { // constructor
+    	  GMALLOC(fArray, fCapacity*sizeof(OBJ));
+    }
+
+    GDynArray(const GDynArray &a):byptr(false), fArray(NULL),
+    		fCount(a.fCount), fCapacity(a.fCapacity) { // copy constructor
+        GMALLOC(fArray, sizeof(OBJ)*a.fCapacity);
+        memcpy(fArray, a.fArray, sizeof(OBJ)* a.fCapacity);
+    }
+    GDynArray(OBJ* ptr, uint pcap):byptr(true), fArray(ptr), fCount(0), fCapacity(pcap) {
+    	//this will never deallocate the passed pointer
+    }
+
+    virtual ~GDynArray() { if (!byptr) { GFREE(fArray); } }
+
+    GDynArray& operator = (const GDynArray &a) { // assignment operator
+        if (this == &a) return *this;
+    	if (a.fCount == 0) {
+    		Clear();
+    		return *this;
+    	}
+    	setCapacity(a.fCapacity); //set size
+        memcpy(fArray, a.fArray, sizeof(OBJ)*a.fCount);
+        return *this;
+    }
+
+    OBJ& operator [] (uint idx) {// get array item
+    	GDynArray_TEST_INDEX(idx);
+    	return fArray[idx];
+    }
+
+    void Grow() {
+    	int delta = (fCapacity>16) ? (fCapacity>>2) : 2;
+    	if (GDynArray_MAXCOUNT-delta<=fCapacity)
+    		delta=GDynArray_MAXCOUNT-fCapacity;
+    	if (delta<=1) GError("Error at GDynArray::Grow(): max capacity reached!\n");
+    	setCapacity(fCapacity + delta);
+    }
+#define GDYNARRAY_ADD(item) \
+    	if (fCount==MAX_UINT-1) GError("Error at GDynArray: cannot add item, maximum count reached!\n"); \
+    	if ((++fCount) > fCapacity) Grow(); \
+    	fArray[fCount-1] = item;
+
+    uint Add(OBJ* item) { // Add item to the end of array by pointer
+      if (item==NULL) return GDynArray_NOIDX;
+  	  GDYNARRAY_ADD( (*item) );
+  	  return (fCount-1);
+    }
+
+    uint Add(OBJ item) { // Add item copy to the end of array
+	  GDYNARRAY_ADD(item);
+	  return (fCount-1);
+    }
+
+    uint Push(OBJ item) {
+    	GDYNARRAY_ADD(item);
+    	return (fCount-1);
+    }
+
+    OBJ Pop() {
+    	if (fCount==0) return (OBJ)NULL;
+    	--fCount;
+    	return fArray[fCount];
+    }
+
+    uint Count() { return fCount; } // get size of array (elements)
+    uint Capacity() { return fCapacity; }
+    virtual void setCapacity(uint newcap) {
+    	if (newcap==0) { Clear(); return; } //better use Clear() instead
+    	if (newcap <= fCapacity) return; //never shrink -- use GVec for this
+    	GREALLOC(fArray, newcap*sizeof(OBJ));
+    	fCapacity=newcap;
+    }
+
+    void Clear() { // clear array
+    	fCount = 0;
+    	GREALLOC(fArray, sizeof(OBJ)*dyn_array_defcap);
+    	// set initial memory size again
+    	fCapacity = dyn_array_defcap;
+    }
+	//pointer getptr() { return (pointer) fArray; }
+	OBJ* operator()() { return fArray; }
+};
 
 
 //--------------------------------------------------------
 // ************** simple line reading class for text files
-
 //GLineReader -- text line reading/buffering class
 class GLineReader {
    bool closeFile;
-   int len;
-   int allocated;
-   char* buf;
+   //int len;
+   //int allocated;
+   GDynArray<char> buf;
    bool isEOF;
    FILE* file;
    off_t filepos; //current position
    bool pushed; //pushed back
    int lcount; //line counter (read lines)
  public:
-   char* chars() { return buf; }
-   char* line() { return buf; }
+   char* chars() { return buf(); }
+   char* line() { return buf(); }
    int readcount() { return lcount; } //number of lines read
    void setFile(FILE* stream) { file=stream; }
-   int length() { return len; }
-   int size() { return len; } //same as size();
+   int length() { return buf.Count(); }
+   int size() { return buf.Count(); } //same as size();
    bool isEof() {return isEOF; }
    bool eof() { return isEOF; }
    off_t getfpos() { return filepos; }
    off_t getFpos() { return filepos; }
    char* nextLine() { return getLine(); }
-   char* getLine() { if (pushed) { pushed=false; return buf; }
+   char* getLine() { if (pushed) { pushed=false; return buf(); }
                             else return getLine(file);  }
    char* getLine(FILE* stream) {
-                 if (pushed) { pushed=false; return buf; }
+                 if (pushed) { pushed=false; return buf(); }
                           else return getLine(stream, filepos); }
    char* getLine(FILE* stream, off_t& f_pos); //read a line from a stream and update
                            // the given file position
    void pushBack() { if (lcount>0) pushed=true; } // "undo" the last getLine request
             // so the next call will in fact return the same line
-   GLineReader(const char* fname) {
+   GLineReader(const char* fname):closeFile(false),buf(1024),isEOF(false),file(NULL),
+		   filepos(0), pushed(false), lcount(0) {
       FILE* f=fopen(fname, "rb");
       if (f==NULL) GError("Error opening file '%s'!\n",fname);
       closeFile=true;
-      init(f);
+      file=f;
+      //s_init(f);
       }
-   GLineReader(FILE* stream=NULL, off_t fpos=0) {
-     closeFile=false;
-     init(stream,fpos);
+   GLineReader(FILE* stream=NULL, off_t fpos=0):closeFile(false),buf(1024),isEOF(false),file(stream),
+		   filepos(fpos), pushed(false), lcount(0) {
+     //closeFile=false;
+     //s_init(stream,fpos);
      }
-   void init(FILE* stream, off_t fpos=0) {
-     len=0;
-     isEOF=false;
-     allocated=1024;
-     GMALLOC(buf,allocated);
+   /*
+   void s_init(FILE* stream, off_t fpos=0) {
+     //len=0;
+     //allocated=1024;
+     //GMALLOC(buf,allocated);
+	 //buf.Clear();
+	 //buf.setCapacity(1024);
+	 isEOF=false;
      lcount=0;
-     buf[0]=0;
+     //buf[0]=0;
      file=stream;
      filepos=fpos;
      pushed=false;
      }
+    */
    ~GLineReader() {
      GFREE(buf);
      if (closeFile) fclose(file);
@@ -441,10 +555,10 @@ const char* getFileExt(const char* filepath);
 
 
 int fileExists(const char* fname);
-//returns 0 if file entry doesn't exist
+//returns 0 if path doesn't exist
 //        1 if it's a directory
 //        2 if it's a regular file
-//        3 otherwise (?)
+//        3 something else (but entry exists)
 
 int64 fileSize(const char* fpath);
 

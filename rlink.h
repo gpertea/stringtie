@@ -16,6 +16,10 @@
 #define CHI_WIN 100
 #define CHI_THR 50
 
+#define IS_FPKM_FLAG 1
+#define IS_TPM_FLAG 2
+#define IS_COV_FLAG 4
+
 const double epsilon=0.00000001; //-E
 const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
@@ -36,6 +40,7 @@ extern bool debugMode;
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
   GList<GffObj> rnas; //all transcripts on this genomic seq
+  //GList<GRefLocus> loci;
   int gseq_id;
   const char* gseq_name;
    //GList<GTData> tdata; //transcript data (uptr holder for all rnas loaded here)
@@ -43,7 +48,6 @@ struct GRefData {
     gseq_id=gid;
     if (gseq_id>=0)
        gseq_name=GffObj::names->gseqs.getName(gseq_id);
-
   }
 
   void add(GffReader* gffr, GffObj* t) {
@@ -60,6 +64,7 @@ struct GRefData {
      }
      rnas.Add(t);
      t->isUsed(true);
+     //setLocus(t); //use the GRefLocus::mexons to quickly find an overlap with existing loci, or create a new one
   }
 
   bool operator==(GRefData& d){
@@ -113,7 +118,8 @@ struct CMTransfrag { // this is the super-class for transfrag -> to use in case 
 	GVec<int> read; // all reads' indeces that are connected to this transfrag
 	int nf;
 	int nl;
-	CMTransfrag(CTransfrag *t=NULL):transfrag(t),read(),nf(0),nl(0) {}
+	uint len;
+	CMTransfrag(CTransfrag *t=NULL):transfrag(t),read(),nf(0),nl(0),len(0) {}
 };
 
 struct CGuide {
@@ -215,8 +221,11 @@ struct CPrediction:public GSeg {
 
 struct CMPrediction {
 	CPrediction *p;
-	GBitVec b;
-	CMPrediction(CPrediction* _p=NULL): p(_p),b() {}
+	GVec<int> nodes;
+	GBitVec pat; // pattern of nodes and introns in prediction
+	GBitVec b; // not retained introns
+	CMPrediction(CPrediction* _p=NULL): p(_p),nodes(),pat(),b() {}
+	CMPrediction(CPrediction* _p,GVec<int>& _nodes,GBitVec& _pat, GBitVec& _b): p(_p),nodes(_nodes),pat(_pat),b(_b) {}
 };
 
 struct CPath {
@@ -247,7 +256,7 @@ struct TAlnInfo {
 	double tpm;
 	int g;
 	TAlnInfo(const char* rname=NULL, int fidx=0):name(rname), fileidx(fidx),
-			cov(0),fpkm(0),tpm(0),g(-1) { }
+			cov(-1),fpkm(-1),tpm(-1),g(-1) { }
 };
 
 struct CJunction;
@@ -260,7 +269,7 @@ struct CReadAln:public GSeg {
 	uint len;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
 	GVec<float> pair_count;   // keeps count for all paired reads
-	GVec<int> pair_idx;     // keeps indeces for all pairs
+	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
 	GPVec<CJunction> juncs;
     TAlnInfo* tinfo;
@@ -450,6 +459,7 @@ struct BundleData {
  double num_fragments; //aligned read/pairs
  double frag_len;
  double sum_cov; // sum of all transcripts coverages --> needed to compute TPMs
+ char covflags;
 
  GStr refseq;
  GList<CReadAln> readlist;
@@ -462,7 +472,7 @@ struct BundleData {
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 //covSaturated(false),
 		 numreads(0),
-		 num_fragments(0), frag_len(0),sum_cov(0),
+		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
 		 refseq(), readlist(false,true), //bpcov(1024),
 		 junction(true, true, true),
 		 keepguides(false), pred(false), rc_data(NULL) {
@@ -470,11 +480,18 @@ struct BundleData {
  }
 
  void getReady(int currentstart, int currentend) {
+	 //this is only called when the bundle is valid and going to be processed
 	 start=currentstart;
 	 end=currentend;
 	 //refseq=ref;
+	 //tag all these guides
+	 for (int i=0;i<this->keepguides.Count();++i) {
+		 RC_TData* tdata=(RC_TData*)(keepguides[i]->uptr);
+		 tdata->in_bundle=1;
+	 }
 	 status=BUNDLE_STATUS_READY;
  }
+
  void rc_init(GffObj* t, GPVec<RC_TData>* rc_tdata,
 		 GPVec<RC_Feature>* rc_edata, GPVec<RC_Feature>* rc_idata) {
 	  if (rc_data==NULL) {
@@ -498,6 +515,7 @@ struct BundleData {
  void Clear() {
 	keepguides.Clear();
 	pred.Clear();
+	pred.setSorted(false);
 	readlist.Clear();
 	for(int i=0;i<3;i++) {
 		bpcov[i].Clear();
@@ -512,6 +530,7 @@ struct BundleData {
 	num_fragments=0;
 	frag_len=0;
 	sum_cov=0;
+	covflags=0;
 	delete rc_data;
 	rc_data=NULL;
  }
