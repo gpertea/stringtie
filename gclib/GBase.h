@@ -371,20 +371,28 @@ class GSeg {
 
 template<class OBJ> class GDynArray {
  protected:
+	bool byptr;
     OBJ *fArray;
     uint fCount;
     uint fCapacity; // size of allocated memory
 	const static uint dyn_array_defcap = 16; // initial capacity (in elements)
  public:
-    GDynArray(int initcap=dyn_array_defcap):fArray(NULL), fCount(0),
+    GDynArray(int initcap=dyn_array_defcap):byptr(false), fArray(NULL), fCount(0),
 	     fCapacity(initcap) { // constructor
     	  GMALLOC(fArray, fCapacity*sizeof(OBJ));
     }
-    GDynArray(const GDynArray &a):fCount(a.fCount), fCapacity(a.fCapacity) { // copy constructor
+
+    GDynArray(const GDynArray &a):byptr(false), fArray(NULL),
+    		fCount(a.fCount), fCapacity(a.fCapacity) { // copy constructor
         GMALLOC(fArray, sizeof(OBJ)*a.fCapacity);
         memcpy(fArray, a.fArray, sizeof(OBJ)* a.fCapacity);
     }
-    virtual ~GDynArray() { GFREE(fArray); }
+    GDynArray(OBJ* ptr, uint pcap):byptr(true), fArray(ptr), fCount(0), fCapacity(pcap) {
+    	//this will never deallocate the passed pointer
+    }
+
+    virtual ~GDynArray() { if (!byptr) { GFREE(fArray); } }
+
     GDynArray& operator = (const GDynArray &a) { // assignment operator
         if (this == &a) return *this;
     	if (a.fCount == 0) {
@@ -409,7 +417,7 @@ template<class OBJ> class GDynArray {
     	setCapacity(fCapacity + delta);
     }
 #define GDYNARRAY_ADD(item) \
-    	if (fCount==MAX_UINT-1) GError("Error at GDynArray: add item failed, maximum count reached!\n"); \
+    	if (fCount==MAX_UINT-1) GError("Error at GDynArray: cannot add item, maximum count reached!\n"); \
     	if ((++fCount) > fCapacity) Grow(); \
     	fArray[fCount-1] = item;
 
@@ -434,8 +442,9 @@ template<class OBJ> class GDynArray {
     	--fCount;
     	return fArray[fCount];
     }
-    uint Count() { return fCount; } // get size of array (elements)
 
+    uint Count() { return fCount; } // get size of array (elements)
+    uint Capacity() { return fCapacity; }
     virtual void setCapacity(uint newcap) {
     	if (newcap==0) { Clear(); return; } //better use Clear() instead
     	if (newcap <= fCapacity) return; //never shrink -- use GVec for this
