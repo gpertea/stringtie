@@ -28,8 +28,10 @@ significantly slower than the optimized version which is obtained by using
 ##Running StringTie
 
 Run stringtie from the command line like this:
-stringtie <aligned_reads.bam> [options]
-The main input of the program is a SAMtools BAM file with RNA-Seq mappings
+'''
+stringtie [options] <aligned_reads.bam>
+'''
+The main input of the program is a SAMTools BAM file with RNA-Seq mappings
 sorted by genomic location (for example the accepted_hits.bam file produced
 by TopHat).
 
