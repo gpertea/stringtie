@@ -236,19 +236,19 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 	//char* ss=gpath+plen-1;
 	char* psep = gpath+plen-1; //start at the last /
 	GDynArray<char*> dirstack(4); // stack of directories that should be created
+	while (psep>gpath && *(psep-1)=='/') --psep; //skip double slashes
     *psep='\0';
     int fexists=0;
-	while ((fexists=fileExists(gpath))!=0) {
+	while ((fexists=fileExists(gpath))==0) {
       dirstack.Push(psep);
-      GMessage("******** added %s to dirstack!\n",gpath);
       do { --psep; } while (psep>gpath && *psep!='/');
-      if (psep<=gpath) break;
+      if (psep<=gpath) { psep=NULL; break; }
+      while (psep>gpath && *(psep-1)=='/') --psep;
       *psep='\0';
 	}
-	*psep=''
+	if (psep) *psep='/';
 	while (dirstack.Count()>0) {
 		psep=dirstack.Pop();
-		GMessage("********** popped %s from dirstack.\n",gpath);
 		int mkdir_err=0;
 		if ((mkdir_err=G_mkdir(gpath, perms))!=0) {
 				GMessage("Warning: mkdir(%s) failed: %s\n", gpath, strerror(errno));
@@ -452,14 +452,15 @@ char* rstrchr(char* str, char ch) {  /* returns a pointer to the rightmost
   */
 char* fgetline(char* & buf, int& buf_cap, FILE *stream, off_t* f_pos, int* linelen) {
   //reads a char at a time until \n and/or \r are encountered
-  int i=0;
+  //int i=0;
   int c=0;
+  GDynArray<char> arr(buf, buf_cap);
   off_t fpos=(f_pos!=NULL) ? *f_pos : 0;
   while ((c=getc(stream))!=EOF) {
-    if (i>=buf_cap-1) {
-       buf_cap+=1024;
-       GREALLOC(buf, buf_cap);
-       }
+    //if (i>=buf_cap-1) {
+    //   buf_cap+=1024;
+    //   GREALLOC(buf, buf_cap);
+    //   }
     if (c=='\n' || c=='\r') {
        if (c=='\r') {
          if ((c=getc(stream))!='\n') ungetc(c,stream);
@@ -469,13 +470,19 @@ char* fgetline(char* & buf, int& buf_cap, FILE *stream, off_t* f_pos, int* linel
        break;
        }
     fpos++;
-    buf[i]=(char)c;
-    i++;
+    //buf[i]=(char)c;
+    arr.Push((char)c);
+    //i++;
     } //while i<buf_cap-1
-  if (linelen!=NULL) *linelen=i;
+  //if (linelen!=NULL) *linelen=i;
+  if (linelen!=NULL) *linelen=arr.Count();
   if (f_pos!=NULL) *f_pos=fpos;
-  if (c==EOF && i==0) return NULL;
-  buf[i]='\0';
+  //if (c==EOF && i==0) return NULL;
+  if (c==EOF && arr.Count()==0) return NULL;
+  //buf[i]='\0';
+  arr.Push('\0');
+  buf=arr();
+  buf_cap=arr.Capacity();
   return buf;
   }
 
