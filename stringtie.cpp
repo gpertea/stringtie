@@ -80,8 +80,8 @@ the following options are available:\n\
                     (default: 1.0)\n\
   -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
   -g <gap_len>     gap between transcripts to merge together (default: 250)\n\
-  -i               keep merged transcripts with retained introns; be default\n\
-  	  	  	  	   these are not kept unless there is strong evidence for them\n\
+  -i               keep merged transcripts with retained introns; by default\n\
+                   these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
 /* 
@@ -875,13 +875,12 @@ void processOptions(GArgs& args) {
 
 	 s=args.getOpt('g');
 	 if (!s.is_empty()) bundledist=s.asInt();
+	 else if(mergeMode) bundledist=250; // should figure out here a reasonable parameter for merge
 	 s=args.getOpt('p');
 	 if (!s.is_empty()) {
 		   num_cpus=s.asInt();
 		   if (num_cpus<=0) num_cpus=1;
 	 }
-	 else if(mergeMode) bundledist=250; // should figure out here a reasonable parameter for merge
-
 	 s=args.getOpt('a');
 	 if (!s.is_empty()) {
 		 junctionsupport=(uint)s.asInt();
