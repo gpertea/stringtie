@@ -1,29 +1,21 @@
 ##Obtaining and installing StringTie
 
-The current version of StringTie can be downloaded from
+The current version of StringTie can also be downloaded from
   http://ccb.jhu.edu/software/stringtie
   
-In order to build StringTie from the source package,
-the following steps should be taken:
-
-* Unpack the downloaded StringTie source archive in a directory of your choice, e.g.:
+In order to build StringTie from this GitHub repository
+the following steps can be taken:
+ 
 ```
-cd ~/src/
-tar xvfz ~/Downloads/stringtie-V.V.V.tar.gz
-```
-A directory called stringtie-V.V.V (where V.V.V is the current
-numeric version of the program) will be created in the current directory.
-
-* Change to that directory and build the stringtie executable:
-```
-cd stringtie-V.V.V
+git clone https://github.com/gpertea/stringtie
+cd stringtie
 make release
 ```
+
 Note that simply running `make` will produce an executable 
 which is more suitable for debugging and runtime checking but which can be
 significantly slower than the optimized version which is obtained by using 
 `make release`.
-
 
 ##Running StringTie
 
@@ -66,22 +58,25 @@ usage message):
 Transcript merge usage mode:
 
  stringtie --merge [Options] { gtf_list | strg1.gtf ...}
-With this option StringTie will assemble transcripts from multiple\n\
-input files generating a unified non-redundant set of isoforms. In this\n\
-usage mode the following options are available:\n\
-  -G <guide_gff>   reference annotation to include in the merging (GTF/GFF3)\n\
-  -o <out_gtf>     output file name for the merged transcripts GTF\n\
-                    (default: stdout)\n\
-  -m <min_len>     minimum input transcript length to include in the merge\n\
-                    (default: 50)\n\
-  -c <min_cov>     minimum input transcript coverage to include in the merge\n\
-                    (default: 0)\n\
-  -F <min_fpkm>    minimum input transcript FPKM to include in the merge\n\
-                    (default: 0)\n\
-  -T <min_tpm>     minimum input transcript TPM to include in the merge\n\
-                    (default: 0)\n\
-  -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
-  -l <label>       name prefix for output transcripts (default: MSTRG)\n\
+With this option StringTie will assemble transcripts from multiple
+input files generating a unified non-redundant set of isoforms. In this
+usage mode the following options are available:
+  -G <guide_gff>   reference annotation to include in the merging (GTF/GFF3)
+  -o <out_gtf>     output file name for the merged transcripts GTF
+                    (default: stdout)
+  -m <min_len>     minimum input transcript length to include in the merge
+                    (default: 50)
+  -c <min_cov>     minimum input transcript coverage to include in the merge
+                    (default: 0)
+  -F <min_fpkm>    minimum input transcript FPKM to include in the merge
+                    (default: 0)
+  -T <min_tpm>     minimum input transcript TPM to include in the merge
+                    (default: 0)
+  -f <min_iso>     minimum isoform fraction (default: 0.01)
+  -g <gap_len>     gap between transcripts to merge together (default: 250)
+  -i               keep merged transcripts with retained introns; by default
+                   these are not kept unless there is strong evidence for them
+  -l <label>       name prefix for output transcripts (default: MSTRG)
 ```
 
 ##Input files
