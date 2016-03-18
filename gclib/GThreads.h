@@ -101,9 +101,9 @@ freely, subject to the following restrictions:
   #include <sched.h>
   #include <unistd.h>
 #endif
-
-// Generic includes
-//#include <ostream>
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
 
 /// TinyThread++ version (major number).
 #define TINYTHREAD_VERSION_MAJOR 1
@@ -174,6 +174,10 @@ freely, subject to the following restrictions:
 /// the std::mutex class.
 //namespace tthread {
 
+void gthreads_errExit(int err, const char* msg=NULL);
+
+#define pthreads_err(msg) \
+               do { perror(msg); exit(EXIT_FAILURE); } while (0)
 /// GMutex class
 /// This is a mutual exclusion object for synchronizing access to shared
 /// memory areas for several threads. The mutex is non-recursive (i.e. a
@@ -696,6 +700,7 @@ class GThread {
 #endif
  private:
     int mId;
+    size_t stack_size; //available only for pthreads
     static int tcounter; //counts live, joinable GThread instances
     static int num_created; //counts all joinable GThread instances ever created by current process
 
@@ -709,7 +714,7 @@ public:
     /// Default constructor.
     /// Construct a thread object without an associated thread of execution
     /// (i.e. non-joinable).
-    GThread() : mId(0), mHandle(0), mNotAThread(true)
+    GThread(size_t stacksize=0) : mId(0), stack_size(stacksize), mHandle(0), mNotAThread(true)
 #if defined(_GTHREADS_WIN32_)
     , mWin32ThreadID(0)
 #endif
@@ -724,12 +729,12 @@ public:
     /// thread class. It is more similar to the pthread_create() (POSIX) and
     /// CreateThread() (Windows) functions.
     //GThread(void (*aFunction)(void *, GThread*), void * aArg);
-    GThread(void (*aFunction)(void *), void * aArg=NULL);
+    GThread(void (*aFunction)(void *), void * aArg=NULL, size_t stacksize=0);
 
-    GThread(void (*aFunction)(GThreadData& thread_data), void * aArg);
+    GThread(void (*aFunction)(GThreadData& thread_data), void * aArg, size_t stacksize=0);
 
-    void kickStart(void (*aFunction)(GThreadData& thread_data), void * aArg);
-    void kickStart(void (*aFunction)(void *), void * aArg=NULL);
+    void kickStart(void (*aFunction)(GThreadData& thread_data), void * aArg, size_t stacksize=0);
+    void kickStart(void (*aFunction)(void *), void * aArg=NULL, size_t stacksize=0);
 
     /// Destructor.
     /// @note If the thread is joinable upon destruction, \c std::terminate()
@@ -752,7 +757,7 @@ public:
     void detach();
     /// Return the thread ID of a thread object.
     int get_id() const; // { return mID; }
-
+    size_t getStackSize() { return stack_size; } //only for pthreads
     /// Get the native handle for this thread.
     /// @note Under Windows, this is a \c HANDLE, and under POSIX systems, this
     /// is a \c pthread_t.
@@ -775,6 +780,14 @@ public:
     	int r=tcounter;
     	return r;
     }
+    static size_t defaultStackSize() {
+    	pthread_attr_t attr;
+    	size_t stacksize;
+    	pthread_attr_init(&attr);
+    	pthread_attr_getstacksize(&attr, &stacksize);
+    	pthread_attr_destroy(&attr);
+    	return stacksize;
+    }
     static int liveCount() {
       //return number of running (live) threads
       return num_running();
@@ -790,7 +803,7 @@ public:
     _GTHREADS_DISABLE_ASSIGNMENT(GThread)
 
   private:
-    void initStart(void* tidata);
+    void initStart(void* tidata, size_t stacksize=0);
     static void update_counter(int inc=1, GThread* t_update=NULL); //default: increments
     // This is the internal thread wrapper function.
 #if defined(_GTHREADS_WIN32_)
