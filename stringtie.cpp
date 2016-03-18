@@ -385,6 +385,17 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 #ifndef NOTHREADS
+#define DEF_TSTACK_SIZE 8388608
+ int tstackSize=GThread::defaultStackSize();
+ size_t defStackSize=0;
+if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
+ if (verbose) {
+	 if (defStackSize>0){
+		 int ssize=defStackSize;
+		 GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
+	 }
+	 else GMessage("Default stack size for threads: %d\n", tstackSize);
+ }
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
@@ -394,7 +405,7 @@ if (ballgown)
 
  dataClear.setCapacity(num_cpus+1);
  for (int b=0;b<num_cpus;b++) {
-	 threads[b].kickStart(workerThread, (void*) &bundleQueue);
+	 threads[b].kickStart(workerThread, (void*) &bundleQueue, defStackSize);
 	 bundles[b+1].idx=b+1;
 	 dataClear.Push(b);
    }
@@ -1230,8 +1241,8 @@ void processBundle(BundleData* bundle) {
 	  NumFrag3+=bundle->num_fragments3;
 	  SumFrag3+=bundle->sum_fragments3;
 	  fprintf(stderr,"Number of fragments in bundle: %g with length %g\n",bundle->num_fragments,bundle->frag_len);
-	  */
 	  fprintf(stderr,"Number of fragments in bundle: %g with sum %g\n",bundle->num_fragments,bundle->frag_len);
+	  */
 	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
 	  		bundle->start, bundle->end, bundle->readlist.Count(), bundle->pred.Count());
 	#ifdef GMEMTRACE

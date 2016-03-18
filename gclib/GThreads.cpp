@@ -29,7 +29,7 @@ freely, subject to the following restrictions:
 #elif defined(_GTHREADS_WIN32_)
   #include <process.h>
 #endif
-
+#include <string.h>
 
 //namespace tthread {
 
@@ -146,6 +146,16 @@ static thread::id _pthread_t_to_ID(const pthread_t &aHandle)
 #endif // _GTHREADS_POSIX_
 */
 
+void gthreads_errExit(int err, const char* msg) {
+	  if (msg!=NULL)
+	    fprintf(stderr, "GThreads Error: %s (%s)\n", msg, strerror(err));
+	  else
+	    fprintf(stderr, "GThreads Error: %s\n", strerror(err));
+	  exit(EXIT_FAILURE);
+}
+
+
+
 void GThread::update_counter(int inc, GThread* t_update) {
   static GMutex counterLock;
   GLockGuard<GMutex> guard(counterLock);
@@ -158,7 +168,7 @@ void GThread::update_counter(int inc, GThread* t_update) {
 	  t_update->mId=0; // thread terminated
 
  }
- 
+
 
 //------------------------------------------------------------------------------
 // thread
@@ -240,7 +250,7 @@ void * GThread::wrapper_function(void * aArg)
 }
 
 
-void GThread::initStart(void* tidata) {
+void GThread::initStart(void* tidata, size_t stacksize) {
  _thread_start_info * ti = (_thread_start_info *) tidata;
    /*ti->mFunction = aFunction;
   ti->mArg = aArg;
@@ -253,10 +263,29 @@ void GThread::initStart(void* tidata) {
 #if defined(_GTHREADS_WIN32_)
   mHandle = (HANDLE) _beginthreadex(0, 0, wrapper_function, (void *) ti, 0, &mWin32ThreadID);
 #elif defined(_GTHREADS_POSIX_)
-  if(pthread_create(&mHandle, NULL, wrapper_function, (void *) ti) != 0)
-    mHandle = 0;
-#endif
+  if (stacksize>0) {
+	  pthread_attr_t attr;
+	  int r=pthread_attr_init(&attr);
+	  if (r!=0) gthreads_errExit(r, "pthread_attr_init()");
+	  r = pthread_attr_setstacksize(&attr, stacksize);
+	  if (r!=0) gthreads_errExit(r, "pthread_attr_setstacksize()");
+	  stack_size=stacksize;
+	  r=pthread_create(&mHandle, &attr, wrapper_function, (void *) ti);
+	  if (r!=0) {
+		  gthreads_errExit(r, "pthread_create()");
+		  //mHandle = 0;
+	  }
+	  r=pthread_attr_destroy(&attr);
+	  if (r!=0) gthreads_errExit(r, "pthread_attr_destroy()");
+  }
+  else {
+    int r=pthread_create(&mHandle, NULL, wrapper_function, (void *) ti);
+    if (r!= 0)
+    	gthreads_errExit(r, "pthread_create()");
+      //mHandle = 0;
+  }
 
+#endif
   // Did we fail to create the thread?
   if(!mHandle)
   {
@@ -266,39 +295,38 @@ void GThread::initStart(void* tidata) {
    else GThread::update_counter(1, this);
 }
 
-//GThread::GThread(void (*aFunction)(void *, GThread*), void * aArg)
-GThread::GThread(void (*aFunction)(void *), void * aArg): mId(0), mHandle(0), mNotAThread(true)
+GThread::GThread(void (*aFunction)(void *), void * aArg, size_t stacksize): mId(0), mHandle(0), mNotAThread(true)
 #if defined(_GTHREADS_WIN32_)
     , mWin32ThreadID(0) 
 #endif
     {
-  kickStart(aFunction, aArg);
+  kickStart(aFunction, aArg, stacksize);
 }
 
-void GThread::kickStart(void (*aFunction)(void *), void * aArg) {
+void GThread::kickStart(void (*aFunction)(void *), void * aArg, size_t stacksize) {
   // Serialize access to this thread structure
   GLockGuard<GMutex> guard(mDataMutex);
   // Fill out the thread startup information (passed to the thread wrapper,
   // which will eventually free it)
   _thread_start_info * ti = new _thread_start_info(this, aFunction, aArg);
-  initStart(ti);
+  initStart(ti, stacksize);
 }
 
 //custom alternate constructor (non-C++11 compatible), passing GThreadData back to the 
 //user function in order to easily retrieve current GThread object 
 //(better alternative to this_thread)
-GThread::GThread(void (*gFunction)(GThreadData& thread_data), void * aArg) {
-	kickStart(gFunction, aArg);
+GThread::GThread(void (*gFunction)(GThreadData& thread_data), void * aArg, size_t stacksize) {
+	kickStart(gFunction, aArg, stacksize);
 }
 
-void GThread::kickStart(void (*gFunction)(GThreadData& thread_data), void * aArg) {
+void GThread::kickStart(void (*gFunction)(GThreadData& thread_data), void * aArg, size_t stacksize) {
   // Serialize access to this thread structure
   GLockGuard<GMutex> guard(mDataMutex);
 
   // Fill out the thread startup information (passed to the thread wrapper,
   // which will eventually free it)
   _thread_start_info * ti = new _thread_start_info(this, gFunction, aArg);
-  initStart(ti);
+  initStart(ti, stacksize);
 }
 
 GThread::~GThread()
