@@ -123,6 +123,10 @@ public:
     if (value)
       clear_unused_bits();
   }
+  unsigned long getMemorySize() const {
+	   unsigned long r = ((unsigned long) Capacity) * sizeof(BitWord);
+	   return r;
+  }
 
   /// GBitVec copy ctor.
   GBitVec(const GBitVec &RHS) : Size(RHS.size()) {

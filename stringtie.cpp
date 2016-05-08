@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.2.2"
+#define VERSION "1.2.3"
 
 //#define DEBUGPRINT 1
 
@@ -32,7 +32,7 @@
 #define USAGE "StringTie v"VERSION" usage:\n\
  stringtie <input.bam ..> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
-  [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>]\n\
+  [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>] [-u]\n\
   [-e] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
 Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
@@ -60,6 +60,7 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
     created under the directory path given as <dir_path>\n\
  -e only estimate the abundance of given reference transcripts (requires -G)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
+ -u no multi-mapping correction default: false)\n\
  -h print this usage message and exit\n\
 \n\
 Transcript merge usage mode: \n\
@@ -122,6 +123,7 @@ bool guided=false;
 bool trim=true;
 bool fast=true;
 bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
+bool nomulti=false;
 bool enableNames=false;
 bool includecov=false;
 bool specific=false;
@@ -251,7 +253,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;keeptmp;merge;exclude=zZSEihvtex:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;keeptmp;merge;exclude=zZSEihvteux:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -975,6 +977,8 @@ void processOptions(GArgs& args) {
 
 	 retained_intron=(args.getOpt('i')!=NULL);
 
+	 nomulti=(args.getOpt('u')!=NULL);
+
 	 eonly=(args.getOpt('e')!=NULL);
 	 if(eonly && mergeMode) {
 		 eonly=false;
@@ -1205,7 +1209,7 @@ void processBundle(BundleData* bundle) {
 	}
 #endif
 	//int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
-	int ngenes=infer_transcripts(bundle, fast);
+	int ngenes=infer_transcripts(bundle);
 
 	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
