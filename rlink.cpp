@@ -18,7 +18,9 @@ extern bool trim;
 //extern bool partialcov;
 //extern bool complete; // this is false if I use guides that are fragments, but I want them to be true
 extern bool eonly;
+extern bool nomulti;
 
+extern bool fast;
 //extern int maxReadCov;
 
 extern float isofrac;
@@ -257,6 +259,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	}
 
 	float rdcount=float(1)/nh;
+	if(nomulti) rdcount=1;
 	readlist[n]->read_count+=rdcount; // increase single count just in case I don't see the pair
 
 	// store the mismatch count per junction so that I can eliminate it later
@@ -271,18 +274,22 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	}
 
 	// now set up the pairing
-	if (brec.refId()==brec.mate_refId()) {  //only consider mate pairing data if mates are on the same chromosome/contig
+	if (brec.refId()==brec.mate_refId()) {  //only consider mate pairing data if mates are on the same chromosome/contig and are properly paired
+	//if (brec.refId()==brec.mate_refId() && brec.isProperlyPaired()) {  //only consider mate pairing data if mates are on the same chromosome/contig and are properly paired
+	//if (brec.isProperlyPaired()) {  //only consider mate pairing data if mates  are properly paired
 		int pairstart=brec.mate_start();
 		if (currentstart<=pairstart) { // if pairstart is in a previous bundle I don't care about it
 
 			GStr readname(brec.name());
 			GStr id(readname); // init id with readname
-			//id+=':';id+=readstart; // this shouldn't be needed since I have the HI tag
-			id+=':';id+=hi;
+			//id+=':';id+=hi; // the HI tag is not stored in all aligners, like HISAT
 
-			if(pairstart<=readstart) { // if I've seen the pair already
+			if(pairstart<=readstart) { // if I've seen the pair already <- I might not have seen it yet because the pair starts at the same place
+				id+='-';id+=pairstart;
+				id+=".=";id+=hi; // (!) this suffix actually speeds up the hash by improving distribution!
 				const int* np=hashread[id.chars()];
 				if(np) { // the pair was stored --> why wouldn't it be? : only in the case that the pair starts at the same position
+					if(readlist[*np]->nh>nh && !nomulti) rdcount=float(1)/readlist[*np]->nh;
 					bool notfound=true;
 					for(int i=0;i<readlist[*np]->pair_idx.Count();i++)
 						if(readlist[*np]->pair_idx[i]==n) {
@@ -316,7 +323,9 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 				*/
 			}
 			else { // I might still see the pair in the future
-				hashread.Add(id.chars(), new int(n));
+				id+='-';id+=readstart; // this is the correct way
+				id+=".=";id+=hi;
+				hashread.fAdd(id.chars(), new int(n));
 			}
 		}
 	} //<-- if mate is mapped on the same chromosome
@@ -2095,13 +2104,13 @@ void eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag
 		}
 
 	while(transfrag.Count()>max_trf_number) {
-		threshold++;
 		for(int t=transfrag.Count()-1;t>=0;t--)
 			if(transfrag[t]->abundance<threshold && transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1) { // need to delete transfrag that doesn't come from source
 				settrf_in_treepat(NULL,gno,gpos,transfrag[t]->nodes,transfrag[t]->pattern,tr2no); // this should be eliminated if I want to store transcripts from 0 node
 				transfrag.Exchange(t,transfrag.Count()-1);
 				transfrag.Delete(transfrag.Count()-1);
 			}
+		threshold++;
 	}
 
 }
@@ -2206,6 +2215,8 @@ void process_transfrags(int gno,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& t
 	// sort transfrag with smallest being the one that has the most nodes, and ties are decided by the abundance (largest abundance first); last transfrags all have 1 node
 	transfrag.Sort(trCmp);
 
+	if(!fast) compatible.resize((1+transfrag.Count())*transfrag.Count()/2); // I might want to change this to gbitvec
+
 	/*
 	{ // DEBUG ONLY
 		printTime(stderr);
@@ -2251,42 +2262,44 @@ void process_transfrags(int gno,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& t
 		}
 		*/
 
-		// add t1 to t1 compatibility
-		bool comp=true;
-		compatible[comptbl_pos(t1,t1,transfrag.Count())]=1;
-		for(int t2=t1+1;t2<transfrag.Count();t2++) {
-			// here check compatibility between t1 and t2;
-			int n2=transfrag[t2]->nodes.Count();
-			int i1=0;
-			int i2=0;
-			comp=true;
-			while(i1<n1 && i2<n2) {
-				if(transfrag[t1]->nodes[i1]==transfrag[t2]->nodes[i2]) {
-					if(i1==n1-1 || i2==n2-1) { // one transcript finishes -> no need to check anymore
-						i1=n1;i2=n2;
+		if(!fast) {
+			// add t1 to t1 compatibility
+			bool comp=true;
+			compatible[comptbl_pos(t1,t1,transfrag.Count())]=1;
+			for(int t2=t1+1;t2<transfrag.Count();t2++) {
+				// here check compatibility between t1 and t2;
+				int n2=transfrag[t2]->nodes.Count();
+				int i1=0;
+				int i2=0;
+				comp=true;
+				while(i1<n1 && i2<n2) {
+					if(transfrag[t1]->nodes[i1]==transfrag[t2]->nodes[i2]) {
+						if(i1==n1-1 || i2==n2-1) { // one transcript finishes -> no need to check anymore
+							i1=n1;i2=n2;
+						}
+						else { // advance the smallest one
+							if(transfrag[t1]->nodes[i1+1]<transfrag[t2]->nodes[i2+1]) i1++;
+							else i2++;
+						}
 					}
-					else { // advance the smallest one
-						if(transfrag[t1]->nodes[i1+1]<transfrag[t2]->nodes[i2+1]) i1++;
-						else i2++;
+					else if(transfrag[t1]->nodes[i1]<transfrag[t2]->nodes[i2]) {
+						i1++;
+						if(conflict(i1,transfrag[t2]->nodes[i2],transfrag[t1]->nodes,n1,no2gnode,transfrag[t1]->pattern,gno,gpos)) {
+							comp=false;
+							break;
+						}
+					}
+					else {
+						i2++;
+						if(conflict(i2,transfrag[t1]->nodes[i1],transfrag[t2]->nodes,n2,no2gnode,transfrag[t2]->pattern,gno,gpos)) {
+							comp=false;
+							break;
+						}
 					}
 				}
-				else if(transfrag[t1]->nodes[i1]<transfrag[t2]->nodes[i2]) {
-					i1++;
-					if(conflict(i1,transfrag[t2]->nodes[i2],transfrag[t1]->nodes,n1,no2gnode,transfrag[t1]->pattern,gno,gpos)) {
-						comp=false;
-						break;
-					}
-				}
-				else {
-					i2++;
-					if(conflict(i2,transfrag[t1]->nodes[i1],transfrag[t2]->nodes,n2,no2gnode,transfrag[t2]->pattern,gno,gpos)) {
-						comp=false;
-						break;
-					}
-				}
-			}
-			if(comp) compatible[comptbl_pos(t1,t2,transfrag.Count())]=1;
-		} // end for(int t2=t1+1;t2<transfrag.Count();t2++)
+				if(comp) compatible[comptbl_pos(t1,t2,transfrag.Count())]=1;
+			} // end for(int t2=t1+1;t2<transfrag.Count();t2++)
+		} // and if(!fast)
 	} // end for(int t1=0;t1<transfrag.Count();t1++)
 
 	// set source-to-child transfrag abundances: optional in order not to keep these abundances too low:
@@ -7519,7 +7532,7 @@ int store_guide_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>&
 
 void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,
 		GBitVec& compatible,	int& geneno,bool first,int strand,GList<CPrediction>& pred,GVec<float>& nodecov,
-		GBitVec& istranscript,GBitVec& removable,GBitVec& usednode,float maxcov,GBitVec& prevpath,bool fast) {
+		GBitVec& istranscript,GBitVec& removable,GBitVec& usednode,float maxcov,GBitVec& prevpath) {
 
 	 GVec<int> path;
 	 GVec<float> pathincov;
@@ -7576,7 +7589,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 			 else */
 	 				 flux=max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat);
 
-	 			 /*
+	 		     /*
 	 			 { // DEBUG ONLY
 	 				 printTime(stderr);
 	 				 fprintf(stderr,"flux=%g Path:",flux);
@@ -7665,7 +7678,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 		 path.Clear();
 		 nodeflux.Clear();
 		 computed.Clear();
-		 parse_trf(maxi,gno,edgeno,gpos,no2gnode,transfrag,compatible,geneno,first,strand,pred,nodecov,istranscript,removable,usednode,maxcov,prevpath,fast);
+		 parse_trf(maxi,gno,edgeno,gpos,no2gnode,transfrag,compatible,geneno,first,strand,pred,nodecov,istranscript,removable,usednode,maxcov,prevpath);
 	 }
 
 }
@@ -8864,7 +8877,7 @@ int merge_transcripts(int gno, GPVec<CGraphnode>& no2gnode,GPVec<CMTransfrag>& m
 */
 
 int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GBitVec& compatible,
-		int geneno,int strand,GVec<CGuide>& guidetrf,GList<CPrediction>& pred,bool fast,GPVec<GffObj>& guides,GVec<int>& guidepred) {
+		int geneno,int strand,GVec<CGuide>& guidetrf,GList<CPrediction>& pred,GPVec<GffObj>& guides,GVec<int>& guidepred) {
 
 	// process in and out coverages for each node
 	int maxi=0; // node with maximum coverage
@@ -8952,7 +8965,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 			// parse_trf_weight_max_flow(gno,no2gnode,transfrag,geneno,strand,pred,nodecov,pathpat);
 			// 2:
 			GBitVec usednode(gno+edgeno);
-			parse_trf(maxi,gno,edgeno,gpos,no2gnode,transfrag,compatible,geneno,first,strand,pred,nodecov,istranscript,removable,usednode,0,pathpat,fast);
+			parse_trf(maxi,gno,edgeno,gpos,no2gnode,transfrag,compatible,geneno,first,strand,pred,nodecov,istranscript,removable,usednode,0,pathpat);
 
 		}
 	}
@@ -9474,7 +9487,7 @@ void update_junction_counts(CReadAln & rd) {
 }
 
 
-int build_graphs(BundleData* bdata, bool fast) {
+int build_graphs(BundleData* bdata) {
 	int refstart = bdata->start;
 	GList<CReadAln>& readlist = bdata->readlist;
 	GList<CJunction>& junction = bdata->junction;
@@ -10281,7 +10294,7 @@ int build_graphs(BundleData* bdata, bool fast) {
     				if(guides.Count()) process_refguides(graphno[s][b],edgeno[s][b],gpos[s][b],lastgpos[s][b],no2gnode[s][b],transfrag[s][b],s,guides,guidetrf);
 
     				//process transfrags to eliminate noise, and set compatibilities, and node memberships
-    				GBitVec compatible((1+transfrag[s][b].Count())*transfrag[s][b].Count()/2); // I might want to change this to gbitvec
+    				GBitVec compatible;
     				process_transfrags(graphno[s][b],no2gnode[s][b],transfrag[s][b],tr2no[s][b],compatible,gpos[s][b]);
 
     				/*
@@ -10318,7 +10331,7 @@ int build_graphs(BundleData* bdata, bool fast) {
 
     				// find transcripts now
     				geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],compatible,
-    						geneno,s,guidetrf,pred,fast,guides,guidepred);
+    						geneno,s,guidetrf,pred,guides,guidepred);
 
     				for(int g=0;g<guidetrf.Count();g++) delete guidetrf[g].trf;
 
@@ -11166,7 +11179,7 @@ void count_merge_junctions(GList<CReadAln>& readlist,char covflags) { // why do 
 
 //int infer_transcripts(int refstart, GList<CReadAln>& readlist,
 		//GList<CJunction>& junction, GPVec<GffObj>& guides, GVec<float>& bpcov, GList<CPrediction>& pred, bool fast) {
-int infer_transcripts(BundleData* bundle, bool fast) {
+int infer_transcripts(BundleData* bundle) {
 	int geneno=0;
 
 	//DEBUG ONLY: 	showReads(refname, readlist);
@@ -11184,7 +11197,7 @@ int infer_transcripts(BundleData* bundle, bool fast) {
 	}
 	else if(bundle->keepguides.Count() || !eonly) {
 		count_good_junctions(bundle->readlist, bundle->start, bundle->bpcov);
-		geneno = build_graphs(bundle, fast);
+		geneno = build_graphs(bundle);
 	}
 
 
@@ -12687,12 +12700,12 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 
 	int currentstartpos=-1;
 	uint currentendpos=0;
-	int nstartpos=0;
-	int nendpos=0;
 	int currentstartneg=-1;
 	uint currentendneg=0;
-	int nstartneg=0;
-	int nendneg=0;
+	//int nstartpos=0;
+	//int nendpos=0;
+	//int nstartneg=0;
+	//int nendneg=0;
 	GVec<int> genes(true); // for each gene remembers it's geneno
 	genes.Resize(ngenes,-1);
 	GVec<int> transcripts(true); // for each gene remembers how many transcripts were printed
@@ -12725,12 +12738,12 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 
 				currentstartpos=pred[n]->start;
 				currentendpos=pred[n]->end;
-				nstartpos=n;
-				nendpos=n;
+				//nstartpos=n;
+				//nendpos=n;
 			}
 			else {
 				if(pred[n]->end > currentendpos) currentendpos=pred[n]->end;
-				nendpos=n;
+				//nendpos=n;
 				pospred.Add(pred[n]);
 
 			}
@@ -12758,13 +12771,13 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 
 				currentstartneg=pred[n]->start;
 				currentendneg=pred[n]->end;
-				nstartneg=n;
-				nendneg=n;
+				//nstartneg=n;
+				//nendneg=n;
 			}
 			else {
 				negpred.Add(pred[n]);
 				if(pred[n]->end > currentendneg) currentendneg=pred[n]->end;
-				nendneg=n;
+				//nendneg=n;
 			}
 		}
 	}

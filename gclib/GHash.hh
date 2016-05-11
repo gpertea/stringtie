@@ -11,6 +11,11 @@
 * indexed by a character string (essentially, maps strings to pointers)
 */
 
+//#define HASH_DBG_PRINT 1
+
+#define GSTR_HASH(s) strhash(s)
+//#define GSTR_HASH(s) djb_hash(s)
+//#define GSTR_HASH(s) fnv1a_hash(s)
 
 template <class OBJ> class GHash {
  protected:
@@ -62,17 +67,22 @@ public:
   int Capacity() const { return fCapacity; } // table's size, including the empty slots.
   void Resize(int m);  // Resize the table to the given size.
   int Count() const { return fCount; }// the total number of entries in the table.
+
   // Insert a new entry into the table given key and mark.
   // If there is already an entry with that key, leave it unchanged,
-  const OBJ* Add(const char* ky, const OBJ* ptr=NULL, bool mrk=false);
+  OBJ* Add(const char* ky, OBJ* ptr=NULL, bool mrk=false);
+
+  //same with Add, but frees the old element if it's a replacement
+  OBJ* fAdd(const char* ky, OBJ* ptr=NULL);
+
   //same as Add, but the key pointer is stored directly, no string duplicate
   //is made (shared-key-Add)
-  const OBJ* shkAdd(const char* ky, const OBJ* ptr, bool mrk=false);
+  OBJ* shkAdd(const char* ky, OBJ* ptr, bool mrk=false);
 
   // Replace data at key, if the entry's mark is less than
   // or equal to the given mark.  If there was no existing entry,
   // a new entry is inserted with the given mark.
-  OBJ* Replace(const char* ky, const OBJ* ptr, bool mrk=false);
+  OBJ* Replace(const char* ky, OBJ* ptr, bool mrk=false);
   // Remove a given key and its data
   OBJ* Remove(const char* ky);
   // Find data OBJ* given key.
@@ -197,31 +207,77 @@ template <class OBJ> void GHash<OBJ>::Resize(int m){
   }
 
 // add a new entry, or update it if it already exists
-template <class OBJ> const OBJ* GHash<OBJ>::Add(const char* ky,
-                      const OBJ* pdata,bool mrk){
-  register int p,i,x,h,n;
+
+
+template <class OBJ> OBJ* GHash<OBJ>::Add(const char* ky,
+	                      OBJ* pdata, bool mrk){
+	  register int p,i,x,h,n;
+	  if(!ky) GError("GHash::insert: NULL key argument.\n");
+	  GASSERT(fCount<fCapacity);
+	  h=GSTR_HASH(ky);
+	  GASSERT(0<=h);
+	  p=HASH1(h,fCapacity);
+	  GASSERT(0<=p && p<fCapacity);
+	  x=HASH2(h,fCapacity);
+	  GASSERT(1<=x && x<fCapacity);
+	  i=-1;
+	  n=fCapacity;
+#ifdef HASH_DBG_PRINT
+	  int iterations=0;
+	  int init_p=p;
+	  int init_x=x;
+#endif
+	  while(n && hash[p].hash!=-1) {
+	    if ((i==-1)&&(hash[p].hash==-2)) i=p;
+	    if (hash[p].hash==h && strcmp(hash[p].key,ky)==0) {
+	      //replace hash data for this key!
+	      lastkeyptr=hash[p].key;
+	      OBJ* r = (OBJ*) hash[p].data;
+	      hash[p].data = (void*) pdata;
+#ifdef HASH_DBG_PRINT
+	      GMessage("Add.R\t%s\t%d,%d,%d\t%d\t%d\t%d\n",
+	    		  ky, h,init_p,init_x, iterations,  fCount, fCapacity);
+#endif
+	      //return (OBJ*)hash[p].data;
+	      return r;
+	      }
+	    p=(p+x)%fCapacity;
+	    n--;
+	    }
+	  if(i==-1) i=p;
+#ifdef HASH_DBG_PRINT
+      GMessage("Add.N\t%s\t%d,%d,%d\t%d\t%d\t%d\n",
+    		  ky, h,init_p,init_x, iterations,  fCount, fCapacity);
+#endif
+	  GTRACE(("GHash::insert: key=\"%s\"\n",ky));
+	  //GMessage("GHash::insert: key=\"%s\"\n",ky);
+	  GASSERT(0<=i && i<fCapacity);
+	  GASSERT(hash[i].hash<0);
+	  hash[i].hash=h;
+	  hash[i].mark=mrk;
+	  hash[i].key=Gstrdup(ky);
+	  hash[i].keyalloc=true;
+	  lastkeyptr=hash[i].key;
+	  hash[i].data= (void*) pdata;
+	  fCount++;
+	  if((100*fCount)>=(MAX_LOAD*fCapacity)) Resize(fCount);
+	  GASSERT(fCount<fCapacity);
+	  return pdata;
+ }
+
+/*
+  int p,i,x,h;
   if(!ky) GError("GHash::insert: NULL key argument.\n");
   GASSERT(fCount<fCapacity);
-  h=strhash(ky);
+  h=GSTR_HASH(ky);
   GASSERT(0<=h);
   p=HASH1(h,fCapacity);
   GASSERT(0<=p && p<fCapacity);
   x=HASH2(h,fCapacity);
   GASSERT(1<=x && x<fCapacity);
-  i=-1;
-  n=fCapacity;
-  while(n && hash[p].hash!=-1){
-    if ((i==-1)&&(hash[p].hash==-2)) i=p;
-    if (hash[p].hash==h && strcmp(hash[p].key,ky)==0) {
-      //replace hash data for this key!
-      lastkeyptr=hash[p].key;
-      hash[p].data = (void*) pdata;
-      return (OBJ*)hash[p].data;
-      }
-    p=(p+x)%fCapacity;
-    n--;
-    }
-  if(i==-1) i=p;
+  if (checkReplace(ky, pdata, p, i, h, x)) {
+	  return (OBJ*)hash[p].data;
+  }
   GTRACE(("GHash::insert: key=\"%s\"\n",ky));
   //GMessage("GHash::insert: key=\"%s\"\n",ky);
   GASSERT(0<=i && i<fCapacity);
@@ -237,13 +293,73 @@ template <class OBJ> const OBJ* GHash<OBJ>::Add(const char* ky,
   GASSERT(fCount<fCapacity);
   return pdata;
   }
-
-template <class OBJ> const OBJ* GHash<OBJ>::shkAdd(const char* ky,
-                      const OBJ* pdata,bool mrk){
+*/
+template <class OBJ> OBJ* GHash<OBJ>::fAdd(const char* ky,
+                      OBJ* pdata){
   register int p,i,x,h,n;
   if(!ky) GError("GHash::insert: NULL key argument.\n");
   GASSERT(fCount<fCapacity);
-  h=strhash(ky);
+  h=GSTR_HASH(ky);
+  GASSERT(0<=h);
+  p=HASH1(h,fCapacity);
+  GASSERT(0<=p && p<fCapacity);
+  x=HASH2(h,fCapacity);
+  GASSERT(1<=x && x<fCapacity);
+  i=-1;
+  n=fCapacity;
+#ifdef HASH_DBG_PRINT
+  int iterations=0;
+  int init_p=p;
+  int init_x=x;
+#endif
+  while(n && hash[p].hash!=-1) {
+    if ((i==-1)&&(hash[p].hash==-2)) i=p;
+    if (hash[p].hash==h && strcmp(hash[p].key,ky)==0) {
+      //replace hash data for this key!
+      lastkeyptr=hash[p].key;
+      if (FREEDATA) (*fFreeProc)(hash[p].data);
+      hash[p].data = (void*) pdata;
+#ifdef HASH_DBG_PRINT
+      GMessage("Add.R\t%s\t%d,%d,%d\t%d\t%d\t%d\n",
+    		  ky, h,init_p,init_x, iterations,  fCount, fCapacity);
+#endif
+      return pdata;
+      }
+    p=(p+x)%fCapacity;
+#ifdef HASH_DBG_PRINT
+    ++iterations;
+#endif
+    n--;
+    }
+  if(i==-1) i=p;
+#ifdef HASH_DBG_PRINT
+  GMessage("Add.N\t%s\t%d,%d,%d\t%d\t%d\t%d\n",
+		  ky, h,init_p,init_x, iterations,  fCount, fCapacity);
+#endif
+  GTRACE(("GHash::insert: key=\"%s\"\n",ky));
+  //GMessage("GHash::insert: key=\"%s\"\n",ky);
+  GASSERT(0<=i && i<fCapacity);
+  GASSERT(hash[i].hash<0);
+  hash[i].hash=h;
+  hash[i].mark=false;
+  hash[i].key=Gstrdup(ky);
+  hash[i].keyalloc=true;
+  lastkeyptr=hash[i].key;
+  hash[i].data= (void*) pdata;
+  fCount++;
+  if((100*fCount)>=(MAX_LOAD*fCapacity)) Resize(fCount);
+  GASSERT(fCount<fCapacity);
+  return pdata;
+  }
+
+
+
+template <class OBJ> OBJ* GHash<OBJ>::shkAdd(const char* ky,
+                      OBJ* pdata,bool mrk){
+  register int p,i,x,h,n;
+  if(!ky) GError("GHash::insert: NULL key argument.\n");
+  GASSERT(fCount<fCapacity);
+  h=GSTR_HASH(ky);
   GASSERT(0<=h);
   p=HASH1(h,fCapacity);
   GASSERT(0<=p && p<fCapacity);
@@ -281,11 +397,11 @@ template <class OBJ> const OBJ* GHash<OBJ>::shkAdd(const char* ky,
 
 
 // Add or replace entry
-template <class OBJ>  OBJ* GHash<OBJ>::Replace(const char* ky,const OBJ* pdata, bool mrk){
+template <class OBJ>  OBJ* GHash<OBJ>::Replace(const char* ky, OBJ* pdata, bool mrk){
   register int p,i,x,h,n;
   if(!ky){ GError("GHash::replace: NULL key argument.\n"); }
   GASSERT(fCount<fCapacity);
-  h=strhash(ky);
+  h=GSTR_HASH(ky);
   GASSERT(0<=h);
   p=HASH1(h,fCapacity);
   GASSERT(0<=p && p<fCapacity);
@@ -328,7 +444,7 @@ template <class OBJ> OBJ* GHash<OBJ>::Remove(const char* ky){
   if(!ky){ GError("GHash::remove: NULL key argument.\n"); }
   OBJ* removed=NULL;
   if(0<fCount){
-    h=strhash(ky);
+    h=GSTR_HASH(ky);
     GASSERT(0<=h);
     p=HASH1(h,fCapacity);
     GASSERT(0<=p && p<fCapacity);
@@ -364,7 +480,7 @@ template <class OBJ> bool GHash<OBJ>::hasKey(const char* ky) {
   register int p,x,h,n;
   if(!ky){ GError("GHash::find: NULL key argument.\n"); }
   if(0<fCount){
-    h=strhash(ky);
+    h=GSTR_HASH(ky);
     GASSERT(0<=h);
     p=HASH1(h,fCapacity);
     GASSERT(0<=p && p<fCapacity);
@@ -383,30 +499,45 @@ template <class OBJ> bool GHash<OBJ>::hasKey(const char* ky) {
   return false;
 }
 
+
 template <class OBJ> OBJ* GHash<OBJ>::Find(const char* ky, char** keyptr){
   register int p,x,h,n;
   if(!ky){ GError("GHash::find: NULL key argument.\n"); }
-  if(0<fCount){
-    h=strhash(ky);
-    GASSERT(0<=h);
-    p=HASH1(h,fCapacity);
-    GASSERT(0<=p && p<fCapacity);
-    x=HASH2(h,fCapacity);
-    GASSERT(1<=x && x<fCapacity);
-    GASSERT(fCount<fCapacity);
-    n=fCapacity;
-    while(n && hash[p].hash!=-1){
+  if (fCount==0) return NULL;
+  h=GSTR_HASH(ky);
+  GASSERT(0<=h);
+  p=HASH1(h,fCapacity);
+  GASSERT(0<=p && p<fCapacity);
+  x=HASH2(h,fCapacity);
+  GASSERT(1<=x && x<fCapacity);
+  GASSERT(fCount<fCapacity);
+  n=fCapacity;
+#ifdef HASH_DBG_PRINT
+  int iterations=0;
+  int init_p=p;
+  int init_x=x;
+#endif
+  while(n && hash[p].hash!=-1){
       if(hash[p].hash==h && strcmp(hash[p].key,ky)==0){
         if (keyptr!=NULL) *keyptr = hash[p].key;
+#ifdef HASH_DBG_PRINT
+         GMessage("Found \t%s\t%d,%d,%d\t%d\t%d\t%d\n",
+             ky, h,init_p,init_x, iterations,  fCount, fCapacity);
+#endif
         return (OBJ*)hash[p].data;
         }
       p=(p+x)%fCapacity;
       n--;
-      }
-    }
-  return NULL;
+#ifdef HASH_DBG_PRINT
+      ++iterations;
+#endif
   }
-
+#ifdef HASH_DBG_PRINT
+   GMessage("Nfound\t%s\t%d,%d,%d\t%d\t%d\t%d\n",
+       ky, h,init_p,init_x, iterations,  fCount, fCapacity);
+#endif
+  return NULL;
+ }
 
 template <class OBJ> void GHash<OBJ>::startIterate() {// initialize a key iterator; call
  fCurrentEntry=0;

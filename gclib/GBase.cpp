@@ -690,6 +690,30 @@ int strhash(const char* str){
   return h;
   }
 
+int djb_hash(const char* cp)
+{
+    int h = 5381;
+    while (*cp)
+        h = (int)(33 * h ^ (unsigned char) *cp++);
+    return (h & 0x7FFFFFFF); //always positive
+    //return h;
+    //return absolute value of this int:
+    //int mask = (h >> (sizeof(int) * CHAR_BIT - 1));
+    //return (h + mask) ^ mask;
+}
+
+/* Fowler/Noll/Vo (FNV) hash function, variant 1a */
+int fnv1a_hash(const char* cp) {
+    int h = 0x811c9dc5;
+    while (*cp) {
+        h ^= (unsigned char) *cp++;
+        h *= 0x01000193;
+    }
+    //return h;
+    return (h & 0x7FFFFFFF);
+}
+
+
 // removes the last part (file or directory name) of a full path
 // this is a destructive operation for the given string!!!
 // the trailing '/' is guaranteed to be there

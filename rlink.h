@@ -549,7 +549,7 @@ void countFragment(BundleData& bdata, GBamRecord& brec, int hi,int nh);
 int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
 int printMergeResults(BundleData* bundleData, int geneno, GStr& refname);
 
-int infer_transcripts(BundleData* bundle, bool fast);
+int infer_transcripts(BundleData* bundle);
 
 // --- utility functions
 void printGff3Header(FILE* f, GArgs& args);

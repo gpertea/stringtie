@@ -282,7 +282,9 @@ bool endsWith(const char* s, const char* suffix);
 // ELF hash function for strings
 int strhash(const char* str);
 
-
+//alternate hash functions:
+int fnv1a_hash(const char* cp);
+int djb_hash(const char* cp);
 
 //---- generic base GSeg : genomic segment (interval) --
 // coordinates are considered 1-based (so 0 is invalid)
