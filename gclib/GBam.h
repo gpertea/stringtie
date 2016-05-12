@@ -24,9 +24,11 @@ class GBamRecord: public GSeg {
    uint8_t abuf[512];
  public:
    GVec<GSeg> exons; //coordinates will be 1-based
+   int mapped_len; //sum of exon lengths
    //created from a reader:
    void bfree_on_delete(bool b_free=true) { novel=b_free; }
-   GBamRecord(bam1_t* from_b=NULL, bam_header_t* b_header=NULL, bool b_free=true):exons(1) {
+   GBamRecord(bam1_t* from_b=NULL, bam_header_t* b_header=NULL, bool b_free=true):exons(1),
+		   mapped_len(0) {
       bam_header=NULL;
       if (from_b==NULL) {
            b=bam_init1();
@@ -41,7 +43,8 @@ class GBamRecord: public GSeg {
       setupCoordinates();//set 1-based coordinates (start, end and exons array)
    }
 
-   GBamRecord(GBamRecord& r):GSeg(r.start, r.end), exons(r.exons) { //copy constructor
+   GBamRecord(GBamRecord& r):GSeg(r.start, r.end), exons(r.exons),
+		   mapped_len(r.mapped_len) { //copy constructor
 	      //makes a new copy of the bam1_t record etc.
 	      clear();
 	      b=bam_dup1(r.b);
@@ -57,6 +60,7 @@ class GBamRecord: public GSeg {
       start=r.start;
       end=r.end;
       exons = r.exons;
+      mapped_len=r.mapped_len;
       return *this;
       }
 
@@ -68,6 +72,7 @@ class GBamRecord: public GSeg {
            }
         b=NULL;
         exons.Clear();
+        mapped_len=0;
         bam_header=NULL;
         }
 
@@ -194,46 +199,47 @@ class GBamReader {
    };
 
  public:
-   void bopen(const char* filename) {
+   void bopen(const char* filename, bool forceBAM=false) {
       if (strcmp(filename, "-")==0) {
-        //if stdin was given, we HAVE to assume it's text SAM format, sorry
-        bam_file=samopen(filename, "r", 0);
+        //if stdin was given, we assume it's text SAM, unless forceBAM was given
+        if (forceBAM) bam_file=samopen(filename, "rb", 0);
+        else bam_file=samopen(filename, "r", 0);
         }
       else {
-      //BAM files have the zlib signature bytes at the beginning: 1F 8B 08
-      //if that's not present, we assume sam file
-      FILE* f=Gfopen(filename);
-      if (f==NULL) {
-          //DEBUG only: make the program suspend itself indefinitely
-          /*int selfpid=getpid();
-          GMessage("DEBUG STOP ( pid: %d ) entering wait loop, kill to terminate..\n",
-             selfpid);
-          while (true) {
-           sleep(5);
+        FILE* f=Gfopen(filename);
+        if (f==NULL) {
+           GError("Error opening SAM/BAM file %s!\n", filename);
+        }
+        if (forceBAM) {
+           //directed to open this as a BAM file
+            if (forceBAM) bam_file=samopen(filename, "rb", 0);
+        }
+        else {
+          //try to guess if it's BAM or SAM
+          //BAM files have the zlib signature bytes at the beginning: 1F 8B 08
+          //if that's not present then we assume text SAM
+          byte fsig[3];
+          size_t rd=fread(fsig, 1, 3, f);
+          fclose(f);
+          if (rd<3) GError("Error reading from file %s!\n",filename);
+          if ((fsig[0]==0x1F && fsig[1]==0x8B && fsig[2]==0x08) ||
+            (fsig[0]=='B' && fsig[1]=='A' && fsig[2]=='M')) {
+            bam_file=samopen(filename, "rb", 0); //BAM or uncompressed BAM
           }
-          */
-          exit(1); //GError("Error opening file %s!\n", filename);
-          }
-      byte fsig[3];
-      size_t rd=fread(fsig, 1, 3, f);
-      fclose(f);
-      if (rd<3) GError("Error reading from file %s!\n",filename);
-      if ((fsig[0]==0x1F && fsig[1]==0x8B && fsig[2]==0x08) ||
-          (fsig[0]=='B' && fsig[1]=='A' && fsig[2]=='M')) {
-          bam_file=samopen(filename, "rb", 0); //BAM or uncompressed BAM
-          }
-        else { //assume text SAM file
-          bam_file=samopen(filename, "r", 0);
+          else { //assume text SAM file
+            bam_file=samopen(filename, "r", 0);
           }
         }
+      }
       if (bam_file==NULL)
          GError("Error: could not open SAM file %s!\n",filename);
       fname=Gstrdup(filename);
-      }
-   GBamReader(const char* fn) {
+   }
+
+   GBamReader(const char* fn, bool forceBAM=false) {
       bam_file=NULL;
       fname=NULL;
-      bopen(fn);
+      bopen(fn, forceBAM);
       }
 
    bam_header_t* header() {

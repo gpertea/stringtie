@@ -2,11 +2,12 @@
 
 
 void TInputFiles::Add(const char* fn) {
-		if (fileExists(fn)<2) {
+	   GStr sfn(fn);
+		if (sfn!="-" && fileExists(fn)<2) {
 			    GError("Error: input file %s cannot be found!\n",
 			            fn);
 		}
-		GStr sfn(fn);
+
 		files.Add(sfn);
 	}
 
@@ -133,7 +134,8 @@ int TInputFiles::start() {
 	}
 	//stringtie multi-BAM input
 	for (int i=0;i<bamfiles.Count();++i) {
-		GBamReader* bamreader=new GBamReader(bamfiles[i].chars());
+		GBamReader* bamreader=new GBamReader(bamfiles[i].chars(),
+				(bamfiles[i]=="-" && forceBAM));
 		readers.Add(bamreader);
 		GBamRecord* brec=bamreader->next();
 		if (brec)
