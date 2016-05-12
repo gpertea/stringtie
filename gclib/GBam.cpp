@@ -250,11 +250,12 @@ GBamRecord::GBamRecord(const char* qname, int32_t flags, int32_t g_tid,
   this->add_aux(tag, atype, alen, adata);
   }//add_aux()
 
-void interpret_CIGAR(char cop, int cl, int aln_start) {
-// NB: Closed ranges
+int interpret_CIGAR(char cop, int cl, int aln_start) {
+// returns the number of bases "aligned" (matches or mismatches) from the read
 // gpos = current genomic position (will end up as right coordinate on the genome)
 // rpos = read position (will end up as the length of the read)
 // cop = CIGAR operation, cl = operation length
+int mbases = 0; //count "aligned" bases (includes mismatches)
 int rpos = 0;
 int gpos = aln_start;
 int num_mismatches=0; //NM tag value = edit distance
@@ -267,7 +268,9 @@ switch (cop) {
       //printf("[%d-%d]", gpos, gpos + cl - 1);
       gpos+=cl;
       rpos+=cl;
+      ++mbases;
       break;
+
  case BAM_CPAD:
       // printf("[%d-%d]", pos, pos + cl - 1); // Spans positions, No Coverage
       gpos+=cl;
@@ -282,6 +285,7 @@ switch (cop) {
       //soft clipped bases, present in SEQ
       rpos+=cl;
       break;
+
  case BAM_CINS: // I
       // No Coverage
       // adds cl bases "throughput" but not genomic position "coverage" (gap in genomic seq)
@@ -312,6 +316,7 @@ switch (cop) {
       fprintf(stderr, "Unhandled cigar_op %d:%d\n", cop, cl);
       //printf("?");
   }
+ return mbases;
 } // interpret_CIGAR(), just a reference of CIGAR operations interpretation
 
  void GBamRecord::setupCoordinates() {
@@ -323,6 +328,7 @@ switch (cop) {
    memcpy(cigar, p, c->n_cigar * sizeof(uint32_t));
    //--- UBsan protection end
    int l=0;
+   mapped_len=0;
    start=c->pos+1; //genomic start coordinate, 1-based (BAM core.pos is 0-based)
    int exstart=c->pos;
    for (int i = 0; i < c->n_cigar; ++i) {
@@ -336,12 +342,14 @@ switch (cop) {
                //exon ends here
                GSeg exon(exstart+1,c->pos+l);
                exons.Add(exon);
+               mapped_len+=exon.len();
                l += cigar[i]>>4;
                exstart=c->pos+l;
                }
         }
    GSeg exon(exstart+1,c->pos+l);
    exons.Add(exon);
+   mapped_len+=exon.len();
    end=c->pos+l; //genomic start coordinate
    delete[] cigar; //UBsan protection
  }

@@ -164,6 +164,8 @@ bool ballgown=false;
 //no more reads will be considered for a bundle if the local coverage exceeds this value
 //(each exon is checked for this)
 
+bool forceBAM = false; //useful for stdin (piping alignments into StringTie)
+
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
 
@@ -232,8 +234,6 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout=NULL);
 
 #ifndef NOTHREADS
 
-bool waitForThreads(); //wait for at least 1 worker thread to enter "ready" state
-
 bool noThreadsWaiting();
 
 void workerThread(GThreadData& td); // Thread function
@@ -253,7 +253,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;keeptmp;merge;exclude=zZSEihvteux:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;keeptmp;bam;merge;exclude=zZSEihvteux:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -361,12 +361,9 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  gseqNames=GffObj::names; //might have been populated already by gff data
  gffnames_ref(gseqNames);  //initialize the names collection if not guided
 
- //GBamReader bamreader(bamfname.chars());
-
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
- //GHash<int> bgeneids(false); //guide gene IDs/names in the bundle
- //set of annotation transcript for the current locus
+
  GList<GffObj>* guides=NULL; //list of transcripts on a specific chromosome
 
  int currentstart=0, currentend=0;
@@ -434,6 +431,11 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 	 //delete brec;
 	 if ((brec=bamreader.next())!=NULL) {
 		 if (brec->isUnmapped()) continue;
+		 if (brec->start<1 || brec->mapped_len<10) {
+			 if (verbose) GMessage("Warning: invalid mapping found for read %s (position=%d, mapped length=%d)\n",
+					 brec->name(), brec->start, brec->mapped_len);
+			 continue;
+		 }
 
 		 refseqName=brec->refName();
 		 xstrand=brec->spliceStrand();
@@ -563,8 +565,10 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 #ifndef NOTHREADS
 					GLockGuard<GFastMutex> lock(logMutex);
 #endif
-					printTime(stderr);
-					if(Num_Fragments) GMessage(" %g aligned fragments found.\n", Num_Fragments);
+					if (Num_Fragments) {
+					   printTime(stderr);
+					   GMessage(" %g aligned fragments found.\n", Num_Fragments);
+					}
 					//GMessage(" Done reading alignments.\n");
 				}
 			 noMoreBundles();
@@ -702,13 +706,13 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  fclose(f_out);
  if (c_out && c_out!=stdout) fclose(c_out);
 
- if(verbose)
-	 GMessage("Total number of records without the XS tag: %d\n",no_xs);
+ if(verbose && no_xs>0)
+	 GMessage("Number spliced alignments missing the XS tag (skipped): %d\n",no_xs);
 
 if(!mergeMode) {
 	if(verbose) {
-		GMessage("Total count of aligned fragments: %g\n",Num_Fragments);
-		GMessage("Fragment coverage length:%g\n",Frag_Len/Num_Fragments);
+		GMessage("Total count of aligned fragments: %g\n", Num_Fragments);
+		GMessage("Fragment coverage length: %g\n", Frag_Len/Num_Fragments);
 	}
 
 	f_out=stdout;
@@ -835,6 +839,7 @@ void processOptions(GArgs& args) {
 	   exit(0);
 	}
 	 debugMode=(args.getOpt("debug")!=NULL || args.getOpt('D')!=NULL);
+	 forceBAM=(args.getOpt("bam")!=NULL); //assume the stdin stream is BAM instead of text SAM
 	 mergeMode=(args.getOpt("merge")!=NULL);
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
 	 fast=!(args.getOpt('Z')!=NULL);
@@ -1165,9 +1170,6 @@ void processBundle(BundleData* bundle) {
 			GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		/*GMessage(">bundle %s:%d-%d(%d) (%djs, %d guides) loaded, begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
-                bundle->junction.Count(), bundle->keepguides.Count());*/
 		GMessage(">bundle %s:%d-%d(%lu) (%d guides) loaded, begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
                 bundle->keepguides.Count());
@@ -1208,7 +1210,6 @@ void processBundle(BundleData* bundle) {
 
 	}
 #endif
-	//int ngenes=infer_transcripts(bundle, fast | bundle->covSaturated);
 	int ngenes=infer_transcripts(bundle);
 
 	if (ballgown && bundle->rc_data) {
@@ -1235,7 +1236,6 @@ void processBundle(BundleData* bundle) {
 		#ifndef NOTHREADS
 				GLockGuard<GFastMutex> lock(logMutex);
 		#endif
-	  printTime(stderr);
 	  /*
 	  SumReads+=bundle->sumreads;
 	  SumFrag+=bundle->sumfrag;
@@ -1247,6 +1247,7 @@ void processBundle(BundleData* bundle) {
 	  fprintf(stderr,"Number of fragments in bundle: %g with length %g\n",bundle->num_fragments,bundle->frag_len);
 	  fprintf(stderr,"Number of fragments in bundle: %g with sum %g\n",bundle->num_fragments,bundle->frag_len);
 	  */
+	  printTime(stderr);
 	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
 	  		bundle->start, bundle->end, bundle->readlist.Count(), bundle->pred.Count());
 	#ifdef GMEMTRACE
@@ -1270,22 +1271,6 @@ bool noThreadsWaiting() {
 	int v=threadsWaiting;
 	waitMutex.unlock();
 	return (v<1);
-}
-
-bool waitForThreads() {
-	bool noneWaiting=true;
-	DBGPRINT("##> waiting for a thread to become available..\n");
-	while (noneWaiting) {
-	  waitMutex.lock();
-	  noneWaiting=(threadsWaiting<1);
-	  waitMutex.unlock();
-	  if (noneWaiting) {
-		DBGPRINT("##>all threads busy, sleep_for 2ms\n");
-	    this_thread::sleep_for(chrono::milliseconds(2));
-	  }
-	}
- DBGPRINT("##> there are workers ready now.\n");
- return(!noneWaiting);
 }
 
 void workerThread(GThreadData& td) {
