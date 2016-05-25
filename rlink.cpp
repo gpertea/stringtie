@@ -1436,7 +1436,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 
 	    	int minjunction = -1; // process next junction -> either a start or an ending whichever has the first position on the genome; if they have same position then process ending first
-	    	if((nje<njunctions && (ejunction[nje]->end<endbundle)) || (njs<njunctions && (junction[njs]->start<=endbundle))) {
+	    	if((nje<njunctions && (ejunction[nje]->end<=endbundle)) || (njs<njunctions && (junction[njs]->start<=endbundle))) {
 	    		if(nje<njunctions) { // there are still junctions endings
 	    			if(njs<njunctions) { // there are still junctions starting
 	    				minjunction = junction[njs]->start >= ejunction[nje]->end ? 1 : 0; // one of them is clearly before the endbundle from the initial if
@@ -9478,7 +9478,9 @@ void update_junction_counts(CReadAln & rd) {
 		rd.juncs[i-1]->nreads-=rd.read_count;
 		if(!rd.juncs[i-1]->nreads) rd.juncs[i-1]->strand=0;
 
-		if(leftsup[i-1]>=junctionsupport && rightsup[nex-i-1]>=junctionsupport) { // this was a good junction but for some reason the read was thrown away
+		uint anchor=junctionsupport;
+		if(anchor<longintronanchor && rd.juncs[i-1]->len()>longintron) anchor=longintronanchor; // I want to use a longer anchor for long introns to believe them
+		if(leftsup[i-1]>=anchor && rightsup[nex-i-1]>=anchor) { // this was a good junction but for some reason the read was thrown away
 			rd.juncs[i-1]->nreads_good-=rd.read_count;
 			//if(!rd.juncs[i-1]->nreads_good) rd.juncs[i-1]->strand=0;
 		}

@@ -827,9 +827,9 @@ GffObj::GffObj(GffReader *gfrd, GffLine* gffline, bool keepAttr, bool noExonAttr
              if (keepAttr) this->parseAttrs(attrs, gffline->info);
              }
         }
-    } //non-transcript parented subfeature given directly
+  } //non-transcript parented subfeature given directly
   else {
-	//non-parented feature OR a recognizable transcript
+    //non-parented feature OR a recognizable transcript
     //create a parent feature in its own right
     gscore=gffline->score;
     if (gffline->ID==NULL || gffline->ID[0]==0)
@@ -842,7 +842,13 @@ GffObj::GffObj(GffReader *gfrd, GffLine* gffline, bool keepAttr, bool noExonAttr
     if (gffline->is_transcript)
       exon_ftype_id=gff_fid_exon;
     if (keepAttr) this->parseAttrs(attrs, gffline->info);
-    }//no parent
+    if (gffline->is_gff3 && gffline->parents==NULL && gffline->exontype!=0) {
+       //special case with bacterial genes just given as a CDS/exon, without parent!
+       this->createdByExon(true);
+       ftype_id=gff_fid_mRNA;
+       addExon(gfrd, gffline, keepAttr, noExonAttr);
+    }
+  }//no parent OR recognizable transcript
 
   if (gffline->gene_name!=NULL) {
      gene_name=Gstrdup(gffline->gene_name);
