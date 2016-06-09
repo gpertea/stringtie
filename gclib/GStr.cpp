@@ -45,7 +45,7 @@ GStr::Data* GStr::new_data(const char* str) {
     else
         return &null_data;
  }
- 
+
 void GStr::replace_data(int len) {
 
     if (len == my_data->length && my_data->ref_count <= 1)
@@ -166,7 +166,7 @@ GStr::GStr(char c, int n): my_data(&null_data) {
   replace_data(n); ::memset(chrs(), c, n);
   }
 
-GStr::~GStr() {  
+GStr::~GStr() {
   if (my_data != &null_data && --my_data->ref_count == 0)
              GFREE(my_data);
   GFREE(fTokenDelimiter);
@@ -178,7 +178,7 @@ char& GStr::operator[](int idx){
   if (idx < 0) idx += length();
   if (idx < 0 || idx >= length()) invalid_index_error("operator[]");
   make_unique();  //because the user will probably modify this char!
-  return chrs()[idx]; 
+  return chrs()[idx];
   }
 
 char GStr::operator[](int idx) const {
@@ -190,7 +190,7 @@ char GStr::operator[](int idx) const {
 
 GStr& GStr::operator=(const GStr& s) {
   make_unique(); //edit operation ahead
-  replace_data(s.my_data); 
+  replace_data(s.my_data);
   return *this;
   }
 
@@ -201,7 +201,7 @@ GStr& GStr::operator=(const char *s) {
     return *this;
     }
   const int len = ::strlen(s); replace_data(len);
-  ::memcpy(chrs(), s, len); 
+  ::memcpy(chrs(), s, len);
   return *this;
   }
 
@@ -322,7 +322,7 @@ GStr& GStr::append(double f) {
  sprintf(buf,"%f",f);
  return append(buf);
  }
- 
+
 bool GStr::is_empty() const {
   //return my_data == &null_data;
   return (length()==0);
@@ -419,7 +419,7 @@ GStr& GStr::trim(char c) {
  for (iend=length()-1; iend>istart && chars()[iend]==c;iend--) ;
  int newlen=iend-istart+1;
  if (newlen==length())  //nothing to trim
-           return *this; 
+           return *this;
  make_unique(); //edit operation ahead
  Data *data = new_data(newlen);
  ::memcpy(data->chars, &chars()[istart], newlen);
@@ -438,7 +438,7 @@ GStr& GStr::trim(const char* c) {
  for (iend=length()-1; iend>istart && strchr(c, chars()[iend])!=NULL;iend--) ;
  int newlen=iend-istart+1;
  if (newlen==length())  //nothing to trim
-           return *this; 
+           return *this;
  make_unique(); //edit operation ahead
  Data *data = new_data(newlen);
  ::memcpy(data->chars, &chars()[istart], newlen);
@@ -457,7 +457,7 @@ GStr& GStr::trimR(char c) {
        }
  int newlen=iend+1;
  if (newlen==length())  //nothing to trim
-           return *this; 
+           return *this;
  make_unique(); //edit operation ahead
 
  Data *data = new_data(newlen);
@@ -475,7 +475,7 @@ GStr& GStr::trimR(const char* c) {
        }
  int newlen=iend+1;
  if (newlen==length())  //nothing to trim
-           return *this; 
+           return *this;
  make_unique(); //edit operation ahead
  Data *data = new_data(newlen);
  ::memcpy(data->chars, chars(), newlen);
@@ -516,7 +516,7 @@ GStr& GStr::trimL(char c) {
        }
  int newlen=length()-istart;
  if (newlen==length())  //nothing to trim
-           return *this; 
+           return *this;
  make_unique(); //edit operation ahead
  Data *data = new_data(newlen);
  ::memcpy(data->chars, &chars()[istart], newlen);
@@ -533,7 +533,7 @@ GStr& GStr::trimL(const char* c) {
        }
  int newlen=length()-istart;
  if (newlen==length())  //nothing to trim
-           return *this; 
+           return *this;
  make_unique(); //edit operation ahead
 
  Data *data = new_data(newlen);
@@ -720,15 +720,16 @@ GStr& GStr::reverse() {
 GStr&  GStr::tr(const char *rfrom, const char* rto) {
  if (length() == 0 || rfrom==NULL || strlen(rfrom)==0)
         return *this;
- unsigned int l=strlen(rfrom);       
+ unsigned int l=strlen(rfrom);
+ if (rto!=NULL && rto[0]==0) rto=NULL;
  if (rto!=NULL && strlen(rto)!=l)
       invalid_args_error("tr()");
  make_unique(); //edit operation ahead
- Data *data = new_data(length());
-      
- if (rto==NULL) { //deletion case 
+
+ if (rto==NULL) { //delete all characters
+   Data *data = new_data(length());
    char* s = my_data->chars;
-   char* p;
+   char* p=NULL;
    char* dest = data->chars;
    do {
       if ((p=strpbrk(s,rfrom))!=NULL) {
@@ -736,22 +737,22 @@ GStr&  GStr::tr(const char *rfrom, const char* rto) {
         dest+=p-s;
         s=p+1;
         }
-       else { 
-        strcpy(dest, s); 
+       else {
+        strcpy(dest, s);
         dest+=strlen(s);
         }
       } while (p!=NULL);
-   (*dest)='\0';   
+   (*dest)='\0';
+   data->length=strlen(data->chars);
+   replace_data(data);
    }
   else { //char substitution case - easier!
-   const char* p;
+   const char* p=NULL;
    for (int i=0; i<length(); i++) {
-    if ((p=strchr(rfrom, my_data->chars[i]))!=NULL) 
+    if ((p=strchr(rfrom, my_data->chars[i]))!=NULL)
          my_data->chars[i]=rto[p-rfrom];
     }
    }
- data->length=strlen(data->chars);
- replace_data(data);
  return *this;
 }
 
@@ -775,7 +776,7 @@ GStr&  GStr::replace(const char *rfrom, const char* rto) {
       else  {//delete or replace with a shorter string
        GMALLOC(newdest, length() + 1);
        }
-      dest=newdest; 
+      dest=newdest;
       if (tl==0) {//deletion
            while ((p=strstr(s,rfrom))!=NULL) {
                //rfrom found at position p
@@ -805,7 +806,7 @@ GStr&  GStr::replace(const char *rfrom, const char* rto) {
     while ((p=strstr(s,rfrom))!=NULL) {
         memcpy(p,rto,l);
         s+=p-s+l;
-        }    
+        }
    }
  return *this;
 }
@@ -1018,7 +1019,7 @@ int GStr::index(char c, int start_index) const {
     if (length()==0) return -1;
     if (start_index < 0)
         start_index += length();
-     
+
     if (start_index < 0 || start_index >= length())
         invalid_index_error("index()");
 
@@ -1033,9 +1034,9 @@ int GStr::index(char c, int start_index) const {
         return idx - chars();
 }
 
-int GStr::rindex(char c, int end_index) const {   
+int GStr::rindex(char c, int end_index) const {
     if (c == 0 || length()==0 || end_index>=length()) return -1;
-    if (end_index<0) end_index=my_data->length-1; 
+    if (end_index<0) end_index=my_data->length-1;
     for (int i=end_index;i>=0;i--) {
       if (my_data->chars[i]==c) return i;
       }
@@ -1047,7 +1048,7 @@ int GStr::rindex(const char* str, int end_index) const {
         return -1;
     int slen=strlen(str);
     if (end_index<0) end_index=my_data->length-1;
-    //end_index is the index of the right-side boundary 
+    //end_index is the index of the right-side boundary
     //the scanning starts at the end
     if (end_index>=0 && end_index<slen-1) return -1;
     for (int i=end_index-slen+1;i>=0;i--) {
@@ -1058,10 +1059,10 @@ int GStr::rindex(const char* str, int end_index) const {
 }
 
 GStr GStr::split(const char* delim) {
-           /* splits "this" in two parts, at the first (left) 
+           /* splits "this" in two parts, at the first (left)
                  encounter of delim:
                  1st would stay in "this",
-                 2nd part will be returned 
+                 2nd part will be returned
                  as a new string!
            */
  GStr result;
@@ -1075,10 +1076,10 @@ GStr GStr::split(const char* delim) {
 }
 
 GStr GStr::split(char c) {
-           /* splits "this" in two parts, at the first (left) 
+           /* splits "this" in two parts, at the first (left)
                  encounter of delim:
                  1st would stay in "this",
-                 2nd part will be returned 
+                 2nd part will be returned
                  as a new string!
            */
  GStr result;
@@ -1151,13 +1152,13 @@ bool GStr::nextToken(GStr& token) {
      ::memcpy(token.chrs(), &chars()[fLastTokenStart], tlen);
      fLastTokenStart=(delpos-chars())+dlen;
      return true;
-     } 
+     }
    }
   else { //tkCharSet - any character is a delimiter
    //empty records are never returned !
    if (fLastTokenStart==0) {//skip any starting delimiters
-     delpos=(char*)chars();   
-     while (*delpos!='\0' && strchr(fTokenDelimiter, *delpos)!=NULL) 
+     delpos=(char*)chars();
+     while (*delpos!='\0' && strchr(fTokenDelimiter, *delpos)!=NULL)
        delpos++;
      if (*delpos!='\0')
          fLastTokenStart = delpos-chars();
@@ -1173,7 +1174,7 @@ bool GStr::nextToken(GStr& token) {
    delpos=(char*)strpbrk(chars()+fLastTokenStart,fTokenDelimiter);
    if (delpos==NULL) delpos=(char*)(chars()+length());
    token_end=delpos-1;
-   while (*delpos!='\0' && strchr(fTokenDelimiter, *delpos)!=NULL) 
+   while (*delpos!='\0' && strchr(fTokenDelimiter, *delpos)!=NULL)
       delpos++; //skip any other delimiters in the set!
    //now we know that delpos is on the beginning of next token
    tlen=(token_end-chars())-fLastTokenStart+1;
@@ -1242,7 +1243,7 @@ size_t GStr::read(FILE* stream, const char* delimiter, size_t bufsize) {
         }
       } //if something read
    } while (p==NULL && numread!=0);
-  replace_data(data); 
+  replace_data(data);
   return acc_len;
 }
 
