@@ -6,7 +6,7 @@ GffNames* GffObj::names=NULL;
 
 const uint GFF_MAX_LOCUS = 7000000; //longest known gene in human is ~2.2M, UCSC claims a gene for mouse of ~ 3.1 M
 const uint GFF_MAX_EXON  =   30000; //longest known exon in human is ~11K
-const uint GFF_MAX_INTRON= 6000000; //Ensembl shows a >5MB human intron
+const uint GFF_MAX_INTRON= 6000000; //Ensembl shows a >5MB mouse intron
 bool gff_show_warnings = false; //global setting, set by GffReader->showWarnings()
 int gff_fid_mRNA=0; //mRNA (has CDS)
 int gff_fid_transcript=1; // generic "transcript" feature

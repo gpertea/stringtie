@@ -489,15 +489,10 @@ char* fgetline(char* & buf, int& buf_cap, FILE *stream, off_t* f_pos, int* linel
 char* GLineReader::getLine(FILE* stream, off_t& f_pos) {
    if (pushed) { pushed=false; return buf(); }
    //reads a char at a time until \n and/or \r are encountered
-   //len=0;
    int c=0;
+   buf.reset(); //len = 0
    while ((c=getc(stream))!=EOF) {
-     //if (len>=allocated-1) {
-     //   allocated+=1024;
-     //   GREALLOC(buf, allocated);
-     //}
      if (c=='\n' || c=='\r') {
-       //buf[len]='\0';
        buf.Push('\0');
        if (c=='\r') { //DOS file -- special case
          if ((c=getc(stream))!='\n') ungetc(c,stream);
@@ -508,16 +503,12 @@ char* GLineReader::getLine(FILE* stream, off_t& f_pos) {
        return buf();
        }
      f_pos++;
-     //buf[len]=(char)c;
      buf.Push(c);
-     //len++;
      } //while i<buf_cap-1
    if (c==EOF) {
      isEOF=true;
-     //if (len==0) return NULL;
      if (buf.Count()==0) return NULL;
      }
-   //buf[len]='\0';
    buf.Push('\0');
    lcount++;
    return buf();
