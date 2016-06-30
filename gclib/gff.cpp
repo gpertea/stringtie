@@ -6,11 +6,11 @@ GffNames* GffObj::names=NULL;
 
 const uint GFF_MAX_LOCUS = 7000000; //longest known gene in human is ~2.2M, UCSC claims a gene for mouse of ~ 3.1 M
 const uint GFF_MAX_EXON  =   30000; //longest known exon in human is ~11K
-const uint GFF_MAX_INTRON= 6000000; //Ensembl shows a >5MB human intron 
+const uint GFF_MAX_INTRON= 6000000; //Ensembl shows a >5MB mouse intron
 bool gff_show_warnings = false; //global setting, set by GffReader->showWarnings()
-const int gff_fid_mRNA=0;
-const int gff_fid_transcript=1;
-const int gff_fid_exon=2;
+int gff_fid_mRNA=0; //mRNA (has CDS)
+int gff_fid_transcript=1; // generic "transcript" feature
+int gff_fid_exon=2; // "exon" feature
 
 const uint gfo_flag_HAS_ERRORS       = 0x00000001;
 const uint gfo_flag_CHILDREN_PROMOTED= 0x00000002;
@@ -134,7 +134,7 @@ char* GffLine::extractAttr(const char* attr, bool caseStrict, bool enforce_GTF2)
 
 GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(0),
 		dupline(NULL), line(NULL), llen(0), gseqname(NULL), track(NULL),
-		ftype(NULL), info(NULL), fstart(0), fend(0), qstart(0), qend(0), qlen(0),
+		ftype(NULL), ftype_id(-1), info(NULL), fstart(0), fend(0), qstart(0), qend(0), qlen(0),
 		score(0), strand(0), flags(0), exontype(0), phase(0),
 		gene_name(NULL), gene_id(NULL),
 		parents(NULL), num_parents(0), ID(NULL) {
@@ -196,6 +196,7 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
  fnamelc[127]=0;
  strlower(fnamelc); //convert to lower case
  bool is_t_data=false;
+ bool someRNA=false;
  if (strstr(fnamelc, "utr")!=NULL) {
 	 exontype=exgffUTR;
 	 is_exon=true;
@@ -226,9 +227,10 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
  else if (startsWith(fnamelc, "intron") || endsWith(fnamelc, "intron")) {
 	 exontype=exgffIntron;
  }
- else if (endsWith(fnamelc,"rna") || endsWith(fnamelc,"transcript")) { // || startsWith(fnamelc+1, "rna")) {
+ else if ((someRNA=endsWith(fnamelc,"rna")) || endsWith(fnamelc,"transcript")) { // || startsWith(fnamelc+1, "rna")) {
 	 is_transcript=true;
 	 is_t_data=true;
+	 if (someRNA) ftype_id=GffObj::names->feats.addName(ftype);
  }
  else if (endsWith(fnamelc, "gene") || startsWith(fnamelc, "gene")) {
 	 is_gene=true;
@@ -316,14 +318,21 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 	 }
 	 Parent=extractAttr("transcript_id",true);
 	 if (Parent!=NULL) { //GTF2 format detected
-		 if (is_transcript) {
-			 // atypical GTF with a parent transcript line declared
-			 ID=Parent;
-			 Parent=NULL;
-		 }
 		 gene_id=extractAttr("gene_id"); // for GTF this is the only attribute accepted as geneID
 		 if (gene_id==NULL)
 			 gene_id=extractAttr("geneid");
+		 else {
+			 if (!is_gene && strcmp(Parent, gene_id)==0) is_gene=true;
+		 }
+		 if (is_transcript || is_gene) {
+			 // hierarchical GTF with parent transcript/gene lines (Gencode)
+			 ID=Parent;
+			 Parent=NULL;
+			 if (gene_id && is_transcript) {
+				 //keep track of parent gene for Gencode: parent "gene" line could be present
+				 Parent=Gstrdup(gene_id);
+			 }
+		 }
 		 gene_name=extractAttr("gene_name");
 		 if (gene_name==NULL) {
 			 gene_name=extractAttr("gene_sym");
@@ -367,7 +376,7 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 			 }
 		 } //exon feature?
 		 if (Parent==NULL) {
-		    //something is very wrong here, cannot parse the GTF ID
+		    //something is wrong here, cannot parse the GTF ID
 			 if (is_transcript || exontype)
 		       GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n",
 		       l);
@@ -375,7 +384,7 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 
 		 }
 	 } //Parent was NULL, attempted to find it
-	 if (Parent!=NULL) { //GTF transcript_id for exon/CDS feature
+	 if (Parent!=NULL) { //GTF transcript_id found
 		 _parents=Parent;
 		 GMALLOC(parents,sizeof(char*));
 		 num_parents=1;
@@ -485,9 +494,9 @@ int GffObj::addExon(GffReader* reader, GffLine* gl, bool keepAttr, bool noExonAt
             covlen=0;
             exon_ftype_id=subf_id; //allow the new subfeature to completely takeover
             }
-         else { //multiple subfeatures, prefer those with 
+         else { //multiple subfeatures, prefer those with
              if (reader->gff_warns)
-               GMessage("GFF Warning: multiple subfeatures (%s and %s) found for %s, discarding ", 
+               GMessage("GFF Warning: multiple subfeatures (%s and %s) found for %s, discarding ",
                   names->feats.getName(subf_id), names->feats.getName(exon_ftype_id),gffID);
             if (gl->exontype!=0) { //new feature is an exon, discard previously parsed subfeatures
                if (reader->gff_warns) GMessage("%s.\n", names->feats.getName(exon_ftype_id));
@@ -507,7 +516,7 @@ int GffObj::addExon(GffReader* reader, GffLine* gl, bool keepAttr, bool noExonAt
          gl->qstart,gl->qend, gl->is_cds, gl->exontype);
   if (eidx<0) return eidx; //this should never happen
   if (keepAttr) {
-     if (noExonAttr) { 
+     if (noExonAttr) {
          if (attrs==NULL) //place the parsed attributes directly at transcript level
            parseAttrs(attrs, gl->info);
          }
@@ -526,7 +535,7 @@ int GffObj::addExon(uint segstart, uint segend, double sc, char fr, int qs, int 
          exon_ftype_id = isTranscript() ? gff_fid_exon : ftype_id;
          }
       }
-  //special treatment of start/stop codon features, they might be broken/split between exons 
+  //special treatment of start/stop codon features, they might be broken/split between exons
   //and in that case some providers will still give the wrong end coordinate as start+2 (e.g. UCSC)
   //so we should not trust the end coordinate for such features
   if (exontype==exgffStart || exontype==exgffStop) {
@@ -549,7 +558,7 @@ int GffObj::addExon(uint segstart, uint segend, double sc, char fr, int qs, int 
            CDend=segend;
            }
      }
-   else { // not a CDS/start/stop 
+   else { // not a CDS/start/stop
      isCDS=false;
      }
   if (qs || qe) {
@@ -592,7 +601,7 @@ int GffObj::addExon(uint segstart, uint segend, double sc, char fr, int qs, int 
             return oi;
            }
         }
-        if (exontype>exons[oi]->exontype && 
+        if (exontype>exons[oi]->exontype &&
              segstart<=exons[oi]->start && segend>=exons[oi]->end &&
              !(exontype==exgffUTR && exons[oi]->exontype==exgffCDS)) {
                //smaller segment given first, so we have to enlarge it
@@ -634,18 +643,18 @@ int GffObj::addExon(uint segstart, uint segend, double sc, char fr, int qs, int 
       //adding a CDS directly as the first subfeature of a declared parent
       segstart=start;
       segend=end;
-      } 
+      }
    */
    GffExon* enew=new GffExon(segstart, segend, sc, fr, qs, qe, exontype);
    int eidx=exons.Add(enew);
    if (eidx<0) {
     //this would actually be acceptable if the object is a "Gene" and "exons" are in fact isoforms
-     if (gff_show_warnings) 
+     if (gff_show_warnings)
        GMessage("GFF Warning: failed adding segment %d-%d for %s (discarded)!\n",
             segstart, segend, gffID);
      delete enew;
      hasErrors(true);
-     return -1;            
+     return -1;
      }
    covlen+=(int)(exons[eidx]->end-exons[eidx]->start)+1;
    //adjust parent feature coordinates to contain this exon
@@ -653,7 +662,7 @@ int GffObj::addExon(uint segstart, uint segend, double sc, char fr, int qs, int 
      start=exons.First()->start;
      }
    if (end<exons.Last()->end) end=exons.Last()->end;
-     
+
    return eidx;
 }
 
@@ -672,7 +681,7 @@ void GffObj::expandExon(int oi, uint segstart, uint segend, char exontype, doubl
   //if (exons[oi]->exontype< exontype) -- always true
   exons[oi]->exontype = exontype;
   if (exontype==exgffCDS) exons[oi]->phase=fr;
-  //we must check if any more exons are also overlapping this 
+  //we must check if any more exons are also overlapping this
   int ni=oi+1; //next exon index after oi
   while (ni<exons.Count() && segend>=exons[ni]->start) { // next segment overlaps new enlarged segment
      //only allow this if next segment is fully included, and a subordinate
@@ -680,7 +689,7 @@ void GffObj::expandExon(int oi, uint segstart, uint segend, char exontype, doubl
 /* I guess we have to relax this due to stupid UCSC hg18 files having a start_codon sticking out
 chr1	hg18_knownGene	start_codon	69806911	69806913	0.000000	+	.
 chr1	hg18_knownGene	CDS	69806911	69806912	0.000000	+	0
-chr1	hg18_knownGene	exon	69805456	69806912	0.000000	+	.     
+chr1	hg18_knownGene	exon	69805456	69806912	0.000000	+	.
 */
          if (exons[ni]->qstart<exons[oi]->qstart) exons[oi]->qstart=exons[ni]->qstart;
          if (exons[ni]->qend>exons[oi]->qend) exons[oi]->qend=exons[ni]->qend;
@@ -767,20 +776,18 @@ GffObj::GffObj(GffReader *gfrd, GffLine* gffline, bool keepAttr, bool noExonAttr
   gffID=NULL;
   track_id=-1;
   gseq_id=-1;
-  ftype_id=-1;
+  //ftype_id=-1;
   exon_ftype_id=-1;
   strand='.';
-  if (gfrd==NULL)
-    GError("Cannot use this GffObj constructor with a NULL GffReader!\n");
+  if (gfrd == NULL || gffline == NULL)
+    GError("Cannot use this GffObj constructor with NULL GffReader/GffLine!\n");
   gffnames_ref(names);
-  if (gfrd->names==NULL) {
-	  gfrd->names=names;
-  }
   //qlen=0;qstart=0;qend=0;
   gscore=0;
   uscore=0;
   covlen=0;
   qcov=0;
+  ftype_id=gffline->ftype_id;
   start=gffline->fstart;
   end=gffline->fend;
   gseq_id=names->gseqs.addName(gffline->gseqname);
@@ -838,16 +845,20 @@ GffObj::GffObj(GffReader *gfrd, GffLine* gffline, bool keepAttr, bool noExonAttr
     gffID=Gstrdup(gffline->ID); //there must be an ID here
     //if (gffline->is_transcript) ftype_id=gff_fid_mRNA;
       //else
-    ftype_id=names->feats.addName(gffline->ftype);
-    if (gffline->is_transcript)
+    if (gffline->is_transcript) {
       exon_ftype_id=gff_fid_exon;
+      if (ftype_id<0)
+        ftype_id=names->feats.addName(gffline->ftype);
+    }
     if (keepAttr) this->parseAttrs(attrs, gffline->info);
     if (gffline->is_gff3 && gffline->parents==NULL && gffline->exontype!=0) {
        //special case with bacterial genes just given as a CDS/exon, without parent!
        this->createdByExon(true);
-       ftype_id=gff_fid_mRNA;
+       if (ftype_id<0) ftype_id=gff_fid_mRNA;
        addExon(gfrd, gffline, keepAttr, noExonAttr);
     }
+    if (ftype_id<0)
+        ftype_id=names->feats.addName(gffline->ftype);
   }//no parent OR recognizable transcript
 
   if (gffline->gene_name!=NULL) {
@@ -1013,7 +1024,10 @@ GffObj* GffReader::updateGffRec(GffObj* prevgfo, GffLine* gffline,
                                          bool keepAttr) {
  if (prevgfo==NULL) return NULL;
  //prevgfo->gffobj->createdByExon(false);
- prevgfo->ftype_id=prevgfo->names->feats.addName(gffline->ftype);
+ if (gffline->ftype_id>=0)
+	 prevgfo->ftype_id=gffline->ftype_id;
+ else
+	 prevgfo->ftype_id=prevgfo->names->feats.addName(gffline->ftype);
  prevgfo->start=gffline->fstart;
  prevgfo->end=gffline->fend;
  prevgfo->isGene(gffline->is_gene);
@@ -1295,11 +1309,19 @@ void GfList::finalize(GffReader* gfr, bool mergeCloseExons,
 }
 
 GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, bool noExonAttr) {
- //merge
+ if (isGene()) {
+	 if (children.Count()==0) {
+	     isTranscript(true);
+	     //bacterial annotation: childless gene is in fact a transcript
+	 }
+	 else if (gfr->transcriptsOnly) {
+		 isDiscarded(true);
+  }
+ }
  //always merge adjacent or overlapping segments
  //but if mergeCloseExons then merge even when distance is up to 5 bases
  if (gfr->transcriptsOnly && !(isTranscript() || (isGene() && children.Count()==0))) {
- 	isDiscarded(true);
+ 	isDiscarded(true); //discard non-transcripts
  }
  if (ftype_id==gff_fid_transcript && CDstart>0) {
  	ftype_id=gff_fid_mRNA;
@@ -1387,6 +1409,10 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
  		}
  	}
  	if (attrs_discarded) exons[0]->attrs->Pack();
+ }
+ if (exons.Count()==0 && isTranscript()) {
+	 //add exon feature to an exonless transcript
+	 addExon(this->start, this->end);
  }
  return this;
 }
@@ -1476,7 +1502,7 @@ void GffObj::copyAttrs(GffObj* from) { //typically from is the parent gene, and 
 void GffObj::setFeatureName(const char* feature) {
  //change the feature name/type for a transcript
  int fid=names->feats.addName(feature);
- if (monoFeature() && exons.Count()>0) 
+ if (monoFeature() && exons.Count()>0)
     this->exon_ftype_id=fid;
  this->ftype_id=fid;
 }
@@ -1496,14 +1522,14 @@ int GffObj::removeAttr(const char* attrname, const char* attrval) {
   int delcount=0;  //could be more than one ?
   for (int i=0;i<this->attrs->Count();i++) {
      if (aid==this->attrs->Get(i)->attr_id) {
-       if (attrval==NULL || 
+       if (attrval==NULL ||
           strcmp(attrval, this->attrs->Get(i)->attr_val)==0) {
              delcount++;
              this->attrs->freeItem(i);
              }
        }
      }
-  if (delcount>0) this->attrs->Pack(); 
+  if (delcount>0) this->attrs->Pack();
   return delcount;
 }
 
@@ -1512,14 +1538,14 @@ int GffObj::removeAttr(int aid, const char* attrval) {
   int delcount=0;  //could be more than one ?
   for (int i=0;i<this->attrs->Count();i++) {
      if (aid==this->attrs->Get(i)->attr_id) {
-       if (attrval==NULL || 
+       if (attrval==NULL ||
           strcmp(attrval, this->attrs->Get(i)->attr_val)==0) {
              delcount++;
              this->attrs->freeItem(i);
              }
        }
      }
-  if (delcount>0) this->attrs->Pack(); 
+  if (delcount>0) this->attrs->Pack();
   return delcount;
 }
 
@@ -1531,14 +1557,14 @@ int GffObj::removeExonAttr(GffExon& exon, const char* attrname, const char* attr
   int delcount=0;  //could be more than one
   for (int i=0;i<exon.attrs->Count();i++) {
      if (aid==exon.attrs->Get(i)->attr_id) {
-       if (attrval==NULL || 
+       if (attrval==NULL ||
           strcmp(attrval, exon.attrs->Get(i)->attr_val)==0) {
              delcount++;
              exon.attrs->freeItem(i);
              }
        }
      }
-  if (delcount>0) exon.attrs->Pack(); 
+  if (delcount>0) exon.attrs->Pack();
   return delcount;
 }
 
@@ -1547,14 +1573,14 @@ int GffObj::removeExonAttr(GffExon& exon, int aid, const char* attrval) {
   int delcount=0;  //could be more than one
   for (int i=0;i<exon.attrs->Count();i++) {
      if (aid==exon.attrs->Get(i)->attr_id) {
-       if (attrval==NULL || 
+       if (attrval==NULL ||
           strcmp(attrval, exon.attrs->Get(i)->attr_val)==0) {
              delcount++;
              exon.attrs->freeItem(i);
              }
        }
      }
-  if (delcount>0) exon.attrs->Pack(); 
+  if (delcount>0) exon.attrs->Pack();
   return delcount;
 }
 
@@ -1643,7 +1669,7 @@ void GffObj::mRNA_CDS_coords(uint& cds_mstart, uint& cds_mend) {
   //return spliced;
 }
 
-char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst) 
+char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst)
 {
     if (faseq==NULL) { GMessage("Warning: getUnspliced(NULL,.. ) called!\n");
         return NULL;
@@ -1660,7 +1686,7 @@ char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst)
 
     int seqstart=exons.First()->start;
     int seqend=exons.Last()->end;
-    
+
     int unsplicedlen = 0;
 
     unsplicedlen += seqend - seqstart + 1;
@@ -1669,21 +1695,21 @@ char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst)
     //uint seqstart, seqend;
 
     int s = 0; //resulting nucleotide counter
-    if (strand=='-') 
+    if (strand=='-')
     {
         if (seglst!=NULL)
             seglst->Add(new GSeg(s+1,s+1+seqend-seqstart));
-        for (int i=seqend;i>=seqstart;i--) 
+        for (int i=seqend;i>=seqstart;i--)
         {
             unspliced[s] = ntComplement(gsubseq[i-start]);
             s++;
         }//for each nt
     } // - strand
-    else 
+    else
     { // + strand
         if (seglst!=NULL)
             seglst->Add(new GSeg(s+1,s+1+seqend-seqstart));
-        for (int i=seqstart;i<=seqend;i++) 
+        for (int i=seqstart;i<=seqend;i++)
         {
             unspliced[s]=gsubseq[i-start];
             s++;
@@ -1997,7 +2023,7 @@ void GffObj::printGxfLine(FILE* fout, const char* tlabel, const char* gseqname, 
     }//GTF
 }
 
-void GffObj::printGxf(FILE* fout, GffPrintMode gffp, 
+void GffObj::printGxf(FILE* fout, GffPrintMode gffp,
                    const char* tlabel, const char* gfparent, bool cvtChars) {
  //char tmpstr[255];
  char dbuf[1024];

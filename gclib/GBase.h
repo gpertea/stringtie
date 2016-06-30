@@ -460,6 +460,10 @@ template<class OBJ> class GDynArray {
     	// set initial memory size again
     	fCapacity = dyn_array_defcap;
     }
+
+    void reset() {
+    	fCount = 0; //do not deallocate, just show it empty
+    }
 	//pointer getptr() { return (pointer) fArray; }
 	OBJ* operator()() { return fArray; }
 };
@@ -505,30 +509,11 @@ class GLineReader {
       if (f==NULL) GError("Error opening file '%s'!\n",fname);
       closeFile=true;
       file=f;
-      //s_init(f);
       }
    GLineReader(FILE* stream=NULL, off_t fpos=0):closeFile(false),buf(1024),isEOF(false),file(stream),
 		   filepos(fpos), pushed(false), lcount(0) {
-     //closeFile=false;
-     //s_init(stream,fpos);
      }
-   /*
-   void s_init(FILE* stream, off_t fpos=0) {
-     //len=0;
-     //allocated=1024;
-     //GMALLOC(buf,allocated);
-	 //buf.Clear();
-	 //buf.setCapacity(1024);
-	 isEOF=false;
-     lcount=0;
-     //buf[0]=0;
-     file=stream;
-     filepos=fpos;
-     pushed=false;
-     }
-    */
    ~GLineReader() {
-     GFREE(buf);
      if (closeFile) fclose(file);
      }
 };
