@@ -321,18 +321,12 @@ GffLine::GffLine(GffReader* reader, const char* l):_parents(NULL), _parents_len(
 		 gene_id=extractAttr("gene_id"); // for GTF this is the only attribute accepted as geneID
 		 if (gene_id==NULL)
 			 gene_id=extractAttr("geneid");
-		 else {
-			 if (!is_gene && strcmp(Parent, gene_id)==0) is_gene=true;
-		 }
-		 if (is_transcript || is_gene) {
-			 // hierarchical GTF with parent transcript/gene lines (Gencode)
+		 if (is_gene || is_transcript) {
 			 ID=Parent;
-			 Parent=NULL;
-			 if (gene_id && is_transcript) {
-				 //keep track of parent gene for Gencode: parent "gene" line could be present
-				 Parent=Gstrdup(gene_id);
-			 }
+			 if (is_gene) Parent=NULL;
+			 else Parent=Gstrdup(gene_id);
 		 }
+
 		 gene_name=extractAttr("gene_name");
 		 if (gene_name==NULL) {
 			 gene_name=extractAttr("gene_sym");
