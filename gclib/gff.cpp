@@ -970,20 +970,6 @@ GffObj* GffReader::gfoFind(const char* id, GPVec<GffObj>*& glst,
 	if (!glst) glst=gl;
 	return gh;
 }
-/*
-GffObj* GffReader::replaceGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr, int replaceidx) {
-  GffObj* newgfo=new GffObj(this, gffline, keepAttr, noExonAttr);
-  GffObj* r=NULL;
-  if (replaceidx>=0) {
-     gflst.Put(replaceidx,newgfo);
-     r=gfoAdd(newgfo);
-     }
-   else {
-     int gfoidx=gflst.Add(newgfo);
-     r=gfoAdd(newgfo);
-     }
-  return r;
-} */
 
 GffObj* GffReader::updateParent(GffObj* newgfo, GffObj* parent) {
   //assert(parent);

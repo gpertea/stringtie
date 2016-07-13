@@ -1068,7 +1068,7 @@ class GffReader {
   GffReader(const char* fn, bool t_only=false, bool sort=false):discarded_ids(true), phash(true),
             gseqtable(1,true), gflst(sort), gseqStats(1,false) {
       gff_warns=gff_show_warnings;
-      //names=NULL;
+      gffnames_ref(GffObj::names);
       fname=Gstrdup(fn);
       transcriptsOnly=t_only;
       fh=fopen(fname, "rb");
