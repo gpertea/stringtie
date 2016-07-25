@@ -12860,7 +12860,9 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 				if(!eonly) refgene[i].cov=cov/glen; // only if I want to store the real gene coverage
 				else refgene[i].cov/=glen;
 				fprintf(f_out,"0 1 %d 0 %.6f\n",glen, refgene[i].covsum);
-				fprintf(f_out,"%s\t",refgene[i].geneID);
+				const char* geneID=refgene[i].geneID;
+				if (geneID==NULL) geneID=".";
+				fprintf(f_out,"%s\t",geneID);
 				if(refgene[i].geneName) fprintf(f_out,"%s\t",refgene[i].geneName);
 				else fprintf(f_out,"-\t");
 				//fprintf(f_out,"%s\t%c\t%d\t%d\t%d\t%.6f\n",refname.chars(),refgene[i].strand,refgene[i].start,refgene[i].end,glen,refgene[i].cov);

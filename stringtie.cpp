@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.2.3"
+#define VERSION "1.2.4"
 
 //#define DEBUGPRINT 1
 
@@ -1350,8 +1350,12 @@ void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) 
 				 //write unbundled genes from this chromosome
 	geneabs.startIterate();
 	while (CGene* g=geneabs.NextData()) {
+		const char* geneID=g->geneID;
+		const char* geneName=g->geneName;
+		if (geneID==NULL) geneID=".";
+		if (geneName==NULL) geneName=".";
 	    fprintf(gout, "%s\t%s\t%s\t%c\t%d\t%d\t0.0\t0.0\t0.0\n",
-	    		g->geneID, g->geneName, refseq,
+	    		geneID, geneName, refseq,
 	    		g->strand, g->start, g->end);
 	}
 	geneabs.Clear();
