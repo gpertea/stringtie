@@ -95,9 +95,9 @@ class GffLine {
     	    bool is_cds:1; //"cds" or "start/stop_codon" features
     	    bool is_exon:1; //"exon" and "utr" features
     	    bool is_transcript:1; //if current feature is *RNA or *transcript
-    	    bool is_gene:1; //if current feature is *gene
-    	    bool is_gff3:1; //if the line appears to be in GFF3 format
-    	    bool can_discard:1; //flag unwanted/unrecognized parent features
+    	    bool is_gene:1; //current feature is *gene
+    	    bool is_gff3:1; //line appears to be in GFF3 format (0=GTF)
+    	    bool is_gtf_transcript:1; //GTF transcript line with Parents parsed from gene_id
     	    bool skipLine:1;
     	};
     };
@@ -115,44 +115,43 @@ class GffLine {
     	GFREE(_parents);
     	_parents_len=0;
     	num_parents=0;
+    	GFREE(parents);
     	parents=NULL;
     }
-    char* extractAttr(const char* pre, bool caseStrict=false, bool enforce_GTF2=false);
-    GffLine(GffLine* l):_parents(NULL), _parents_len(0),
-    		dupline(NULL), line(NULL), llen(0), gseqname(NULL), track(NULL),
-    		ftype(NULL), ftype_id(-1), info(NULL), fstart(0), fend(0), qstart(0), qend(0), qlen(0),
-    		score(0), strand(0), flags(0), exontype(0), phase(0),
-    		gene_name(NULL), gene_id(NULL),
-    		parents(NULL), num_parents(0), ID(NULL) { //a copy constructor
-    	if (l==NULL || l->line==NULL)
-    		GError("Error: invalid GffLine(l)\n");
-    	memcpy((void*)this, (void*)l, sizeof(GffLine));
+    char* extractAttr(const char* pre, bool caseStrict=false, bool enforce_GTF2=false, int* rlen=NULL);
+    GffLine(GffLine& l):_parents(NULL), _parents_len(l._parents_len),
+    		dupline(NULL), line(NULL), llen(l.llen), gseqname(NULL), track(NULL),
+    		ftype(NULL), ftype_id(l.ftype_id), info(NULL), fstart(l.fstart), fend(l.fend), qstart(l.fstart), qend(l.fend),
+			qlen(l.qlen), score(l.score), strand(l.strand), flags(l.flags), exontype(l.exontype), phase(l.phase),
+			gene_name(NULL), gene_id(NULL), parents(NULL), num_parents(l.num_parents), ID(NULL) {
+    	//if (l==NULL || l->line==NULL)
+    	//	GError("Error: invalid GffLine(l)\n");
+    	//memcpy((void*)this, (void*)l, sizeof(GffLine));
     	GMALLOC(line, llen+1);
-    	memcpy(line, l->line, llen+1);
+    	memcpy(line, l.line, llen+1);
     	GMALLOC(dupline, llen+1);
-    	memcpy(dupline, l->dupline, llen+1);
+    	memcpy(dupline, l.dupline, llen+1);
     	//--offsets within line[]
-    	gseqname=line+(l->gseqname-l->line);
-    	track=line+(l->track-l->line);
-    	ftype=line+(l->ftype-l->line);
-    	info=line+(l->info-l->line);
+    	gseqname=line+(l.gseqname-l.line);
+    	track=line+(l.track-l.line);
+    	ftype=line+(l.ftype-l.line);
+    	info=line+(l.info-l.line);
     	if (num_parents>0 && parents) {
-    		parents=NULL; //re-init, just copied earlier
     		GMALLOC(parents, num_parents*sizeof(char*));
     		//_parents_len=l->_parents_len; copied above
     		_parents=NULL; //re-init, forget pointer copy
     		GMALLOC(_parents, _parents_len);
-    		memcpy(_parents, l->_parents, _parents_len);
+    		memcpy(_parents, l._parents, _parents_len);
     		for (int i=0;i<num_parents;i++) {
-    			parents[i]=_parents+(l->parents[i] - l->_parents);
+    			parents[i]=_parents+(l.parents[i] - l._parents);
     		}
     	}
     	//-- allocated string copies:
-    	ID=Gstrdup(l->ID);
-    	if (l->gene_name!=NULL)
-    		gene_name=Gstrdup(l->gene_name);
-    	if (l->gene_id!=NULL)
-    		gene_id=Gstrdup(l->gene_id);
+    	ID=Gstrdup(l.ID);
+    	if (l.gene_name!=NULL)
+    		gene_name=Gstrdup(l.gene_name);
+    	if (l.gene_id!=NULL)
+    		gene_id=Gstrdup(l.gene_id);
     }
     GffLine():_parents(NULL), _parents_len(0),
     		dupline(NULL), line(NULL), llen(0), gseqname(NULL), track(NULL),
@@ -989,7 +988,7 @@ class CNonExon { //utility class used in subfeature promotion
    GffExon* exon;
    GffLine* gffline;
    //CNonExon(int i, GffObj* p, GffExon* e, GffLine* gl) {
-   CNonExon(GffObj* p, GffExon* e, GffLine* gl) {
+   CNonExon(GffObj* p, GffExon* e, GffLine& gl) {
      parent=p;
      exon=e;
      //idx=i;

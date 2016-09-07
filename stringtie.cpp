@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.2.3"
+#define VERSION "1.3.0"
 
 //#define DEBUGPRINT 1
 
@@ -60,7 +60,7 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
     created under the directory path given as <dir_path>\n\
  -e only estimate the abundance of given reference transcripts (requires -G)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
- -u no multi-mapping correction default: false)\n\
+ -u no multi-mapping correction (default: correction enabled)\n\
  -h print this usage message and exit\n\
 \n\
 Transcript merge usage mode: \n\
@@ -126,7 +126,6 @@ bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage su
 bool nomulti=false;
 bool enableNames=false;
 bool includecov=false;
-bool specific=false;
 //bool complete=true; // set by parameter -i the reference annotation contains partial transcripts
 bool retained_intron=false; // set by parameter -i for merge option
 bool geneabundance=false;
@@ -725,6 +724,8 @@ if(!mergeMode) {
 	args.printCmdLine(f_out);
 	fprintf(f_out,"# StringTie version %s\n",VERSION);
 
+	//fprintf(stderr,"cov_sum=%f\n",Cov_Sum);
+
 	FILE *g_out=NULL;
 	if(geneabundance) {
 		g_out=fopen(genefname.chars(),"w");
@@ -756,7 +757,7 @@ if(!mergeMode) {
 		 	 if((float)tlen>AvgFrag) eff_len=tlen-AvgFrag+1;
 		 	 calc_fpkm2=calc_fpkm*tlen/eff_len;
 			 */
-			//fprintf(stderr,"tid=%d tlen=%d fpkm=%g calc_fpkm=%g tcov=%g new_fpkm=%g newcalc_fpkm=%g calc_fpkm3=%g\n",t_id,tlen,fpkm,calc_fpkm,tcov,tcov*tlen*1000000000/(efflen*SumReads),calc_fpkm2,calc_fpkm3);
+			//fprintf(stderr,"istr=%d tid=%d tlen=%d tcov=%g calc_fpkm=%g calc_tpkm=%g\n",istr,t_id,tlen,tcov,calc_fpkm,calc_tpm);
 			if(istr) { // this is a transcript
 				if (ballgown && t_id>0) {
 					guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
@@ -1350,8 +1351,12 @@ void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) 
 				 //write unbundled genes from this chromosome
 	geneabs.startIterate();
 	while (CGene* g=geneabs.NextData()) {
+		const char* geneID=g->geneID;
+		const char* geneName=g->geneName;
+		if (geneID==NULL) geneID=".";
+		if (geneName==NULL) geneName=".";
 	    fprintf(gout, "%s\t%s\t%s\t%c\t%d\t%d\t0.0\t0.0\t0.0\n",
-	    		g->geneID, g->geneName, refseq,
+	    		geneID, geneName, refseq,
 	    		g->strand, g->start, g->end);
 	}
 	geneabs.Clear();

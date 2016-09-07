@@ -25,7 +25,8 @@ const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
 const int MAX_MAXCOMP=200; // is 200 too much, or should I set it up to 150?
 
-const uint longintron=20000; // don't trust introns longer than this unless there is higher evidence; 93.5% of all human annotated introns are shorter than this
+//const uint longintron=20000; // don't trust introns longer than this unless there is higher evidence; 93.5% of all human annotated introns are shorter than this
+const uint longintron=100000; // don't trust introns longer than this unless there is higher evidence; 99% of all human annotated introns are shorter than this
 const uint longintronanchor=20; // I need a higher anchor for long introns
 
 const float mismatchfrac=0.02;
@@ -104,13 +105,22 @@ struct CBundle {
 		len(_len),cov(_cov),nread(_nread),multi(_multi), startnode(_start),lastnodeid(_last) {}
 };
 
+struct CPath {
+	int node;
+	int contnode;
+	float abundance;
+	CPath(int n1=0,int n2=0,float abund=0):node(n1),contnode(n2),abundance(abund){}
+};
+
 struct CTransfrag {
 	GVec<int> nodes;
 	GBitVec pattern;
 	float abundance;
 	bool real;
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false):nodes(_nodes),pattern(bit),abundance(abund),real(treal) {}
-	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal) {
+	GVec<CPath> path;
+	float usepath;
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false):nodes(_nodes),pattern(bit),abundance(abund),real(treal),path(),usepath(-1) {}
+	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal),path(),usepath(-1) {
 	}
 };
 
@@ -229,10 +239,11 @@ struct CMPrediction {
 	CMPrediction(CPrediction* _p,GVec<int>& _nodes,GBitVec& _pat, GBitVec& _b): p(_p),nodes(_nodes),pat(_pat),b(_b) {}
 };
 
-struct CPath {
-	GVec<int> nodes;
-	CPath():nodes() {}
-	CPath(GVec<int>& _n):nodes(_n) {}
+struct CNodeCapacity {
+	int id;
+	bool left;
+	float perc;
+	CNodeCapacity(int nid=0,bool leftnode=false,float p=0): id(nid),left(leftnode),perc(p) {}
 };
 
 // this class keeps the gene predictions (linked bundle nodes initially)
@@ -326,7 +337,7 @@ struct CTrimPoint { // this can work as a guide keeper too, where pos is the gui
 
 struct CInterval {
 	uint pos; // interval start position
-	float val; // interval value
+	float val; // interval value or interval last position depending on use
 	CInterval *next; // next interval;
 	CInterval(uint _pos=0,float _val=0,CInterval *_next=NULL):pos(_pos),val(_val),next(_next) {}
 };
@@ -374,10 +385,12 @@ struct CJunction:public GSeg {
 	char guide_match; //exact match of a ref intron?
 	double nreads;
 	double nreads_good;
+	double leftsupport;
+	double rightsupport;
 	double nm;
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
-			strand(_strand), guide_match(0), nreads(0),
-			nreads_good(0),nm(0) {}
+			strand(_strand), guide_match(0), nreads(0),nreads_good(0),
+			leftsupport(0),rightsupport(0),nm(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;
 		if (start>b.start) return false;

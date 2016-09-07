@@ -273,10 +273,13 @@ void rc_writeRC(GPVec<RC_TData>& RC_data,
   RC_TData& sd=*RC_data[t];
    const char* refname = sd.ref_t->getGSeqName();
    const char* genename= sd.ref_t->getGeneName();
+   const char* geneID= sd.ref_t->getGeneID();
    if (genename==NULL) genename=".";
+   if (geneID==NULL) geneID=".";
+
    fprintf(f_tdata, "%u\t%s\t%c\t%d\t%d\t%s\t%d\t%d\t%s\t%s\t%f\t%f\n",
 	  sd.t_id, refname, sd.ref_t->strand, sd.l, sd.r, sd.ref_t->getID(),
-	  sd.t_exons.Count(), sd.eff_len, sd.ref_t->getGeneID(),
+	  sd.t_exons.Count(), sd.eff_len, geneID,
 	  genename, sd.cov, sd.fpkm);
  }//for each transcript
  //fflush(f_tdata);
