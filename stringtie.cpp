@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.0"
+#define VERSION "1.3.0b"
 
 //#define DEBUGPRINT 1
 
@@ -29,7 +29,7 @@
 #define DBGPRINT5(a,b,c,d,e) 
 #endif
 
-#define USAGE "StringTie v"VERSION" usage:\n\
+#define USAGE "StringTie v" VERSION " usage:\n\
  stringtie <input.bam ..> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
   [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>] [-u]\n\
@@ -267,9 +267,11 @@ int main(int argc, char * const argv[]) {
  GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
 
  int bamcount=bamreader.start(); //setup and open input files
+#ifndef GFF_DEBUG
  if (bamcount<1) {
-	 GError("%s. Error: no input files provided!\n");
+	 GError("%sError: no input files provided!\n",USAGE);
  }
+#endif
 
 #ifdef DEBUGPRINT
   verbose=true;
@@ -324,7 +326,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		    if (verbose)
 		    	GMessage("Warning: exonless GFF object %s found, added implicit exon %d-%d.\n",
 		    			m->getID(),m->start, m->end);
-		    m->exons.Add(new GffExon(m->start, m->end));
+		    m->addExon(m->start, m->end); //should never happen!
 	   }
 	   //DONE: always keep a RC_TData pointer around, with additional info about guides
 	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
@@ -750,14 +752,10 @@ if(!mergeMode) {
 		while(fgetline(linebuf,linebuflen,ftmp_in)) {
 			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
 			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
+			//FIXME: for the rare cases tcov < 0, invert it
+			if (tcov<0) tcov=-tcov;//this should not happen
 			calc_fpkm=tcov*1000000000/Frag_Len;
 			calc_tpm=tcov*1000000/Cov_Sum;
-			/*
-		 	 double eff_len=1;
-		 	 if((float)tlen>AvgFrag) eff_len=tlen-AvgFrag+1;
-		 	 calc_fpkm2=calc_fpkm*tlen/eff_len;
-			 */
-			//fprintf(stderr,"istr=%d tid=%d tlen=%d tcov=%g calc_fpkm=%g calc_tpkm=%g\n",istr,t_id,tlen,tcov,calc_fpkm,calc_tpm);
 			if(istr) { // this is a transcript
 				if (ballgown && t_id>0) {
 					guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;

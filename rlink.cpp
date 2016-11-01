@@ -5440,7 +5440,7 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 				}
 			}
 			pathpat[i+1]=0; // these were 1 in the previous code, but it doesn't make sense -> I hope it was wrong
-	    	if(pos) pathpat[*pos]=0;
+			if(pos) pathpat[*pos]=0;
 
 			if(childcov) {
 				maxc=i+1;

@@ -1144,7 +1144,8 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 			} //ID seen previously in the same locus
 		} //parent-like ID feature (non-exon)
 
-		if (gffline->parents==NULL || gffline->is_gtf_transcript) {
+		//if (gffline->parents==NULL || gffline->is_gtf_transcript) {
+		if (gffline->parents==NULL) {
 			//top level feature (transcript, gene), no parents (or parents can be ignored)
 			if (!prevseen) newGffRec(gffline, keepAttr, noExonAttr, NULL, NULL, prevgflst);
 		}

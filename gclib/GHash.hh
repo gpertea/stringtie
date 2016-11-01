@@ -97,7 +97,7 @@ public:
                                 //or NULL if no more
                                 //nextkey is SET to the corresponding key
   GHashEntry* NextEntry() { //returns a pointer to a GHashEntry
-  	 register int pos=fCurrentEntry;
+  	 int pos=fCurrentEntry;
   	 while (pos<fCapacity && hash[pos].hash<0) pos++;
   	 if (pos==fCapacity) {
   	                 fCurrentEntry=fCapacity;
@@ -175,7 +175,7 @@ template <class OBJ> GHash<OBJ>::GHash(bool doFree) {
 
 // Resize table
 template <class OBJ> void GHash<OBJ>::Resize(int m){
-  register int i,n,p,x,h;
+  int i,n,p,x,h;
   GHashEntry *k;
   GASSERT(fCount<=fCapacity);
   if(m<DEF_HASH_SIZE) m=DEF_HASH_SIZE;
@@ -211,7 +211,7 @@ template <class OBJ> void GHash<OBJ>::Resize(int m){
 
 template <class OBJ> OBJ* GHash<OBJ>::Add(const char* ky,
 	                      OBJ* pdata, bool mrk){
-	  register int p,i,x,h,n;
+	  int p,i,x,h,n;
 	  if(!ky) GError("GHash::insert: NULL key argument.\n");
 	  GASSERT(fCount<fCapacity);
 	  h=GSTR_HASH(ky);
@@ -296,7 +296,7 @@ template <class OBJ> OBJ* GHash<OBJ>::Add(const char* ky,
 */
 template <class OBJ> OBJ* GHash<OBJ>::fAdd(const char* ky,
                       OBJ* pdata){
-  register int p,i,x,h,n;
+  int p,i,x,h,n;
   if(!ky) GError("GHash::insert: NULL key argument.\n");
   GASSERT(fCount<fCapacity);
   h=GSTR_HASH(ky);
@@ -356,7 +356,7 @@ template <class OBJ> OBJ* GHash<OBJ>::fAdd(const char* ky,
 
 template <class OBJ> OBJ* GHash<OBJ>::shkAdd(const char* ky,
                       OBJ* pdata,bool mrk){
-  register int p,i,x,h,n;
+  int p,i,x,h,n;
   if(!ky) GError("GHash::insert: NULL key argument.\n");
   GASSERT(fCount<fCapacity);
   h=GSTR_HASH(ky);
@@ -398,7 +398,7 @@ template <class OBJ> OBJ* GHash<OBJ>::shkAdd(const char* ky,
 
 // Add or replace entry
 template <class OBJ>  OBJ* GHash<OBJ>::Replace(const char* ky, OBJ* pdata, bool mrk){
-  register int p,i,x,h,n;
+  int p,i,x,h,n;
   if(!ky){ GError("GHash::replace: NULL key argument.\n"); }
   GASSERT(fCount<fCapacity);
   h=GSTR_HASH(ky);
@@ -440,7 +440,7 @@ template <class OBJ>  OBJ* GHash<OBJ>::Replace(const char* ky, OBJ* pdata, bool 
 
 // Remove entry
 template <class OBJ> OBJ* GHash<OBJ>::Remove(const char* ky){
-  register int p,x,h,n;
+  int p,x,h,n;
   if(!ky){ GError("GHash::remove: NULL key argument.\n"); }
   OBJ* removed=NULL;
   if(0<fCount){
@@ -477,7 +477,7 @@ template <class OBJ> OBJ* GHash<OBJ>::Remove(const char* ky){
 
 // Find entry
 template <class OBJ> bool GHash<OBJ>::hasKey(const char* ky) {
-  register int p,x,h,n;
+  int p,x,h,n;
   if(!ky){ GError("GHash::find: NULL key argument.\n"); }
   if(0<fCount){
     h=GSTR_HASH(ky);
@@ -501,7 +501,7 @@ template <class OBJ> bool GHash<OBJ>::hasKey(const char* ky) {
 
 
 template <class OBJ> OBJ* GHash<OBJ>::Find(const char* ky, char** keyptr){
-  register int p,x,h,n;
+  int p,x,h,n;
   if(!ky){ GError("GHash::find: NULL key argument.\n"); }
   if (fCount==0) return NULL;
   h=GSTR_HASH(ky);
