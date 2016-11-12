@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.0b"
+#define VERSION "1.3.1"
 
 //#define DEBUGPRINT 1
 
