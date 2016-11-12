@@ -363,6 +363,20 @@ struct CComponent {
 	~CComponent() { if(set) delete set;}
 };
 
+struct GEdge { // guide edge
+	// if val < endval then this is start; otherwise it is end
+	uint val;  // value of the boundary
+	uint endval; // value of the other exon boundary shared with val
+	int strand;
+	bool operator<(const GEdge& o) const {
+		return(val<o.val);
+	}
+	bool operator==(const GEdge& o) const {
+		return(val==o.val && strand==o.strand);
+	}
+	GEdge(uint _val=0,uint _endval=0,int _strand=0):val(_val),endval(_endval),strand(_strand) {}
+};
+
 struct CGraphnode:public GSeg {
 	int nodeid;
 	float cov;

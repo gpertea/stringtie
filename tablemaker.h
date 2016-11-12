@@ -189,7 +189,7 @@ struct RC_TData { //storing RC data for a transcript
 	uint t_id;
 	int l;
 	int r;
-	char in_bundle; // 1 if used by read bundles, 2 if it has any direct read overlap
+	char in_bundle; // 1 if used by read bundles (present in keepguides), 2 if all introns are covered by at least one read, 3 if it is stored to be printed
 	//GRefLocus* locus; //pointer to a locus info
 	int eff_len;
 	double cov;

@@ -137,7 +137,6 @@ public:
     }
 
     Capacity = NumBitWords(RHS.size());
-    //fBits = (BitWord *)std::malloc(Capacity * sizeof(BitWord));
     GMALLOC(fBits, Capacity * sizeof(BitWord));
     memcpy(fBits, RHS.fBits, Capacity * sizeof(BitWord));
   }
@@ -215,7 +214,7 @@ public:
     uint BitPos = Prev % BITWORD_SIZE;
     BitWord Copy = fBits[WordPos];
     // Mask off previous bits.
-    Copy &= ~0L << BitPos;
+    Copy &= ~0UL << BitPos;
 
     if (Copy != 0) {
       if (sizeof(BitWord) == 4)
@@ -440,9 +439,13 @@ private:
 
     //  Then set any stray high bits of the last used word.
     uint ExtraBits = Size % BITWORD_SIZE;
+    
     if (ExtraBits) {
-      fBits[UsedWords-1] &= ~(~0L << ExtraBits);
-      fBits[UsedWords-1] |= (0 - (BitWord)value) << ExtraBits;
+      BitWord ExtraBitMask = ~0UL << ExtraBits;
+      if (value)
+        fBits[UsedWords-1] |= ExtraBitMask;
+      else
+        fBits[UsedWords-1] &= ~ExtraBitMask;
     }
   }
 

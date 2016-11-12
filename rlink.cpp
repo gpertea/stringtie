@@ -1636,6 +1636,87 @@ CGraphnode *add_trim_to_graph(int s, int g,uint lastpos,CTrimPoint& mytrim,CGrap
 	return(graphnode);
 }
 
+CGraphnode *source2guide(int s, int g, int refstart,uint newstart,uint newend, CGraphnode *graphnode,CGraphnode *source,
+		GVec<float>* bpcov,GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,
+		GPVec<CGraphnode> **no2gnode, int &edgeno) {
+
+	// compute maxabund
+	float leftcov=0;
+	float rightcov=0;
+	for(uint p=graphnode->start;p<newstart;p++) {
+		int j=p-refstart;
+		leftcov+=bpcov[1][j]-bpcov[2-2*s][j];
+	}
+	for(uint p=newstart;p<newend;p++) {
+		int j=p-refstart;
+		rightcov+=bpcov[1][j]-bpcov[2-2*s][j];
+	}
+	float maxabund=rightcov-leftcov;
+	if(maxabund<trthr) maxabund=trthr;
+
+	uint prevend=graphnode->end;
+	graphnode->end=newstart-1;
+	CGraphnode *prevnode=graphnode;
+	graphnode=create_graphnode(s,g,newstart,prevend,graphno,bundlenode,bundle2graph,no2gnode);
+	graphno++;
+	source->child.Add(graphnode->nodeid);  // this node is the child of source
+	graphnode->parent.Add(source->nodeid); // this node has source as parent
+	prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
+	graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
+	float tmp=graphno-1;
+	futuretr.cAdd(0.0);
+	futuretr.Add(tmp);
+	futuretr.Add(maxabund);
+	tmp=prevnode->nodeid;futuretr.Add(tmp);
+	tmp=graphnode->nodeid;futuretr.Add(tmp);
+	tmp=trthr;futuretr.Add(tmp);
+	// COUNT 1 EDGE HERE because the source to guide edge was already included in our count
+	edgeno++;
+
+	return(graphnode);
+
+}
+
+CGraphnode *guide2sink(int s, int g, int refstart,uint newstart,uint newend, CGraphnode *graphnode,CGraphnode *sink,
+		GVec<float>* bpcov,GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,
+		GPVec<CGraphnode> **no2gnode, int &edgeno) {
+
+	// compute maxabund
+	float leftcov=0;
+	float rightcov=0;
+	for(uint p=graphnode->start;p<=newstart;p++) {
+		int j=p-refstart;
+		leftcov+=bpcov[1][j]-bpcov[2-2*s][j];
+	}
+	for(uint p=newstart+1;p<newend;p++) {
+		int j=p-refstart;
+		rightcov+=bpcov[1][j]-bpcov[2-2*s][j];
+	}
+	float maxabund=leftcov-rightcov;
+	if(maxabund<trthr) maxabund=trthr;
+
+	float tmp=graphno-1;
+	uint prevend=graphnode->end;
+	graphnode->end=newstart;
+	CGraphnode *prevnode=graphnode;
+	graphnode=create_graphnode(s,g,newstart+1,prevend,graphno,bundlenode,bundle2graph,no2gnode);
+	graphno++;
+	prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
+	graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
+	sink->parent.Add(prevnode->nodeid); // prevnode is the parent of sink
+	futuretr.Add(tmp);
+	futuretr.cAdd(-1.0);
+	futuretr.Add(maxabund);
+	tmp=prevnode->nodeid;futuretr.Add(tmp);
+	tmp=graphnode->nodeid;futuretr.Add(tmp);
+	tmp=trthr;futuretr.Add(tmp);
+	// COUNT 1 EDGE HERE because the source to guide edge was already included in our count
+	edgeno++;
+
+	return(graphnode);
+
+}
+
 CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphnode,CGraphnode *source, CGraphnode *sink, GVec<float>* bpcov,
 		GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno) {
 
@@ -1874,8 +1955,10 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 	return(children);
 }
 
-int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bnode, GList<CJunction>& junction,GList<CJunction>& ejunction,GVec<CGraphinfo> **bundle2graph,
-		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag,GIntHash<int> **gpos,GVec<float>* bpcov,int &edgeno, int &lastgpos,int refend=0){
+int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bnode,
+		GList<CJunction>& junction,GList<CJunction>& ejunction,GVec<CGraphinfo> **bundle2graph,
+		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag,GIntHash<int> **gpos,GVec<float>* bpcov,int &edgeno,
+		int &lastgpos,GArray<GEdge>& guideedge, int refend=0){
 
 	CGraphnode* source=new CGraphnode(0,0,0);
 	no2gnode[s][g].Add(source);
@@ -1895,6 +1978,10 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 		fprintf(stderr,"\n");
 	}
 	*/
+
+	int nge=0;
+	bool processguide=false;
+	if(nge<guideedge.Count()) processguide=true;
 
 	int njs=0; // index of sorted junction starts
 	int nje=0; // index of sorted junction ends
@@ -1996,6 +2083,35 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    	if(minjunction == 0 ) { // found a start junction here
 
+	    		// add guide starts/ends first
+	    		if(processguide) {
+	    			while(nge<guideedge.Count() && guideedge[nge].val<=graphnode->start) nge++;
+	    			if(nge<guideedge.Count()) {
+
+	    				while(true) {
+
+	    					while(nge<guideedge.Count() && guideedge[nge].strand!=s) nge++;
+
+	    					if(nge>=guideedge.Count() || guideedge[nge].val>=junction[njs]->start) break;
+
+	    					uint start=guideedge[nge].val;
+	    					uint end=junction[njs]->start;
+	    					bool sourceguide=false;
+	    					if(guideedge[nge].val<guideedge[nge].endval) sourceguide=true;
+	    					nge++;
+	    					if(sourceguide) { if(guideedge[nge-1].endval>endbundle) continue;}
+	    					else if(guideedge[nge-1].endval<currentstart) continue;
+
+	    					while(nge<guideedge.Count() && guideedge[nge].strand!=s) nge++;
+	    					if(nge<guideedge.Count() && guideedge[nge].val<junction[njs]->start) end=guideedge[nge].val;
+
+	    					if(sourceguide)	graphnode=source2guide(s,g,refstart,start,end,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+	    					else graphnode=guide2sink(s,g,refstart,start,end,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+
+	    				}
+	    			}
+	    		}
+
 	    		if(trim && !mergeMode) graphnode=trimnode(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 	    		// if no trimming required just set the end of the node
@@ -2044,6 +2160,35 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    		if(graphnode->start<pos) { // last created node starts before the position of the new node I want to create
 
+	    			// add guide starts/ends first
+	    			if(processguide) {
+	    				while(nge<guideedge.Count() && guideedge[nge].val<=graphnode->start) nge++;
+	    				if(nge<guideedge.Count()) {
+
+	    					while(true) {
+
+	    						while(nge<guideedge.Count() && guideedge[nge].strand!=s) nge++;
+
+	    						if(nge>=guideedge.Count() || guideedge[nge].val>=pos-1) break;
+
+	    						uint start=guideedge[nge].val;
+	    						uint end=pos-1;
+	    						bool sourceguide=false;
+	    						if(guideedge[nge].val<guideedge[nge].endval) sourceguide=true;
+	    						nge++;
+	    						if(sourceguide) { if(guideedge[nge-1].endval>endbundle) continue;}
+	    						else if(guideedge[nge-1].endval<currentstart) continue;
+
+	    						while(nge<guideedge.Count() && guideedge[nge].strand!=s) nge++;
+	    						if(nge<guideedge.Count() && guideedge[nge].val<pos-1) end=guideedge[nge].val;
+
+	    						if(sourceguide)	graphnode=source2guide(s,g,refstart,start,end,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+	    						else graphnode=guide2sink(s,g,refstart,start,end,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+
+	    					}
+	    				}
+	    			}
+
 	    			if(trim && !mergeMode) graphnode=trimnode(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 	    			graphnode->end=pos-1; // set end of current graphnode here
@@ -2075,13 +2220,42 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    if(!completed) { // I did not finish node --> this will be an ending node
 
-	      if(trim && !mergeMode) // do something to find intermediate nodes; alternatively, I could only do this for end nodes
-	    	  graphnode=trimnode(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+	    	// add guide starts/ends first
+	    	if(processguide) {
+	    		while(nge<guideedge.Count() && guideedge[nge].val<=graphnode->start) nge++;
+	    		if(nge<guideedge.Count()) {
 
-	      graphnode->end=endbundle;
-	      // COUNT EDGE HERE (this is an edge to sink)
-	      edgeno++;
-	      //fprintf(stderr,"Edge to sink from %d, edgeno=%d\n",graphnode->nodeid,edgeno);
+	    			while(true) {
+
+	    				while(nge<guideedge.Count() && guideedge[nge].strand!=s) nge++;
+
+	    				if(nge>=guideedge.Count() || guideedge[nge].val>=endbundle) break;
+
+	    				uint start=guideedge[nge].val;
+	    				uint end=endbundle;
+	    				bool sourceguide=false;
+	    				if(guideedge[nge].val<guideedge[nge].endval) sourceguide=true;
+	    				nge++;
+	    				if(sourceguide) { if(guideedge[nge-1].endval>endbundle) continue;}
+	    				else if(guideedge[nge-1].endval<currentstart) continue;
+
+	    				while(nge<guideedge.Count() && guideedge[nge].strand!=s) nge++;
+	    				if(nge<guideedge.Count() && guideedge[nge].val<endbundle) end=guideedge[nge].val;
+
+	    				if(sourceguide)	graphnode=source2guide(s,g,refstart,start,end,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+	    				else graphnode=guide2sink(s,g,refstart,start,end,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+
+	    			}
+	    		}
+	    	}
+
+	    	if(trim && !mergeMode) // do something to find intermediate nodes; alternatively, I could only do this for end nodes
+	    		graphnode=trimnode(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+
+	    	graphnode->end=endbundle;
+	    	// COUNT EDGE HERE (this is an edge to sink)
+	    	edgeno++;
+	    	//fprintf(stderr,"Edge to sink from %d, edgeno=%d\n",graphnode->nodeid,edgeno);
 	    }
 
 	    bundlenode=bundlenode->nextnode; // advance to next bundle
@@ -7996,7 +8170,7 @@ float guidepushflow(int g,GVec<CGuide>& guidetrf,int gno,GBitVec& istranscript,G
 		if(!capacityright[i]) return(0);
 	}
 
-	// compute flow
+	// compute flow -> deal with rounding errors here
 	float prevflow=capacityleft[1];
 	for(int i=1;i<n-1;i++) {
 		float percleft=prevflow/sumleft[i];
@@ -8010,6 +8184,7 @@ float guidepushflow(int g,GVec<CGuide>& guidetrf,int gno,GBitVec& istranscript,G
 
 	for(int i=n-2;i>0;i--) {
 		nodeflux[i]=prevflow/sumright[i];
+		if(nodeflux[i]>1) nodeflux[i]=1; // because of rounding errors this could become more than 1
 		capacityright[i]=prevflow;
 		prevflow=prevflow*sumleft[i]/sumright[i];
 		//capacityleft[i]=prevflow;
@@ -8951,7 +9126,11 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 
 		// push
 		float usedcov=nodecov[path[i]]*nodeflux[i]*(node->end-node->start+1);
-		nodecov[path[i]]*=(1-nodeflux[i]);
+
+		//fprintf(stderr,"usedcov=%f for transcript %s nodecov[path[%d]]=%f nodeflux[%d]=%f node->end=%d node->start=%d\n",usedcov,t->getID(),i,nodecov[path[i]],i,nodeflux[i],node->end,node->start);
+
+
+		nodecov[path[i]]*=(1-nodeflux[i]); // don't allow this to be less than 0
 
 		if(t && (node->end<t->start || lastex)) { // I am skipping the nodes that do not overlap the guide so that I don't add them up to coverage
 			prevnode=node; continue;
@@ -8997,7 +9176,9 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 				}
 				nodeend=t->end;
 			}
-			if(firstprop || lastprop) usedcov-=(firstprop +lastprop)*usedcov;
+			if(firstprop || lastprop) {
+				usedcov-=(firstprop +lastprop)*usedcov;
+			}
 		}
 
 
@@ -9017,6 +9198,7 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 		len+=nodeend-nodestart+1;
 
 		cov+=usedcov;
+
 		excov+=usedcov;
 		//if(node->cov) fragno+=node->frag*usedcov/node->cov;
 
@@ -9050,7 +9232,7 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 
 		if (t && t->uptr) {
 			RC_TData &td = *(RC_TData*) (t->uptr);
-			td.in_bundle=2;
+			td.in_bundle=3;
 		}
 
 		/*
@@ -9064,11 +9246,9 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 
 		/*
 		{ // DEBUG ONLY
-			if(t) {
-				fprintf(stderr,"Coverage for transcript %s = %f\n",t->getID(),gcov);
-			}
+			fprintf(stderr,"Coverage for transcript %s = %f or %f \n",t->getID(),gcov,cov);
 		}
-	    */
+		*/
 
 		CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, gcov, sign, len);
 		p->exons=exons;
@@ -9146,7 +9326,7 @@ int store_guide_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>&
 
 	if (t && t->uptr) {
 		RC_TData &td = *(RC_TData*) (t->uptr);
-		td.in_bundle=2;
+		td.in_bundle=3;
 	}
 
 	update_guide_pred(pred,np,path,nodeflux,nodecov,no2gnode,gno,update);
@@ -9455,15 +9635,16 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 
 	for(int g=0;g<guides.Count();g++) {
 		//fprintf(stderr,"Consider guide[%d out of %d] %s\n",g,guides.Count(),guides[g]->getID());
-		if((guides[g]->strand==strand) && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
+		if((guides[g]->strand==strand) && ((RC_TData*)(guides[g]->uptr))->in_bundle==2 && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
 			CTransfrag *trguide=find_guide_pat(guides[g],no2gnode,gno,edgeno,gpos);
 			if(trguide) { // the guide can be found among the graph nodes
 				//CGuide newguide(trguide,guides[g]);
 				CGuide newguide(trguide,g);
 				guidetrf.Add(newguide);
+
 				/*
 				{ // DEBUG ONLY
-					fprintf(stderr,"Added guidetrf with ID=%s overlapping transcript interval %d - %d with nodes:",guides[g]->getID(),no2gnode[1]->start,no2gnode[gno-2]->end);
+					fprintf(stderr,"Added guidetrf %d with ID=%s overlapping transcript interval %d - %d with nodes:",g,guides[g]->getID(),no2gnode[1]->start,no2gnode[gno-2]->end);
 					for(int i=0;i<trguide->nodes.Count();i++) fprintf(stderr," %d",trguide->nodes[i]);
 					fprintf(stderr,"\n");
 					fprintf(stderr,"s=%d strand = %c trguide[%d]=",s,strand,g);
@@ -9514,8 +9695,155 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 		}
 
 		// find if first node of guidetrf extends to source
-		bool sourcestart=true;
+		int nodei=guidetrf[g].trf->nodes[0]; // first node of guide
+		if(nodei) { // if source it isn't already in guide's pattern -> it shouldn't be
+
+			int *pos=gpos[edge(0,nodei,gno)];
+			if(!pos) { // here is where I need lastgpos
+				int key=edge(0,nodei,gno);
+				gpos.Add(key,lastgpos);
+				lastgpos++;
+				pos=gpos[key];
+			}
+
+			if(includesource)
+				guidetrf[g].trf->nodes.Insert(0,0); // I need to comment this if I need path not to include the source
+			guidetrf[g].trf->pattern[0]=1;
+			guidetrf[g].trf->pattern[*pos]=1;
+
+			bool sourcestart=false; // assume there is no extension to source
+			CGraphnode *inode=no2gnode[nodei];
+			float leftcov=0;
+			float rightcov=0;
+			int previ=-1;
+			for(int p=0;p<inode->parent.Count();p++) {
+				if(!inode->parent[p]) { sourcestart=true; break;} // found link to source -> break from path
+				if(no2gnode[inode->parent[p]]->end==inode->start-1) { // no splice site between parent and inode
+					previ=inode->parent[p];
+					if(inode->start>=guides[guidetrf[g].g]->start) {
+						rightcov=inode->cov/inode->len();
+						leftcov=no2gnode[previ]->cov/no2gnode[previ]->len();
+					}
+				}
+			}
+			if(!sourcestart) { // source is not the parent of first node
+
+				// if guide starts inside node -> I need to compute abundances
+				if(inode->start<guides[guidetrf[g].g]->start) {
+					for(uint p=inode->start;p<guides[guidetrf[g].g]->start;p++) {
+						int j=p-bdata->start;
+						leftcov+=bdata->bpcov[1][j]-bdata->bpcov[2-2*s][j];
+					}
+					leftcov/=(guides[guidetrf[g].g]->start-inode->start);
+					uint thisend=inode->end+1;
+					if(guides[guidetrf[g].g]->end<inode->end) thisend=guides[guidetrf[g].g]->end+1;
+					for(uint p=guides[guidetrf[g].g]->start;p<thisend;p++) {
+						int j=p-bdata->start;
+						rightcov+=bdata->bpcov[1][j]-bdata->bpcov[2-2*s][j];
+					}
+					rightcov/=(thisend-guides[guidetrf[g].g]->start);
+				}
+
+				float maxabund=trthr;
+				if(rightcov>leftcov) {
+					maxabund=rightcov-leftcov;
+				}
+
+				// add source to nodei transfrag
+				GVec<int> nodes;
+				nodes.cAdd(0);
+				nodes.Add(nodei);
+				GBitVec trpat(gno+edgeno);
+				trpat[0]=1;
+				trpat[nodei]=1;
+				trpat[*pos]=1;
+				CTransfrag *tr=new CTransfrag(nodes,trpat,maxabund);
+				transfrag.Add(tr);
+
+				// add source among maxnode parents
+				inode->parent.Insert(0,0);
+				inode->parentpat[*pos]=1; // source should be already among parents of maxnode but not the edge to source
+			}
+		}
+
+		// find if I can extend guidetrf to sink
+		nodei=guidetrf[g].trf->nodes.Last();
+		if(nodei != gno-1) { // sink is not already present in guide pattern
+			int sink=gno-1;
+			guidetrf[g].trf->nodes.Add(sink);
+			guidetrf[g].trf->pattern[sink]=1;
+			int *pos=gpos[edge(nodei,sink,gno)];
+			if(!pos) {
+				int key=edge(nodei,sink,gno);
+				gpos.Add(key,lastgpos);
+				lastgpos++;
+				pos=gpos[key];
+			}
+			guidetrf[g].trf->pattern[*pos]=1;
+
+			bool sinkend=false;
+			CGraphnode *inode=no2gnode[nodei];
+			float leftcov=0;
+			float rightcov=0;
+			int nexti=-1;
+			for(int c=0;c<inode->child.Count();c++) {
+				if(inode->child[c]==gno-1) { sinkend=true; break;} // found link to source
+				if(no2gnode[inode->child[c]]->start==inode->end+1) { // no splice site
+					nexti=inode->child[c];
+					if(inode->end<=guides[guidetrf[g].g]->end) {
+						leftcov=inode->cov/inode->len();
+						rightcov=no2gnode[nexti]->cov/no2gnode[nexti]->len();
+					}
+				}
+			}
+
+			if(!sinkend) { // if no path to sink was found I need to add one
+
+				// node is longer than guide
+				if(inode->end>guides[guidetrf[g].g]->end) {
+					uint thisstart=inode->start;
+					if(guides[guidetrf[g].g]->start>inode->start) thisstart=guides[guidetrf[g].g]->start;
+					for(uint p=thisstart;p<=guides[guidetrf[g].g]->end;p++) {
+						int j=p-bdata->start;
+						leftcov+=bdata->bpcov[1][j]-bdata->bpcov[2-2*s][j];
+					}
+					leftcov/=(guides[guidetrf[g].g]->end-thisstart+1);
+					for(uint p=guides[guidetrf[g].g]->end;p<=inode->end;p++) {
+						int j=p-bdata->start;
+						rightcov+=bdata->bpcov[1][j]-bdata->bpcov[2-2*s][j];
+					}
+					rightcov/=(inode->end-guides[guidetrf[g].g]->end+1);
+				}
+
+				float maxabund=trthr;
+				if(rightcov<leftcov) {
+					maxabund=leftcov-rightcov;
+				}
+
+				// add maxnode to sink transfrag
+				GVec<int> nodes;
+				nodes.Add(nodei);
+				nodes.Add(sink);
+				GBitVec trpat(gno+edgeno);
+				trpat[nodei]=1;
+				trpat[sink]=1;
+				trpat[*pos]=1;
+				//fprintf(stderr,"introduce node from %d to sink=%d wih abundance=%g where pos=%d\n",maxnode,sink,maxabund,*pos);
+				CTransfrag *tr=new CTransfrag(nodes,trpat,maxabund);
+				transfrag.Add(tr);
+
+				// add sink among maxnode children
+				inode->child.Add(sink);
+				inode->childpat[*pos]=1; // source should be already among parents of maxnode but not the edge to source
+			}
+
+		}
+
+		/* previous source code --> I don't think it's that correct
+
+		// find if first node of guidetrf extends to source ---> I probably shouldn't extend to source, I should just cut here -YES!!!
 		int lasti=guidetrf[g].trf->nodes[0]; // first node of guide
+		bool sourcestart=true;
 		CGraphnode *inode=no2gnode[lasti];
 		GVec<int> extendpath;
 		float maxabund=trthr; // maximum abundance of source to node transfrag
@@ -9546,7 +9874,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 					float abundin=0;
 					for(int j=0;j<inode->trf.Count();j++){
 						int t=inode->trf[j];
-						if(transfrag[t]->nodes[0]<i) { // transfrag doesn't start at this node (in or through transfrag)
+						if(transfrag[t]->nodes[0]<lasti) { // transfrag doesn't start at this node (in or through transfrag)
 							abundin+=transfrag[t]->abundance;
 						}
 					}
@@ -9669,7 +9997,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 						float abundout=0;
 						for(int j=0;j<inode->trf.Count();j++){
 							int t=inode->trf[j];
-							if(transfrag[t]->nodes.Last()>i) { // transfrag doesn't end at this node (out or through transfrag)
+							if(transfrag[t]->nodes.Last()>lasti) { // transfrag doesn't end at this node (out or through transfrag)
 								abundout+=transfrag[t]->abundance;
 							}
 						}
@@ -9747,6 +10075,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 				inode->childpat[*pos]=1; // source should be already among parents of maxnode but not the edge to source
 			}
 		}
+		*/
 
 		g++;
 	}
@@ -10454,10 +10783,21 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 
 		if(flux>epsilon) {
 			bool include=true;
-			store_transcript(pred,guidetrf[0].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,bdata,guides[guidetrf[0].g]);
-			if(eonly) {
-				guidepred[guidetrf[0].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
-				//fprintf(stderr,"guidepred[%d]=%d\n",guidetrf[0].g,guidepred[guidetrf[0].g]);
+			if(guidepred[guidetrf[0].g]==-1) {
+
+				if(!strcmp(guides[guidetrf[0].g]->getID(),"rna51274")) {
+					fprintf(stderr,"nodecov[1]=%f\n",nodecov[guidetrf[0].trf->nodes[1]]);
+					exit(0);
+				}
+
+				store_transcript(pred,guidetrf[0].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,bdata,guides[guidetrf[0].g]);
+				//if(eonly) { // this is not correct because it might have been assigned before
+					guidepred[guidetrf[0].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
+					//fprintf(stderr,"guidepred[%d]=%d\n",guidetrf[0].g,guidepred[guidetrf[0].g]);
+				//}
+			}
+			else {
+				update_guide_pred(pred,guidepred[guidetrf[0].g],guidetrf[0].trf->nodes,nodeflux,nodecov,no2gnode,gno,true);
 			}
 
 		}
@@ -10515,23 +10855,32 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 
 			bool include=true;
 			if(flux>epsilon) {
-				store_transcript(pred,guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,bdata,guides[guidetrf[g].g]);
-				//if(eonly) {
-					guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
-					//fprintf(stderr,"2 guidepred[%d]=%d\n",guidetrf[g].g,guidepred[guidetrf[g].g]);
-				//}
-
-				/*
-					{ // DEBUG ONLY
-				  	  fprintf(stderr,"\nAfter update:\n");
-				  	  for(int i=0;i<gno;i++) {
-					  	  fprintf(stderr,"Node %d: %f ",i,nodecov[i]);
-					  	  fprintf(stderr,"trf=");
-					  	  for(int t=0;t<no2gnode[i]->trf.Count();t++) fprintf(stderr," %d(%f)",no2gnode[i]->trf[t],transfrag[no2gnode[i]->trf[t]]->abundance);
-					  	  fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
-				  	  }
+				if(guidepred[guidetrf[g].g]==-1) {
+					if(!strcmp(guides[guidetrf[g].g]->getID(),"rna51274")) {
+						fprintf(stderr,"nodecov[1]=%f\n",nodecov[guidetrf[g].trf->nodes[1]]);
+						exit(0);
 					}
-				 */
+					store_transcript(pred,guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,bdata,guides[guidetrf[g].g]);
+					//if(eonly) {
+						guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
+						//fprintf(stderr,"2 guidepred[%d]=%d\n",guidetrf[g].g,guidepred[guidetrf[g].g]);
+						//}
+
+						/*
+						{ // DEBUG ONLY
+				  	  	  fprintf(stderr,"\nAfter update:\n");
+				  	  	  for(int i=0;i<gno;i++) {
+					  	  	  fprintf(stderr,"Node %d: %f ",i,nodecov[i]);
+					  	  	  fprintf(stderr,"trf=");
+					  	  	  for(int t=0;t<no2gnode[i]->trf.Count();t++) fprintf(stderr," %d(%f)",no2gnode[i]->trf[t],transfrag[no2gnode[i]->trf[t]]->abundance);
+					  	  	  fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
+				  	  	  }
+						}
+						 */
+				}
+				else {
+					update_guide_pred(pred,guidepred[guidetrf[g].g],guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,gno,true);
+				}
 
 				nodeflux.Clear();
 
@@ -10557,11 +10906,16 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 					}
 					if(!overlap) { // no overlap detected
 						for(int z=0;z<guidetrf[g].trf->nodes.Count();z++) nodeflux.cAdd(1.0);
-						store_transcript(pred,guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,bdata,guides[guidetrf[g].g]);
-						//if(eonly) {
-							guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
-							//fprintf(stderr,"2 guidepred[%d]=%d\n",guidetrf[g].g,guidepred[guidetrf[g].g]);
-						//}
+						if(guidepred[guidetrf[g].g]==-1) {
+							store_transcript(pred,guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,bdata,guides[guidetrf[g].g]);
+							//if(eonly) {
+								guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
+								//fprintf(stderr,"2 guidepred[%d]=%d\n",guidetrf[g].g,guidepred[guidetrf[g].g]);
+							//}
+						}
+						else {
+							update_guide_pred(pred,guidepred[guidetrf[g].g],guidetrf[0].trf->nodes,nodeflux,nodecov,no2gnode,gno,true);
+						}
 						nodeflux.Clear();
 					}
 				}
@@ -11854,9 +12208,39 @@ int build_graphs(BundleData* bdata) {
 	GVec<int> equalcolor; // remembers colors for the same bundle
 	GVec<int> *readgroup=new GVec<int>[readlist.Count()]; // remebers groups for each read; don't forget to delete it when no longer needed
 	GVec<int> guidepred; // for eonly keeps the prediction number associated with a guide
+	GArray<GEdge> guideedge; // 0: negative starts; 1 positive starts
 
-	//if(eonly)
-		for(int g=0;g<guides.Count();g++) guidepred.cAdd(-1);
+	if(guides .Count()) {
+
+		guideedge.setSorted(true);
+		guideedge.setUnique(true);
+
+		//if(eonly)
+		for(int g=0;g<guides.Count();g++) {
+			guidepred.cAdd(-1);
+			bool covered=true;
+			RC_TData* tdata=(RC_TData*)(guides[g]->uptr);
+			for(int i=0;i<tdata->t_introns.Count();i++) {
+				if(!tdata->t_introns[i]->rcount) {
+					covered=false;
+					break;
+				}
+			}
+			if(covered) {
+				tdata->in_bundle=2;
+				int s=0;
+				if(guides[g]->strand=='+') s=1; // guide on positive strand
+				GEdge ge1(guides[g]->start,guides[g]->exons[0]->end,s);
+				int idx=guideedge.IndexOf(ge1);
+				if(idx<0) guideedge.Add(ge1);
+				else if(guideedge[idx].endval>guides[g]->exons[0]->end) guideedge[idx].endval=guides[g]->exons[0]->end;
+				GEdge ge2(guides[g]->end,guides[g]->exons.Last()->start,s);
+				idx=guideedge.IndexOf(ge1);
+				if(idx<0) guideedge.Add(ge2);
+				else if(guideedge[idx].endval<guides[g]->exons.Last()->start) guideedge[idx].endval=guides[g]->exons.Last()->start;
+			}
+		}
+	}
 
 	// this part is for adjusting leftsupport and rightsupport when considering all junctions that start at a given point
 	// sort junctions -> junctions are sorted already according with their start, but not their end
@@ -12480,7 +12864,7 @@ int build_graphs(BundleData* bdata) {
     				int glen=guides[g]->end-guides[g]->start+1;
     				if(glen && guides[g]->exons.Count()==1) {
     					RC_TData* tdata=(RC_TData*)(guides[g]->uptr);
-    					tdata->in_bundle=2;
+    					tdata->in_bundle=3;
     					float gcov=(tdata->t_exons[0])->movlcount/glen;
     					// if(cov<gcov) gcov=cov; WHY DO I DO THIS?? CHECK!!!
     					CPrediction *p=new CPrediction(geneno-1, guides[g], guides[g]->start, guides[g]->end, gcov, guides[g]->strand, glen);
@@ -12619,7 +13003,7 @@ int build_graphs(BundleData* bdata) {
     				int cg=g;
     				int nolap=0;
     				while(cg<ng && guides[cg]->start<=bnode[sno][bundle[sno][b]->lastnodeid]->end) { // this are potential guides that might overlap the current bundle, and they might introduce extra edges
-    					if(guides[cg]->strand==strnd) {
+    					if(guides[cg]->strand==strnd && ((RC_TData*)(guides[cg]->uptr))->in_bundle==2) {
     						edgeno[s][b]+=2; // this is an overestimate: possibly I have both an extra source and an extra sink link
     						nolap++;
     					}
@@ -12660,7 +13044,7 @@ int build_graphs(BundleData* bdata) {
     					// create graph then
 
     					graphno[s][b]=create_graph(refstart,s,b,bundle[sno][b],bnode[sno],junction,ejunction,
-    							bundle2graph,no2gnode,transfrag,gpos,bpcov,edgeno[s][b],lastgpos[s][b]); // also I need to remember graph coverages somewhere -> probably in the create_graph procedure
+    							bundle2graph,no2gnode,transfrag,gpos,bpcov,edgeno[s][b],lastgpos[s][b],guideedge); // also I need to remember graph coverages somewhere -> probably in the create_graph procedure
 
     					if(graphno[s][b]) tr2no[s][b]=construct_treepat(graphno[s][b],gpos[s][b],transfrag[s][b]);
     					else tr2no[s][b]=NULL;
@@ -12782,7 +13166,7 @@ int build_graphs(BundleData* bdata) {
     					}
 
     				}
-    				*/
+					*/
 
 /*
 #ifdef GMEMTRACE
@@ -13426,8 +13810,9 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 
     				// create graph
 
+    				GArray<GEdge> unused;
     				graphno[s][b]=create_graph(refstart,s,b,bundle[sno][b],bnode[sno],junction,ejunction,
-    						bundle2graph,no2gnode,transfrag,gpos,NULL,edgeno[s][b],lastgpos[s][b],refend);
+    						bundle2graph,no2gnode,transfrag,gpos,NULL,edgeno[s][b],lastgpos[s][b],unused,refend);
 
     				if(graphno[s][b]) tr2no[s][b]=construct_treepat(graphno[s][b],gpos[s][b],transfrag[s][b]);
     				else tr2no[s][b]=NULL;
@@ -14648,6 +15033,7 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 			  if (pred[n]->t_eq && pred[n]->t_eq->uptr) {
 				  t_id = ((RC_TData*)pred[n]->t_eq->uptr)->t_id;
 			  }
+
 			  //fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
 			  fprintf(f_out,"1 %d %d %d %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id,pred[n]->cov);
 
@@ -15218,7 +15604,7 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 		for(int i=0;i<guides.Count();i++) {
 
 			if(eonly) { // if eonly I need to print all guides that were not printed yet
-				if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<2) {
+				if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
 					fprintf(f_out,"1 %d %d %d 0.0\n",guides[i]->exons.Count()+1,guides[i]->covlen, ((RC_TData*)guides[i]->uptr)->t_id);
 					fprintf(f_out, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",refname.chars(),
 							guides[i]->getTrackName(), guides[i]->start,guides[i]->end, guides[i]->strand);
