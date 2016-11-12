@@ -1,4 +1,4 @@
-//#define GFF_DEBUG 1
+//#define GFF_DEBUG 1 //debugging guides loading
 #include "rlink.h"
 #include "tmerge.h"
 #ifndef NOTHREADS
@@ -752,8 +752,8 @@ if(!mergeMode) {
 		while(fgetline(linebuf,linebuflen,ftmp_in)) {
 			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
 			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
-			//FIXME: for the rare cases tcov < 0, invert it
-			if (tcov<0) tcov=-tcov;//this should not happen
+			//for the rare cases tcov < 0, invert it
+			if (tcov<0) tcov=-tcov; //should not happen
 			calc_fpkm=tcov*1000000000/Frag_Len;
 			calc_tpm=tcov*1000000/Cov_Sum;
 			if(istr) { // this is a transcript
