@@ -370,6 +370,12 @@ switch (cop) {
    return 0;
    }
 
+ float GBamRecord::tag_float(const char tag[2]) { //get the float value of tag
+    uint8_t *s=bam_aux_get(this->b, tag);;
+    if (s) return ( bam_aux2f(s) );
+    return 0;
+    }
+
  char* GBamRecord::tag_str(const char tag[2]) { //return string value for a tag
    uint8_t *s=find_tag(tag);
    if (s) return ( bam_aux2Z(s) );
