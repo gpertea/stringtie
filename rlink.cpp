@@ -12235,7 +12235,7 @@ int build_graphs(BundleData* bdata) {
 				if(idx<0) guideedge.Add(ge1);
 				else if(guideedge[idx].endval>guides[g]->exons[0]->end) guideedge[idx].endval=guides[g]->exons[0]->end;
 				GEdge ge2(guides[g]->end,guides[g]->exons.Last()->start,s);
-				idx=guideedge.IndexOf(ge1);
+				idx=guideedge.IndexOf(ge2);
 				if(idx<0) guideedge.Add(ge2);
 				else if(guideedge[idx].endval<guides[g]->exons.Last()->start) guideedge[idx].endval=guides[g]->exons.Last()->start;
 			}
