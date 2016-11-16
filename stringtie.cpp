@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.1b"
+#define VERSION "1.3.1c"
 
 //#define DEBUGPRINT 1
 
@@ -752,8 +752,9 @@ if(!mergeMode) {
 		while(fgetline(linebuf,linebuflen,ftmp_in)) {
 			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
 			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
-			//for the rare cases tcov < 0, invert it
-			if (tcov<0) tcov=-tcov; //should not happen
+			//for the rare cases tcov < 0, invert it ??
+			//if (tcov<0) tcov=-tcov; //should not happen
+			if (tcov<0) tcov=0;
 			calc_fpkm=tcov*1000000000/Frag_Len;
 			calc_tpm=tcov*1000000/Cov_Sum;
 			if(istr) { // this is a transcript
