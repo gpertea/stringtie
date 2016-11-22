@@ -25,6 +25,45 @@ uint8_t *bam_aux_get_core(bam1_t *b, const char tag[2])
 	return bam_aux_get(b, tag);
 }
 
+inline int aux_type2size(uint8_t type)
+{
+    switch (type) {
+    case 'A': case 'c': case 'C':
+        return 1;
+    case 's': case 'S':
+        return 2;
+    case 'i': case 'I': case 'f':
+        return 4;
+    case 'd':
+        return 8;
+    case 'Z': case 'H': case 'B':
+        return type;
+    default:
+        return 0;
+    }
+}
+
+inline uint8_t* skip_aux(uint8_t* s) {
+	int size = aux_type2size(*s); ++s; // skip type
+	uint32_t n;
+	switch (size) {
+	case 'Z':
+	case 'H':
+		while (*s) ++s;
+		return s+1;
+	case 'B':
+		size = aux_type2size(*s); ++s;
+		memcpy(&n, s, 4); s += 4;
+		return s + size * n;
+	case 0:
+		abort();
+		break;
+	default:
+		return s + size;
+	}
+}
+
+/*
 #define __skip_tag(s) do { \
 		int type = toupper(*(s)); \
 		++(s); \
@@ -32,7 +71,7 @@ uint8_t *bam_aux_get_core(bam1_t *b, const char tag[2])
 		else if (type == 'B') (s) += 5 + bam_aux_type2size(*(s)) * (*(int32_t*)((s)+1)); \
 		else (s) += bam_aux_type2size(*(s)); \
 	} while(0)
-
+*/
 uint8_t *bam_aux_get(const bam1_t *b, const char tag[2])
 {
 	uint8_t *s;
@@ -42,7 +81,8 @@ uint8_t *bam_aux_get(const bam1_t *b, const char tag[2])
 		int x = (int)s[0]<<8 | s[1];
 		s += 2;
 		if (x == y) return s;
-		__skip_tag(s);
+		//__skip_tag(s);
+		s=skip_aux(s);
 	}
 	return 0;
 }
@@ -52,7 +92,8 @@ int bam_aux_del(bam1_t *b, uint8_t *s)
 	uint8_t *p, *aux;
 	aux = bam1_aux(b);
 	p = s - 2;
-	__skip_tag(s);
+	//__skip_tag(s);
+	s=skip_aux(s);
 	memmove(p, s, b->l_aux - (s - aux));
 	b->data_len -= s - p;
 	b->l_aux -= s - p;
@@ -65,7 +106,8 @@ int bam_aux_drop_other(bam1_t *b, uint8_t *s)
 		uint8_t *p, *aux;
 		aux = bam1_aux(b);
 		p = s - 2;
-		__skip_tag(s);
+		//__skip_tag(s);
+		s=skip_aux(s);
 		memmove(aux, p, s - p);
 		b->data_len -= b->l_aux - (s - p);
 		b->l_aux = s - p;

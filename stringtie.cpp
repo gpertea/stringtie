@@ -442,6 +442,8 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		 xstrand=brec->spliceStrand();
 		 if (xstrand=='.' && brec->exons.Count()>1) {
 			 no_xs++;
+			 //if (verbose)
+			 //   GMessage("XS tag missing for read\t%s\t(%d)\t%s\n",brec->name(), brec->start, brec->cigar());
 			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
 		 }
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
@@ -713,7 +715,8 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 if(!mergeMode) {
 	if(verbose) {
 		GMessage("Total count of aligned fragments: %g\n", Num_Fragments);
-		GMessage("Fragment coverage length: %g\n", Frag_Len/Num_Fragments);
+		if (Num_Fragments)
+			GMessage("Fragment coverage length: %g\n", Frag_Len/Num_Fragments);
 	}
 
 	f_out=stdout;

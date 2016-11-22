@@ -73,24 +73,19 @@ static const int GZIP_WINDOW_BITS = -15; // no zlib header
 static const int Z_DEFAULT_MEM_LEVEL = 8;
 
 
-inline
-void
-packInt16(uint8_t* buffer, uint16_t value)
+
+void packInt16(uint8_t* buffer, uint16_t value)
 {
     buffer[0] = value;
     buffer[1] = value >> 8;
 }
 
-inline
-int
-unpackInt16(const uint8_t* buffer)
+int unpackInt16(const uint8_t* buffer)
 {
     return (buffer[0] | (buffer[1] << 8));
 }
 
-inline
-void
-packInt32(uint8_t* buffer, uint32_t value)
+void packInt32(uint8_t* buffer, uint32_t value)
 {
     buffer[0] = value;
     buffer[1] = value >> 8;
@@ -627,11 +622,12 @@ int bgzf_close(BGZF* fp)
     if (fp->open_mode == 'w') {
         if (bgzf_flush(fp) != 0) return -1;
 		{ // add an empty block
-			int count, block_length = deflate_block(fp, 0);
+			int block_length = deflate_block(fp, 0);
+            //int count=
 #ifdef _USE_KNETFILE
-			count = fwrite(fp->compressed_block, 1, block_length, fp->x.fpw);
+			fwrite(fp->compressed_block, 1, block_length, fp->x.fpw);
 #else
-			count = fwrite(fp->compressed_block, 1, block_length, fp->file);
+			fwrite(fp->compressed_block, 1, block_length, fp->file);
 #endif
 		}
 #ifdef _USE_KNETFILE
