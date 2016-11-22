@@ -30,7 +30,7 @@ uint8_t *bam_aux_get_core(bam1_t *b, const char tag[2])
 		++(s); \
 		if (type == 'Z' || type == 'H') { while (*(s)) ++(s); ++(s); } \
 		else if (type == 'B') (s) += 5 + bam_aux_type2size(*(s)) * (*(int32_t*)((s)+1)); \
-		else (s) += bam_aux_type2size(type); \
+		else (s) += bam_aux_type2size(*(s)); \
 	} while(0)
 
 uint8_t *bam_aux_get(const bam1_t *b, const char tag[2])
