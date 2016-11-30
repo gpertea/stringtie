@@ -1100,7 +1100,7 @@ GffObj* GffReader::promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonEx
 void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 	bool validation_errors = false;
 	//loc_debug=false;
-	GHash<CNonExon> pex; //keep track of any "exon"-like features that have an ID
+	GHash<CNonExon> pex; //keep track of any parented (i.e. exon-like) features that have an ID
 	//and thus could become promoted to parent features
 	while (nextGffLine()!=NULL) {
 		GffObj* prevseen=NULL;
@@ -1175,9 +1175,10 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 				newgflst=kgflst[k];
 				GffObj* parentgfo=NULL;
 				if (gffline->is_transcript || gffline->exontype==0) {//likely a transcript
-					parentgfo=gfoFind(gffline->parents[i], newgflst, gffline->gseqname,
-							gffline->strand, gffline->fstart, gffline->fend);
-
+					//parentgfo=gfoFind(gffline->parents[i], newgflst, gffline->gseqname,
+					//		gffline->strand, gffline->fstart, gffline->fend);
+					if (newgflst!=NULL && newgflst->Count()>0)
+						parentgfo = newgflst->Get(0);
 				}
 				else {
 					//for exon-like entities we only need a parent to be in locus distance,
@@ -1206,20 +1207,23 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 					}
 				} //overlapping parent feature found
 			} //for each parsed parent Id
-			if (!found_parent) { //new GTF-like record starting here with a subfeature directly
+			if (!found_parent) { //new GTF-like record starting directly here as a subfeature
 				//or it could be some chado GFF3 barf with exons coming BEFORE their parent :(
-				//check if this feature isn't parented by a previously stored "exon" subfeature
+				//or it could also be a stray transcript without a parent gene defined previously
+				//check if this feature isn't parented by a previously stored "child" subfeature
 				char* subp_name=NULL;
 				CNonExon* subp=NULL;
-				if (pex.Count()>0) subp=subfPoolCheck(gffline, pex, subp_name);
-				if (subp!=NULL) { //found a subfeature that is the parent of this gffline
-					//promote that subfeature to a full GffObj
-					GffObj* gfoh=promoteFeature(subp, subp_name, pex, keepAttr, noExonAttr);
-					//add current gffline as an exon of the newly promoted subfeature
-					if (!addExonFeature(gfoh, gffline, pex, noExonAttr))
-						validation_errors=true;
+				if (!gffline->is_transcript) { //don't bother with this check for obvious transcripts
+					if (pex.Count()>0) subp=subfPoolCheck(gffline, pex, subp_name);
+					if (subp!=NULL) { //found a subfeature that is the parent of this (!)
+						//promote that subfeature to a full GffObj
+						GffObj* gfoh=promoteFeature(subp, subp_name, pex, keepAttr, noExonAttr);
+						//add current gffline as an exon of the newly promoted subfeature
+						if (!addExonFeature(gfoh, gffline, pex, noExonAttr))
+							validation_errors=true;
+					}
 				}
-				else { //no parent seen before,
+				if (subp==NULL) { //no parent subfeature seen before
 					//loc_debug=true;
 					GffObj* ngfo=prevseen;
 					if (ngfo==NULL) {

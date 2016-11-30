@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 import re, csv, sys, os, glob, warnings, itertools
 from math import ceil
 from optparse import OptionParser
