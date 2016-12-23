@@ -260,7 +260,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	}
 
 	float rdcount=1;
-	float unitig_cov=brec.tag_float("Yk");
+	float unitig_cov=brec.tag_float("YK");
 	if(unitig_cov) rdcount=unitig_cov;
 
 	if(!nomulti) rdcount/=nh;
@@ -759,7 +759,7 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 		    	// I need to split pairs here because I have no overlap => color didn't reach here for sure if I am at the first exon
 		    	if(!i && np>-1 && readlist[np]->nh && np<n) {
 
-		    		//fprintf(stderr,"Split pairs: %d-%d and %d-%d on strand %d\n",readlist[np]->start,readlist[np]->end,readlist[n]->start,readlist[n]->end,readlist[n]->strand);
+		    		//fprintf(stderr,"2 Split pairs: %d-%d and %d-%d on strand %d\n",readlist[np]->start,readlist[np]->end,readlist[n]->start,readlist[n]->end,readlist[n]->strand);
 	    			readlist[n]->pair_idx[p]=-1;
 	    			for(int j=0;j<readlist[np]->pair_idx.Count();j++)
 	    				if(readlist[np]->pair_idx[j]==n) {
@@ -801,7 +801,7 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 		// I need to split pairs here because I have no overlap => color didn't reach here for sure
 		if(np>-1 && readlist[np]->nh && np<n) {
 
-			//fprintf(stderr,"Split pairs: %d-%d and %d-%d on strand %d\n",readlist[np]->start,readlist[np]->end,readlist[n]->start,readlist[n]->end,readlist[n]->strand);
+			//fprintf(stderr,"3 Split pairs: %d-%d and %d-%d on strand %d\n",readlist[np]->start,readlist[np]->end,readlist[n]->start,readlist[n]->end,readlist[n]->strand);
 			readlist[n]->pair_idx[p]=-1;
 			for(int j=0;j<readlist[np]->pair_idx.Count();j++)
 				if(readlist[np]->pair_idx[j]==n) {
@@ -874,6 +874,7 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 			// see if I have the correct read strand
 			char snop=readlist[np]->strand+1;  // snop is the strand of pair read
 			if(sno!=snop) { // different strands for read and pair
+
 				if(sno==1) { // read n is on zero (neutral) strand, but pair has strand
 					// readlist[n]->strand=readlist[np]->strand; I can not update the read strand anymore -> REMEMBER this later
 					sno=snop;  // assign strand of pair to read
@@ -923,7 +924,6 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 
 				color=merge_read_to_group(n,np,p,readlist[n]->pair_count[p],sno,readcol,readlist,color,group,
 										allcurrgroup,startgroup,readgroup,eqcol,merge,usedcol);
-
 
 			} // this ends if(np>-1)
 		} // if(np>-1 && readlist[np]->nh) : read pair exists and it wasn't deleted
@@ -1941,6 +1941,9 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 
 			int key=edge(min,max,gno);
 			int *pos=gpos[s][g][key];
+
+			//fprintf(stderr,"min=%d max=%d key=%d lastgpos=%d\n",min,max,key,lastgpos);
+
 			if(pos!=NULL) {
 				childparents[*pos]=1; // add edge from node to child to the set of parents from child
 				node->childpat[*pos]=1; // add edge from node to child to the set of node children
@@ -2021,6 +2024,8 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	while(bundlenode!=NULL) {
 
+		//fprintf(stderr,"process bundlenode %d-%d\n",bundlenode->start,bundlenode->end);
+
 	    uint currentstart=bundlenode->start; // current start is bundlenode's start
 	    uint endbundle=bundlenode->end; // initialize end with bundlenode's end for now
 
@@ -2046,7 +2051,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    			graphnode->parent.Add(node->nodeid); // this node has as parent the previous node
 	    			// COUNT EDGE HERE
 	    			edgeno++;
-	    			//fprintf(stderr,"Edge %d-%d, edgeno=%d\n",node->nodeid,graphnode->nodeid,edgeno);
+	    			//fprintf(stderr,"1 Edge %d-%d, edgeno=%d\n",node->nodeid,graphnode->nodeid,edgeno);
 	    		}
 	    	}
 	    	else { // I haven't seen nodes before that finish here => link to source
@@ -2054,7 +2059,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 		    	graphnode->parent.Add(source->nodeid); // this node has source as parent
 		    	// COUNT EDGE HERE
 		    	edgeno++;
-		    	//fprintf(stderr,"Edge 0-%d, edgeno=%d\n",graphnode->nodeid,edgeno);
+		    	//fprintf(stderr,"2 Edge 0-%d, edgeno=%d\n",graphnode->nodeid,edgeno);
 	    	}
 	    }
 	    else { // this node comes from source directly
@@ -2062,7 +2067,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    	graphnode->parent.Add(source->nodeid); // this node has source as parent
 	    	// COUNT EDGE HERE
 			edgeno++;
-			//fprintf(stderr,"Edge 0-%d, edgeno=%d\n",graphnode->nodeid,edgeno);
+			//fprintf(stderr,"3 Edge 0-%d, edgeno=%d\n",graphnode->nodeid,edgeno);
 	    }
 
 
@@ -2151,10 +2156,10 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    			graphno++;
 	    			graphnode->child.Add(nextnode->nodeid); // make nextnode a child of current graphnode
 	    			nextnode->parent.Add(graphnode->nodeid);// make graphnode a parent of nextnode
-	    			graphnode=nextnode;
 	    			// COUNT EDGE HERE
 	    			edgeno++;
-	    			//fprintf(stderr,"Edge %d-%d, edgeno=%d\n",graphnode->nodeid,nextnode->nodeid,edgeno);
+	    			//fprintf(stderr,"4 Edge %d-%d, edgeno=%d nextnode: %u-%u pos=%d\n",graphnode->nodeid,nextnode->nodeid,edgeno,nextnode->start,nextnode->end,pos);
+	    			graphnode=nextnode;
 	    		}
 	    		else completed=true;
 	    	}
@@ -2204,10 +2209,12 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    			graphno++;
 	    			graphnode->child.Add(nextnode->nodeid); // make nextnode a child of current graphnode
 	    			nextnode->parent.Add(graphnode->nodeid);// make graphnode a parent of nextnode
-	    			graphnode=nextnode;
+
 	    			// COUNT EDGE HERE
 	    			edgeno++;
-	    			//fprintf(stderr,"Edge %d-%d, edgeno=%d\n",graphnode->nodeid,nextnode->nodeid,edgeno);
+	    			//fprintf(stderr,"5 Edge %d-%d, edgeno=%d\n",graphnode->nodeid,nextnode->nodeid,edgeno);
+
+	    			graphnode=nextnode;
 	    		}
 
 	    		GStr spos((int)pos);
@@ -2218,11 +2225,14 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    			graphnode->parent.Add(node->nodeid); // this node has as parent the previous node
 	    			// COUNT EDGE HERE
 	    			edgeno++;
-	    			//fprintf(stderr,"Edge %d-%d, edgeno=%d\n",node->nodeid,graphnode->nodeid,edgeno);
+	    			//fprintf(stderr,"6 Edge %d-%d, edgeno=%d\n",node->nodeid,graphnode->nodeid,edgeno);
 	    		}
 	    	}
 
-	    } while((nje<njunctions && (ejunction[nje]->end<endbundle)) || (njs<njunctions && (junction[njs]->start<=endbundle)));
+	    	//if(nje<njunctions) fprintf(stderr,"ejunc: %d-%d\n",ejunction[nje]->start,ejunction[nje]->end);
+	    	//if(njs<njunctions) fprintf(stderr,"junc: %d-%d\n",junction[njs]->start,junction[njs]->end);
+
+	    } while((nje<njunctions && (ejunction[nje]->end<=endbundle)) || (njs<njunctions && (junction[njs]->start<=endbundle)));
 
 
 	    if(!completed) { // I did not finish node --> this will be an ending node
@@ -2262,7 +2272,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    	graphnode->end=endbundle;
 	    	// COUNT EDGE HERE (this is an edge to sink)
 	    	edgeno++;
-	    	//fprintf(stderr,"Edge to sink from %d, edgeno=%d\n",graphnode->nodeid,edgeno);
+	    	//fprintf(stderr,"7 Edge to sink from %d, edgeno=%d\n",graphnode->nodeid,edgeno);
 	    }
 
 	    bundlenode=bundlenode->nextnode; // advance to next bundle
@@ -2628,6 +2638,8 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 		GVec<int> *group2bundle,GVec<CGraphinfo> **bundle2graph,GVec<int> *graphno,GVec<int> *edgeno, GIntHash<int> **gpos,GPVec<CGraphnode> **no2gnode,
 		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no,GPVec<CGroup> &group) {
 
+	//fprintf(stderr,"get fragment for read[%d]:%d-%d-%d with pair[%d]\n",n,readlist[n]->start,readlist[n]->end,int(readlist[n]->strand),np);
+
 	GBitVec rpat[2];
 	int rgno[2]={-1,-1};
 	GVec<int> rnode[2];
@@ -2638,7 +2650,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 	if(readlist[n]->nh && !readlist[n]->strand && np>-1 && readlist[np]->nh && !readlist[np]->strand) { // both reads are unstranded
 		int gr1=readgroup[n][0]; // read is unstranded => it should belong to one group only
 		while(merge[gr1]!=gr1) gr1=merge[gr1];
-		int gr2=readgroup[n][0]; // read is unstranded => it should belong to one group only
+		int gr2=readgroup[np][0]; // read is unstranded => it should belong to one group only
 		while(merge[gr2]!=gr2) gr2=merge[gr2];
 		rprop[0]=(group[gr1]->neg_prop+group[gr2]->neg_prop)/2;
 		rprop[1]=1-rprop[0];
@@ -3014,7 +3026,12 @@ void process_transfrags(int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTr
 	/*
 	{ // DEBUG ONLY
 		printTime(stderr);
-		fprintf(stderr,"There are %d transfrags before clean up\n",transfrag.Count());
+		fprintf(stderr,"There are %d transfrags before clean up:\n",transfrag.Count());
+		for(int i=0;i<transfrag.Count();i++) {
+			fprintf(stderr,"transfrag[%d]:",i);
+			for(int j=0;j<transfrag[i]->nodes.Count();j++) fprintf(stderr," %d",transfrag[i]->nodes[j]);
+			fprintf(stderr,"\n");
+		}
 	}
 	*/
 
@@ -3030,8 +3047,8 @@ void process_transfrags(int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTr
 		{ // DEBUG ONLY
 			fprintf(stderr,"Add guidetrf with nodes:");
 			for(int j=0;j<guidetrf[i].trf->nodes.Count();j++) fprintf(stderr," %d",guidetrf[i].trf->nodes[j]);
-			fprintf(stderr," and pattern: ");
-			printBitVec(guidetrf[i].trf->pattern);
+			//fprintf(stderr," and pattern: ");
+			//printBitVec(guidetrf[i].trf->pattern);
 			fprintf(stderr,"\n");
 		}
 		*/
@@ -9258,7 +9275,7 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 
 		/*
 		{ // DEBUG ONLY
-			fprintf(stderr,"Coverage for transcript %s = %f or %f \n",t->getID(),gcov,cov);
+			fprintf(stderr,"Store transcript with coverage %f \n",gcov);
 		}
 		*/
 
@@ -10132,7 +10149,7 @@ int find_cguidepat(GBitVec& pat,GVec<CTrGuidePat>& patvec) {
 	return(-1);
 }
 
-
+/*
 int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GVec<CGuide>& guidetrf,int& geneno,
 		int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred, BundleData *bdata) {
 
@@ -10145,11 +10162,11 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 		float flux= max_flow(gno,guidetrf[0].trf->nodes,istranscript,transfrag,no2gnode,nodeflux,guidetrf[0].trf->pattern);
 		istranscript.reset();
 
-		/*
+
 		{ // DEBUG ONLY
 			fprintf(stderr,"guide=%s flux[0]=%g\n",guides[guidetrf[0].g]->getID(),flux);
 		}
-		*/
+
 
 		if(flux>epsilon) {
 			bool include=true;
@@ -10170,7 +10187,7 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 		//if(nodecov[maxi]<1) break; // I shouldn't be restricting this at all?
 
 
-		/*
+
 		{ // DEBUG ONLY
 		  fprintf(stderr,"\nAfter update:\n");
 		  for(int i=0;i<gno;i++) {
@@ -10180,7 +10197,7 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 			  fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
 		  }
 		}
-		*/
+
 
 		//return(maxi);
 	}
@@ -10206,11 +10223,11 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 			flux.Add(initflux);
 			istranscript.reset();
 
-			/*
+
 			{ // DEBUG ONLY
 			   fprintf(stderr," flux[%d]=%g\n",g,flux[g]);
 			}
-			*/
+
 		}
 
 
@@ -10279,7 +10296,7 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 					//if(nodecov[maxi]<readthr) break; // no need to find other paths since they aren't any above allowed read threshold
 					//if(nodecov[maxi]<1) break; // I shouldn't be restricting this at all?
 
-					/*
+
 					{ // DEBUG ONLY
 				  	  fprintf(stderr,"\nAfter update:\n");
 				  	  for(int i=0;i<gno;i++) {
@@ -10289,7 +10306,7 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 					  	  fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
 				  	  }
 					}
-					*/
+
 
 					nodeflux.Clear();
 				}
@@ -10777,6 +10794,7 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 
 	return(maxi);
 }
+*/
 
 int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GVec<CGuide>& guidetrf,int& geneno,
 		int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred, BundleData *bdata) {
@@ -12197,6 +12215,11 @@ void update_junction_counts(CReadAln & rd) {
 	}
 }
 
+/*
+void assign_strand(CReadAln &rd,GList<CReadAln>& readlist) {
+	int newstrand=0;
+}
+*/
 
 int build_graphs(BundleData* bdata) {
 	int refstart = bdata->start;
@@ -12315,13 +12338,13 @@ int build_graphs(BundleData* bdata) {
 
 	//int **readgroup = new int*[readlist.Count()];
 
-/*
+
 #ifdef GMEMTRACE
 	double vm,rsm;
 	get_mem_usage(vm, rsm);
 	GMessage("\t\tM(s):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-*/
+
 
 	//float fraglen=0;
 	//uint fragno=0;
@@ -12332,10 +12355,15 @@ int build_graphs(BundleData* bdata) {
 	for (int n=0;n<readlist.Count();n++) {
 		CReadAln & rd=*(readlist[n]);
 
-		//if(rd.juncs.Count()) fprintf(stderr,"process read[%d] %d-%d\n",n,rd.start,rd.end);
+		//if(rd.strand==0 && rd.pair_idx.Count()) assign_strand(rd,readlist);
+
+		//if(rd.juncs.Count())
+		//fprintf(stderr,"process read[%d] %d-%d:%d and pairs:",n,rd.start,rd.end,int(rd.strand));
+		//for(int i=0;i<rd.pair_idx.Count();i++) fprintf(stderr," %d",rd.pair_idx[i]);
+		//fprintf(stderr,"\n");
 
 		/*
-		// this version tried to adjus the read by eliminating bad junctions but makes the add_read_to_group crash because reads are no longer sorted by start coordinate
+		// this version tried to adjust the read by eliminating bad junctions but makes the add_read_to_group crash because reads are no longer sorted by start coordinate
 		int i=0;
 		uint maxlen=rd.segs[0].len();
 		uint seenlen=maxlen;
@@ -12434,8 +12462,10 @@ int build_graphs(BundleData* bdata) {
 
 			//fprintf(stderr,"now color=%d\n",color);
 		}
+		//else { fprintf(stderr,"read[%d] is not kept\n",n);}
 		//else clean_read_junctions(readlist[n]);
 	}
+
 
 	//fprintf(stderr,"fragno=%d fraglen=%g\n",fragno,fraglen);
 
@@ -12795,7 +12825,7 @@ int build_graphs(BundleData* bdata) {
 			}
 		}
 
-		// print STDERR "Done with groups: ",$currgroup[0],",",$currgroup[1],",",$currgroup[2],"\n";
+		//print STDERR "Done with groups: ",$currgroup[0],",",$currgroup[1],",",$currgroup[2],"\n";
 		currgroup[nextgr]=currgroup[nextgr]->next_gr;
 
 	} // while(currgroup[0]!=NULL || currgroup[1]!=NULL || currgroup[2]!=NULL)
@@ -12855,12 +12885,15 @@ int build_graphs(BundleData* bdata) {
 				int elen=bnode[sno][bundle[sno][b]->lastnodeid]->end-bnode[sno][bundle[sno][b]->startnode]->start+1;
 				CBundlenode *currbnode=bnode[sno][bundle[sno][b]->startnode];
 				fprintf(stderr,"***Bundle %d with len=%d:",b,elen);
+				int nodes=0;
 				while(currbnode!=NULL) {
 					fprintf(stderr, " %d-%d cov=%.6f",currbnode->start,currbnode->end,currbnode->cov/(currbnode->end-currbnode->start+1));
 					currbnode=currbnode->nextnode;
+					nodes++;
 				}
 				currbnode=bnode[sno][bundle[sno][b]->lastnodeid];
-				fprintf(stderr," last node:%d-%d\n",currbnode->start,currbnode->end);
+				nodes++;
+				fprintf(stderr," last node:%d-%d total nodes=%d\n",currbnode->start,currbnode->end,nodes);
 			}
 		}
 	}
@@ -13076,7 +13109,6 @@ int build_graphs(BundleData* bdata) {
     					*
     					*/
     					// create graph then
-
     					graphno[s][b]=create_graph(refstart,s,b,bundle[sno][b],bnode[sno],junction,ejunction,
     							bundle2graph,no2gnode,transfrag,gpos,bpcov,edgeno[s][b],lastgpos[s][b],guideedge); // also I need to remember graph coverages somewhere -> probably in the create_graph procedure
 
@@ -13107,15 +13139,15 @@ int build_graphs(BundleData* bdata) {
     			}
     		}
     	}
-		*/
+    	*/
 
-/*
+
 #ifdef GMEMTRACE
     	double vm,rsm;
     	get_mem_usage(vm, rsm);
     	GMessage("\t\tM(after graphs created):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-*/
+
 
 		// I can clean up some data here:
     	for(int sno=0;sno<3;sno++) {
@@ -13130,6 +13162,9 @@ int build_graphs(BundleData* bdata) {
 
     	// because of this going throu
     	// compute probabilities for stranded bundles
+
+
+
     	for (int n=0;n<readlist.Count();n++) {
 
     		float single_count=readlist[n]->read_count;
@@ -13148,13 +13183,13 @@ int build_graphs(BundleData* bdata) {
     	}
 
 
-/*
+
 #ifdef GMEMTRACE
     	//double vm,rsm;
     	get_mem_usage(vm, rsm);
     	GMessage("\t\tM(read patterns counted):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-*/
+
     	// shouldn't readlist be also cleared up here? maybe bpcov too?
 
     	// don't forget to clean up the allocated data here
@@ -13215,15 +13250,15 @@ int build_graphs(BundleData* bdata) {
     					}
 
     				}
-					*/
+    				*/
 
-/*
+
 #ifdef GMEMTRACE
     				double vm,rsm;
     				get_mem_usage(vm, rsm);
     				GMessage("\t\tM(after process_transfrags):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-*/
+
 
     				//fprintf(stderr,"guidetrf no=%d\n",guidetrf.Count());
 
@@ -13241,13 +13276,13 @@ int build_graphs(BundleData* bdata) {
     				}
     				*/
 
-/*
+
 #ifdef GMEMTRACE
     				//double vm,rsm;
     				get_mem_usage(vm, rsm);
     				GMessage("\t\tM(after processed transcripts):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-*/
+
 
 
     			}
@@ -14109,15 +14144,9 @@ int infer_transcripts(BundleData* bundle) {
 		geneno = build_merge(bundle);
 	}
 	else if(bundle->keepguides.Count() || !eonly) {
-		count_good_junctions(bundle->readlist, bundle->start, bundle->bpcov);
+		//fprintf(stderr,"Process %d reads from %lu.\n",bundle->readlist.Count(),bundle->numreads);
 
-		/*
-		fprintf(stderr,"cov on 0 before (62678281:");
-		for(int i=0;i<100;i++) fprintf(stderr," %f",bundle->bpcov[0][62678283-bundle->start-100+i]);
-		fprintf(stderr,"\ncov on 0 after (62678281:");
-		for(int i=0;i<100;i++) fprintf(stderr," %f",bundle->bpcov[0][62678283-bundle->start+i]);
-		fprintf(stderr,"\n");
-	*/
+		count_good_junctions(bundle->readlist, bundle->start, bundle->bpcov);
 
 		geneno = build_graphs(bundle);
 	}
@@ -15038,7 +15067,9 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 					//fprintf(stderr,"Prediction %d is included in prediction %d\n",n,keep[k]);
 					inc.Add(keep[k]);
 					sumcov+=pred[keep[k]]->cov;
-					if(pred[n]->exons.Count()<=2 || pred[n]->cov<pred[keep[k]]->cov || pred[keep[k]]->t_eq) included=true;
+					if(pred[n]->exons.Count()<=2 || pred[n]->cov<pred[keep[k]]->cov
+							|| pred[keep[k]]->t_eq || pred[n]->exons.Count()==pred[keep[k]]->exons.Count())
+							included=true;
 				}
 
 				k++;

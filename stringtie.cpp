@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.1c"
+#define VERSION "1.3.2"
 
 //#define DEBUGPRINT 1
 
@@ -38,6 +38,8 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
  --version : print just the version at stdout and exit\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
+ --rf assume stranded library fr-firststrand\n\
+ --fr assume stranded library fr-secondstrand\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.1)\n\
  -m minimum assembled transcript length (default: 200)\n\
@@ -126,6 +128,8 @@ bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage su
 bool nomulti=false;
 bool enableNames=false;
 bool includecov=false;
+bool fr_strand=false;
+bool rf_strand=false;
 //bool complete=true; // set by parameter -i the reference annotation contains partial transcripts
 bool retained_intron=false; // set by parameter -i for merge option
 bool geneabundance=false;
@@ -252,7 +256,7 @@ int main(int argc, char * const argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;keeptmp;bam;merge;exclude=zZSEihvteux:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;keeptmp;bam;fr;rf;merge;exclude=zZSEihvteux:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -439,11 +443,25 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		 }
 
 		 refseqName=brec->refName();
-		 xstrand=brec->spliceStrand();
+		 xstrand=brec->spliceStrand(); // tagged strand gets priority
+		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
+			 if(brec->isPaired()) { // read is paired
+				 if(brec->pairOrder()==1) { // first read in pair
+					 if((rf_strand && brec->revStrand())||(fr_strand && !brec->revStrand())) xstrand='+';
+					 else xstrand='-';
+				 }
+				 else {
+					 if((rf_strand && brec->revStrand())||(fr_strand && !brec->revStrand())) xstrand='-';
+					 else xstrand='+';
+				 }
+			 }
+			 else {
+				 if((rf_strand && brec->revStrand())||(fr_strand && !brec->revStrand())) xstrand='+';
+				 else xstrand='-';
+			 }
+		 }
 		 if (xstrand=='.' && brec->exons.Count()>1) {
 			 no_xs++;
-			 //if (verbose)
-			 //   GMessage("XS tag missing for read\t%s\t(%d)\t%s\n",brec->name(), brec->start, brec->cigar());
 			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
 		 }
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
@@ -716,7 +734,7 @@ if(!mergeMode) {
 	if(verbose) {
 		GMessage("Total count of aligned fragments: %g\n", Num_Fragments);
 		if (Num_Fragments)
-			GMessage("Fragment coverage length: %g\n", Frag_Len/Num_Fragments);
+		  GMessage("Fragment coverage length: %g\n", Frag_Len/Num_Fragments);
 	}
 
 	f_out=stdout;
@@ -841,6 +859,14 @@ void processOptions(GArgs& args) {
 	   fprintf(stdout,"%s\n",VERSION);
 	   exit(0);
 	}
+	if (args.getOpt("fr")) {
+		fr_strand=true;
+	}
+	if (args.getOpt("rf")) {
+		rf_strand=true;
+		if(fr_strand) GError("Error: --fr and --rf options are incompatible.\n");
+	}
+
 	 debugMode=(args.getOpt("debug")!=NULL || args.getOpt('D')!=NULL);
 	 forceBAM=(args.getOpt("bam")!=NULL); //assume the stdin stream is BAM instead of text SAM
 	 mergeMode=(args.getOpt("merge")!=NULL);
