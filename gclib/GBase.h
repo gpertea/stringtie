@@ -477,6 +477,7 @@ class GLineReader {
    //int len;
    //int allocated;
    GDynArray<char> buf;
+   int textlen; //length of actual text, without newline character(s)
    bool isEOF;
    FILE* file;
    off_t filepos; //current position
@@ -487,8 +488,11 @@ class GLineReader {
    char* line() { return buf(); }
    int readcount() { return lcount; } //number of lines read
    void setFile(FILE* stream) { file=stream; }
-   int length() { return buf.Count(); }
-   int size() { return buf.Count(); } //same as size();
+   int blength() { return buf.Count(); } //binary/buffer length, including newline character(s)
+   int charcount() { return buf.Count(); } //line length, including newline character(s)
+   int tlength() { return textlen; } //text length excluding newline character(s)
+   int linelen() { return textlen; } //line length, excluding newline character(s)
+   //int size() { return buf.Count(); } //same as size();
    bool isEof() {return isEOF; }
    bool eof() { return isEOF; }
    off_t getfpos() { return filepos; }
@@ -503,14 +507,15 @@ class GLineReader {
                            // the given file position
    void pushBack() { if (lcount>0) pushed=true; } // "undo" the last getLine request
             // so the next call will in fact return the same line
-   GLineReader(const char* fname):closeFile(false),buf(1024),isEOF(false),file(NULL),
-		   filepos(0), pushed(false), lcount(0) {
+   GLineReader(const char* fname):closeFile(false),buf(1024), textlen(0),
+		   isEOF(false),file(NULL),filepos(0), pushed(false), lcount(0) {
       FILE* f=fopen(fname, "rb");
       if (f==NULL) GError("Error opening file '%s'!\n",fname);
       closeFile=true;
       file=f;
       }
-   GLineReader(FILE* stream=NULL, off_t fpos=0):closeFile(false),buf(1024),isEOF(false),file(stream),
+   GLineReader(FILE* stream=NULL, off_t fpos=0):closeFile(false),buf(1024),
+		   textlen(0), isEOF(false),file(stream),
 		   filepos(fpos), pushed(false), lcount(0) {
      }
    ~GLineReader() {
