@@ -1055,8 +1055,11 @@ bool GffReader::addExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon
 		if (!gff_warns) exit(1);
 	}
 	int eidx=prevgfo->addExon(this, gffline, !noExonAttr, noExonAttr);
-	if (eidx>=0 && gffline->ID!=NULL && gffline->exontype==0)
-		subfPoolAdd(pex, prevgfo);
+	if (eidx>=0) {
+		if (eidx==0) prevgfo->isTranscript(true);
+		if (gffline->ID!=NULL && gffline->exontype==0)
+		   subfPoolAdd(pex, prevgfo);
+	}
 	return r;
 }
 
@@ -1192,8 +1195,8 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 				}
 				if (parentgfo!=NULL) { //parent GffObj parsed earlier
 					found_parent=true;
-					if (parentgfo->isGene() && gffline->is_transcript
-							&& gffline->exontype==0) {
+					if (parentgfo->isGene() && (gffline->is_transcript ||
+							 gffline->exontype==0)) {
 						//not an exon, but a transcript parented by a gene
 						if (newgfo) {
 							updateParent(newgfo, parentgfo);
