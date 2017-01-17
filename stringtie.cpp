@@ -1,4 +1,4 @@
-//#define GFF_DEBUG 1 //debugging guides loading
+#define GFF_DEBUG 1 //debugging guides loading
 #include "rlink.h"
 #include "tmerge.h"
 #ifndef NOTHREADS
@@ -1414,7 +1414,7 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 			  fprintf(fout, "transcript_id \"%s\";",t.getID());
 			  if (eonly) {
 				if (t.getGeneName())
-					  fprintf(fout, " ref_gene_name \"%s\";", t.getGeneName());
+					  fprintf(fout, " gene_name \"%s\";", t.getGeneName());
 			    fprintf(fout, " cov \"0.0\"; FPKM \"0.0\"; TPM \"0.0\";");
 			  }
 			  else { //merge_mode
@@ -1431,16 +1431,11 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 					  fprintf(fout, "gene_id \"%s\"; ",  t.getGeneID());
 				  fprintf(fout,"transcript_id \"%s\"; exon_number \"%d\";",
 						  t.getID(), e+1);
-				  if (eonly) {
-					  if (t.getGeneName())
-						  fprintf(fout, " ref_gene_name \"%s\";", t.getGeneName());
-					  fprintf(fout, " cov \"0.0\";");
-				  }
-				  else { //mergeMode
-					  if (t.getGeneName())
+
+				  if (t.getGeneName())
 						  fprintf(fout, " gene_name \"%s\";", t.getGeneName());
-					  if (t.getGeneID())
-						  fprintf(fout, " ref_gene_id \"%s\";",  t.getGeneID());
+				  if (eonly) {
+					  fprintf(fout, " cov \"0.0\";");
 				  }
 				  fprintf(fout, "\n");
 			  }

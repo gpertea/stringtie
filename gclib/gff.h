@@ -96,7 +96,7 @@ class GffLine {
     	    bool is_exon:1; //"exon" and "utr" features
     	    bool is_transcript:1; //if current feature is *RNA or *transcript
     	    bool is_gene:1; //current feature is *gene
-    	    bool is_gff3:1; //line appears to be in GFF3 format (0=GTF)
+    	    //bool is_gff3:1; //line appears to be in GFF3 format (0=GTF)
     	    bool is_gtf_transcript:1; //GTF transcript line with Parents parsed from gene_id
     	    bool skipLine:1;
     	};
@@ -119,7 +119,7 @@ class GffLine {
     	parents=NULL;
     }
     char* extractAttr(const char* pre, bool caseStrict=false, bool enforce_GTF2=false, int* rlen=NULL);
-    GffLine(GffLine& l):_parents(NULL), _parents_len(l._parents_len),
+    GffLine(GffLine& l): _parents(NULL), _parents_len(l._parents_len),
     		dupline(NULL), line(NULL), llen(l.llen), gseqname(NULL), track(NULL),
     		ftype(NULL), ftype_id(l.ftype_id), info(NULL), fstart(l.fstart), fend(l.fend), qstart(l.fstart), qend(l.fend),
 			qlen(l.qlen), score(l.score), strand(l.strand), flags(l.flags), exontype(l.exontype), phase(l.phase),
@@ -153,7 +153,7 @@ class GffLine {
     	if (l.gene_id!=NULL)
     		gene_id=Gstrdup(l.gene_id);
     }
-    GffLine():_parents(NULL), _parents_len(0),
+    GffLine(): _parents(NULL), _parents_len(0),
     		dupline(NULL), line(NULL), llen(0), gseqname(NULL), track(NULL),
     		ftype(NULL), ftype_id(-1), info(NULL), fstart(0), fend(0), qstart(0), qend(0), qlen(0),
     		score(0), strand(0), flags(0), exontype(0), phase(0),
@@ -1007,6 +1007,15 @@ class GffReader {
   off_t fpos;
   int buflen;
  protected:
+  union {
+    uint8_t gff_type;
+    struct {
+       bool is_gff3: 1;  //GFF3 syntax was detected
+       bool is_gtf:1; //GTF syntax was detected
+       bool gtf_transcript:1; //has "transcript" features (2-level GTF)
+       bool gtf_gene:1; //has "gene" features (3-level GTF ..Ensembl?)
+    };
+  };
   bool gff_warns; //warn about duplicate IDs, etc. even when they are on different chromosomes
   FILE* fh;
   char* fname;  //optional fasta file with the underlying genomic sequence to be attached to this reader
@@ -1043,15 +1052,10 @@ class GffReader {
   GffObj* updateParent(GffObj* newgfh, GffObj* parent);
   bool addExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon>& pex, bool noExonAttr);
   GPVec<GSeqStat> gseqStats; //populated after finalize() with only the ref seqs in this file
-  GffReader(FILE* f=NULL, bool t_only=false, bool sortbyloc=false):discarded_ids(true),
-                       phash(true), gseqtable(1,true), gflst(sortbyloc), gseqStats(1, false) {
-      gff_warns=gff_show_warnings;
-      //names=NULL;
-      gffline=NULL;
-      transcriptsOnly=t_only;
-      fpos=0;
-      fname=NULL;
-      fh=f;
+  GffReader(FILE* f=NULL, bool t_only=false, bool sortbyloc=false):linebuf(NULL), fpos(0),
+		  buflen(0), gff_type(0), gff_warns(gff_show_warnings), fh(f), fname(NULL), gffline(NULL),
+		  transcriptsOnly(t_only),  discarded_ids(true), phash(true), gseqtable(1,true),
+		  gflst(sortbyloc), gseqStats(1, false) {
       GMALLOC(linebuf, GFF_LINELEN);
       buflen=GFF_LINELEN-1;
       gffnames_ref(GffObj::names);
@@ -1061,18 +1065,18 @@ class GffReader {
       fh=f;
       if (fh!=NULL) rewind(fh);
       fpos=0;
+      gff_type=0;
       transcriptsOnly=t_only;
       gflst.sortedByLoc(sortbyloc);
       }
-  GffReader(const char* fn, bool t_only=false, bool sort=false):discarded_ids(true), phash(true),
-            gseqtable(1,true), gflst(sort), gseqStats(1,false) {
+  GffReader(const char* fn, bool t_only=false, bool sort=false):linebuf(NULL), fpos(0),
+	  		  buflen(0), gff_type(0), gff_warns(gff_show_warnings), fh(NULL), fname(NULL),
+			  gffline(NULL), transcriptsOnly(t_only), discarded_ids(true),
+			  phash(true), gseqtable(1,true), gflst(sort), gseqStats(1,false) {
       gff_warns=gff_show_warnings;
       gffnames_ref(GffObj::names);
       fname=Gstrdup(fn);
-      transcriptsOnly=t_only;
       fh=fopen(fname, "rb");
-      fpos=0;
-      gffline=NULL;
       GMALLOC(linebuf, GFF_LINELEN);
       buflen=GFF_LINELEN-1;
       }
