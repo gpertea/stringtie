@@ -319,7 +319,7 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 			 }
 		 }
 	 } //has Parent field
-	 //parse other potentially useful GFF3 attributes?
+	 //parse other potentially useful GFF3 attributes
 	 if ((p=strstr(info,"Target="))!=NULL) { //has Target attr
 		 p+=7;
 		 while (*p!=';' && *p!=0 && *p!=' ') p++;
@@ -359,7 +359,7 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
  } //GFF3
  else { // GTF syntax
 	 if (reader->transcriptsOnly && !is_t_data) {
-		 return; //skipping unrecognized non-transcript feature
+		 return; //skipping unrecognized non-transcript feature (is this safe?)
 	 }
 	 Parent=extractAttr("transcript_id", true, true);
 	 gene_id=extractAttr("gene_id"); // for GTF this is the only attribute accepted as geneID
@@ -375,43 +375,16 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 				          Parent=Gstrdup(gene_id);
 				}
 			 }
-			 gene_name=extractAttr("gene_name");
-			 if (gene_name==NULL) {
-				 gene_name=extractAttr("gene_sym");
-				 if (gene_name==NULL) {
-					 gene_name=extractAttr("gene");
-					 if (gene_name==NULL)
-						 gene_name=extractAttr("genesymbol");
-				 }
-			 }
-		 }
-		 //prepare GTF for parseAttr by adding '=' character after the attribute name
-		 //for all attributes
-		 p=info;
-		 bool noed=true; //not edited after the last delim
-		 bool nsp=false; //non-space found after last delim
-		 while (*p!=0) {
-			 if (*p==' ') {
-				 if (nsp && noed) {
-					 *p='=';
-					 noed=false;
-					 p++;
-					 continue;
-				 }
-			 }
-			 else nsp=true; //non-space
-			 if (*p==';') { noed=true; nsp=false; }
-			 p++;
 		 }
 	 } //GTF2 detected (no parent line)
 	 else {// no transcript_id -- this is not a valid GTF2 format, but Ensembl
 		 //is being known to add "gene" features with only gene_id
-		 if (gene_id!=NULL) { //likely a gene feature line (Ensembl)
+		 if (gene_id!=NULL) { //likely a gene feature line (Ensembl!)
 			 reader->gtf_gene=true;
-			 ID=gene_id; //take over as ID
-			 gene_id=NULL;
+			 ID=Gstrdup(gene_id); //take over as ID
+			 //gene_id=NULL;
 		 }
-		 //old pre-GTF2 formats like Jigsaw's (legacy tolerance)
+		 //old pre-GTF2 formats like Jigsaw's (legacy)
 		 if (exontype==exgffExon) {
 			 if (startsWith(track,"jigsaw")) {
 				 is_cds=true;
@@ -427,6 +400,36 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 			 	 //something is wrong here, cannot parse the GTF ID
 				 GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n", l);
 	 } //Parent transcript_id was NULL, attempted to find it
+
+	 //more GTF attribute parsing
+	 gene_name=extractAttr("gene_name");
+	 if (gene_name==NULL) {
+		 gene_name=extractAttr("gene_sym");
+		 if (gene_name==NULL) {
+			 gene_name=extractAttr("gene");
+			 if (gene_name==NULL)
+				 gene_name=extractAttr("genesymbol");
+		 }
+	 }
+	 //prepare GTF for parseAttr by adding '=' character after the attribute name
+	 //for all attributes
+	 p=info;
+	 bool noed=true; //not edited after the last delim
+	 bool nsp=false; //non-space found after last delim
+	 while (*p!=0) {
+		 if (*p==' ') {
+			 if (nsp && noed) {
+				 *p='=';
+				 noed=false;
+				 p++;
+				 continue;
+			 }
+		 }
+		 else nsp=true; //non-space
+		 if (*p==';') { noed=true; nsp=false; }
+		 p++;
+	 }
+	 //-- GTF prepare parents[] if Parent found
 	 if (Parent!=NULL) { //GTF transcript_id found as a parent
 		 _parents=Parent;
 		 num_parents=1;
