@@ -598,11 +598,11 @@ int GffObj::addExon(uint segstart, uint segend, double sc, char fr, int qs, int 
               return oi; //only used to store attributes from current GffLine
               }
            else {
-          	 if (gff_show_warnings && (exons[oi]->start<segstart || exons[oi]->end>segend)) {
+          	 /*if (gff_show_warnings && (exons[oi]->start<segstart || exons[oi]->end>segend)) {
           		 GMessage("GFF Warning: unusual segment inclusion: %s(%d-%d) within %s(%d-%d) (ID=%s)\n",
           				 strExonType(exontype), segstart, segend, strExonType(exons[oi]->exontype),
           				 exons[oi]->start, exons[oi]->end, this->gffID);
-          	 }
+          	 }*/
             return oi;
            }
         }
