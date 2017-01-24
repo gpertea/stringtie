@@ -369,7 +369,7 @@ struct GEdge { // guide edge
 	uint endval; // value of the other exon boundary shared with val
 	int strand;
 	bool operator<(const GEdge& o) const {
-		return(val<o.val);
+		return(val<o.val || (val==o.val && strand<o.strand));
 	}
 	bool operator==(const GEdge& o) const {
 		return(val==o.val && strand==o.strand);

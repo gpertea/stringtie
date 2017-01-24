@@ -1976,7 +1976,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	int njunctions=junction.Count();
 
-	//fprintf(stderr,"Start with %d edgeno\n",edgeno);
+	//fprintf(stderr,"Start with %d edgeno and lastgpos=%d\n",edgeno,lastgpos);
 
 	/*
 	{ // DEBUG ONLY
@@ -2106,6 +2106,8 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    					if(nge>=guideedge.Count() || guideedge[nge].val>=junction[njs]->start) break;
 
+	    					//fprintf(stderr,"guideedge val=%d endval=%d strand=%d currentstart=%d endbundle=%d\n",guideedge[nge].val,guideedge[nge].endval,guideedge[nge].strand,currentstart,endbundle);
+
 	    					uint start=guideedge[nge].val;
 	    					uint end=junction[njs]->start;
 	    					bool sourceguide=false;
@@ -2183,6 +2185,8 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    						if(nge>=guideedge.Count() || guideedge[nge].val>=pos-1) break;
 
+	    						//fprintf(stderr,"guideedge val=%d endval=%d strand=%d currentstart=%d endbundle=%d\n",guideedge[nge].val,guideedge[nge].endval,guideedge[nge].strand,currentstart,endbundle);
+
 	    						uint start=guideedge[nge].val;
 	    						uint end=pos-1;
 	    						bool sourceguide=false;
@@ -2248,6 +2252,8 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    				if(nge>=guideedge.Count() || guideedge[nge].val>=endbundle) break;
 
+						//fprintf(stderr,"guideedge val=%d endval=%d strand=%d currentstart=%d endbundle=%d\n",guideedge[nge].val,guideedge[nge].endval,guideedge[nge].strand,currentstart,endbundle);
+
 	    				uint start=guideedge[nge].val;
 	    				uint end=endbundle;
 	    				bool sourceguide=false;
@@ -2289,7 +2295,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 		}
 	}
 
-	//fprintf(stderr,"This graph has %d nodes and %d edges and %d junctions\n",graphno,edgeno,seenjunc);
+	//fprintf(stderr,"This graph has %d nodes and %d edges\n",graphno,edgeno);
 	lastgpos=graphno; // nodes are from 0 to graphno-1, so the first "available" position in GBitVec is graphno
 
 	// now I can create the future transfrags because I know graphno
@@ -2352,7 +2358,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	//fprintf(stderr,"traverse graph[%d][%d] now with %d nodes, %d edges and lastgpos=%d....\n",s,g,graphno,edgeno,lastgpos);//edgeno=0;
 	traverse_dfs(s,g,source,sink,parents,graphno,visit,no2gnode,transfrag,edgeno,gpos,lastgpos);
-	//fprintf(stderr,"done traversing with edgeno=%d\n",edgeno);
+	//fprintf(stderr,"done traversing with edgeno=%d lastgpos=%d\n",edgeno,lastgpos);
 
 	// delete variables created here, like e.g. ends; do I need to delete the GVec<int> elements created too?
 	ends.Clear();
@@ -9860,7 +9866,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 				trpat[nodei]=1;
 				trpat[sink]=1;
 				trpat[*pos]=1;
-				//fprintf(stderr,"introduce node from %d to sink=%d wih abundance=%g where pos=%d\n",maxnode,sink,maxabund,*pos);
+				//fprintf(stderr,"introduce node from %d to sink=%d wih abundance=%g where pos=%d\n",nodei,sink,maxabund,*pos);
 				CTransfrag *tr=new CTransfrag(nodes,trpat,maxabund);
 				transfrag.Add(tr);
 
@@ -12267,6 +12273,9 @@ int build_graphs(BundleData* bdata) {
 				if(s<0) uses=0;
 				GEdge ge(guides[g]->start,guides[g]->exons[0]->end,uses);
 				int idx=guideedge.IndexOf(ge);
+
+				//fprintf(stderr,"look for ge(%d,%d,%d) => start idx=%d\n",ge.val,ge.endval,ge.strand,idx);
+
 				if(idx<0) guideedge.Add(ge);
 				else if(guideedge[idx].endval>guides[g]->exons[0]->end) guideedge[idx].endval=guides[g]->exons[0]->end;
 				if(s<0) {
@@ -12279,6 +12288,9 @@ int build_graphs(BundleData* bdata) {
 				ge.val=guides[g]->end;
 				ge.endval=guides[g]->exons.Last()->start;
 				idx=guideedge.IndexOf(ge);
+
+				//fprintf(stderr,"look for ge(%d,%d,%d) => end idx=%d\n",ge.val,ge.endval,ge.strand,idx);
+
 				if(idx<0) guideedge.Add(ge);
 				else if(guideedge[idx].endval<guides[g]->exons.Last()->start) guideedge[idx].endval=guides[g]->exons.Last()->start;
 				if(s<0) {
@@ -13059,7 +13071,7 @@ int build_graphs(BundleData* bdata) {
     				lastgpos[s].cAdd(0);
     				// I am overestmating the edgeno below, hopefully not by too much
 
-    				//fprintf(stderr,"Bundle is: %d - %d start at g=%d\n",bnode[sno][bundle[sno][b]->startnode]->start,bnode[sno][bundle[sno][b]->lastnodeid]->end,g);
+    				//fprintf(stderr,"Bundle is: %d - %d start at g=%d sno=%d b=%d\n",bnode[sno][bundle[sno][b]->startnode]->start,bnode[sno][bundle[sno][b]->lastnodeid]->end,g,sno,b);
 
     				while(g<ng && guides[g]->end<bnode[sno][bundle[sno][b]->startnode]->start) g++;
 
@@ -13085,7 +13097,7 @@ int build_graphs(BundleData* bdata) {
     								bundle[sno][b]->len,nolap);
     					}
     				}
-					*/
+    				*/
 
     				// here I can add something in stringtie to lower the mintranscript len if there are guides?
 
@@ -13209,7 +13221,7 @@ int build_graphs(BundleData* bdata) {
 
     				/*
     				{ // DEBUG ONLY
-    					fprintf(stderr,"process refguides for s=%d b=%d edgeno=%d gno=%d\n",s,b,edgeno[s][b],graphno[s][b]);
+    					fprintf(stderr,"process refguides for s=%d b=%d edgeno=%d gno=%d lastgpos=%d\n",s,b,edgeno[s][b],graphno[s][b],lastgpos[s][b]);
     					fprintf(stderr,"There are %d nodes for graph[%d][%d]:\n",graphno[s][b],s,b);
     					for(int i=0;i<graphno[s][b];i++) {
     						fprintf(stderr,"%d (%d-%d): %f len=%d cov=%f",i,no2gnode[s][b][i]->start,no2gnode[s][b][i]->end,no2gnode[s][b][i]->cov,no2gnode[s][b][i]->len(),no2gnode[s][b][i]->cov/no2gnode[s][b][i]->len());

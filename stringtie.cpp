@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.2"
+#define VERSION "1.3.2b"
 
 //#define DEBUGPRINT 1
 
@@ -507,8 +507,10 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		         tinfo->tpm=score.asDouble();
 		    }
 		 }
-		 if (!chr_changed && currentend>0 && pos>currentend+(int)bundledist)
-			   new_bundle=true;
+
+		 if (!chr_changed && currentend>0 && pos>currentend+(int)bundledist) {
+			 new_bundle=true;
+		 }
 	 }
 	 else { //no more alignments
 		 more_alns=false;
