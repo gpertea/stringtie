@@ -371,7 +371,7 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 				reader->gtf_transcript=true;
 				is_gtf_transcript=1;
 				if (reader->gtf_gene &&
-					 gene_id!=NULL && strcmp(Parent,gene_id)!=0) {
+					 gene_id!=NULL && strcmp(ID,gene_id)!=0) {
 				          Parent=Gstrdup(gene_id);
 				}
 			 }

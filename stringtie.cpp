@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.2b"
+#define VERSION "1.3.2c"
 
 //#define DEBUGPRINT 1
 
@@ -876,7 +876,7 @@ void processOptions(GArgs& args) {
 	 fast=!(args.getOpt('Z')!=NULL);
 	 verbose=(args.getOpt('v')!=NULL);
 	 if (verbose) {
-	     fprintf(stderr, "Command line was:\n");
+	     fprintf(stderr, "Running StringTie " VERSION ". Command line:\n");
 	     args.printCmdLine(stderr);
 	 }
 	 //complete=!(args.getOpt('i')!=NULL);
