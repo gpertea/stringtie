@@ -1059,7 +1059,7 @@ bool GffReader::addExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon
 	}
 	int eidx=prevgfo->addExon(this, gffline, !noExonAttr, noExonAttr);
 	if (eidx>=0) {
-		if (eidx==0 && gffline->exontype>0) prevgfo->isTranscript(true);
+		//if (eidx==0 && gffline->exontype>0) prevgfo->isTranscript(true);
 		if (gffline->ID!=NULL && gffline->exontype==0)
 		   subfPoolAdd(pex, prevgfo);
 	}
