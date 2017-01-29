@@ -470,7 +470,7 @@ void GffObj::addCDS(uint cd_start, uint cd_end, char phase) {
 int GffObj::addExon(GffReader* reader, GffLine* gl, bool keepAttr, bool noExonAttr) {
   //this will make sure we have the right subftype_id!
   //int subf_id=-1;
-  if (!isTranscript() && gl->is_cds) {
+  if (!isTranscript() && gl->exontype>0) {
           isTranscript(true);
           exon_ftype_id=gff_fid_exon;
           if (exons.Count()==1) exons[0]->exontype=exgffExon;
@@ -1059,7 +1059,7 @@ bool GffReader::addExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon
 	}
 	int eidx=prevgfo->addExon(this, gffline, !noExonAttr, noExonAttr);
 	if (eidx>=0) {
-		if (eidx==0) prevgfo->isTranscript(true);
+		if (eidx==0 && gffline->exontype>0) prevgfo->isTranscript(true);
 		if (gffline->ID!=NULL && gffline->exontype==0)
 		   subfPoolAdd(pex, prevgfo);
 	}
@@ -1169,8 +1169,9 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 			GPVec<GffObj>* gflst0=NULL;
 			for (int i=0;i<gffline->num_parents;i++) {
 				newgflst=NULL;
-				if (transcriptsOnly && (discarded_ids.Find(gffline->parents[i])!=NULL ||
-						  !pFind(gffline->parents[i], newgflst)))
+				//if (transcriptsOnly && (
+				if (discarded_ids.Find(gffline->parents[i])!=NULL) continue;
+				if (!pFind(gffline->parents[i], newgflst))
 					continue; //skipping discarded parent feature
 				kparents.Add(i);
 				if (i==0) gflst0=newgflst;
@@ -1209,11 +1210,18 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 						}
 					}
 					else { //potential exon subfeature?
-						//always discard silly "intron" features
-						if (! (gffline->exontype==exgffIntron && (parentgfo->isTranscript() || parentgfo->exons.Count()>0))) {
-							if (!addExonFeature(parentgfo, gffline, pex, noExonAttr))
-								validation_errors=true;
+						bool addExon=false;
+						if (transcriptsOnly) {
+							if (gffline->exontype>0) addExon=true;
 						}
+						else { //always discard silly "intron" features
+							if (! (gffline->exontype==exgffIntron && (parentgfo->isTranscript() || parentgfo->exons.Count()>0)))
+							  addExon=true;
+						}
+						if (addExon)
+							if (!addExonFeature(parentgfo, gffline, pex, noExonAttr))
+							   validation_errors=true;
+
 					}
 				} //overlapping parent feature found
 			} //for each parsed parent Id

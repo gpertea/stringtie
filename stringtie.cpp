@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.2c"
+#define VERSION "1.3.2d"
 
 //#define DEBUGPRINT 1
 
@@ -301,7 +301,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    // (otherwise it'll be deallocated when gffr is destroyed due to going out of scope)
    refseqCount=gffr.gseqtable.Count();
    if (refseqCount==0 || gffr.gflst.Count()==0) {
-	   GError("Error: could not read reference annotation transcripts from GTF/GFF %s - invalid file?\n",
+	   GError("Error: could not any valid reference transcripts in %s (invalid GTF/GFF file?)\n",
 			   guidegff.chars());
    }
    refguides.setCount(refseqCount); //maximum gseqid
