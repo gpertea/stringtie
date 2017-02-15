@@ -2958,44 +2958,46 @@ inline int comptbl_pos(int t1,int t2,int n){
 	return(t2+t1*(2*n-t1-1)/2);
 }
 
+// this function inspects if there are multiple ways between two nodes in the transfrag; finds the first node like this and distributes the abundance of the transfrag between the two nodes in proportion to the edges that leave the first node
 bool trf_real(int t,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag, GIntHash<int> &gpos,int gno) {
 
-
-	int i=0;
-	int nt=transfrag[t]->nodes.Count()-1;
-	int n=transfrag[t]->nodes[i];
+	int i=0; // index of the current node (the one I am looking at) in transfrag
+	int nt=transfrag[t]->nodes.Count()-1; // index of last node in transfrag
+	int n=transfrag[t]->nodes[i]; // start at first node in transfrag
 	float totalcov=0;
 	while(i<nt) {
 		//fprintf(stderr,"trf=%d n=%d nextnode=%d\n",t,n,transfrag[t]->nodes[i+1]);
-		if(n+1==transfrag[t]->nodes[i+1]) {
+		if(n+1==transfrag[t]->nodes[i+1]) { // if next node in transfrag is adjacent -> there is only one way to continue on transfrag path
 			n=transfrag[t]->nodes[i+1];
 			i++;
 		}
-		else {
+		else { // there might be multiple ways to reach next node from node
 			int *pos=gpos[edge(n,transfrag[t]->nodes[i+1],gno)];
-			if(pos && transfrag[t]->pattern[*pos]) {
+			if(pos && transfrag[t]->pattern[*pos]) { // if there is an edge between node and nextnode in transfrag -> I don't have discontinuity there
 				n=transfrag[t]->nodes[i+1];
 				i++;
 			}
 			else { // found a potential discontinuity in transfrag pattern --> try to see if there are different branches going on from here
 				CGraphnode *node=no2gnode[n];
 				int nextnode=transfrag[t]->nodes[i+1];
-				int ntrf=node->trf.Count();
-				int np=0;
-				totalcov=0;
+				int ntrf=node->trf.Count(); // total number of transfrags in node
+				int np=0;  // upper bound on number of paths I can find from node to nextnode
+				totalcov=0; // total abundance of transfrags going from node to children of node
+
 				//fprintf(stderr,"%d transcripts of node %d:",ntrf,n);
 				//for(int f=0;f<ntrf;f++) fprintf(stderr," %d",node->trf[f]);
 				//fprintf(stderr,"\n");
 
+				// I check if there are different paths to reach nextnode from node
 				for(int j=0;j<node->child.Count();j++) {
-					if(node->child[j]>nextnode) break;
-					if(node->child[j]==nextnode || no2gnode[node->child[j]]->childpat[nextnode]) {
+					if(node->child[j]>nextnode) break; // if child of node is after nextnode -> I don't care
+					if(node->child[j]==nextnode || no2gnode[node->child[j]]->childpat[nextnode]) { // I found a node on the path to nextnode
 						CPath p(n,node->child[j]);
 						int *pos=gpos[edge(n,node->child[j],gno)];
 						//fprintf(stderr,"Consider n=%d and child=%d with pos=%d and transcripts: ",n,node->child[j],*pos);
 						if(pos) for(int f=0;f<ntrf;f++) {
 							//fprintf(stderr," %d(%f)",node->trf[f],transfrag[node->trf[f]]->abundance);
-							if(transfrag[node->trf[f]]->pattern[*pos]) {
+							if(transfrag[node->trf[f]]->pattern[*pos]) { // this is a transfrag that goes through node and child; ATTENTION: it might not reach nextnode!! or be compatible with nextnode
 								p.abundance+=transfrag[node->trf[f]]->abundance;
 								totalcov+=transfrag[node->trf[f]]->abundance;
 							}
@@ -3015,13 +3017,14 @@ bool trf_real(int t,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag, GI
 					if(n==nextnode) i++;
 					transfrag[t]->path.Clear();
 				}
-				else break;
+				else break; // break at first discontinue point in transfrag -> might be many other ways to continue but this functions doesn't care
 			}
 		}
 	}
 	if(i==nt) return true;
 
-	for(int j=0;j<transfrag[t]->path.Count();j++) transfrag[t]->path[j].abundance*=transfrag[t]->abundance/totalcov;
+	// this implementation only assumes one break in transfrag
+	for(int j=0;j<transfrag[t]->path.Count();j++) transfrag[t]->path[j].abundance/=totalcov;
 
 	return false;
 }
@@ -3108,7 +3111,7 @@ void process_transfrags(int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTr
 	}
 	*/
 
-	GVec<int> incompletetrf;
+	GVec<int> incompletetrf; //remembers incomplete transfrags (the ones that don't have edges between two consecutive nodes
 
 	// create compatibilities
 	for(int t1=0;t1<transfrag.Count();t1++) { // transfrags are processed in increasing order -> important for the later considerations
@@ -7609,24 +7612,16 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 				if(istranscript[t] || ((pathpat & transfrag[t]->pattern)==transfrag[t]->pattern)) { // transcript on path
 					istranscript[t]=1;
 
-					//fprintf(stderr,"istranscript[%d] with path[%d]=%d and nodes[0]=%d and nodes[last]=%d\n",t,i,path[i],transfrag[t]->nodes[0],transfrag[t]->nodes.Last());
+					//fprintf(stderr,"istranscript[%d] with abund=%f and path[%d]=%d and nodes[0]=%d and nodes[last]=%d\n",t,transfrag[t]->abundance,i,path[i],transfrag[t]->nodes[0],transfrag[t]->nodes.Last());
 
 					if(i==1 || transfrag[t]->nodes[0]==path[i]) { // first time I encounter transfrag I have to set what abundance to use
-						if(!transfrag[t]->real) {
-							if(!transfrag[t]->real) { // if I still didn't solve transfrag
-								bool found=false;
-								for(int p=0;p<transfrag[t]->path.Count();p++) {
-									int *pos=gpos[edge(transfrag[t]->path[p].node,transfrag[t]->path[p].contnode,gno)];
-									if(pos && pathpat[*pos]) {
-										found=true;
-										transfrag[t]->usepath=p; // this is path dependent
-										break;
-									}
-								}
-								if(!found) {
-									//GError("No path matching transcript found!\n"); // this shouldn't happen but sometimes it does because there are unsupported edges in graph
-									transfrag[t]->usepath=-1;
-									//transfrag[t]->real=true;
+						if(!transfrag[t]->real) { // if I still didn't solve transfrag
+							transfrag[t]->usepath=-1;
+							for(int p=0;p<transfrag[t]->path.Count();p++) {
+								int *pos=gpos[edge(transfrag[t]->path[p].node,transfrag[t]->path[p].contnode,gno)];
+								if(pos && pathpat[*pos]) {
+									transfrag[t]->usepath=p; // this is path dependent
+									break;
 								}
 							}
 						}
@@ -7637,13 +7632,16 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 						sumleft[i]+=transfrag[t]->abundance;
 						if(transfrag[t]->real) capacityleft[i]+=transfrag[t]->abundance;
 						else if(transfrag[t]->usepath>-1)
-							capacityleft[i]+=transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+							capacityleft[i]+=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+
+						//fprintf(stderr,"add transfrag t=%d i=%d sumleft=%f capacityleft=%f\n",t,i,sumleft[i],capacityleft[i]);
 					}
 					if(transfrag[t]->nodes.Last()>path[i]) { // transfrag ends after this node
 						sumright[i]+=transfrag[t]->abundance;
 						if(transfrag[t]->real) capacityright[i]+=transfrag[t]->abundance;
 						else if(transfrag[t]->usepath>-1)
-							capacityright[i]+=transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+							capacityright[i]+=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+						//fprintf(stderr,"add transfrag t=%d i=%d sumright=%f capacityright=%f\n",t,i,sumright[i],capacityright[i]);
 					}
 				}
 				else { // transfrag not on path
@@ -7698,9 +7696,12 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 	if(!prevflow) return(0);
 
 	for(int i=n-2;i>0;i--) {
+		//fprintf(stderr,"i=%d sumright=%f prevflow=%f\n",i,sumright[i],prevflow);
 		nodeflux[i]=prevflow/sumright[i];
+		//fprintf(stderr,"nodeflux=%f\n",nodeflux[i]);
 		capacityright[i]=prevflow;
 		prevflow=nodeflux[i]*sumleft[i];
+		//fprintf(stderr,"i=%d sumright=%f sumleft=%f prevflow=%f capacityright=%f nodeflux=%f\n",i,sumright[i],sumleft[i],prevflow,capacityright[i],nodeflux[i]);
 		//capacityleft[i]=prevflow; // I don't use this
 	}
 
@@ -7714,7 +7715,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 				float trabundance=transfrag[t]->abundance;
 				if(!transfrag[t]->real) {
 					if(transfrag[t]->usepath>-1)
-						trabundance=transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+						trabundance=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
 					else trabundance=0;
 				}
 
@@ -7742,10 +7743,13 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 					else {
 						//fprintf(stderr,"Update capacity of transfrag[%d] with value=%f to %f\n",t,transfrag[t]->abundance,transfrag[t]->abundance-capacityright[i]);
 						transfrag[t]->abundance-=capacityright[i];
-						if(transfrag[t]->abundance<epsilon) transfrag[t]->abundance=0;
+						if(transfrag[t]->abundance<epsilon) {
+							transfrag[t]->abundance=0;
+						}
 						else if(!transfrag[t]->real) {
-							transfrag[t]->path[int(transfrag[t]->usepath)].abundance-=capacityright[i];
-							if(transfrag[t]->path[int(transfrag[t]->usepath)].abundance<epsilon) {
+							//transfrag[t]->path[int(transfrag[t]->usepath)].abundance-=capacityright[i]; // not needed anymore because this stores proportions not actual abundances
+							//if(transfrag[t]->path[int(transfrag[t]->usepath)].abundance<epsilon) {
+							if(transfrag[t]->path[int(transfrag[t]->usepath)].abundance*transfrag[t]->abundance-capacityright[i]<epsilon) {
 								transfrag[t]->path[int(transfrag[t]->usepath)].abundance=0;
 								if(transfrag[t]->path.Count()-1 < 2) transfrag[t]->real=true;
 								else {
@@ -7756,6 +7760,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 								}
 							}
 						}
+
 						int n2=node2path[transfrag[t]->nodes.Last()];
 						for(int k=i+1;k<n2;k++) {
 							capacityright[k]-=capacityright[i];
@@ -8236,6 +8241,7 @@ float guidepushflow(int g,GVec<CGuide>& guidetrf,int gno,GBitVec& istranscript,G
 
 					if(capacityright[i]>trabundance) {
 						//fprintf(stderr,"Update capacity of transfrag[%d] with value=%f to 0\n",t,transfrag[t]->abundance);
+						//if(!transfrag[t]->real) fprintf(stderr,"Trf[%d] not real.\n",t);
 						capacityright[i]-=trabundance;
 						int n2=node2path[transfrag[t]->nodes.Last()];
 						for(int k=i+1;k<n2;k++) {
@@ -8247,6 +8253,7 @@ float guidepushflow(int g,GVec<CGuide>& guidetrf,int gno,GBitVec& istranscript,G
 					}
 					else if(capacityright[i]) {
 						//fprintf(stderr,"Update capacity of transfrag[%d] with value=%f to %f\n",t,transfrag[t]->abundance,transfrag[t]->abundance-capacityright[i]);
+						//if(!transfrag[t]->real) fprintf(stderr,"Trf[%d] not real.\n",t);
 						transfrag[t]->abundance-=capacityright[i];
 						if(transfrag[t]->abundance<epsilon) transfrag[t]->abundance=0;
 						else {
@@ -9161,7 +9168,7 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 		// push
 		float usedcov=nodecov[path[i]]*nodeflux[i]*(node->end-node->start+1);
 
-		//fprintf(stderr,"usedcov=%f for transcript %s nodecov[path[%d]]=%f nodeflux[%d]=%f node->end=%d node->start=%d\n",usedcov,t->getID(),i,nodecov[path[i]],i,nodeflux[i],node->end,node->start);
+		//fprintf(stderr,"usedcov=%f for nodecov[path[%d]]=%f nodeflux[%d]=%f node->end=%d node->start=%d\n",usedcov,i,nodecov[path[i]],i,nodeflux[i],node->end,node->start);
 
 
 		nodecov[path[i]]*=(1-nodeflux[i]); // don't allow this to be less than 0
@@ -9233,7 +9240,9 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 
 		cov+=usedcov;
 
+		//fprintf(stderr,"Add usedcov=%g to excov=%g = %g\n",usedcov,excov,excov+usedcov);
 		excov+=usedcov;
+
 		//if(node->cov) fragno+=node->frag*usedcov/node->cov;
 
 		prevnode=node;
@@ -9282,8 +9291,11 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 		/*
 		{ // DEBUG ONLY
 			fprintf(stderr,"Store transcript with coverage %f \n",gcov);
+			fprintf(stderr,"And exons cov:");
+			for(int e=0;e<exons.Count();e++) fprintf(stderr," %g",exoncov[e]);
+			fprintf(stderr,"\n");
 		}
-		*/
+	    */
 
 		CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, gcov, sign, len);
 		p->exons=exons;
@@ -9331,6 +9343,7 @@ void update_guide_pred(GList<CPrediction>& pred,int np, GVec<int>& path,GVec<flo
 				pred[np]->exoncov[e]+=excov/pred[np]->exons[e].len();
 				pred[np]->cov+=excov/pred[np]->tlen;
 				e++;
+				//fprintf(stderr,"guide=%d exoncov[%d]=%g\n",np,e,pred[np]->exoncov[e]);
 			}
 		}
 	}
@@ -12350,13 +12363,13 @@ int build_graphs(BundleData* bdata) {
 
 	//int **readgroup = new int*[readlist.Count()];
 
-
+/*
 #ifdef GMEMTRACE
 	double vm,rsm;
 	get_mem_usage(vm, rsm);
 	GMessage("\t\tM(s):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-
+*/
 
 	//float fraglen=0;
 	//uint fragno=0;
@@ -12438,7 +12451,7 @@ int build_graphs(BundleData* bdata) {
 				//update_junction_counts(rd,bpcov,refstart);
 				update_junction_counts(rd);
 				keep=false;
-				rd.nh=0;
+				rd.nh=0; // I could make it negative to mark somehow that the read was not added to a group -> define as unreliable
 				//fprintf(stderr," - %c -",jd.strand);
 				break;
 			}
@@ -13153,13 +13166,13 @@ int build_graphs(BundleData* bdata) {
     	}
     	*/
 
-
+/*
 #ifdef GMEMTRACE
     	double vm,rsm;
     	get_mem_usage(vm, rsm);
     	GMessage("\t\tM(after graphs created):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-
+*/
 
 		// I can clean up some data here:
     	for(int sno=0;sno<3;sno++) {
@@ -13195,13 +13208,13 @@ int build_graphs(BundleData* bdata) {
     	}
 
 
-
+/*
 #ifdef GMEMTRACE
     	//double vm,rsm;
     	get_mem_usage(vm, rsm);
     	GMessage("\t\tM(read patterns counted):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-
+*/
     	// shouldn't readlist be also cleared up here? maybe bpcov too?
 
     	// don't forget to clean up the allocated data here
@@ -13262,15 +13275,15 @@ int build_graphs(BundleData* bdata) {
     					}
 
     				}
-    				*/
+					*/
 
-
+/*
 #ifdef GMEMTRACE
     				double vm,rsm;
     				get_mem_usage(vm, rsm);
     				GMessage("\t\tM(after process_transfrags):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-
+*/
 
     				//fprintf(stderr,"guidetrf no=%d\n",guidetrf.Count());
 
@@ -13288,13 +13301,13 @@ int build_graphs(BundleData* bdata) {
     				}
     				*/
 
-
+/*
 #ifdef GMEMTRACE
     				//double vm,rsm;
     				get_mem_usage(vm, rsm);
     				GMessage("\t\tM(after processed transcripts):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
-
+*/
 
 
     			}
@@ -15171,6 +15184,7 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 					  }
 					  g.cov+=pred[n]->cov*pred[n]->tlen;
 					  g.covsum+=pred[n]->cov;
+					  //fprintf(stderr,"3:add pred[%d]'s coverage=%g to gene cov\n",n,pred[n]->cov);
 					  predgene.Add(g);
 				  }
 				  else { // I've seen this gene before
@@ -15179,6 +15193,7 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 					  merge_exons(predgene[gno],pred[n]->exons);
 					  predgene[gno].cov+=pred[n]->cov*pred[n]->tlen;
 					  predgene[gno].covsum+=pred[n]->cov;
+					  //fprintf(stderr,"4:add pred[%d]'s coverage=%g to gene cov\n",n,pred[n]->cov);
 				  }
 			  }
 			  // annotated
@@ -15195,10 +15210,14 @@ int print_cluster(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcrip
 
 					  }
 					  else {
-						  bigsumcov+=pred[n]->cov;
+
+						  //fprintf(stderr,"1:add pred[%d]'s coverage=%g\n",n,pred[n]->cov);
+
+						  bigsumcov+=pred[n]->cov; // I am adding to cov_sum the reference transcript's coverage --> isn't this double counting?
 					  }
 				  }
 				  else {
+					  //fprintf(stderr,"2:add pred[%d]'s coverage=%g\n",n,pred[n]->cov);
 					  bigsumcov+=pred[n]->cov;
 				  }
 			  }
@@ -16005,10 +16024,11 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 			}
 
 			if(eonly) bundleData->sum_cov+=refgene[i].covsum;
-			else {
+			else { // for eonly I only use the annotated transcripts, nothing more
 				refgene[i].cov=cov-refgene[i].cov;
 				if(refgene[i].cov>epsilon) refgene[i].covsum+=refgene[i].cov/glen;
 			}
+
 
 			if(geneabundance) {
 				if(!eonly) refgene[i].cov=cov/glen; // only if I want to store the real gene coverage
@@ -16054,7 +16074,7 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 					}
 				}
 			}
-			predgene[i].cov=cov-predgene[i].cov;
+			predgene[i].cov=cov-predgene[i].cov; // THIS is the read coverage that is left for the genes after all the predictions were taken into account
 			if(predgene[i].cov>epsilon) predgene[i].covsum+=predgene[i].cov/glen;
 			bundleData->sum_cov+=predgene[i].covsum;
 			if(geneabundance) {

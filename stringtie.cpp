@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.2d"
+#define VERSION "1.3.3" 
 
 //#define DEBUGPRINT 1
 
@@ -749,7 +749,7 @@ if(!mergeMode) {
 	args.printCmdLine(f_out);
 	fprintf(f_out,"# StringTie version %s\n",VERSION);
 
-	//fprintf(stderr,"cov_sum=%f\n",Cov_Sum);
+	//fprintf(stderr,"cov_sum=%g frag_len=%g num_frag=%g\n",Cov_Sum,Frag_Len,Num_Fragments);
 
 	FILE *g_out=NULL;
 	if(geneabundance) {

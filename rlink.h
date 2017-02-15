@@ -117,7 +117,7 @@ struct CTransfrag {
 	GBitVec pattern;
 	float abundance;
 	bool real;
-	GVec<CPath> path;
+	GVec<CPath> path; // stores all the possible paths that leave from a node to reach next node in a transfrag, and distributes the abundance of the transfrag between all possible continuations
 	float usepath;
 	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false):nodes(_nodes),pattern(bit),abundance(abund),real(treal),path(),usepath(-1) {}
 	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal),path(),usepath(-1) {
