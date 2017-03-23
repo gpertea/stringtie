@@ -1490,7 +1490,7 @@ void GffObj::copyAttrs(GffObj* from) { //typically from is the parent gene, and 
 		bool haveit=false;
 		for (int ai=0;ai<this->attrs->Count();++ai) {
 			//do we have it already?
-			if (aid==this->attrs->Get(i)->attr_id) {
+			if (aid==this->attrs->Get(ai)->attr_id) {
 				haveit=true;
 				break; //skip this, don't replace
 			}

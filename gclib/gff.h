@@ -340,7 +340,7 @@ enum GffPrintMode {
 
 class GffAttrs:public GList<GffAttr> {
   public:
-    GffAttrs():GList<GffAttr>(false,true,false) { }
+    GffAttrs():GList<GffAttr>(false,true,true) { }
     void add_or_update(GffNames* names, const char* attrname, const char* val) {
       int aid=names->attrs.getId(attrname);
       if (aid>=0) {
