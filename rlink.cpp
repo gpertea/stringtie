@@ -13478,7 +13478,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 			//if(rd.juncs.Count()) {
 			int m=n+1;
 			while(m<nreads && readlist[m]->start<=rd.segs[0].end) {
-				if(readlist[m]->nh && readlist[m]->tinfo->g==-1 && readlist[m]->juncs.Count()==rd.juncs.Count()) {
+				if(readlist[m]->nh && readlist[m]->strand==rd.strand && readlist[m]->tinfo->g==-1 && readlist[m]->juncs.Count()==rd.juncs.Count()) {
 					bool samejuncs=true;
 					for(int i=0;i<rd.juncs.Count();i++)
 						if(rd.juncs[i]!=readlist[m]->juncs[i]) {
@@ -15507,7 +15507,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 		//fprintf(stderr,"\n");
 		int m=n+1;
 		while(m<npred && pred[m]->start<=pred[n]->end+bundledist) { // prediction m overlaps prediction n or is very close by
-			if(keep[m]) {
+			if(keep[m] && equal_strand(pred[n],pred[m])) {
 				if(pred[m]->start<=pred[n]->end) { // predicions actually overlap
 					if(!pred[n]->t_eq && ((pred[m]->exons.Count()>1 && pred[n]->cov<isofrac*pred[m]->cov) ||
 							(pred[n]->exons.Count()==1 && pred[n]->cov<pred[m]->cov))) { // only eliminate prediction if it's not guide
@@ -15521,7 +15521,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 				}
 				else // pred[m] is within bundledist of pred[n] -> see if we can merge them
-					if((pred[n]->exons.Count()==1 || pred[m]->exons.Count()==1) && equal_strand(pred[n],pred[m])) {
+					if(pred[n]->exons.Count()==1 || pred[m]->exons.Count()==1) {
 
 						//fprintf(stderr," pred[%d] of len=%d eliminated pred[%d] of len=%d and cov %g %c:",n,pred[n]->tlen,m,pred[m]->tlen,pred[m]->cov,pred[m]->strand);
 						//for(int e=0;e<pred[m]->exons.Count();e++) fprintf(stderr," %d-%d",pred[m]->exons[e].start,pred[m]->exons[e].end);
