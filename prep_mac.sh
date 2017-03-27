@@ -15,5 +15,5 @@ cp -p LICENSE README stringtie $macpack/
 tar cvfz $macpack.tar.gz $macpack
 ls -l $macpack.tar.gz
 #echo "If you're on igmN machines you can also update the web files:"
-echo "scp $macpack.tar.gz  igm3:~/html/software/stringtie/dl/"
+echo "scp $macpack.tar.gz  salz:~/html/software/stringtie/dl/"
 #echo "perl -i -pe 's/stringtie-[0123]\.\d+\./stringtie-$ver./g' ~/html/software/stringtie/index.shtml"
