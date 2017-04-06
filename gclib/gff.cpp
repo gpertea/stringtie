@@ -380,6 +380,11 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 	 else if (is_transcript) {
 		ID=extractAttr("transcript_id", true, true);
 		//gene_id=extractAttr("gene_id"); // for GTF this is the only attribute accepted as geneID
+		 if (ID==NULL) {
+			 	 //something is wrong here, cannot parse the GTF ID
+				 GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n", l);
+				 return;
+		 }
 		Parent=extractAttr("gene_id");
 		reader->gtf_transcript=true;
 		is_gtf_transcript=1;
@@ -402,10 +407,12 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 				 }
 			 }
 		 }
+		 if (Parent==NULL) {
+			 	 //something is wrong here, cannot parse the GTF ID
+				 GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n", l);
+				 return;
+		 }
 	 }
-	 if (Parent==NULL && (is_transcript || exontype>0))
-		 	 //something is wrong here, cannot parse the GTF ID
-			 GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n", l);
 	 //more GTF attribute parsing
 	 gene_name=extractAttr("gene_name");
 	 if (gene_name==NULL) {
