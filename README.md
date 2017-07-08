@@ -1,4 +1,4 @@
-##Obtaining and installing StringTie
+## Obtaining and installing StringTie
 
 The current version of StringTie can also be downloaded from
   http://ccb.jhu.edu/software/stringtie
@@ -17,7 +17,7 @@ which is more suitable for debugging and runtime checking but which can be
 significantly slower than the optimized version which is obtained by using 
 `make release`.
 
-##Running StringTie
+## Running StringTie
 
 Run stringtie from the command line like this:
 '''
@@ -79,7 +79,7 @@ usage mode the following options are available:
   -l <label>       name prefix for output transcripts (default: MSTRG)
 ```
 
-##Input files
+## Input files
 
 
 StringTie takes as input a binary SAM (BAM) file sorted by reference position. 
