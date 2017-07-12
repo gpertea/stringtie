@@ -69,9 +69,9 @@ usage mode the following options are available:
   -c <min_cov>     minimum input transcript coverage to include in the merge
                     (default: 0)
   -F <min_fpkm>    minimum input transcript FPKM to include in the merge
-                    (default: 0)
+                    (default: 1.0)
   -T <min_tpm>     minimum input transcript TPM to include in the merge
-                    (default: 0)
+                    (default: 1.0)
   -f <min_iso>     minimum isoform fraction (default: 0.01)
   -g <gap_len>     gap between transcripts to merge together (default: 250)
   -i               keep merged transcripts with retained introns; by default
