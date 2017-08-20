@@ -525,17 +525,14 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			bundle->getReady(currentstart, currentend);
 #ifndef NOTHREADS
 			//push this in the bundle queue where it'll be picked up by the threads
-			DBGPRINT2("##> Locking queueMutex to push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
 			int qCount=0;
 			queueMutex.lock();
 			bundleQueue.Push(bundle);
 			bundleWork |= 0x02; //set bit 1
 			qCount=bundleQueue.Count();
 			queueMutex.unlock();
-			DBGPRINT2("##> bundleQueue.Count()=%d)\n", qCount);
 			//wait for a thread to pop this bundle from the queue
 			waitMutex.lock();
-			DBGPRINT("##> waiting for a thread to become available..\n");
 			while (threadsWaiting==0) {
 				haveThreads.wait(waitMutex);
 			}
@@ -825,11 +822,10 @@ if(!mergeMode) {
 	}
 }
 
- if (!keepTempFiles) {
+if (!keepTempFiles) {
    tmp_path.chomp('/');
    remove(tmp_path);
- }
-
+}
 
  gffnames_unref(gseqNames); //deallocate names collection
 
@@ -1181,7 +1177,6 @@ void noMoreBundles() {
 		   areThreadsWaiting=(threadsWaiting>0);
 		  waitMutex.unlock();
 		  if (areThreadsWaiting) {
-		    DBGPRINT("##> NOTIFY ALL workers: no more data!\n");
 		    haveBundles.notify_all();
 		    this_thread::sleep_for(chrono::milliseconds(10));
 		    waitMutex.lock();
@@ -1200,10 +1195,10 @@ void processBundle(BundleData* bundle) {
 	#ifndef NOTHREADS
 			GLockGuard<GFastMutex> lock(logMutex);
 	#endif
-		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%lu) (%d guides) loaded, begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
-                bundle->keepguides.Count());
+	printTime(stderr);
+	GMessage(">bundle %s:%d-%d(%lu) (%d guides) loaded, begins processing...\n",
+		bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
+		bundle->keepguides.Count());
 #ifdef GMEMTRACE
 		double vm,rsm;
 		get_mem_usage(vm, rsm);
@@ -1215,32 +1210,6 @@ void processBundle(BundleData* bundle) {
 		}
 #endif
 	}
-#ifdef B_DEBUG
-	for (int i=0;i<bundle->keepguides.Count();++i) {
-		GffObj& t=*(bundle->keepguides[i]);
-		RC_TData* tdata=(RC_TData*)(t.uptr);
-		fprintf(dbg_out, ">%s (t_id=%d) %s%c %d %d\n", t.getID(), tdata->t_id, t.getGSeqName(), t.strand, t.start, t.end );
-		for (int fe=0;fe < tdata->t_exons.Count(); ++fe) {
-			RC_Feature& exoninfo = *(tdata->t_exons[fe]);
-			fprintf(dbg_out, "%d\texon\t%d\t%d\t%c\t%d\t%d\n", exoninfo.id, exoninfo.l, exoninfo.r,
-					    exoninfo.strand, exoninfo.rcount, exoninfo.ucount);
-			if (! (exoninfo==*(bundle->rc_data->guides_RC_exons->Get(exoninfo.id-1))))
-				 GError("exoninfo with id (%d) not matching!\n", exoninfo.id);
-		}
-		for (int fi=0;fi < tdata->t_introns.Count(); ++fi) {
-			RC_Feature& introninfo = *(tdata->t_introns[fi]);
-			fprintf(dbg_out, "%d\tintron\t%d\t%d\t%c\t%d\t%d\n", introninfo.id, introninfo.l, introninfo.r,
-					introninfo.strand, introninfo.rcount, introninfo.ucount);
-			if (! (introninfo==*(bundle->rc_data->guides_RC_introns->Get(introninfo.id-1))))
-				 GError("introninfo with id (%d) not matching!\n", introninfo.id);
-		}
-		//check that IDs are properly assigned
-		if (tdata->t_id!=(uint)t.udata) GError("tdata->t_id(%d) not matching t.udata(%d)!\n",tdata->t_id, t.udata);
-		if (tdata->t_id!=bundle->rc_data->guides_RC_tdata->Get(tdata->t_id-1)->t_id)
-			 GError("tdata->t_id(%d) not matching rc_data[t_id-1]->t_id (%d)\n", tdata->t_id, bundle->rc_data->g_tdata[tdata->t_id-1]->t_id);
-
-	}
-#endif
 	int ngenes=infer_transcripts(bundle);
 
 	if (ballgown && bundle->rc_data) {
@@ -1307,11 +1276,8 @@ bool noThreadsWaiting() {
 void workerThread(GThreadData& td) {
 	GPVec<BundleData>* bundleQueue = (GPVec<BundleData>*)td.udata;
 	//wait for a ready bundle in the queue, until there is no hope for incoming bundles
-	DBGPRINT2("---->> Thread%d starting..\n",td.thread->get_id());
-	DBGPRINT2("---->> Thread%d locking queueMutex..\n",td.thread->get_id());
 	queueMutex.lock(); //enter wait-for-notification loop
 	while (bundleWork) {
-		DBGPRINT3("---->> Thread%d: waiting.. (queue len=%d)\n",td.thread->get_id(), bundleQueue->Count());
 		waitMutex.lock();
 		 threadsWaiting++;
 		queueMutex.unlock();
@@ -1326,7 +1292,6 @@ void workerThread(GThreadData& td) {
 		waitMutex.lock();
 		if (threadsWaiting>0) threadsWaiting--;
 		waitMutex.unlock();
-		DBGPRINT3("---->> Thread%d: awakened! (queue len=%d)\n",td.thread->get_id(),bundleQueue->Count());
 		BundleData* readyBundle=NULL;
 		if ((bundleWork & 0x02)!=0 && (readyBundle=bundleQueue->Pop())!=NULL) { //is bit 1 set?
 				if (bundleQueue->Count()==0)
@@ -1335,20 +1300,17 @@ void workerThread(GThreadData& td) {
 				//Frag_Len+=readyBundle->frag_len;
 				queueMutex.unlock();
 				processBundle(readyBundle);
-				DBGPRINT2("---->> Thread%d processed bundle, now locking back queueMutex\n", td.thread->get_id());
 				dataMutex.lock();
 				dataClear.Push(readyBundle->idx);
 				dataMutex.unlock();
 				haveClear.notify_one(); //inform main thread
 				this_thread::yield();
 				queueMutex.lock();
-				DBGPRINT2("---->> Thread%d locked back queueMutex\n", td.thread->get_id());
 
 		}
 		//haveThreads.notify_one();
 	} //while there is reason to live
 	queueMutex.unlock();
-	DBGPRINT2("---->> Thread%d DONE.\n", td.thread->get_id());
 }
 
 bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount) {
@@ -1356,7 +1318,6 @@ bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount) {
   queueMutex.lock();
    c=bundleQueue.Count();
   queueMutex.unlock();
-  DBGPRINT3("##> post-notification check: qlen is now %d (was %d)\n", c, prevCount);
   return (c==0 || c<prevCount);
 }
 

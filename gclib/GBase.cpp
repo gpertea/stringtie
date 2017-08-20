@@ -1,5 +1,8 @@
 #include "GBase.h"
 #include <stdarg.h>
+#ifdef GDEBUG
+#include <execinfo.h>
+#endif
 #include <ctype.h>
 #include <errno.h>
 
@@ -62,6 +65,42 @@ void GAssert(const char* expression, const char* filename, unsigned int lineno){
   #endif
   exit(1);
 }
+#ifdef GDEBUG
+void show_backtrace() {
+  void *trace[24];
+  char **messages = (char **)NULL;
+  int i, trace_size = 0;
+  trace_size = backtrace(trace, 24);
+  // trace[1] = (void *)ctx.eip; ?? we don't have this
+  messages = backtrace_symbols(trace, trace_size);
+  // skip first stack frame (points here)
+  printf(">>> Backtrace:\n");
+  for (i=2; i<trace_size; ++i)  {
+    //printf("#%d %s\n", i, messages[i]);
+    // find first occurence of '(' or ' ' in message[i] and assume
+    // everything before that is the file name.
+    int p = 0;
+    if (strstr(messages[i], "/libc.")!=NULL) break;
+    while(messages[i][p] != '(' && messages[i][p] != ' '
+            && messages[i][p] != 0)
+        ++p;
+    char outbuf[1024];
+    char syscom[1024];
+    sprintf(syscom,"addr2line %p -e %.*s", trace[i], p, messages[i]);
+        //last parameter is the file name of the symbol
+    //system(syscom);
+    FILE* pipe=popen(syscom, "r");
+    if (!pipe) { GMessage("Error: cannot open addr2line pipe!\n"); exit(1); }
+    fgets(outbuf, 1023, pipe);
+    outbuf[1023]='\0';
+    pclose(pipe);
+    GMessage("#%d: %s", i-1, outbuf);
+  }
+  // print out all the frames to stderr
+  //GMessage("Backtrace:\n");
+  //backtrace_symbols_fd(array, size, STDERR_FILENO);
+}
+#endif
 
 // Error routine (prints error message and exits!)
 void GError(const char* format,...){
@@ -80,9 +119,10 @@ void GError(const char* format,...){
     va_start(arguments,format);
     vfprintf(stderr,format,arguments);
     va_end(arguments);
-    #ifdef DEBUG
-     // modify here if you [don't] want a core dump
-     abort();
+    #ifdef GDEBUG
+      show_backtrace();
+      // call abort to get a core dump
+      abort();
     #endif
   #endif
     exit(1);

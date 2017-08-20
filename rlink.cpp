@@ -15705,7 +15705,6 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 	GVec<CGene> refgene;
 	GHash<int> hashgene;
 	int startgno=geneno+1;
-
 	// process predictions that equal the same single exon guide and stich them together
 	GPVec<GffObj>& guides = bundleData->keepguides;
 	if(guides.Count()) {
