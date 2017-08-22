@@ -114,7 +114,9 @@ void cov_add(GVec<float>* bpcov, int sno, int i, int j, float v) {
 	if(sno!=1) neutral=true; // why is neutral true here: because if the sno is -/+ than I want to add their counts to bpcov[1] too
 	if (j>=bpcov[sno].Count())
 		for(int s=0;s<3;s++) bpcov[s].Resize(j+1, 0);
+	GMessage("bpcov[sno=%d] size=%d; Looping k from %d to %d\n", sno, bpcov[sno].Count(), i, j);
 	for (int k=i;k<=j;k++) {
+		GMessage("   k=%d (adding v=%f)\n", k, v);
 		bpcov[sno][k]+=v;
 		if(neutral) bpcov[1][k]+=v; // neutral (stranded) gets added twice here
 	}
