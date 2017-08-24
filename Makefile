@@ -42,7 +42,7 @@ EXE =
 endif
 
 
-BASEFLAGS  := -Wall -Wextra ${INCDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 \
+BASEFLAGS  := -Wall -Wextra ${INCDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 -fsigned-char \
 -D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti
 
 # C/C++ linker

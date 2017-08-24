@@ -46,7 +46,7 @@ extern bool retained_intron;
 
 extern FILE* f_out;
 extern GStr label;
-
+//bool p8debug=false;
 
 void printTime(FILE* f) {
 	time_t ltime; /* calendar time */
@@ -114,9 +114,9 @@ void cov_add(GVec<float>* bpcov, int sno, int i, int j, float v) {
 	if(sno!=1) neutral=true; // why is neutral true here: because if the sno is -/+ than I want to add their counts to bpcov[1] too
 	if (j>=bpcov[sno].Count())
 		for(int s=0;s<3;s++) bpcov[s].Resize(j+1, 0);
-	GMessage("bpcov[sno=%d] size=%d; Looping k from %d to %d\n", sno, bpcov[sno].Count(), i, j);
+	//if (p8debug) GMessage("bpcov[sno=%d] size=%d; Looping k from %d to %d\n", sno, bpcov[sno].Count(), i, j);
 	for (int k=i;k<=j;k++) {
-		GMessage("   k=%d (adding v=%f)\n", k, v);
+		//if (p8debug) GMessage("   k=%d (adding v=%f)\n", k, v);
 		bpcov[sno][k]+=v;
 		if(neutral) bpcov[1][k]+=v; // neutral (stranded) gets added twice here
 	}
@@ -128,7 +128,6 @@ float getBCov(GVec<float>& bpcov, int p) {
 	if (p>=bpcov.Count()) return 0;
 	else return bpcov[p];
 }
-
 
 bool maxCovReached(int currentstart, GBamRecord& brec, BundleData& bdata) { // coverage saturation is reached if read spans no portion of saturation less than maxReadCov
 	for (int i=0;i<brec.exons.Count();i++) {
@@ -14096,7 +14095,10 @@ void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* 
 		GVec<uint> rightsup;
 		uint maxleftsupport=0;
 		uint maxrightsupport=0;
+
 		int sno=(int)rd.strand+1; // 0(-),1(.),2(+)
+		if (n==221)
+		   GMessage("Read #%d : rd.strand=%d sno=%d\n", n, rd.strand, sno);
 		//if(nex>1) fprintf(stderr,"Process spliced read[%d]: ",n);
 		for(int i=0;i<nex;i++) {
 			//if(nex>1) fprintf(stderr," %d-%d",rd.segs[i].start,rd.segs[i].end);

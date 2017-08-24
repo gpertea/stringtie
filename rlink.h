@@ -570,7 +570,6 @@ struct BundleData {
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata);
-		 //GBamRecord& brec, char strand, int nh, int hi);
 
 void countFragment(BundleData& bdata, GBamRecord& brec, int hi,int nh);
 
