@@ -6,7 +6,6 @@ GDIR :=./gclib
 
 INCDIRS := -I. -I${GDIR} -I${BAM}
 
-#CC := clang++
 CC      := g++
 
 
@@ -29,7 +28,7 @@ endif
 
 # Misc. system commands
 #ifdef WINDOWS
-#RM = del /Q
+RM = del /Q
 #else
 RM = rm -f
 #endif
@@ -42,12 +41,11 @@ EXE =
 endif
 
 
-BASEFLAGS  := -Wall -Wextra ${INCDIRS} $(MARCH) -D_FILE_OFFSET_BITS=64 \
+BASEFLAGS  := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
 -D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti
 
 # C/C++ linker
 
-#LINKER := clang++
 LINKER  := g++
 
 LIBS := -lbam -lz
@@ -120,10 +118,10 @@ endif
 
 OBJS += rlink.o tablemaker.o tmerge.o
  
-all release static debug: stringtie
-memcheck memdebug: stringtie
-memuse memusage memtrace: stringtie
-nothreads: stringtie
+all release static debug: stringtie${EXE}
+memcheck memdebug: stringtie${EXE}
+memuse memusage memtrace: stringtie${EXE}
+nothreads: stringtie${EXE}
 
 ${GDIR}/GBam.o : $(GDIR)/GBam.h
 stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHash.hh $(GDIR)/GBam.h
@@ -140,11 +138,9 @@ stringtie: ${BAM}/libbam.a $(OBJS) stringtie.o
 # target for removing all object files
 
 clean:
-	@${RM} stringtie stringtie.o* stringtie.exe $(OBJS)
-	@${RM} core.*
+	${RM} stringtie${EXE} stringtie.o*  $(OBJS)
+	${RM} core.*
 allclean cleanAll cleanall:
 	cd ${BAM} && make clean
-	@${RM} stringtie stringtie.o* stringtie.exe $(OBJS)
-	@${RM} core.*
-
-
+	${RM} stringtie${EXE} stringtie.o* $(OBJS)
+	${RM} core.*
