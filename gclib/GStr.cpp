@@ -971,8 +971,26 @@ GStr& GStr::append(const char* s) {
   return *this;
 }
 
+GStr& GStr::appendmem(const char* m, int len) {
+  if (len<=0) return *this;
+  make_unique(); //edit operation ahead
+  int newlength=len+my_data->length;
+  //if (newlength<=my_data->length) return *this;
+  if (my_data->length==0) {
+    replace_data(len);
+    ::memcpy(my_data->chars, m, len);
+    return *this;
+   }
+  //faster solution with realloc
+  GREALLOC(my_data, sizeof(Data)+newlength);
+  ::memcpy(&my_data->chars[my_data->length], m, len);
+  my_data->length=newlength;
+  my_data->chars[newlength]='\0';
+  return *this;
+}
+
 GStr& GStr::append(const GStr& s) {
- return append((const char *)s);
+ return appendmem(s.chars(), s.length());
 }
 
 

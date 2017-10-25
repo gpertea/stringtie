@@ -139,7 +139,9 @@ const char* GFaSeqGet::subseq(uint cstart, int& clen) {
     return NULL;
     }
   if (seq_len>0 && clen+cstart-1>seq_len) {
-     GMessage("Error (GFaSeqGet): end coordinate (%d) cannot be larger than sequence length %d\n", clen+cstart-1, seq_len);
+     //GMessage("Error (GFaSeqGet): end coordinate (%d) cannot be larger than sequence length %d\n", clen+cstart-1, seq_len);
+     //Adjust request:
+     clen=seq_len-cstart+1;
      }
   if (lastsub->sq==NULL || lastsub->sqlen==0) {
     lastsub->setup(cstart, clen, 0,0,0,seq_len);

@@ -66,6 +66,29 @@ const char* strExonType(char xtype);
 
 class GffReader;
 
+//reading a whole transcript from a BED-12 line
+class BEDLine {
+ public:
+	bool skip;
+    char* dupline; //duplicate of original line
+    char* line; //this will have tabs replaced by \0
+    int llen;
+    char* gseqname;
+    uint fstart;
+    uint fend;
+    char strand;
+    char* ID; //transcript ID from BED-12+ (13th if exists, otherwise 4th)
+    char* extra; //anything beyond 13th field
+    GVec<GSeg> exons;
+    BEDLine(GffReader* r=NULL, const char* l=NULL);
+    ~BEDLine() {
+    	GFREE(dupline);
+    	GFREE(line);
+    	//GFREE(ID);
+    	//GFREE(extra);
+    }
+};
+
 class GffLine {
     char* _parents; //stores a copy of the Parent attribute value,
        //with commas replaced by \0
@@ -552,6 +575,7 @@ public:
   int qcov; //query coverage - percent
   GffAttrs* attrs; //other gff3 attributes found for the main mRNA feature
    //constructor by gff line parsing:
+  GffObj(GffReader* gfrd, BEDLine* bedline);
   GffObj(GffReader* gfrd, GffLine* gffline, bool keepAttrs=false, bool noExonAttr=true);
    //if gfline->Parent!=NULL then this will also add the first sub-feature
    // otherwise, only the main feature is created
@@ -878,6 +902,9 @@ public:
       if (isValidTranscript())
          printGxf(fout, showCDS ? pgffBoth : pgffExon, tlabel, gfparent, cvtChars);
       }
+   void printExonList(FILE* fout); //print comma delimited list of exon intervals
+   void printBED(FILE* fout); //print a basic BED-12 line
+   void printGTab(FILE* fout, char** extraAttrs=NULL);
    void printSummary(FILE* fout=NULL);
    void getCDS_ends(uint& cds_start, uint& cds_end);
    void mRNA_CDS_coords(uint& cds_start, uint& cds_end);
@@ -1014,12 +1041,15 @@ class GffReader {
        bool is_gtf:1; //GTF syntax was detected
        bool gtf_transcript:1; //has "transcript" features (2-level GTF)
        bool gtf_gene:1; //has "gene" features (3-level GTF ..Ensembl?)
+       bool is_BED:1; //input is BED-12 format (transcript w/exons)
     };
   };
   bool gff_warns; //warn about duplicate IDs, etc. even when they are on different chromosomes
+  char* lastReadNext;
   FILE* fh;
   char* fname;  //optional fasta file with the underlying genomic sequence to be attached to this reader
   GffLine* gffline;
+  BEDLine* bedline;
   bool transcriptsOnly; //keep only transcripts w/ their exon/CDS features
   GHash<int> discarded_ids; //for transcriptsOnly mode, keep track
                             // of discarded parent IDs
@@ -1046,19 +1076,21 @@ class GffReader {
   GfList gflst; //accumulate GffObjs being read
   GffObj* newGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr,
                                GffObj* parent=NULL, GffExon* pexon=NULL, GPVec<GffObj>* glst=NULL);
+  GffObj* newGffRec(BEDLine* bedline, GPVec<GffObj>* glst=NULL);
   //GffObj* replaceGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr, int replaceidx);
   GffObj* updateGffRec(GffObj* prevgfo, GffLine* gffline,
                                          bool keepAttr);
   GffObj* updateParent(GffObj* newgfh, GffObj* parent);
-  bool addExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon>& pex, bool noExonAttr);
+  bool addExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon>* pex=NULL, bool noExonAttr=false);
   GPVec<GSeqStat> gseqStats; //populated after finalize() with only the ref seqs in this file
   GffReader(FILE* f=NULL, bool t_only=false, bool sortbyloc=false):linebuf(NULL), fpos(0),
 		  buflen(0), gff_type(0), gff_warns(gff_show_warnings), fh(f), fname(NULL), gffline(NULL),
-		  transcriptsOnly(t_only),  discarded_ids(true), phash(true), gseqtable(1,true),
+		  bedline(NULL), transcriptsOnly(t_only),  discarded_ids(true), phash(true), gseqtable(1,true),
 		  gflst(sortbyloc), gseqStats(1, false) {
       GMALLOC(linebuf, GFF_LINELEN);
       buflen=GFF_LINELEN-1;
       gffnames_ref(GffObj::names);
+      lastReadNext=NULL;
       }
   void init(FILE *f, bool t_only=false, bool sortbyloc=false) {
       fname=NULL;
@@ -1069,9 +1101,10 @@ class GffReader {
       transcriptsOnly=t_only;
       gflst.sortedByLoc(sortbyloc);
       }
+  void isBED(bool v=true) { is_BED=v; } //should be set before any parsing!
   GffReader(const char* fn, bool t_only=false, bool sort=false):linebuf(NULL), fpos(0),
 	  		  buflen(0), gff_type(0), gff_warns(gff_show_warnings), fh(NULL), fname(NULL),
-			  gffline(NULL), transcriptsOnly(t_only), discarded_ids(true),
+			  gffline(NULL), bedline(NULL), transcriptsOnly(t_only), discarded_ids(true),
 			  phash(true), gseqtable(1,true), gflst(sort), gseqStats(1,false) {
       gff_warns=gff_show_warnings;
       gffnames_ref(GffObj::names);
@@ -1079,6 +1112,7 @@ class GffReader {
       fh=fopen(fname, "rb");
       GMALLOC(linebuf, GFF_LINELEN);
       buflen=GFF_LINELEN-1;
+      lastReadNext=NULL;
       }
 
  ~GffReader() {
@@ -1092,6 +1126,7 @@ class GffReader {
       phash.Clear();
       GFREE(fname);
       GFREE(linebuf);
+      GFREE(lastReadNext);
       gffnames_unref(GffObj::names);
       }
 
@@ -1101,12 +1136,18 @@ class GffReader {
       }
 
   GffLine* nextGffLine();
+  BEDLine* nextBEDLine();
 
   // load all subfeatures, re-group them:
   void readAll(bool keepAttr=false, bool mergeCloseExons=false, bool noExonAttr=true);
+
+  //only for well-formed files: BED or GxF where exons are strictly grouped by their transcript_id/Parent
+  GffObj* readNext(); //user must free the returned GffObj* !
+
 #ifdef CUFFLINKS
     boost::crc_32_type current_crc_result() const { return _crc_result; }
 #endif
+
 }; // end of GffReader
 
 #endif

@@ -92,6 +92,7 @@ class GStr {
         GStr& insert(const GStr& s, int index = 0);
         GStr& insert(const char* s, int index = 0);
         GStr& append(const char* s);
+        GStr& appendmem(const char* m, int len);
         GStr& append(const GStr& s);
         GStr& append(char c);
         GStr& append(int i);
