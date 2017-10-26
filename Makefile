@@ -8,7 +8,6 @@ INCDIRS := -I. -I${GDIR} -I${BAM}
 
 CC      := g++
 
-
 ifneq (,$(findstring nothreads,$(MAKECMDGOALS)))
  NOTHREADS=1
 endif
@@ -39,7 +38,6 @@ EXE = .exe
 else
 EXE =
 endif
-
 
 BASEFLAGS  := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
 -D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti
@@ -87,7 +85,6 @@ else
      endif
      CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector $(CFLAGS)
      LDFLAGS := -g -L${BAM}
-     #LIBS := -Wl,-Bstatic -lasan -lubsan -Wl,-Bdynamic -ldl $(LIBS)
      LIBS := -lasan -lubsan -ldl $(LIBS)
   else
    ifneq (,$(filter %memtrace %memusage %memuse, $(MAKECMDGOALS)))
@@ -113,8 +110,6 @@ endif
 ifndef NOTHREADS
  OBJS += ${GDIR}/GThreads.o 
 endif
-
-
 
 OBJS += rlink.o tablemaker.o tmerge.o
  

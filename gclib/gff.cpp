@@ -353,7 +353,13 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 	 is_gene=true;
 	 is_t_data=true; //because its name will be attached to parented transcripts
  }
+
+ //give up if weirdo features can be safely ignored
+ if (reader->transcriptsOnly && !is_t_data) {
+	 return; //skipping unrecognized non-transcript features
+ }
  char* Parent=NULL;
+
  if (reader->is_gff3 || reader->gff_type==0) {
 	ID=extractAttr("ID=",true);
 	 /*
@@ -474,9 +480,6 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 	 }
  } //GFF3
  else { // GTF syntax
-	 if (reader->transcriptsOnly && !is_t_data) {
-		 return; //skipping unrecognized non-transcript features
-	 }
 	 if (is_gene) {
 		 reader->gtf_gene=true;
 		 ID=extractAttr("transcript_id", true, true); //Ensemble GTF might lack this
@@ -1607,21 +1610,30 @@ void GfList::finalize(GffReader* gfr, bool mergeCloseExons,
 }
 
 GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, bool noExonAttr) {
-  /* if (isGene()) {
-	 if (children.Count()==0) {
-	     isTranscript(true);
-	     //some bacterial annotation, childless genes may be in fact transcripts
+ /*
+ if (isGene()) {
+	  if (children.Count()==0) {
+		 //isolated "gene"-only record (some bacterial/mitochondrial annotation, or pseudo-genes?)
+		 isTranscript(true); //a terrible compromise, better define exons if it's really an exon there
 	 }
-	 else
-	 if (gfr->transcriptsOnly) {
+
+	 else if (gfr->transcriptsOnly) {
+		 //if we're interested only in transcripts, ignore gene entries
 		 isDiscarded(true);
 	 }
  }
  */
+ if (isDiscarded()) return this; //don't care about "finalizing" this
+
+ if (exons.Count()==0 && isTranscript()) {
+	 //add exon feature to "transcripts" missing it
+	 addExon(this->start, this->end);
+ }
  //always merge adjacent or overlapping segments
  //but if mergeCloseExons then merge even when distance is up to 5 bases
- if (gfr->transcriptsOnly && !(isTranscript() || (isGene() && children.Count()==0))) {
- 	isDiscarded(true); //discard non-transcripts
+ if (gfr->transcriptsOnly && !isTranscript()) {
+ 	isDiscarded(true); //ignore non-transcripts, isolated genes etc.
+ 	return this;
  }
  if (ftype_id==gff_fid_transcript && CDstart>0) {
  	ftype_id=gff_fid_mRNA;
@@ -1660,7 +1672,7 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
  	this->start=exons.First()->start;
  	this->end=exons.Last()->end;
  	//also update the stats for the reference sequence
- 	if (!this->isDiscarded()) { //collect stats about the underlying genomic sequence
+ 	//if (!isDiscarded()) { //collect stats about the underlying genomic sequence
  		if (gfr->gseqtable.Count()<=gseq_id) {
  			gfr->gseqtable.setCount(gseq_id+1);
  		}
@@ -1677,7 +1689,7 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
  			gsd->maxfeat_len=this->len();
  			gsd->maxfeat=this;
  		}
- 	}
+ 	//}
  	uptr=NULL;
  	udata=0;
  }
@@ -1709,10 +1721,6 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
  		}
  	}
  	if (attrs_discarded) exons[0]->attrs->Pack();
- }
- if (exons.Count()==0 && isTranscript()) {
-	 //add exon feature to an exonless transcript
-	 addExon(this->start, this->end);
  }
  return this;
 }
