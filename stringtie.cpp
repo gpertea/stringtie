@@ -241,9 +241,6 @@ bool noThreadsWaiting();
 
 void workerThread(GThreadData& td); // Thread function
 
-//check if a worker thread popped the data queue:
-bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount); 
-
 //prepare the next free bundle for loading
 int waitForData(BundleData* bundles);
 #endif
@@ -1353,15 +1350,6 @@ void workerThread(GThreadData& td) {
 	} //while there is reason to live
 	queueMutex.unlock();
 	DBGPRINT2("---->> Thread%d DONE.\n", td.thread->get_id());
-}
-
-bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount) {
-  int c;
-  queueMutex.lock();
-   c=bundleQueue.Count();
-  queueMutex.unlock();
-  DBGPRINT3("##> post-notification check: qlen is now %d (was %d)\n", c, prevCount);
-  return (c==0 || c<prevCount);
 }
 
 //prepare the next available bundle slot for loading
