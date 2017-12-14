@@ -389,6 +389,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 #ifndef NOTHREADS
+//model: one producer, multiple consumers
 #define DEF_TSTACK_SIZE 8388608
  int tstackSize=GThread::defaultStackSize();
  size_t defStackSize=0;
@@ -403,6 +404,8 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
+ //the consumers take (pop) bundles out of this queue for processing
+ //the producer populates this queue with bundles, built from the BAM file
 
  BundleData* bundles=new BundleData[num_cpus+1];
  //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
@@ -527,7 +530,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			//push this in the bundle queue where it'll be picked up by the threads
 			DBGPRINT2("##> Locking queueMutex to push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
 			int qCount=0;
-			queueMutex.lock();
+			queueMutex.lock(); // FIXME: possible point of contention here between multiple threads
 			bundleQueue.Push(bundle);
 			bundleWork |= 0x02; //set bit 1
 			qCount=bundleQueue.Count();
@@ -1309,7 +1312,8 @@ void workerThread(GThreadData& td) {
 	//wait for a ready bundle in the queue, until there is no hope for incoming bundles
 	DBGPRINT2("---->> Thread%d starting..\n",td.thread->get_id());
 	DBGPRINT2("---->> Thread%d locking queueMutex..\n",td.thread->get_id());
-	queueMutex.lock(); //enter wait-for-notification loop
+	queueMutex.lock(); //FIXME: possible point of contention
+	//enter wait-for-notification loop
 	while (bundleWork) {
 		DBGPRINT3("---->> Thread%d: waiting.. (queue len=%d)\n",td.thread->get_id(), bundleQueue->Count());
 		waitMutex.lock();
