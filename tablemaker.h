@@ -197,10 +197,10 @@ struct RC_TData { //storing RC data for a transcript
 	//char strand;
     GPVec<RC_Feature> t_exons;
     GPVec<RC_Feature> t_introns;
-	void rc_addFeatures(uint& c_e_id, GList<RC_Feature>& fexons, GPVec<RC_Feature>& edata,
-	                      uint& c_i_id, GList<RC_Feature>& fintrons, GPVec<RC_Feature>& idata);
+	void rc_addFeatures(uint& c_e_id, GSPVec<RC_Feature>& fexons, GPVec<RC_Feature>& edata,
+	                      uint& c_i_id, GSPVec<RC_Feature>& fintrons, GPVec<RC_Feature>& idata);
 	void addFeature(int fl, int fr, GPVec<RC_Feature>& fvec, uint& f_id,
-			          GList<RC_Feature>& fset, GPVec<RC_Feature>& fdata,
+			          GSPVec<RC_Feature>& fset, GPVec<RC_Feature>& fdata,
 					  int& cache_idx);
 	RC_TData(GffObj& s, uint id=0):ref_t(&s), t_id(id), l(s.start), r(s.end),
 			in_bundle(0), eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
@@ -251,8 +251,8 @@ struct RC_BundleData {
  int rmax;
  GPVec<RC_TData> g_tdata; //raw counting data for all transcripts in this bundle
  // RC_TData::t_id-1 = the element index in this array
- GList<RC_Feature> g_exons; //set of guide exons in this bundle, sorted by start coordinate
- GList<RC_Feature> g_introns; //set of guide introns in this bundle, sorted by start coordinate
+ GSPVec<RC_Feature> g_exons; //set of guide exons in this bundle, sorted by start coordinate
+ GSPVec<RC_Feature> g_introns; //set of guide introns in this bundle, sorted by start coordinate
  //RC_FeatIt xcache; //cache the first exon overlapping xcache_pos to speed up exon-overlap queries (findOvlExons())
  int xcache; //exons index of the first exon overlapping xcache_pos
  int xcache_pos; // left coordinate of last cached exon overlap query (findOvlExons())
@@ -386,7 +386,7 @@ struct RC_BundleData {
   }
  }
 
- bool findOvlExons(GArray<RC_ExonOvl>& exovls, int hl, int hr, char strand='.',
+ bool findOvlExons(GSVec<RC_ExonOvl>& exovls, int hl, int hr, char strand='.',
 		                                    int mate_pos=0, bool update_cache=true) {
 	 //exovls should be clear, unless the caller knows what s/he's doing
 	 bool hasOverlaps=false;

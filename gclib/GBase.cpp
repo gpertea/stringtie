@@ -235,7 +235,7 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 	}
 	//char* ss=gpath+plen-1;
 	char* psep = gpath+plen-1; //start at the last /
-	GDynArray<char*> dirstack(4); // stack of directories that should be created
+	GArray<char*> dirstack(4); // stack of directories that should be created
 	while (psep>gpath && *(psep-1)=='/') --psep; //skip double slashes
     *psep='\0';
     int fexists=0;
@@ -317,7 +317,7 @@ int Gstricmp(const char* a, const char* b, int n) {
 }
 
 int strsplit(char* str, char** fields, int maxfields, const char* delim) {
- //splits by placing 0 where delim chars are found, setting fields[] to the beginning
+ //splits by placing 0 where any of the delim chars are found, setting fields[] to the beginning
  //of each field (stopping after maxfields); returns number of fields parsed
  int tidx=0;
  bool afterdelim=true;
@@ -454,7 +454,7 @@ char* fgetline(char* & buf, int& buf_cap, FILE *stream, off_t* f_pos, int* linel
   //reads a char at a time until \n and/or \r are encountered
   //int i=0;
   int c=0;
-  GDynArray<char> arr(buf, buf_cap);
+  GArray<char> arr(buf, buf_cap);
   off_t fpos=(f_pos!=NULL) ? *f_pos : 0;
   while ((c=getc(stream))!=EOF) {
     //if (i>=buf_cap-1) {
@@ -491,7 +491,7 @@ char* GLineReader::getLine(FILE* stream, off_t& f_pos) {
    //reads a char at a time until \n and/or \r are encountered
    int c=0;
    textlen=0;
-   buf.reset(); //len = 0
+   buf.Reset(); //len = 0
    while ((c=getc(stream))!=EOF) {
      if (c=='\n' || c=='\r') {
        textlen=buf.Count();

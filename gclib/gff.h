@@ -4,11 +4,11 @@
 //#define CUFFLINKS 1
 
 
+#include <GSVec.hh>
 #include "GBase.h"
 #include "gdna.h"
 #include "codons.h"
 #include "GFaSeqGet.h"
-#include "GList.hh"
 #include "GHash.hh"
 
 #ifdef CUFFLINKS
@@ -361,9 +361,9 @@ enum GffPrintMode {
 };
 
 
-class GffAttrs:public GList<GffAttr> {
+class GffAttrs:public GSPVec<GffAttr> {
   public:
-    GffAttrs():GList<GffAttr>(false,true,true) { }
+    GffAttrs():GSPVec<GffAttr>(false,true,true) { }
     void add_or_update(GffNames* names, const char* attrname, const char* val) {
       int aid=names->attrs.getId(attrname);
       if (aid>=0) {
@@ -483,7 +483,7 @@ public:
   int ftype_id; // index of this record's feature name in names->feats, or the special gff_fid_mRNA value
   int exon_ftype_id; //index of child subfeature name in names->feats (that subfeature stored in "exons")
                    //if ftype_id==gff_fid_mRNA then this value is ignored
-  GList<GffExon> exons; //for non-mRNA entries, these can be any subfeature of type subftype_id
+  GSPVec<GffExon> exons; //for non-mRNA entries, these can be any subfeature of type subftype_id
   GPVec<GffObj> children;
   GffObj* parent;
   int udata; //user data, flags etc.
@@ -882,7 +882,7 @@ public:
         }
    int addSeg(GffLine* gfline);
    int addSeg(int fnid, GffLine* gfline);
-   void getCDSegs(GArray<GffCDSeg>& cds);
+   void getCDSegs(GSVec<GffCDSeg>& cds);
 
    void updateExonPhase(); //for CDS-only features, updates GExon::phase
 
@@ -909,8 +909,8 @@ public:
    void getCDS_ends(uint& cds_start, uint& cds_end);
    void mRNA_CDS_coords(uint& cds_start, uint& cds_end);
    char* getSpliced(GFaSeqGet* faseq, bool CDSonly=false, int* rlen=NULL,
-           uint* cds_start=NULL, uint* cds_end=NULL, GList<GSeg>* seglst=NULL);
-    char* getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst);
+           uint* cds_start=NULL, uint* cds_end=NULL, GSPVec<GSeg>* seglst=NULL);
+    char* getUnspliced(GFaSeqGet* faseq, int* rlen, GSPVec<GSeg>* seglst);
    char* getSplicedTr(GFaSeqGet* faseq, bool CDSonly=true, int* rlen=NULL);
    //bool validCDS(GFaSeqGet* faseq); //has In-Frame Stop Codon ?
    bool empty() { return (start==0); }
@@ -958,11 +958,11 @@ class GSeqStat {
 
 int gfo_cmpByLoc(const pointer p1, const pointer p2);
 
-class GfList: public GList<GffObj> {
+class GfList: public GSPVec<GffObj> {
   //just adding the option to sort by genomic sequence and coordinate
    bool mustSort;
  public:
-   GfList(bool sortbyloc=false):GList<GffObj>(false,false,false) {
+   GfList(bool sortbyloc=false):GSPVec<GffObj>(false,false,false) {
      //GffObjs in this list are NOT deleted when the list is cleared
      //-- for deallocation of these objects, call freeAll() or freeUnused() as needed
      mustSort=sortbyloc;

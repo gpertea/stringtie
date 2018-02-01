@@ -74,7 +74,7 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
  for (int i=0;i<brec.exons.Count();i++) {
 	 if (ballgown)
 		 rc_data->updateCov(xstrand, nh, brec.exons[i].start, brec.exons[i].len());
-	 GArray<RC_ExonOvl> exonOverlaps(true, true); //overlaps sorted by decreasing length
+	 GSVec<RC_ExonOvl> exonOverlaps(true, true); //overlaps sorted by decreasing length
 	 if (rc_data->findOvlExons(exonOverlaps, brec.exons[i].start,
 			 brec.exons[i].end, xstrand, mate_pos)) {
 		 result=true;
@@ -293,8 +293,8 @@ void rc_writeRC(GPVec<RC_TData>& RC_data,
  rc_write_RCfeature(RC_data, RC_introns, f_idata, f_i2t);
 }
 
-void RC_TData::rc_addFeatures(uint& c_e_id, GList<RC_Feature>& exonSet, GPVec<RC_Feature>& exonTable,
-                    uint& c_i_id, GList<RC_Feature>& intronSet, GPVec<RC_Feature>& intronTable) {
+void RC_TData::rc_addFeatures(uint& c_e_id, GSPVec<RC_Feature>& exonSet, GPVec<RC_Feature>& exonTable,
+                    uint& c_i_id, GSPVec<RC_Feature>& intronSet, GPVec<RC_Feature>& intronTable) {
   GASSERT(ref_t);
   GffObj& m = *(ref_t);
   int ecache_idx = exonSet.Count()-1;
@@ -313,7 +313,7 @@ void RC_TData::rc_addFeatures(uint& c_e_id, GList<RC_Feature>& exonSet, GPVec<RC
 }
 
 void RC_TData::addFeature(int fl, int fr, GPVec<RC_Feature>& fvec,
-                          uint& f_id, GList<RC_Feature>& fset,
+                          uint& f_id, GSPVec<RC_Feature>& fset,
 						  GPVec<RC_Feature>& fdata, int& cache_idx) {
   //f_id is the largest f_id inserted so far in fset
   bool add_new = true;

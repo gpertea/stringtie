@@ -305,8 +305,8 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    uint c_tid=0;
    uint c_exon_id=0;
    uint c_intron_id=0;
-   GList<RC_Feature> uexons(true, false, true); //sorted, free items, unique
-   GList<RC_Feature> uintrons(true, false, true);
+   GSPVec<RC_Feature> uexons(true, false, true); //sorted, free items, unique
+   GSPVec<RC_Feature> uintrons(true, false, true);
    //assign unique transcript IDs based on the sorted order
    int last_refid=-1;
    bool skipGseq=false;
@@ -366,7 +366,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
 
- GList<GffObj>* guides=NULL; //list of transcripts on a specific chromosome
+ GSPVec<GffObj>* guides=NULL; //list of transcripts on a specific chromosome
 
  int currentstart=0, currentend=0;
  int ng_start=0;

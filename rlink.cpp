@@ -85,7 +85,7 @@ CJunction* add_junction(int start, int end, int leftsupport, int rightsupport,
 }
 */
 
-CJunction* add_junction(int start, int end, GList<CJunction>& junction, char strand) {
+CJunction* add_junction(int start, int end, GSPVec<CJunction>& junction, char strand) {
 	int oidx=-1;
 	CJunction *nj=NULL;
 	//CJunction* nj=junction.AddIfNew(new CJunction(start, end, strand), true, &oidx);
@@ -188,8 +188,8 @@ bool exonmatch(GVec<GSeg> &prevexons, GVec<GSeg> &exons) {
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread,  GReadAlnData& alndata) { // some false positives should be eliminated here in order to break the bundle
 
-	GList<CReadAln>& readlist = bdata.readlist;    // list of reads gathered so far
-	GList<CJunction>& junction = bdata.junction;   // junctions added so far
+	GSPVec<CReadAln>& readlist = bdata.readlist;    // list of reads gathered so far
+	GSPVec<CJunction>& junction = bdata.junction;   // junctions added so far
 	GBamRecord& brec=*(alndata.brec);			   // bam record
     char strand=alndata.strand;
     int nh=alndata.nh;
@@ -636,7 +636,7 @@ void merge_fwd_groups(GPVec<CGroup>& group, CGroup *group1, CGroup *group2, GVec
 }
 
 
-int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,GList<CReadAln>& readlist,int color,GPVec<CGroup>& group,CGroup **allcurrgroup,
+int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,GSPVec<CReadAln>& readlist,int color,GPVec<CGroup>& group,CGroup **allcurrgroup,
 		//CGroup **startgroup,GVec<int> *readgroup,GVec<int>& eqcol,GVec<int>& merge,float& fraglen,int *usedcol) {
 		CGroup **startgroup,GVec<int> *readgroup,GVec<int>& eqcol,GVec<int>& merge,int *usedcol) {
 
@@ -853,7 +853,7 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 	return color;
 }
 
-int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& group,CGroup **allcurrgroup,
+int add_read_to_group(int n,GSPVec<CReadAln>& readlist,int color,GPVec<CGroup>& group,CGroup **allcurrgroup,
 		//CGroup **startgroup,GVec<int> *readgroup,GVec<int>& eqcol,GVec<int>& merge,float& fraglen,uint& fragno) {
 		CGroup **startgroup,GVec<int> *readgroup,GVec<int>& eqcol,GVec<int>& merge) {
 
@@ -964,7 +964,7 @@ CGraphnode *create_graphnode(int s, int g, uint start,uint end,int nodeno,CBundl
 	return(gnode);
 }
 
-float compute_chi(GArray<float>& winleft, GArray<float>& winright, float sumleft, float sumright) {
+float compute_chi(GSVec<float>& winleft, GSVec<float>& winright, float sumleft, float sumright) {
 
 	float chi=0;
 	for(int j=0;j<CHI_WIN;j++) {
@@ -980,7 +980,7 @@ float compute_chi(GArray<float>& winleft, GArray<float>& winright, float sumleft
 }
 
 
-float compute_chi2(GArray<float>& winleft, GArray<float>& winright, float sumleft, float sumright) {
+float compute_chi2(GSVec<float>& winleft, GSVec<float>& winright, float sumleft, float sumright) {
 
 	float chi=0;
 	float basecost=0;
@@ -1033,7 +1033,7 @@ float compute_cost(GVec<float>& wincov,float sumleft,float sumright,int leftstar
 	return(cost);
 }
 
-float compute_cost(GArray<float>& wincov,int i,float sumleft,float sumright,int len) {
+float compute_cost(GSVec<float>& wincov,int i,float sumleft,float sumright,int len) {
 	float cost=0;
 	float basecost=0;
 	float leftcost=0;
@@ -1966,9 +1966,9 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 }
 
 int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bnode,
-		GList<CJunction>& junction,GList<CJunction>& ejunction,GVec<CGraphinfo> **bundle2graph,
+		GSPVec<CJunction>& junction,GSPVec<CJunction>& ejunction,GVec<CGraphinfo> **bundle2graph,
 		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag,GIntHash<int> **gpos,GVec<float>* bpcov,int &edgeno,
-		int &lastgpos,GArray<GEdge>& guideedge, int refend=0){
+		int &lastgpos,GSVec<GEdge>& guideedge, int refend=0){
 
 	CGraphnode* source=new CGraphnode(0,0,0);
 	no2gnode[s][g].Add(source);
@@ -2368,7 +2368,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 }
 
 
-void get_read_pattern(float readcov,GBitVec& pattern0,GBitVec& pattern1,int *rgno, float *rprop,GVec<int> *rnode,GList<CReadAln>& readlist,int n,
+void get_read_pattern(float readcov,GBitVec& pattern0,GBitVec& pattern1,int *rgno, float *rprop,GVec<int> *rnode,GSPVec<CReadAln>& readlist,int n,
 		GVec<int> *readgroup,GVec<int>& merge,GVec<int> *group2bundle,GVec<CGraphinfo> **bundle2graph,GVec<int> *graphno,GVec<int> *edgeno,GIntHash<int> **gpos,
 		GPVec<CGraphnode> **no2gnode) {
 		//uint readedge,int *rbnode) {
@@ -2640,7 +2640,7 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 	return(t);
 }
 
-void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,GVec<int> *readgroup,GVec<int>& merge,
+void get_fragment_pattern(GSPVec<CReadAln>& readlist,int n, int np,float readcov,GVec<int> *readgroup,GVec<int>& merge,
 		GVec<int> *group2bundle,GVec<CGraphinfo> **bundle2graph,GVec<int> *graphno,GVec<int> *edgeno, GIntHash<int> **gpos,GPVec<CGraphnode> **no2gnode,
 		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no,GPVec<CGroup> &group) {
 
@@ -2768,7 +2768,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 
 }
 
-void get_read_to_transfrag(GList<CReadAln>& readlist,int n,GVec<int> *readgroup,GVec<int>& merge,GVec<int> *group2bundle,
+void get_read_to_transfrag(GSPVec<CReadAln>& readlist,int n,GVec<int> *readgroup,GVec<int>& merge,GVec<int> *group2bundle,
 		GVec<CGraphinfo> **bundle2graph,GVec<int> *graphno,GVec<int> *edgeno,GIntHash<int> **gpos,GPVec<CGraphnode> **no2gnode,
 		GPVec<CTransfrag> **transfrag,GPVec<CMTransfrag> **mgt,CTreePat ***tr2no,GPVec<CGroup> &group) {
 
@@ -3459,7 +3459,7 @@ void extend_path_left_EM(int n, int gno, GVec<int>& keept, GBitVec &unionpat,GPV
 */
 
 CPrediction* store_merge_prediction(GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVec<int>& path,
-		GPVec<CGraphnode>& no2gnode,int strand,int& geneno,bool& first,GList<CReadAln>& readlist,GPVec<GffObj>& guides) {
+		GPVec<CGraphnode>& no2gnode,int strand,int& geneno,bool& first,GSPVec<CReadAln>& readlist,GPVec<GffObj>& guides) {
 
 	/*
 	{ // DEBUG ONLY
@@ -3537,7 +3537,7 @@ CPrediction* store_merge_prediction(GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVe
 
 // used in merge_transfrags
 CPrediction* store_merge_prediction(float cov,GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVec<int>& path,
-		GPVec<CGraphnode>& no2gnode,int strand,int& geneno,bool& first,GList<CReadAln>& readlist,GPVec<GffObj>& guides, int g) {
+		GPVec<CGraphnode>& no2gnode,int strand,int& geneno,bool& first,GSPVec<CReadAln>& readlist,GPVec<GffObj>& guides, int g) {
 
 	/*
 	{ // DEBUG ONLY
@@ -4511,7 +4511,7 @@ bool overlaps_one_exon_only(CMPrediction &p1,CMPrediction &p2) { // this assumes
 }
 
 int merge_transfrags(int gno,GPVec<CGraphnode>& no2gnode, GPVec<CMTransfrag>& mgt,GIntHash<int> &gpos,
-		int geneno,int strand,GList<CPrediction>& pred,GList<CReadAln>& readlist,GPVec<GffObj>& guides) {
+		int geneno,int strand,GSPVec<CPrediction>& pred,GSPVec<CReadAln>& readlist,GPVec<GffObj>& guides) {
 
 	mgt.Sort(mgtrabundCmp); // sort transfrags from the most abundant to the least, with guides coming in first
 	GVec<CMPrediction> localpred;
@@ -9119,7 +9119,7 @@ float update_flux(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag
 }
 */
 
-float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
+float store_transcript(GSPVec<CPrediction>& pred,GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
 		GPVec<CGraphnode>& no2gnode,int& geneno,bool& first,int strand,int gno,GIntHash<int>& gpos, bool& included,
 		GBitVec& prevpath, BundleData *bdata=NULL, //float fragno, char* id=NULL) {
 		   GffObj* t=NULL) {
@@ -9314,7 +9314,7 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 // nodeflux = in store transcript: quantity of transfrags that's used going out from each node;
 // nodeflux = here: proportion of the node that is used
 // nodecov = coverage of nodes
-void update_guide_pred(GList<CPrediction>& pred,int np, GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
+void update_guide_pred(GSPVec<CPrediction>& pred,int np, GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
 		GPVec<CGraphnode>& no2gnode,int gno,bool update) {
 
 	/*
@@ -9351,7 +9351,7 @@ void update_guide_pred(GList<CPrediction>& pred,int np, GVec<int>& path,GVec<flo
 
 
 
-int store_guide_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
+int store_guide_transcript(GSPVec<CPrediction>& pred,GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
 		GPVec<CGraphnode>& no2gnode,int& geneno,bool& first,int gno, GffObj* t,bool update) {
 
 	// first create the prediction based on the GffObj and then update it's coverage
@@ -9384,7 +9384,7 @@ int store_guide_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>&
 }
 
 void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,
-		GBitVec& compatible,	int& geneno,bool first,int strand,GList<CPrediction>& pred,GVec<float>& nodecov,
+		GBitVec& compatible,	int& geneno,bool first,int strand,GSPVec<CPrediction>& pred,GVec<float>& nodecov,
 		GBitVec& istranscript,GBitVec& removable,GBitVec& usednode,float maxcov,GBitVec& prevpath) {
 
 	 GVec<int> path;
@@ -10816,7 +10816,7 @@ int guides_maxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2
 */
 
 int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GVec<CGuide>& guidetrf,int& geneno,
-		int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred, BundleData *bdata) {
+		int s,GSPVec<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred, BundleData *bdata) {
 
 	int maxi=1;
 	int ng=guidetrf.Count();
@@ -11548,7 +11548,7 @@ int merge_transcripts(int gno, GPVec<CGraphnode>& no2gnode,GPVec<CMTransfrag>& m
 */
 
 int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GBitVec& compatible,
-		int geneno,int strand,GVec<CGuide>& guidetrf,GList<CPrediction>& pred,GPVec<GffObj>& guides,GVec<int>& guidepred,BundleData* bdata) {
+		int geneno,int strand,GVec<CGuide>& guidetrf,GSPVec<CPrediction>& pred,GPVec<GffObj>& guides,GVec<int>& guidepred,BundleData* bdata) {
 
 	// process in and out coverages for each node
 	int maxi=0; // node with maximum coverage
@@ -11690,7 +11690,7 @@ void exon_covered(int ex,GffObj *guide,int &b,GPVec<CBundle>& bundle,GPVec<CBund
 	}
 }
 
-void get_partial_covered(GffObj *guide,GPVec<CBundle>& bundle,GPVec<CBundlenode>& bnode,GList<CJunction>& junction) {
+void get_partial_covered(GffObj *guide,GPVec<CBundle>& bundle,GPVec<CBundlenode>& bnode,GSPVec<CJunction>& junction) {
 
 	int ntr=0;
 
@@ -11795,7 +11795,7 @@ void get_partial_covered(GffObj *guide,GPVec<CBundle>& bundle,GPVec<CBundlenode>
 
 }
 
-bool get_covered(GffObj *guide,GPVec<CBundle>& bundle,GPVec<CBundlenode>& bnode,GList<CJunction>& junction,
+bool get_covered(GffObj *guide,GPVec<CBundle>& bundle,GPVec<CBundlenode>& bnode,GSPVec<CJunction>& junction,
 		GVec<int>* bnodeguides,int g) {
 
 	bool covered=true;
@@ -12041,7 +12041,7 @@ bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov) {
 }
 
 
-bool good_merge_junc(CJunction& jd,GList<CJunction>& junction) {
+bool good_merge_junc(CJunction& jd,GSPVec<CJunction>& junction) {
 
 	if(jd.guide_match) return true; // this junction is covered by at least one read: the one that calls good_junc
 
@@ -12092,7 +12092,7 @@ bool good_merge_junc(CJunction& jd,GList<CJunction>& junction) {
 }
 
 
-void continue_read(GList<CReadAln>& readlist,int n,int idx) {
+void continue_read(GSPVec<CReadAln>& readlist,int n,int idx) {
 	// keep longest part of read
 	readlist[n]->end=readlist[n]->segs[idx].end;
 	for(int i=readlist[n]->segs.Count()-1;i>idx;i--) {
@@ -12242,11 +12242,11 @@ void assign_strand(CReadAln &rd,GList<CReadAln>& readlist) {
 
 int build_graphs(BundleData* bdata) {
 	int refstart = bdata->start;
-	GList<CReadAln>& readlist = bdata->readlist;
-	GList<CJunction>& junction = bdata->junction;
+	GSPVec<CReadAln>& readlist = bdata->readlist;
+	GSPVec<CJunction>& junction = bdata->junction;
 	GPVec<GffObj>& guides = bdata->keepguides;
 	GVec<float>* bpcov = bdata->bpcov; // I might want to use a different type of data for bpcov to save memory in the case of very long bundles
-	GList<CPrediction>& pred = bdata->pred;
+	GSPVec<CPrediction>& pred = bdata->pred;
 	// form groups on strands: all groups below are like this: 0 = negative strand; 1 = unknown strand; 2 = positive strand
 	GPVec<CGroup> group;
 	CGroup *currgroup[3]={NULL,NULL,NULL}; // current group of each type
@@ -12256,7 +12256,7 @@ int build_graphs(BundleData* bdata) {
 	GVec<int> equalcolor; // remembers colors for the same bundle
 	GVec<int> *readgroup=new GVec<int>[readlist.Count()]; // remebers groups for each read; don't forget to delete it when no longer needed
 	GVec<int> guidepred; // for eonly keeps the prediction number associated with a guide
-	GArray<GEdge> guideedge; // 0: negative starts; 1 positive starts
+	GSVec<GEdge> guideedge; // 0: negative starts; 1 positive starts
 
 	if(guides .Count()) {
 
@@ -12318,7 +12318,7 @@ int build_graphs(BundleData* bdata) {
 
 	// this part is for adjusting leftsupport and rightsupport when considering all junctions that start at a given point
 	// sort junctions -> junctions are sorted already according with their start, but not their end
-	GList<CJunction> ejunction(junction);
+	GSPVec<CJunction> ejunction(junction);
 	ejunction.setFreeItem(false);
 	if(ejunction.Count()) ejunction.setSorted(juncCmpEnd);
 
@@ -12931,8 +12931,8 @@ int build_graphs(BundleData* bdata) {
 	//if(fraglen)
 	for(int b=0;b<bundle[1].Count();b++) {
 
-    	if(bundle[1][b]->nread && (bundle[1][b]->multi/bundle[1][b]->nread)<=mcov && (guides.Count() || bundle[1][b]->len >= mintranscriptlen)) { // there might be small transfrags that are worth showing, but here I am ignoring them
-
+    	if(bundle[1][b]->nread && (bundle[1][b]->multi/bundle[1][b]->nread)<=mcov && (guides.Count() || bundle[1][b]->len >= mintranscriptlen)) {
+    		// there might be small transfrags that are worth showing, but here I am ignoring them
     		// bundle might contain multiple fragments of a transcript but since we don't know the complete structure -> print only the pieces that are well represented
     		CBundlenode *currbnode=bnode[1][bundle[1][b]->startnode];
     		int t=1;
@@ -13374,7 +13374,7 @@ void clean_junctions(GList<CJunction>& junction) {
 }
 */
 
-CReadAln *guide_to_read(GffObj *t, int g, GList<CJunction>& junction, int refend) {
+CReadAln *guide_to_read(GffObj *t, int g, GSPVec<CJunction>& junction, int refend) {
 
 	char s=0;
 	if(t->strand=='-') s=-1;
@@ -13420,10 +13420,10 @@ CReadAln *guide_to_read(GffObj *t, int g, GList<CJunction>& junction, int refend
 int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 	int refstart = bdata->start;
 	int refend = bdata->end+1;
-	GList<CReadAln>& readlist = bdata->readlist;
-	GList<CJunction>& junction = bdata->junction;
+	GSPVec<CReadAln>& readlist = bdata->readlist;
+	GSPVec<CJunction>& junction = bdata->junction;
 	GPVec<GffObj>& guides = bdata->keepguides;   // I need to insert the guides with the reads and process them separately
-	GList<CPrediction>& pred = bdata->pred;
+	GSPVec<CPrediction>& pred = bdata->pred;
 	// form groups on strands: all groups below are like this: 0 = negative strand; 1 = unknown strand; 2 = positive strand
 	GPVec<CGroup> group;
 	CGroup *currgroup[3]={NULL,NULL,NULL}; // current group of each type
@@ -13862,7 +13862,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
     if(startgroup[0]!=NULL || startgroup[2]!=NULL) { //# there are stranded groups to process
 
     	// sort junctions -> junctions are sorted already according with their start, but not their end
-    	GList<CJunction> ejunction(junction);
+    	GSPVec<CJunction> ejunction(junction);
     	ejunction.setFreeItem(false);
     	if(ejunction.Count()) ejunction.setSorted(juncCmpEnd);
 
@@ -13919,7 +13919,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 
     				// create graph
 
-    				GArray<GEdge> unused;
+    				GSVec<GEdge> unused;
     				graphno[s][b]=create_graph(refstart,s,b,bundle[sno][b],bnode[sno],junction,ejunction,
     						bundle2graph,no2gnode,transfrag,gpos,NULL,edgeno[s][b],lastgpos[s][b],unused,refend);
 
@@ -14085,7 +14085,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 }
 
 
-void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* bpcov) {
+void count_good_junctions(GSPVec<CReadAln>& readlist, int refstart, GVec<float>* bpcov) {
 
 	for(int n=0;n<readlist.Count();n++) {
 		CReadAln & rd=*(readlist[n]);
@@ -14129,7 +14129,7 @@ void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* 
 
 }
 
-void count_merge_junctions(GList<CReadAln>& readlist,char covflags) { // why do I need to impose any thresholds here??
+void count_merge_junctions(GSPVec<CReadAln>& readlist,char covflags) { // why do I need to impose any thresholds here??
 
 	for(int n=0;n<readlist.Count();n++) {
 		CReadAln & rd=*(readlist[n]);
@@ -14265,7 +14265,7 @@ int predlenCmp(const pointer p1, const pointer p2) { // sort from highest to low
 	return 0;
 }
 
-bool equal_pred(GList<CPrediction>& pred,int n1,int n2){
+bool equal_pred(GSPVec<CPrediction>& pred,int n1,int n2){
 
 	if(pred[n1]->strand!=pred[n2]->strand) return false;
 
@@ -14771,7 +14771,7 @@ void update_cov(GPVec<CPrediction>& pred,int big,int small,float frac=1) { // sm
 
 }
 
-void merge_exons(CGene& gene,GList<GffExon>& exons) {
+void merge_exons(CGene& gene,GSPVec<GffExon>& exons) {
 	int ig=0;
 	int ie=0;
 	while(ie<exons.Count()) {
@@ -15453,7 +15453,7 @@ int print_transcript_signcluster(char strand,GList<CPrediction>& pred,GVec<int>&
 }
 */
 
-void add_pred(GList<CPrediction>& pred,int x,int y, float cov) { // add single exon prediction y to prediction x
+void add_pred(GSPVec<CPrediction>& pred,int x,int y, float cov) { // add single exon prediction y to prediction x
 
 	if(pred[y]->start<pred[x]->exons[0].end) { // add y to first exon in x
 		int addlen=0;
@@ -15495,7 +15495,7 @@ bool equal_strand(CPrediction *p1,CPrediction *p2) {
 }
 
 int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
-	GList<CPrediction>& pred = bundleData->pred;
+	GSPVec<CPrediction>& pred = bundleData->pred;
 	int npred=pred.Count();
 
 	// this version sorts the predictions according to their start and only eliminates predictions that are overlaped by others that are more abundant within the threshold
@@ -15696,7 +15696,7 @@ int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname) 
 
 
 	// print transcripts including the necessary isoform fraction cleanings
-	GList<CPrediction>& pred = bundleData->pred;
+	GSPVec<CPrediction>& pred = bundleData->pred;
 	int npred=pred.Count();
 	pred.setSorted(predCmp);
 

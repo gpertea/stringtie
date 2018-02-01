@@ -55,7 +55,6 @@ template<> struct IsPrimitiveType<int8_t> { enum { VAL = 1 }; };
 template<> struct IsPrimitiveType<uint8_t> { enum { VAL = 1 }; };
 */
 
-
 template <class OBJ> int DefLTCompareProc(const pointer p1, const pointer p2) {
  const OBJ& o1 = *((OBJ*) p1);
  const OBJ& o2 = *((OBJ*) p2);
@@ -63,8 +62,9 @@ template <class OBJ> int DefLTCompareProc(const pointer p1, const pointer p2) {
    else return ((o2 < o1) ? 1 : 0 );
 }
 
-//basic template for array of objects;
-//so it doesn't require comparison operators to be defined
+//dynamic array of objects (vector)
+//has more complex interface than GArray
+//and it calls the OBJ default constructor for non-primitive OBJ types
 template <class OBJ> class GVec {
   protected:
     OBJ* fArray;
@@ -72,7 +72,7 @@ template <class OBJ> class GVec {
     int fCapacity;
     void qSort(int L, int R, GCompareProc* cmpFunc);
   public:
-    GVec(int init_capacity=2);
+    GVec(int init_capacity=10);
     GVec(int init_count, const OBJ init_val);
     GVec(int init_count, OBJ* init_val, bool delete_initval=true); //convenience constructor for complex vectors
     GVec(const GVec<OBJ>& array); //copy constructor
@@ -120,7 +120,7 @@ template <class OBJ> class GVec {
     void Swap(int idx1, int idx2)  { Exchange(idx1, idx2); } 
     int  Capacity() { return fCapacity; }
     //this will reject identical items in sorted lists only!
-    void setCapacity(int NewCapacity);
+    virtual void setCapacity(int NewCapacity);
     int  Count() { return fCount; }
 
     void setCount(int NewCount);         // will trim or expand the array as needed
@@ -151,7 +151,7 @@ template <class OBJ> class GPVec {
     void Grow();
     void Grow(int idx, OBJ* newitem);
     void qSort(int L, int R, GCompareProc* cmpFunc);
-  public:  
+  public:
     static void DefaultFreeProc(pointer item) {
       delete (OBJ*)item;
       }

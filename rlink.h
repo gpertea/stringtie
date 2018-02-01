@@ -41,7 +41,7 @@ extern bool debugMode;
 
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
-  GList<GffObj> rnas; //all transcripts on this genomic seq
+  GSPVec<GffObj> rnas; //all transcripts on this genomic seq
   //GList<GRefLocus> loci;
   int gseq_id;
   const char* gseq_name;
@@ -490,12 +490,12 @@ struct BundleData {
  char covflags;
 
  GStr refseq;
- GList<CReadAln> readlist;
+ GSPVec<CReadAln> readlist;
  GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
- GList<CJunction> junction;
+ GSPVec<CJunction> junction;
  GPVec<GffObj> keepguides;
  GPVec<CTCov> covguides;
- GList<CPrediction> pred;
+ GSPVec<CPrediction> pred;
  RC_BundleData* rc_data;
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 //covSaturated(false),

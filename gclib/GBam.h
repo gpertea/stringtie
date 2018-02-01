@@ -1,7 +1,7 @@
 #ifndef _G_BAM_H
 #define _G_BAM_H
+#include <GSVec.hh>
 #include "GBase.h"
-#include "GList.hh"
 #include "bam.h"
 #include "sam.h"
 

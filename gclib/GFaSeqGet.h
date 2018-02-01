@@ -1,6 +1,6 @@
 #ifndef GFASEQGET_H
 #define GFASEQGET_H
-#include "GList.hh"
+#include <GSVec.hh>
 
 #define MAX_FASUBSEQ 0x20000000
 //max 512MB sequence data held in memory at a time

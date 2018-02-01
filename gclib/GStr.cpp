@@ -716,7 +716,6 @@ GStr& GStr::reverse() {
 
 //transform: any character from 'from' is replaced with a coresponding
 //char from 'to'
-
 GStr&  GStr::tr(const char *rfrom, const char* rto) {
  if (length() == 0 || rfrom==NULL || strlen(rfrom)==0)
         return *this;

@@ -1,7 +1,7 @@
 #ifndef STRINGTIE_MERGE_H_
 #define STRINGTIE_MERGE_H_
+#include <GSVec.hh>
 #include "GStr.h"
-#include "GList.hh"
 #include "rlink.h"
 extern GStr tmp_path;
 extern bool keepTempFiles;
@@ -55,7 +55,7 @@ struct TInputFiles {
 	GPVec<GBamReader> readers;
 	GVec<GStr> files; //same order
 	GVec<GStr> tmpfiles; //all the temp files created by this
-	GList<TInputRecord> recs; //next record for each
+	GSPVec<TInputRecord> recs; //next record for each
 	TInputFiles():crec(NULL), readers(true), files(), tmpfiles(),
 			recs(true, true, true) { }
 	void Add(const char* fn);

@@ -1,6 +1,7 @@
 //---------------------------------------------------------------------------
 /*
-Sortable collections of objects and object pointers
+ Sorted arrays of objects (GSVec) and object pointers (GSPVec)
+ They REQUIRE the comparison operator < to be already defined for the element type
 */
 #ifndef _GList_HH
 #define _GList_HH
@@ -17,8 +18,9 @@ Sortable collections of objects and object pointers
 #define SORTED (fCompareProc!=NULL)
 #define UNSORTED (fCompareProc==NULL)
 
-// GArray is the sortable array type, requires the comparison operator < to be defined
-template <class OBJ> class GArray:public GVec<OBJ> {
+// GSVec is a sorted array (vector), requires OBJ to have operator< defined
+
+template <class OBJ> class GSVec:public GVec<OBJ> {
   protected:
     bool fUnique;
     static int DefaultCompareProc(const pointer item1, const pointer item2) {
@@ -29,11 +31,11 @@ template <class OBJ> class GArray:public GVec<OBJ> {
       }
     GCompareProc* fCompareProc;
   public:
-    GArray(GCompareProc* cmpFunc=NULL);
-    GArray(bool sorted, bool unique=false);
-    GArray(int init_capacity, bool sorted, bool unique=false);
-    GArray(GArray<OBJ>& array); //copy constructor
-    const GArray<OBJ>& operator=(GArray<OBJ>& array);
+    GSVec(GCompareProc* cmpFunc=NULL);
+    GSVec(bool sorted, bool unique=false);
+    GSVec(int init_capacity, bool sorted, bool unique=false);
+    GSVec(GSVec<OBJ>& array); //copy constructor
+    const GSVec<OBJ>& operator=(GSVec<OBJ>& array);
     //~GArray();
     //assignment operator
     void setSorted(GCompareProc* cmpFunc);
@@ -54,7 +56,7 @@ template <class OBJ> class GArray:public GVec<OBJ> {
     int cPush(OBJ item) { return Add(&item); }
     int Push(OBJ& item) { return Add(&item); }
 
-    void Add(GArray<OBJ>& list); //add copies of all items from another list
+    void Add(GSVec<OBJ>& list); //add copies of all items from another list
     //this will reject identical items in sorted lists only!
     void setUnique(bool beUnique) { fUnique = beUnique; };
     void Sort(); //explicit sort may be requested
@@ -74,7 +76,7 @@ template <class OBJ> class GArray:public GVec<OBJ> {
 };
 
 //GList is a sortable collection of pointers to objects; requires operator< to be defined, or a custom compare function
-template <class OBJ> class GList:public GPVec<OBJ> {
+template <class OBJ> class GSPVec:public GPVec<OBJ> {
   protected:
     bool fUnique;
     GCompareProc* fCompareProc; //a pointer to a Compare function
@@ -88,15 +90,15 @@ template <class OBJ> class GList:public GPVec<OBJ> {
   public:
     void sortInsert(int idx, OBJ* item); //special insert in sorted lists
          //WARNING: the caller must know the insert index such that the sort order is preserved!
-    GList(GCompareProc* compareProc=NULL); //free by default
-    GList(GCompareProc* compareProc, //unsorted by default
+    GSPVec(GCompareProc* compareProc=NULL); //free by default
+    GSPVec(GCompareProc* compareProc, //unsorted by default
         GFreeProc *freeProc,
         bool beUnique=false);
-    GList(bool sorted, bool free_elements=true, bool beUnique=false);
-    GList(int init_capacity, bool sorted, bool free_elements=true, bool beUnique=false);
-    GList(GList<OBJ>& list); //copy constructor?
-    GList(GList<OBJ>* list); //kind of a copy constructor
-    const GList<OBJ>& operator=(GList<OBJ>& list);
+    GSPVec(bool sorted, bool free_elements=true, bool beUnique=false);
+    GSPVec(int init_capacity, bool sorted, bool free_elements=true, bool beUnique=false);
+    GSPVec(GSPVec<OBJ>& list); //copy constructor?
+    GSPVec(GSPVec<OBJ>* list); //kind of a copy constructor
+    const GSPVec<OBJ>& operator=(GSPVec<OBJ>& list);
     //void Clear();
     //~GList();
     void setSorted(GCompareProc* compareProc);
@@ -112,7 +114,7 @@ template <class OBJ> class GList:public GPVec<OBJ> {
       else fCompareProc=NULL;
       }
     int Add(OBJ* item); //-- specific implementation if sorted - may become an Insert()
-    void Add(GList<OBJ>& list); //add all pointers from another list
+    void Add(GSPVec<OBJ>& list); //add all pointers from another list
 
     OBJ* AddIfNew(OBJ* item, bool deleteIfFound=true, int* fidx=NULL);
     // default: delete item if Found() (and pointers are not equal)!
@@ -151,7 +153,7 @@ template <class OBJ> class GList:public GPVec<OBJ> {
 
 //-------------------- TEMPLATE IMPLEMENTATION-------------------------------
 
-template <class OBJ> GArray<OBJ>::GArray(GArray<OBJ>& array):GVec<OBJ>(0) { //copy constructor
+template <class OBJ> GSVec<OBJ>::GSVec(GSVec<OBJ>& array):GVec<OBJ>(0) { //copy constructor
  this->fCount=array.fCount;
  this->fCapacity=array.fCapacity;
  this->fArray=NULL;
@@ -166,7 +168,7 @@ template <class OBJ> GArray<OBJ>::GArray(GArray<OBJ>& array):GVec<OBJ>(0) { //co
  for (int i=0;i<this->fCount;i++) this->fArray[i]=array[i];
  }
 
-template <class OBJ> const GArray<OBJ>& GArray<OBJ>::operator=(GArray<OBJ>& array) {
+template <class OBJ> const GSVec<OBJ>& GSVec<OBJ>::operator=(GSVec<OBJ>& array) {
  if (&array==this) return *this;
  GVec<OBJ>::Clear();
  this->fCount=array.fCount;
@@ -185,43 +187,43 @@ template <class OBJ> const GArray<OBJ>& GArray<OBJ>::operator=(GArray<OBJ>& arra
  return *this;
 }
 
-template <class OBJ> GArray<OBJ>::GArray(GCompareProc* cmpFunc):GVec<OBJ>(0) {
+template <class OBJ> GSVec<OBJ>::GSVec(GCompareProc* cmpFunc):GVec<OBJ>(0) {
   fCompareProc = cmpFunc;
   fUnique = false; //only affects sorted lists
 }
 
-template <class OBJ> GArray<OBJ>::GArray(bool sorted, bool unique):GVec<OBJ>(0) {
+template <class OBJ> GSVec<OBJ>::GSVec(bool sorted, bool unique):GVec<OBJ>(0) {
   fUnique=unique;
   fCompareProc = sorted ? DefaultCompareProc : NULL;
 }
 
-template <class OBJ> GArray<OBJ>::GArray(int init_capacity,
+template <class OBJ> GSVec<OBJ>::GSVec(int init_capacity,
                         bool sorted, bool unique):GVec<OBJ>(init_capacity) {
   fUnique=unique;
   fCompareProc=sorted ? DefaultCompareProc : NULL;
 }
 
-template <class OBJ> void GArray<OBJ>::setSorted(GCompareProc* cmpFunc) {
+template <class OBJ> void GSVec<OBJ>::setSorted(GCompareProc* cmpFunc) {
   GCompareProc* old_proc=fCompareProc;
   fCompareProc=cmpFunc;
   if (fCompareProc!=old_proc && fCompareProc!=NULL)
        Sort(); //new compare method
 }
 
-template <class OBJ> int GArray<OBJ>::IndexOf(OBJ& item) {
+template <class OBJ> int GSVec<OBJ>::IndexOf(OBJ& item) {
  int result=0;
  if (Found(item, result)) return result;
                      else return -1;
  }
 
-template <class OBJ> bool GArray<OBJ>::Exists(OBJ& item) {
+template <class OBJ> bool GSVec<OBJ>::Exists(OBJ& item) {
  int result=0;
  if (Found(item, result)) return true;
                      else return false;
  }
 
 
-template <class OBJ> int GArray<OBJ>::Add(OBJ* item) {
+template <class OBJ> int GSVec<OBJ>::Add(OBJ* item) {
  if (item==NULL) return -1;
  int result;
  if (SORTED) {
@@ -241,7 +243,7 @@ template <class OBJ> int GArray<OBJ>::Add(OBJ* item) {
 }
 
 
-template <class OBJ> void GArray<OBJ>::Add(GArray<OBJ>& list) {
+template <class OBJ> void GSVec<OBJ>::Add(GSVec<OBJ>& list) {
   if (list.Count()==0) return;
   if (SORTED) {
     for (int i=0;i<list.fCount;i++) Add(&list[i]);
@@ -255,7 +257,7 @@ template <class OBJ> void GArray<OBJ>::Add(GArray<OBJ>& list) {
     }
 }
 
-template <class OBJ> bool GArray<OBJ>::Found(OBJ& item, int& idx) {
+template <class OBJ> bool GSVec<OBJ>::Found(OBJ& item, int& idx) {
  //search the list by using fCompareProc (if defined)
  //or == operator for a non-sortable list
  //for sorted lists, even when the result is false, the idx is
@@ -306,14 +308,14 @@ template <class OBJ> bool GArray<OBJ>::Found(OBJ& item, int& idx) {
    }
 }
 
-template <class OBJ> void GArray<OBJ>::Insert(int idx, OBJ* item) {
+template <class OBJ> void GSVec<OBJ>::Insert(int idx, OBJ* item) {
  //idx can be [0..fCount] so an item can be actually added
  BE_UNSORTED; //forbid this operation on sorted data
  GVec<OBJ>::Insert(idx, item);
 }
 
 
-template <class OBJ> void GArray<OBJ>::Move(int curidx, int newidx) {
+template <class OBJ> void GSVec<OBJ>::Move(int curidx, int newidx) {
  BE_UNSORTED; //cannot do this in a sorted list!
  if (curidx!=newidx || newidx>=this->fCount)
      GError(GVEC_INDEX_ERR, newidx);
@@ -323,28 +325,28 @@ template <class OBJ> void GArray<OBJ>::Move(int curidx, int newidx) {
  this->fArray[newidx]=tmp;
 }
 
-template <class OBJ> void GArray<OBJ>::Replace(int idx, OBJ& item) {
+template <class OBJ> void GSVec<OBJ>::Replace(int idx, OBJ& item) {
  //TEST_INDEX(idx);
  if (idx<0 || idx>=this->fCount) GError(GVEC_INDEX_ERR, __FILE__,__LINE__, idx);
  this->fArray[idx]=item;
  if ( SORTED ) Sort(); //re-sort ! this could be very expensive, don't do it
 }
 
-template <class OBJ> void GArray<OBJ>::Sort() {
+template <class OBJ> void GSVec<OBJ>::Sort() {
  if (fCompareProc==NULL) { fCompareProc=DefaultCompareProc; }
  if (this->fArray!=NULL && this->fCount>0)
      this->qSort(0, this->fCount-1, fCompareProc);
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-//*=> GList implementation -- sortable array of pointers to OBJ
+//*=> GSPVec implementation -- ordered/sortable array of pointers to OBJ
 
-template <class OBJ> GList<OBJ>::GList(GList<OBJ>& list):GPVec<OBJ>(list) { //copy constructor
+template <class OBJ> GSPVec<OBJ>::GSPVec(GSPVec<OBJ>& list):GPVec<OBJ>(list) { //copy constructor
  fUnique=list.fUnique;
  fCompareProc=list.fCompareProc;
 }
 
-template <class OBJ> GList<OBJ>::GList(GList<OBJ>* plist):GPVec<OBJ>(0) { //another copy constructor
+template <class OBJ> GSPVec<OBJ>::GSPVec(GSPVec<OBJ>* plist):GPVec<OBJ>(0) { //another copy constructor
  this->fCapacity=plist->fCapacity;
  this->fList=NULL;
  if (this->fCapacity>0) {
@@ -358,7 +360,7 @@ template <class OBJ> GList<OBJ>::GList(GList<OBJ>* plist):GPVec<OBJ>(0) { //anot
  //for (int i=0;i<list->fCount;i++) Add(plist->Get(i));
 }
 
-template <class OBJ> void GList<OBJ>::Add(GList<OBJ>& list) {
+template <class OBJ> void GSPVec<OBJ>::Add(GSPVec<OBJ>& list) {
   if (list.Count()==0) return;
   if (SORTED) {
     for (int i=0;i<list.Count();i++) Add(list[i]);
@@ -371,20 +373,20 @@ template <class OBJ> void GList<OBJ>::Add(GList<OBJ>& list) {
 }
 
 
-template <class OBJ> GList<OBJ>::GList(GCompareProc* compareProc,
+template <class OBJ> GSPVec<OBJ>::GSPVec(GCompareProc* compareProc,
        GFreeProc* freeProc, bool beUnique) {
   fCompareProc = compareProc;
   this->fFreeProc    = freeProc;
   fUnique = beUnique; //only affects sorted lists
 }
 
-template <class OBJ> GList<OBJ>::GList(GCompareProc* compareProc) {
+template <class OBJ> GSPVec<OBJ>::GSPVec(GCompareProc* compareProc) {
   fCompareProc = compareProc;
   this->fFreeProc = GPVec<OBJ>::DefaultFreeProc;
   fUnique = false; //only affects sorted lists
 }
 
-template <class OBJ> GList<OBJ>::GList(bool sorted,
+template <class OBJ> GSPVec<OBJ>::GSPVec(bool sorted,
     bool free_elements, bool beUnique) {
   if (sorted) {
      if (free_elements) {
@@ -413,7 +415,7 @@ template <class OBJ> GList<OBJ>::GList(bool sorted,
 }
 
 
-template <class OBJ> GList<OBJ>::GList(int init_capacity, bool sorted,
+template <class OBJ> GSPVec<OBJ>::GSPVec(int init_capacity, bool sorted,
     bool free_elements, bool beUnique):GPVec<OBJ>(init_capacity, free_elements) {
   if (sorted) {
       fCompareProc=&DefaultCompareProc;
@@ -425,7 +427,7 @@ template <class OBJ> GList<OBJ>::GList(int init_capacity, bool sorted,
       }
 }
 
-template <class OBJ> const GList<OBJ>& GList<OBJ>::operator=(GList& list) {
+template <class OBJ> const GSPVec<OBJ>& GSPVec<OBJ>::operator=(GSPVec& list) {
  if (&list!=this) {
      GPVec<OBJ>::Clear();
      fCompareProc=list.fCompareProc;
@@ -437,32 +439,32 @@ template <class OBJ> const GList<OBJ>& GList<OBJ>::operator=(GList& list) {
  return *this;
 }
 
-template <class OBJ> void GList<OBJ>::setSorted(GCompareProc* compareProc) {
+template <class OBJ> void GSPVec<OBJ>::setSorted(GCompareProc* compareProc) {
  GCompareProc* old_proc=fCompareProc;
  fCompareProc=compareProc;
  if (fCompareProc!=old_proc && fCompareProc!=NULL)
        Sort(); //new compare method
 }
 
-template <class OBJ> int GList<OBJ>::IndexOf(OBJ* item) {
+template <class OBJ> int GSPVec<OBJ>::IndexOf(OBJ* item) {
  int result=0;
  if (Found(item, result)) return result;
                      else return -1;
  }
 
-template <class OBJ> bool GList<OBJ>::Exists(OBJ& item) {
+template <class OBJ> bool GSPVec<OBJ>::Exists(OBJ& item) {
  int result=0;
  if (Found(&item, result)) return true;
                       else return false;
  }
 
-template <class OBJ> bool GList<OBJ>::Exists(OBJ* item) {
+template <class OBJ> bool GSPVec<OBJ>::Exists(OBJ* item) {
  int result=0;
  if (Found(item, result)) return true;
                       else return false;
  }
 
-template <class OBJ> int GList<OBJ>::Add(OBJ* item) {
+template <class OBJ> int GSPVec<OBJ>::Add(OBJ* item) {
  int result;
  if (item==NULL) return -1;
  if (SORTED) {
@@ -484,7 +486,7 @@ template <class OBJ> int GList<OBJ>::Add(OBJ* item) {
 //by default, it deletes the item if it has an equal in the list!
 //returns the existing equal (==) object if it's in the list already
 //or returns the item itself if it's unique (and adds it)
-template <class OBJ> OBJ* GList<OBJ>::AddIfNew(OBJ* item,
+template <class OBJ> OBJ* GSPVec<OBJ>::AddIfNew(OBJ* item,
                                      bool deleteIfFound, int* fidx) {
  int r;
  if (Found(item, r)) {
@@ -511,7 +513,7 @@ template <class OBJ> OBJ* GList<OBJ>::AddIfNew(OBJ* item,
 
 //if item is found already in the list DELETE it and return -1
 //otherwise the item is added and its index is returned
-template <class OBJ> int GList<OBJ>::AddedIfNew(OBJ* item) {
+template <class OBJ> int GSPVec<OBJ>::AddedIfNew(OBJ* item) {
  int r;
  if (Found(item, r)) {
     if ((pointer)item != (pointer)(this->fList[r])) {
@@ -534,7 +536,7 @@ template <class OBJ> int GList<OBJ>::AddedIfNew(OBJ* item) {
 }
 
 
-template <class OBJ> bool GList<OBJ>::Found(OBJ* item, int& idx) {
+template <class OBJ> bool GSPVec<OBJ>::Found(OBJ* item, int& idx) {
  //search the list by using fCompareProc (if defined)
  //or == operator for a non-sortable list
  //for sorted lists, even when the result is false, the idx is
@@ -586,7 +588,7 @@ template <class OBJ> bool GList<OBJ>::Found(OBJ* item, int& idx) {
    }
 }
 
-template <class OBJ> void GList<OBJ>::sortInsert(int idx, OBJ* item) {
+template <class OBJ> void GSPVec<OBJ>::sortInsert(int idx, OBJ* item) {
  //idx must be the new position this new item must have
  //so the allowed range is [0..fCount]
  //the current fList[idx] and all the above will be shifted +1
@@ -603,18 +605,18 @@ template <class OBJ> void GList<OBJ>::sortInsert(int idx, OBJ* item) {
  this->fCount++;
 }
 
-template <class OBJ> void GList<OBJ>::Insert(int idx, OBJ* item) {
+template <class OBJ> void GSPVec<OBJ>::Insert(int idx, OBJ* item) {
  //idx can be [0..fCount] so an item can be actually added
  BE_UNSORTED; //cannot do that with a sorted list!
  GPVec<OBJ>::Insert(idx,item);
 }
 
-template <class OBJ> void GList<OBJ>::Move(int curidx, int newidx) {
+template <class OBJ> void GSPVec<OBJ>::Move(int curidx, int newidx) {
  BE_UNSORTED; //cannot do this in a sorted list!
  GPVec<OBJ>::Move(curidx,newidx);
 }
 
-template <class OBJ> void GList<OBJ>::Put(int idx, OBJ* item, bool re_sort) {
+template <class OBJ> void GSPVec<OBJ>::Put(int idx, OBJ* item, bool re_sort) {
  //WARNING: this will never free the replaced item!
  // this may BREAK the sort order unless the "re_sort" parameter is given
  if (idx<0 || idx>this->fCount) GError(GVEC_INDEX_ERR, idx);
@@ -622,14 +624,14 @@ template <class OBJ> void GList<OBJ>::Put(int idx, OBJ* item, bool re_sort) {
  if (SORTED && item!=NULL && re_sort) Sort(); //re-sort
 }
 
-template <class OBJ> int GList<OBJ>::Remove(OBJ* item) {
+template <class OBJ> int GSPVec<OBJ>::Remove(OBJ* item) {
 //removes an item if it's in our list
  int result=IndexOf(item);
  if (result>=0) GPVec<OBJ>::Delete(result);
  return result;
 }
 
-template <class OBJ> void GList<OBJ>::Sort() {
+template <class OBJ> void GSPVec<OBJ>::Sort() {
  if (fCompareProc==NULL) fCompareProc = DefaultCompareProc;
  if (this->fList!=NULL && this->fCount>0)
      this->qSort(0, this->fCount-1, fCompareProc);

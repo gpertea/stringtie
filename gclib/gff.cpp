@@ -1584,7 +1584,7 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 
 void GfList::finalize(GffReader* gfr, bool mergeCloseExons,
              bool keepAttrs, bool noExonAttr) { //if set, enforce sort by locus
-  GList<GffObj> discarded(false,true,false);
+  GSPVec<GffObj> discarded(false,true,false);
   for (int i=0;i<Count();i++) {
     //finish the parsing for each GffObj
     fList[i]->finalize(gfr, mergeCloseExons, keepAttrs, noExonAttr);
@@ -2003,7 +2003,7 @@ void GffObj::mRNA_CDS_coords(uint& cds_mstart, uint& cds_mend) {
   //return spliced;
 }
 
-char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst)
+char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GSPVec<GSeg>* seglst)
 {
     if (faseq==NULL) { GMessage("Warning: getUnspliced(NULL,.. ) called!\n");
         return NULL;
@@ -2056,7 +2056,7 @@ char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst)
 }
 
 char* GffObj::getSpliced(GFaSeqGet* faseq, bool CDSonly, int* rlen, uint* cds_start, uint* cds_end,
-          GList<GSeg>* seglst) {
+          GSPVec<GSeg>* seglst) {
   if (CDSonly && CDstart==0) return NULL;
   if (faseq==NULL) { GMessage("Warning: getSpliced(NULL,.. ) called!\n");
               return NULL;
@@ -2448,7 +2448,7 @@ void GffObj::printGxf(FILE* fout, GffPrintMode gffp,
 	      }
 	  }
 	  else {
-			GArray<GffCDSeg> cds(true,true);
+			GSVec<GffCDSeg> cds(true,true);
 			getCDSegs(cds);
 			for (int i=0;i<cds.Count();i++) {
 				printGxfLine(fout, tlabel, gseqname, true, cds[i].start, cds[i].end, -1, cds[i].phase, gff3, cvtChars);
@@ -2478,7 +2478,7 @@ void GffObj::updateExonPhase() {
 }
 
 
-void GffObj::getCDSegs(GArray<GffCDSeg>& cds) {
+void GffObj::getCDSegs(GSVec<GffCDSeg>& cds) {
   GffCDSeg cdseg;
   int cdsacc=0;
   if (CDphase=='1' || CDphase=='2') {
