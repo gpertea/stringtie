@@ -3,7 +3,6 @@
 
 //#define CUFFLINKS 1
 
-
 #include "GBase.h"
 #include "gdna.h"
 #include "codons.h"
@@ -53,7 +52,7 @@ extern bool gff_show_warnings;
 
 enum GffExonType {
   exgffIntron=-1, // useless "intron" feature
-	exgffNone=0,  //not a recognizable exon or CDS segment
+	exgffNone=0,  //not a recognizable exonic segment
   exgffStart, //from "start_codon" feature (within CDS)
   exgffStop, //from "stop_codon" feature (may be outside CDS)
   exgffCDS,  //from "CDS" feature
@@ -724,12 +723,12 @@ public:
       return false;
       }
 
-    int exonOverlapIdx(uint s, uint e, int* ovlen=NULL) {
+    int exonOverlapIdx(uint s, uint e, int* ovlen=NULL, int start_idx=0) {
       //return the exons' index for the overlapping OR ADJACENT exon
       //ovlen, if given, will return the overlap length
       if (s>e) Gswap(s,e);
       s--;e++; //to also catch adjacent exons
-      for (int i=0;i<exons.Count();i++) {
+      for (int i=start_idx;i<exons.Count();i++) {
             if (exons[i]->start>e) break;
             if (s>exons[i]->end) continue;
             //-- overlap if we are here:
