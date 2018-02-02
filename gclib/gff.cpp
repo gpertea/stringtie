@@ -358,20 +358,16 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 	 is_t_data=true; //because its name will be attached to parented transcripts
  }
  char* Parent=NULL;
- //TODO: reject non-transcript lines early if only transcripts are requested
+ /*
+  Rejecting non-transcript lines early if only transcripts are requested ?!
+  It would be faster to do this here but there are GFF cases when we reject a parent feature here
+ (e.g. protein with 2 CDS children) and then their exon/CDS children show up and
+  get assigned to an implicit parent mRNA
+  The solution is to still load this parent as GffObj for now and BAN it later
+  so its children get dismissed/discarded as well.
+ */
  if (reader->is_gff3 || reader->gff_type==0) {
 	ID=extractAttr("ID=",true);
-	 /*
-	 if (reader->transcriptsOnly && !is_t_data) {
-		 if (ID!=NULL) {
-			 //ban GFF3 parent if not recognized as transcript
-			 reader->discarded_ids.Add(ID, new int(1));
-			 GFREE(ID);
-		 }
-		 //skip non-transcript recognized features
-		 return;
-	 }
-	 */
 	Parent=extractAttr("Parent=",true);
 	if (reader->gff_type==0) {
 		if (ID!=NULL || Parent!=NULL) reader->is_gff3=true;
@@ -480,7 +476,7 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
  } //GFF3
  else { // GTF syntax
 	 if (reader->transcriptsOnly && !is_t_data) {
-		 return; //skipping unrecognized non-transcript features
+		 return; //alwasys skip unrecognized non-transcript features in GTF
 	 }
 	 if (is_gene) {
 		 reader->gtf_gene=true;
@@ -503,13 +499,11 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 				 GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n", l);
 				 return;
 		 }
-		Parent=extractAttr("gene_id");
+		gene_id=extractAttr("gene_id");
+		if (gene_id!=NULL)
+			Parent=Gstrdup(gene_id);
 		reader->gtf_transcript=true;
 		is_gtf_transcript=1;
-		//if (reader->gtf_gene &&
-		//	 gene_id!=NULL && strcmp(ID,gene_id)!=0) {
-		//		  Parent=Gstrdup(gene_id);
-		//	}
 	 } else { //must be an exon type
 		 Parent=extractAttr("transcript_id", true, true);
 		 gene_id=extractAttr("gene_id"); // for GTF this is the only attribute accepted as geneID
@@ -526,7 +520,7 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 			 }
 		 }
 		 if (Parent==NULL) {
-			 	 //something is wrong here, cannot parse the GTF ID
+			 	 //something is wrong here couldn't parse the transcript ID for this feature
 				 GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n", l);
 				 return;
 		 }
@@ -567,7 +561,6 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 		 GMALLOC(parents, sizeof(char*));
 		 parents[0]=_parents;
 	 }
-
  } //GTF
 
 
@@ -1214,10 +1207,17 @@ GffObj* GffReader::newGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr,
   GffObj* newgfo=new GffObj(this, gffline, keepAttr, noExonAttr);
   GffObj* r=NULL;
   gflst.Add(newgfo);
+  //tag non-transcripts to be discarded later
+  if (this->transcriptsOnly && this->is_gff3 && gffline->ID!=NULL &&
+		  gffline->exontype==0 && !gffline->is_gene && !gffline->is_transcript) {
+	  //unrecognized non-exon entity, should be discarded
+	  newgfo->isDiscarded(true);
+	  this->discarded_ids.Add(gffline->ID, new int(1));
+  }
   if (replace_parent && glst) {
 	r=gfoReplace(*glst, newgfo, parent);
 	updateParent(r, parent);
-  } else {
+  } else { //regular case of new GffObj creation
 	  r=(glst) ? gfoAdd(*glst, newgfo) : gfoAdd(newgfo);
 	  if (parent!=NULL) {
 		updateParent(r, parent);
@@ -1377,7 +1377,7 @@ GffObj* GffReader::readNext() { //user must free the returned GffObj*
     } //while nextgffline()
  } //GFF records
  if (gfo!=NULL) {
-		if (gfo->exons.Count()==0) { //FIXME: should we only do this just for genes or transcripts?!
+		if (gfo->exons.Count()==0 && (gfo->isTranscript() || (gfo->isGene() && this->gene2exon && gfo->children.Count()==0))) {
 			gfo->addExon(gfo->start, gfo->end);
 		}
 	if (tseg.start>0) {
@@ -1438,7 +1438,7 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 			GffObj* prevseen=NULL;
 			GPVec<GffObj>* prevgflst=NULL;
 			if (gffline->ID && gffline->exontype==0) {
-				//parent-like feature ID (mRNA, gene, etc.)
+				//parent-like feature ID (mRNA, gene, etc.) not recognized as an exon feature
 				//check if this ID was previously seen on the same chromosome/strand within GFF_MAX_LOCUS distance
 				prevseen=gfoFind(gffline->ID, prevgflst, gffline->gseqname, gffline->strand, gffline->fstart);
 				if (prevseen) {
@@ -1482,8 +1482,6 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 					} //duplicate ID in the same locus
 				} //ID seen previously in the same locus
 			} //parent-like ID feature (non-exon)
-
-			//if (gffline->parents==NULL || gffline->is_gtf_transcript) {
 			if (gffline->parents==NULL) {
 				//top level feature (transcript, gene), no parents (or parents can be ignored)
 				if (!prevseen) newGffRec(gffline, keepAttr, noExonAttr, NULL, NULL, prevgflst);
@@ -1636,22 +1634,18 @@ void GfList::finalize(GffReader* gfr, bool mergeCloseExons,
 }
 
 GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, bool noExonAttr) {
-  /* if (isGene()) {
-	 if (children.Count()==0) {
-	     isTranscript(true);
-	     //some bacterial annotation, childless genes may be in fact transcripts
-	 }
-	 else
-	 if (gfr->transcriptsOnly) {
-		 isDiscarded(true);
-	 }
+
+ if (!isDiscarded() && exons.Count()==0 && (isTranscript() || (isGene() && children.Count()==0 && gfr->gene2exon)) ) {
+		 //add exon feature to an exonless transcript
+		 addExon(this->start, this->end);
+		 //effectively this becomes a transcript (even the childless genes if gene2exon)
+		 isTranscript(true);
  }
- */
- //always merge adjacent or overlapping segments
- //but if mergeCloseExons then merge even when distance is up to 5 bases
- if (gfr->transcriptsOnly && !(isTranscript() || (isGene() && children.Count()==0))) {
+
+ if (gfr->transcriptsOnly && !isTranscript()) {
  	isDiscarded(true); //discard non-transcripts
  }
+
  if (ftype_id==gff_fid_transcript && CDstart>0) {
  	ftype_id=gff_fid_mRNA;
  	//exon_ftype_id=gff_fid_exon;
@@ -1722,10 +1716,6 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
  	 //FIXME: fix dubious, malformed cases of exonless, childless transcripts/genes (?)
  	 //FIXME: this is BAD for super-genes(loci) that just encompass (but not parent)
  	 //       multiple smaller genes ! (like MHC loci in NCBI annotation)
- 	 if (exons.Count()==0 && (isTranscript() || (isGene() && children.Count()==0)) ) {
- 		 //add exon feature to an exonless transcript
- 		 addExon(this->start, this->end);
- 	 }
 
  	//collect stats for the reference genomic sequence
  	if (gfr->gseqtable.Count()<=gseq_id) {

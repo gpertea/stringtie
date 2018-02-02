@@ -1050,6 +1050,7 @@ class GffReader {
   GffLine* gffline;
   BEDLine* bedline;
   bool transcriptsOnly; //keep only transcripts w/ their exon/CDS features
+  bool gene2exon;  // for childless genes: add an exon as the entire gene span
   GHash<int> discarded_ids; //for transcriptsOnly mode, keep track
                             // of discarded parent IDs
   GHash< GPVec<GffObj> > phash; //transcript_id => GPVec<GffObj>(false)
@@ -1085,14 +1086,14 @@ class GffReader {
   GPVec<GSeqStat> gseqStats; //populated after finalize() with only the ref seqs in this file
   GffReader(FILE* f=NULL, bool t_only=false, bool sortbyloc=false):linebuf(NULL), fpos(0),
 		  buflen(0), gff_type(0), gff_warns(gff_show_warnings), fh(f), fname(NULL), gffline(NULL),
-		  bedline(NULL), transcriptsOnly(t_only),  discarded_ids(true), phash(true), gseqtable(1,true),
+		  bedline(NULL), transcriptsOnly(t_only), gene2exon(false), discarded_ids(true), phash(true), gseqtable(1,true),
 		  gflst(sortbyloc), gseqStats(1, false) {
       GMALLOC(linebuf, GFF_LINELEN);
       buflen=GFF_LINELEN-1;
       gffnames_ref(GffObj::names);
       lastReadNext=NULL;
       }
-  void init(FILE *f, bool t_only=false, bool sortbyloc=false) {
+  void init(FILE *f, bool t_only=false, bool sortbyloc=false, bool g2exon=false) {
       fname=NULL;
       fh=f;
       if (fh!=NULL) rewind(fh);
@@ -1100,11 +1101,13 @@ class GffReader {
       gff_type=0;
       transcriptsOnly=t_only;
       gflst.sortedByLoc(sortbyloc);
+      gene2exon=g2exon;
       }
+  void set_gene2exon(bool v) { gene2exon=v;}
   void isBED(bool v=true) { is_BED=v; } //should be set before any parsing!
   GffReader(const char* fn, bool t_only=false, bool sort=false):linebuf(NULL), fpos(0),
 	  		  buflen(0), gff_type(0), gff_warns(gff_show_warnings), fh(NULL), fname(NULL),
-			  gffline(NULL), bedline(NULL), transcriptsOnly(t_only), discarded_ids(true),
+			  gffline(NULL), bedline(NULL), transcriptsOnly(t_only), gene2exon(false), discarded_ids(true),
 			  phash(true), gseqtable(1,true), gflst(sort), gseqStats(1,false) {
       gff_warns=gff_show_warnings;
       gffnames_ref(GffObj::names);
