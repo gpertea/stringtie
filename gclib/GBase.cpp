@@ -317,7 +317,7 @@ int Gstricmp(const char* a, const char* b, int n) {
 }
 
 int strsplit(char* str, char** fields, int maxfields, const char* delim) {
- //splits by placing 0 where delim chars are found, setting fields[] to the beginning
+ //splits by placing 0 where any of the delim chars are found, setting fields[] to the beginning
  //of each field (stopping after maxfields); returns number of fields parsed
  int tidx=0;
  bool afterdelim=true;
@@ -452,15 +452,10 @@ char* rstrchr(char* str, char ch) {  /* returns a pointer to the rightmost
   */
 char* fgetline(char* & buf, int& buf_cap, FILE *stream, off_t* f_pos, int* linelen) {
   //reads a char at a time until \n and/or \r are encountered
-  //int i=0;
   int c=0;
   GDynArray<char> arr(buf, buf_cap);
   off_t fpos=(f_pos!=NULL) ? *f_pos : 0;
   while ((c=getc(stream))!=EOF) {
-    //if (i>=buf_cap-1) {
-    //   buf_cap+=1024;
-    //   GREALLOC(buf, buf_cap);
-    //   }
     if (c=='\n' || c=='\r') {
        if (c=='\r') {
          if ((c=getc(stream))!='\n') ungetc(c,stream);
@@ -470,16 +465,13 @@ char* fgetline(char* & buf, int& buf_cap, FILE *stream, off_t* f_pos, int* linel
        break;
        }
     fpos++;
-    //buf[i]=(char)c;
     arr.Push((char)c);
-    //i++;
     } //while i<buf_cap-1
   //if (linelen!=NULL) *linelen=i;
   if (linelen!=NULL) *linelen=arr.Count();
   if (f_pos!=NULL) *f_pos=fpos;
   //if (c==EOF && i==0) return NULL;
   if (c==EOF && arr.Count()==0) return NULL;
-  //buf[i]='\0';
   arr.Push('\0');
   buf=arr();
   buf_cap=arr.Capacity();
@@ -491,7 +483,7 @@ char* GLineReader::getLine(FILE* stream, off_t& f_pos) {
    //reads a char at a time until \n and/or \r are encountered
    int c=0;
    textlen=0;
-   buf.reset(); //len = 0
+   buf.Reset(); //len = 0
    while ((c=getc(stream))!=EOF) {
      if (c=='\n' || c=='\r') {
        textlen=buf.Count();

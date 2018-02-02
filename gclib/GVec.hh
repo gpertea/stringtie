@@ -163,6 +163,7 @@ template <class OBJ> class GPVec {
     const GPVec<OBJ>& operator=(GPVec<OBJ>& list);
     OBJ* Get(int i);
     OBJ* operator[](int i) { return this->Get(i); }
+    //OBJ*& operator[](int i) { return fList[i]; }
     void Reverse(); //reverse pointer array; WARNING: will break the sort order if sorted!
     void freeItem(int idx); //calls fFreeProc (or DefaultFreeProc) on fList[idx] and sets NULL there, doesn't pack!
                       //it will free even if fFreeProc is NULL!

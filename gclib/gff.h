@@ -1058,6 +1058,7 @@ class GffReader {
   //void gfoRemove(const char* id, const char* ctg);
   GffObj* gfoAdd(GffObj* gfo);
   GffObj* gfoAdd(GPVec<GffObj>& glst, GffObj* gfo);
+  GffObj* gfoReplace(GPVec<GffObj>& glst, GffObj* gfo, GffObj* toreplace);
   // const char* id, const char* ctg, char strand, GVec<GfoHolder>** glst, uint start, uint end
   bool pFind(const char* id, GPVec<GffObj>*& glst);
   GffObj* gfoFind(const char* id, GPVec<GffObj>* & glst, const char* ctg=NULL,
@@ -1074,7 +1075,7 @@ class GffReader {
   //GffNames* names; //just a pointer to the global static Gff names repository
   GfList gflst; //accumulate GffObjs being read
   GffObj* newGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr,
-                               GffObj* parent=NULL, GffExon* pexon=NULL, GPVec<GffObj>* glst=NULL);
+                               GffObj* parent=NULL, GffExon* pexon=NULL, GPVec<GffObj>* glst=NULL, bool replace_parent=false);
   GffObj* newGffRec(BEDLine* bedline, GPVec<GffObj>* glst=NULL);
   //GffObj* replaceGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr, int replaceidx);
   GffObj* updateGffRec(GffObj* prevgfo, GffLine* gffline,

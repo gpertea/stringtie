@@ -13,53 +13,55 @@ GStr::Data GStr::null_data;
 
 //=========================================
 
-GStr::Data * GStr::new_data(int length) {
+GStr::Data * GStr::new_data(uint len, uint addcap) {
 //static method to return a new Data object (allocate length)
 //content is undefined, but it's null terminated
-    if (length > 0) {
+    if (len > 0) {
         Data* data;
-        GMALLOC(data, sizeof(Data)+length);
+        GMALLOC(data, sizeof(Data)+len+addcap);
         data->ref_count = 0;
-        data->length = length;
-        data->chars[length] = '\0';
+        data->length = len;
+        data->cap=len+addcap;
+        data->chars[len] = '\0';
         return data;
         }
     else
         return &null_data;
  }
 
-GStr::Data* GStr::new_data(const char* str) {
-//static method to return a new Data object (allocate length)
+GStr::Data* GStr::new_data(const char* str, uint addcap) {
+//static method to return a new Data object (allocate: length+addcap)
 //as a copy of a given string
  if (str==NULL) return &null_data;
- int length=strlen(str);
- if (length > 0) {
+ int len=strlen(str);
+ if (len+addcap > 0) {
         Data* data;
-        GMALLOC(data, sizeof(Data)+length);
+        GMALLOC(data, sizeof(Data)+len+addcap);
         strcpy(data->chars, str);
         data->ref_count = 0;
-        data->length = length;
-        data->chars[length] = '\0';
+        data->cap=len+addcap;
+        data->length = len;
+        data->chars[len] = '\0';
         return data;
         }
     else
         return &null_data;
  }
 
-void GStr::replace_data(int len) {
+void GStr::prep_data(uint len, uint addcap) {
 
-    if (len == my_data->length && my_data->ref_count <= 1)
+    if (len+addcap == my_data->cap && my_data->ref_count <= 1)
         return;
 
     if (my_data != &null_data && --my_data->ref_count == 0)
         GFREE(my_data);
 
-    if (len > 0) {
-        //my_data = (Data *) malloc(sizeof(Data) + len);
-        GMALLOC(my_data, sizeof(Data) + len);
+    if (len + addcap> 0) {
+        GMALLOC(my_data, sizeof(Data)+len+addcap);
         my_data->ref_count = 1;
         my_data->length = len;
-        my_data->chars[len] = '\0';
+        my_data->cap=len+addcap;
+        my_data->chars[len] = 0;
     }
     else
         my_data = &null_data;
@@ -75,8 +77,8 @@ void GStr::replace_data(Data *data) {
 
 void GStr::make_unique() {//make sure it's not a reference to other string
     if (my_data->ref_count > 1) {
-        Data *data = new_data(length());
-        ::memcpy(data->chars, chars(), length());
+        Data *data = new_data(my_data->length, 0);
+        ::memcpy(data->chars, my_data->chars, my_data->length);
         my_data->ref_count--;
         my_data = data;
         my_data->ref_count++;
@@ -121,13 +123,13 @@ GStr::GStr(const GStr& s): my_data(&null_data){
  replace_data(s.my_data);
  }
 
-GStr::GStr(const char *s): my_data(&null_data) {
+GStr::GStr(const char *s, uint addcap): my_data(&null_data) {
   fTokenDelimiter=NULL;
   fTokenizeMode=tkCharSet;
   fLastTokenStart=0;
   readbuf=NULL;
   readbufsize=0;
-  my_data=new_data(s);
+  my_data=new_data(s, addcap);
   my_data->ref_count = 1;
  }
 
@@ -140,7 +142,7 @@ GStr::GStr(const int i): my_data(&null_data) {
  char buf[20];
  sprintf(buf,"%d",i);
  const int len = ::strlen(buf);
- replace_data(len);
+ prep_data(len);
  ::memcpy(chrs(), buf, len);
  }
 
@@ -153,7 +155,7 @@ GStr::GStr(const double f): my_data(&null_data) {
  char buf[20];
  sprintf(buf,"%f",f);
  const int len = ::strlen(buf);
- replace_data(len);
+ prep_data(len);
  ::memcpy(chrs(), buf, len);
  }
 
@@ -163,7 +165,7 @@ GStr::GStr(char c, int n): my_data(&null_data) {
   fLastTokenStart=0;
   readbuf=NULL;
   readbufsize=0;
-  replace_data(n); ::memset(chrs(), c, n);
+  prep_data(n); ::memset(chrs(), c, n);
   }
 
 GStr::~GStr() {
@@ -185,7 +187,7 @@ char GStr::operator[](int idx) const {
 //returns char copy (cannot be l-value!)
   if (idx < 0) idx += length();
   if (idx < 0 || idx >= length()) invalid_index_error("operator[]");
-  return chars()[idx];
+  return my_data->chars[idx];
   }
 
 GStr& GStr::operator=(const GStr& s) {
@@ -197,11 +199,11 @@ GStr& GStr::operator=(const GStr& s) {
 GStr& GStr::operator=(const char *s) {
   make_unique(); //edit operation ahead
   if (s==NULL) {
-    replace_data(0);
+    prep_data(0);
     return *this;
     }
-  const int len = ::strlen(s); replace_data(len);
-  ::memcpy(chrs(), s, len);
+  const int len = ::strlen(s); prep_data(len);
+  ::memcpy(my_data->chars, s, len);
   return *this;
   }
 
@@ -210,8 +212,8 @@ GStr& GStr::operator=(const double f) {
  char buf[20];
  sprintf(buf,"%f",f);
  const int len = ::strlen(buf);
- replace_data(len);
- ::memcpy(chrs(), buf, len);
+ prep_data(len);
+ ::memcpy(my_data->chars, buf, len);
  return *this;
 }
 
@@ -220,71 +222,71 @@ GStr& GStr::operator=(const int i) {
  char buf[20];
  sprintf(buf,"%d",i);
  const int len = ::strlen(buf);
- replace_data(len);
- ::memcpy(chrs(), buf, len);
+ prep_data(len);
+ ::memcpy(my_data->chars, buf, len);
  return *this;
 }
 
 bool GStr::operator==(const GStr& s) const {
   if (s.is_empty()) return is_empty();
   return (length() == s.length()) &&
-    (memcmp(chars(), s.chars(), length()) == 0);
+    (memcmp(my_data->chars, s.chars(), length()) == 0);
   }
 
 bool GStr::operator==(const char *s) const {
  if (s==NULL) return is_empty();
- return (strcmp(chars(), s) == 0);
+ return (strcmp(my_data->chars, s) == 0);
  }
 
 bool GStr::operator<(const GStr& s) const {
  if (s.is_empty()) return false;
- return (strcmp(chars(), s.chars()) < 0);
+ return (strcmp(my_data->chars, s.chars()) < 0);
  }
 
 bool GStr::operator<(const char *s) const {
  if (s==NULL) return false;
- return (strcmp(chars(), s) < 0);
+ return (strcmp(my_data->chars, s) < 0);
  }
 
 bool GStr::operator<=(const GStr& s) const {
  if (s.is_empty()) return is_empty();
- return (strcmp(chars(), s.chars()) <= 0);
+ return (strcmp(my_data->chars, s.chars()) <= 0);
  }
 
 bool GStr::operator<=(const char *s) const {
  if (s==NULL) return is_empty();
- return (strcmp(chars(), s) <= 0);
+ return (strcmp(my_data->chars, s) <= 0);
  }
 
 bool GStr::operator>(const GStr& s) const {
  if (s.is_empty()) return !is_empty();
- return (strcmp(chars(), s.chars()) > 0);
+ return (strcmp(my_data->chars, s.chars()) > 0);
  }
 
 bool GStr::operator>(const char *s) const {
  if (s==NULL) return !is_empty();
- return (strcmp(chars(), s) > 0);
+ return (strcmp(my_data->chars, s) > 0);
  }
 
 bool GStr::operator>=(const GStr& s) const {
  if (s.is_empty()) return true;
- return (strcmp(chars(), s.chars()) >= 0);
+ return (strcmp(my_data->chars, s.chars()) >= 0);
  }
 
 bool GStr::operator>=(const char *s) const {
  if (s==NULL) return true;
- return (strcmp(chars(), s) >= 0);
+ return (strcmp(my_data->chars, s) >= 0);
  }
 
 bool GStr::operator!=(const GStr& s) const {
   if (s.is_empty()) return !is_empty();
   return (length() != s.length()) ||
-         (memcmp(chars(), s.chars(), length()) != 0);
+         (memcmp(my_data->chars, s.chars(), length()) != 0);
   }
 
 bool GStr::operator!=(const char *s) const {
  if (s==NULL) return !is_empty();
- return (strcmp(chars(), s) != 0);
+ return (strcmp(my_data->chars, s) != 0);
  }
 
 GStr& GStr::append(char c) {
@@ -335,7 +337,7 @@ GStr GStr::copy() const {
 
 GStr& GStr::clear() {
   make_unique(); //edit operation ahead
-  replace_data(0);
+  prep_data(0);
   return *this;
   }
 
@@ -353,22 +355,22 @@ bool GStr::contains(const char *s) const {
 
 bool GStr::startsWith(const char *s) const {
  //return (index(s, 0) == 0);
- return ::startsWith(this->chars(), s);
+ return ::startsWith(my_data->chars, s);
  }
 
 bool GStr::startsWith(const GStr& s) const {
  //return (index(s, 0) == 0);
- return ::startsWith(this->chars(), s.chars());
+ return ::startsWith(my_data->chars, s.chars());
  }
 
 bool GStr::endsWith(const char *s) const {
  //return (index(s, 0) == 0);
- return ::endsWith(this->chars(), s);
+ return ::endsWith(my_data->chars, s);
  }
 
 bool GStr::endsWith(const GStr& s) const {
  //return (index(s, 0) == 0);
- return ::endsWith(this->chars(), s.chars());
+ return ::endsWith(my_data->chars, s.chars());
  }
 
 bool GStr::contains(char c) const {
@@ -385,7 +387,7 @@ GStr& GStr::format(const char *fmt,...) {
   //+1K buffer, should be enough for common expressions
   int len=vsprintf(buf,fmt,arguments);
   va_end(arguments);
-  replace_data(len); //this also adds the '\0' at the end!
+  prep_data(len); //this also adds the '\0' at the end!
                      //and sets the right len
   ::memcpy(chrs(), buf, len);
   GFREE(buf);
@@ -410,19 +412,19 @@ GStr& GStr::appendfmt(const char *fmt,...) {
 GStr& GStr::trim(char c) {
  register int istart;
  register int iend;
- for (istart=0; istart<length() && chars()[istart]==c;istart++) ;
+ for (istart=0; istart<length() && my_data->chars[istart]==c;istart++) ;
  if (istart==length()) {
        make_unique(); //edit operation ahead
-       replace_data(0); //string was entirely trimmed
+       prep_data(0); //string was entirely trimmed
        return *this;
        }
- for (iend=length()-1; iend>istart && chars()[iend]==c;iend--) ;
+ for (iend=length()-1; iend>istart && my_data->chars[iend]==c;iend--) ;
  int newlen=iend-istart+1;
  if (newlen==length())  //nothing to trim
            return *this;
  make_unique(); //edit operation ahead
  Data *data = new_data(newlen);
- ::memcpy(data->chars, &chars()[istart], newlen);
+ ::memcpy(data->chars, &my_data->chars[istart], newlen);
  replace_data(data);
  return *this;
  }
@@ -430,18 +432,18 @@ GStr& GStr::trim(char c) {
 GStr& GStr::trim(const char* c) {
  register int istart;
  register int iend;
- for (istart=0; istart<length() && strchr(c, chars()[istart])!=NULL ;istart++) ;
+ for (istart=0; istart<length() && strchr(c, my_data->chars[istart])!=NULL ;istart++) ;
  if (istart==length()) {
-        replace_data(0); //string was entirely trimmed
+        prep_data(0); //string was entirely trimmed
         return *this;
         }
- for (iend=length()-1; iend>istart && strchr(c, chars()[iend])!=NULL;iend--) ;
+ for (iend=length()-1; iend>istart && strchr(c, my_data->chars[iend])!=NULL;iend--) ;
  int newlen=iend-istart+1;
  if (newlen==length())  //nothing to trim
            return *this;
  make_unique(); //edit operation ahead
  Data *data = new_data(newlen);
- ::memcpy(data->chars, &chars()[istart], newlen);
+ ::memcpy(data->chars, & (my_data->chars[istart]), newlen);
  replace_data(data);
  return *this;
  }
@@ -450,36 +452,46 @@ GStr& GStr::trimR(char c) {
  //only trim the right end
  //register int istart;
  register int iend;
- for (iend=length()-1; iend>=0 && chars()[iend]==c;iend--) ;
+ for (iend=length()-1; iend>=0 && my_data->chars[iend]==c;iend--) ;
  if (iend==-1) {
-       replace_data(0); //string was entirely trimmed
+       make_unique();
+       prep_data(0); //string was entirely trimmed
        return *this;
        }
  int newlen=iend+1;
  if (newlen==length())  //nothing to trim
            return *this;
  make_unique(); //edit operation ahead
+ my_data->length=newlen;
+ my_data->chars[newlen]='\0';
+ /*
 
  Data *data = new_data(newlen);
- ::memcpy(data->chars, chars(), newlen);
+ ::memcpy(data->chars, my_data->chars, newlen);
  replace_data(data);
+ */
  return *this;
  }
 
 GStr& GStr::trimR(const char* c) {
  register int iend;
- for (iend=length()-1; iend>=0 && strchr(c,chars()[iend])!=NULL;iend--) ;
+ for (iend=length()-1; iend>=0 && strchr(c,my_data->chars[iend])!=NULL;iend--) ;
  if (iend==-1) {
-       replace_data(0); //string was entirely trimmed
+       make_unique();
+       prep_data(0); //string was entirely trimmed
        return *this;
        }
  int newlen=iend+1;
  if (newlen==length())  //nothing to trim
            return *this;
  make_unique(); //edit operation ahead
+ my_data->length=newlen;
+ my_data->chars[newlen]='\0';
+ /*
  Data *data = new_data(newlen);
- ::memcpy(data->chars, chars(), newlen);
+ ::memcpy(data->chars, my_data->chars, newlen);
  replace_data(data);
+ */
  return *this;
  }
 
@@ -496,22 +508,25 @@ GStr& GStr::chomp(const char* cstr) {
   cend--;
   }
  if (iend==-1) {
-       replace_data(0); //string will be entirely trimmed
+       make_unique();
+       prep_data(0); //string will be entirely trimmed
        return *this;
        }
  int newlen=iend+1;
  make_unique(); //edit operation ahead
- Data *data = new_data(newlen);
- ::memcpy(data->chars, chars(), newlen);
- replace_data(data);
+ my_data->length=newlen;
+ my_data->chars[newlen]='\0';
+ //Data *data = new_data(newlen);
+ //::memcpy(data->chars, my_data->chars, newlen);
+ //replace_data(data);
  return *this;
  }
 
 GStr& GStr::trimL(char c) {
  register int istart;
- for (istart=0; istart<length() && chars()[istart]==c;istart++) ;
+ for (istart=0; istart<length() && my_data->chars[istart]==c;istart++) ;
  if (istart==length()) {
-       replace_data(0); //string was entirely trimmed
+       prep_data(0); //string was entirely trimmed
        return *this;
        }
  int newlen=length()-istart;
@@ -519,16 +534,16 @@ GStr& GStr::trimL(char c) {
            return *this;
  make_unique(); //edit operation ahead
  Data *data = new_data(newlen);
- ::memcpy(data->chars, &chars()[istart], newlen);
+ ::memcpy(data->chars, &my_data->chars[istart], newlen);
  replace_data(data);
  return *this;
  }
 
 GStr& GStr::trimL(const char* c) {
  register int istart;
- for (istart=0; istart<length() && strchr(c,chars()[istart])!=NULL;istart++) ;
+ for (istart=0; istart<length() && strchr(c,my_data->chars[istart])!=NULL;istart++) ;
  if (istart==length()) {
-       replace_data(0); //string was entirely trimmed
+       prep_data(0); //string was entirely trimmed
        return *this;
        }
  int newlen=length()-istart;
@@ -537,41 +552,46 @@ GStr& GStr::trimL(const char* c) {
  make_unique(); //edit operation ahead
 
  Data *data = new_data(newlen);
- ::memcpy(data->chars, &chars()[istart], newlen);
+ ::memcpy(data->chars, &my_data->chars[istart], newlen);
  replace_data(data);
  return *this;
  }
 
-GStr& GStr::padR(int len, char c) {
- //actually means align right in len
- if (length()>=len) return *this; //no room for padding
+GStr& GStr::padR(uint len, char c) {
+ //pad with c until total string length is len
+ if (my_data->length>=len) return *this; //no room for padding
  make_unique(); //edit operation ahead
+ if (my_data->cap>=len) {
+	 ::memset(my_data->chars, c, len-my_data->length);
+	 my_data->length=len;
+	 return *this;
+ }
  Data *data = new_data(len);
- ::memset(data->chars,c,len-length());
- ::memcpy(&data->chars[len-length()], chars(), length());
+ ::memset(data->chars,c,len-my_data->length);
+ ::memcpy(&data->chars[len-length()], my_data->chars, my_data->length);
  replace_data(data);
  return *this;
  }
 
-GStr& GStr::padL(int len, char c) { //align left the string
- if (length()>=len) return *this; //no room for padding
+GStr& GStr::padL(uint len, char c) { //align left the string
+ if (my_data->length>=len) return *this; //no room for padding
  make_unique(); //edit operation ahead
  Data *data = new_data(len);
- ::memcpy(data->chars, chars(), length());
+ ::memcpy(data->chars, my_data->chars, length());
  ::memset(&data->chars[length()],c,len-length());
  replace_data(data);
  return *this;
  }
 
-GStr& GStr::padC(int len, char c) {
- if (length()>=len) return *this; //no room for padding
+GStr& GStr::padC(uint len, char c) {
+ if (my_data->length>=len) return *this; //no room for padding
  make_unique(); //edit operation ahead
- int istart=(len-length())/2;
+ uint istart=(len-length())/2;
  Data *data = new_data(len);
  if (istart>0)
       ::memset(data->chars, c, istart);
- ::memcpy(&data->chars[istart], chars(), length());
- int iend=istart+length();
+ ::memcpy(&data->chars[istart], my_data->chars, length());
+ uint iend=istart+length();
  if (iend<len)
       ::memset(&data->chars[iend],c,len-iend);
  replace_data(data);
@@ -585,7 +605,7 @@ GStr operator+(const char *s1, const GStr& s2) {
         return s2;
     else {
         GStr newstring;
-        newstring.replace_data(s1_length + s2.length());
+        newstring.prep_data(s1_length + s2.length());
         ::memcpy(newstring.chrs(), s1, s1_length);
         ::memcpy(&(newstring.chrs())[s1_length], s2.chars(), s2.length());
         return newstring;
@@ -601,8 +621,8 @@ GStr GStr::operator+(const GStr& s) const {
         return *this;
     else {
         GStr newstring;
-        newstring.replace_data(length() + s.length());
-        ::memcpy(newstring.chrs(), chars(), length());
+        newstring.prep_data(length() + s.length());
+        ::memcpy(newstring.chrs(), my_data->chars, length());
         ::memcpy(&(newstring.chrs())[length()], s.chars(), s.length());
         return newstring;
         }
@@ -618,8 +638,8 @@ GStr GStr::operator+(const char *s) const {
         return *this;
     else {
         GStr newstring;
-        newstring.replace_data(length() + s_length);
-        ::memcpy(newstring.chrs(), chars(), length());
+        newstring.prep_data(length() + s_length);
+        ::memcpy(newstring.chrs(), my_data->chars, length());
         ::memcpy(&(newstring.chrs())[length()], s, s_length);
         return newstring;
         }
@@ -630,8 +650,8 @@ GStr GStr::operator+(const int i) const {
     sprintf(buf, "%d", i);
     const int s_length = ::strlen(buf);
     GStr newstring;
-    newstring.replace_data(length() + s_length);
-    ::memcpy(newstring.chrs(), chars(), length());
+    newstring.prep_data(length() + s_length);
+    ::memcpy(newstring.chrs(), my_data->chars, length());
     ::memcpy(&(newstring.chrs())[length()], buf, s_length);
     return newstring;
 }
@@ -641,8 +661,8 @@ GStr GStr::operator+(const char c) const {
     sprintf(buf, "%c", c);
     const int s_length = ::strlen(buf);
     GStr newstring;
-    newstring.replace_data(length() + s_length);
-    ::memcpy(newstring.chrs(), chars(), length());
+    newstring.prep_data(length() + s_length);
+    ::memcpy(newstring.chrs(), my_data->chars, length());
     ::memcpy(&(newstring.chrs())[length()], buf, s_length);
     return newstring;
 }
@@ -652,8 +672,8 @@ GStr GStr::operator+(const double f) const {
     sprintf(buf, "%f", f);
     const int s_length = ::strlen(buf);
     GStr newstring;
-    newstring.replace_data(length() + s_length);
-    ::memcpy(newstring.chrs(), chars(), length());
+    newstring.prep_data(length() + s_length);
+    ::memcpy(newstring.chrs(), my_data->chars, length());
     ::memcpy(&(newstring.chrs())[length()], buf, s_length);
     return newstring;
 }
@@ -666,7 +686,7 @@ bool GStr::is_space() const {
     if (my_data == &null_data)
         return false;
 
-    for (register const char *p = chars(); *p; p++)
+    for (register const char *p = my_data->chars; *p; p++)
         if (!isspace(*p))
             return false;
 
@@ -693,8 +713,8 @@ GStr GStr::substr(int idx, int len) const {
 
     GStr newstring;
     if (len) {
-      newstring.replace_data(len);
-      ::memcpy(newstring.chrs(), &chars()[idx], len);
+      newstring.prep_data(len);
+      ::memcpy(newstring.chrs(), &my_data->chars[idx], len);
     }
     return newstring;
 }
@@ -833,8 +853,8 @@ GStr&  GStr::cut(int idx, int len) {
 
     Data *data = new_data(length() - len);
     if (idx > 0)
-        ::memcpy(data->chars, chars(), idx);
-    ::strcpy(&data->chars[idx], &chars()[idx+len]);
+        ::memcpy(data->chars, my_data->chars, idx);
+    ::strcpy(&data->chars[idx], &my_data->chars[idx+len]);
     replace_data(data);
 
     return *this;
@@ -860,10 +880,10 @@ GStr&  GStr::paste(const GStr& s, int idx, int len) {
     else {
         Data *data = new_data(length() - len + s.length());
         if (idx > 0)
-            ::memcpy(data->chars, chars(), idx);
+            ::memcpy(data->chars, my_data->chars, idx);
         if (s.length() > 0)
             ::memcpy(&data->chars[idx], s.chars(), s.length());
-        ::strcpy(&data->chars[idx+s.length()], &chars()[idx+len]);
+        ::strcpy(&data->chars[idx+s.length()], &my_data->chars[idx+len]);
         replace_data(data);
     }
 
@@ -893,10 +913,10 @@ GStr& GStr::paste(const char *s, int idx, int len) {
     else {
         Data *data = new_data(length() - len + s_length);
         if (idx > 0)
-            ::memcpy(data->chars, chars(), idx);
+            ::memcpy(data->chars, my_data->chars, idx);
         if (s_length > 0)
             ::memcpy(&data->chars[idx], s, s_length);
-        ::strcpy(&data->chars[idx+s_length], &chars()[idx+len]);
+        ::strcpy(&data->chars[idx+s_length], &my_data->chars[idx+len]);
         replace_data(data);
     }
 
@@ -918,9 +938,9 @@ GStr& GStr::insert(const GStr& s, int idx) {
     if (s.length() > 0) {
         Data *data = new_data(length() + s.length());
         if (idx > 0)
-            ::memcpy(data->chars, chars(), idx);
+            ::memcpy(data->chars, my_data->chars, idx);
         ::memcpy(&data->chars[idx], s.chars(), s.length());
-        ::strcpy(&data->chars[idx+s.length()], &chars()[idx]);
+        ::strcpy(&data->chars[idx+s.length()], &my_data->chars[idx]);
         replace_data(data);
     }
 
@@ -943,9 +963,9 @@ GStr& GStr::insert(const char *s, int idx) {
     if (s_length > 0) {
         Data *data = new_data(length() + s_length);
         if (idx > 0)
-            ::memcpy(data->chars, chars(), idx);
+            ::memcpy(data->chars, my_data->chars, idx);
         ::memcpy(&data->chars[idx], s, s_length);
-        ::strcpy(&data->chars[idx+s_length], &chars()[idx]);
+        ::strcpy(&data->chars[idx+s_length], &my_data->chars[idx]);
         replace_data(data);
     }
 
@@ -955,37 +975,44 @@ GStr& GStr::insert(const char *s, int idx) {
 
 GStr& GStr::append(const char* s) {
   make_unique(); //edit operation ahead
-  int len=::strlen(s);
-  int newlength=len+my_data->length;
-  if (newlength<=my_data->length) return *this;
+  uint len=::strlen(s);
+  uint newlen=len+my_data->length;
+  if (newlen<=my_data->length) return *this;
   if (my_data->length==0) {
-    replace_data(len);
+    prep_data(len);
     ::memcpy(my_data->chars, s, len);
     return *this;
    }
-  //faster solution with realloc
-  GREALLOC(my_data, sizeof(Data)+newlength);
-  ::strcpy(&my_data->chars[my_data->length], s);
-  my_data->length=newlength;
-  my_data->chars[newlength]='\0';
+  if (newlen>my_data->cap) {
+	  //not enough room to append these chars
+	  GREALLOC(my_data, sizeof(Data)+newlen);
+	  my_data->cap=newlen;
+  }
+  ::memcpy(my_data->chars+my_data->length, s, len);
+  my_data->length=newlen;
+  my_data->chars[newlen]='\0';
   return *this;
 }
 
 GStr& GStr::appendmem(const char* m, int len) {
   if (len<=0) return *this;
   make_unique(); //edit operation ahead
-  int newlength=len+my_data->length;
+  uint newlen=len+my_data->length;
   //if (newlength<=my_data->length) return *this;
   if (my_data->length==0) {
-    replace_data(len);
+    prep_data(len);
     ::memcpy(my_data->chars, m, len);
     return *this;
    }
   //faster solution with realloc
-  GREALLOC(my_data, sizeof(Data)+newlength);
-  ::memcpy(&my_data->chars[my_data->length], m, len);
-  my_data->length=newlength;
-  my_data->chars[newlength]='\0';
+  if (newlen<=my_data->cap) {
+	  //not enough room to append these chars
+	  GREALLOC(my_data, sizeof(Data)+newlen);
+	  my_data->cap=newlen;
+  }
+  ::memcpy(my_data->chars + my_data->length, m, len);
+  my_data->length=newlen;
+  my_data->chars[newlen]='\0';
   return *this;
 }
 
@@ -1023,11 +1050,11 @@ int GStr::index(const char *s, int start_index) const {
 
     if (start_index < 0 || start_index >= length())
         invalid_index_error("index()");
-    const char* idx = strstr(&chars()[start_index], s);
+    const char* idx = strstr(&my_data->chars[start_index], s);
     if (!idx)
         return -1;
     else
-        return idx - chars();
+        return idx - my_data->chars;
 }
 
 //=========================================
@@ -1044,12 +1071,12 @@ int GStr::index(char c, int start_index) const {
 
     if (c == '\0')
         return -1;
-    const char *idx=(char *) ::memchr(&chars()[start_index], c,
+    const char *idx=(char *) ::memchr(&my_data->chars[start_index], c,
                                          length()-start_index);
     if (idx==NULL)
         return -1;
     else
-        return idx - chars();
+        return idx - my_data->chars;
 }
 
 int GStr::rindex(char c, int end_index) const {
@@ -1156,30 +1183,30 @@ bool GStr::nextToken(GStr& token) {
  char* delpos=NULL; //delimiter position
  int tlen=0;
  if (fTokenizeMode==tkFullString) { //exact string as a delimiter
-   delpos=(char*)strstr(chars()+fLastTokenStart,fTokenDelimiter);
-   if (delpos==NULL) delpos=(char*)(chars()+length());
+   delpos=(char*)strstr(my_data->chars+fLastTokenStart,fTokenDelimiter);
+   if (delpos==NULL) delpos=(char*)(my_data->chars+length());
    //empty records may be returned
-   if (chars()+fLastTokenStart == delpos) { //empty token
-     fLastTokenStart=(delpos-chars())+dlen;
+   if (my_data->chars+fLastTokenStart == delpos) { //empty token
+     fLastTokenStart=(delpos-my_data->chars)+dlen;
      token="";
      return true;
      }
     else {
-     tlen=delpos-(chars()+fLastTokenStart);
-     token.replace_data(tlen);
-     ::memcpy(token.chrs(), &chars()[fLastTokenStart], tlen);
-     fLastTokenStart=(delpos-chars())+dlen;
+     tlen=delpos-(my_data->chars+fLastTokenStart);
+     token.prep_data(tlen);
+     ::memcpy(token.chrs(), &my_data->chars[fLastTokenStart], tlen);
+     fLastTokenStart=(delpos-my_data->chars)+dlen;
      return true;
      }
    }
   else { //tkCharSet - any character is a delimiter
    //empty records are never returned !
    if (fLastTokenStart==0) {//skip any starting delimiters
-     delpos=(char*)chars();
+     delpos=(char*)my_data->chars;
      while (*delpos!='\0' && strchr(fTokenDelimiter, *delpos)!=NULL)
        delpos++;
      if (*delpos!='\0')
-         fLastTokenStart = delpos-chars();
+         fLastTokenStart = delpos-my_data->chars;
        else { //only delimiters here,no tokens
          GFREE(fTokenDelimiter);
          fLastTokenStart=0;
@@ -1189,21 +1216,21 @@ bool GStr::nextToken(GStr& token) {
    //now fLastTokenStart is on a non-delimiter char
    //GMessage("String at fLastTokenStart=%d is %s\n", fLastTokenStart, delpos);
    char* token_end=NULL;
-   delpos=(char*)strpbrk(chars()+fLastTokenStart,fTokenDelimiter);
-   if (delpos==NULL) delpos=(char*)(chars()+length());
+   delpos=(char*)strpbrk(my_data->chars+fLastTokenStart,fTokenDelimiter);
+   if (delpos==NULL) delpos=(char*)(my_data->chars+length());
    token_end=delpos-1;
    while (*delpos!='\0' && strchr(fTokenDelimiter, *delpos)!=NULL)
       delpos++; //skip any other delimiters in the set!
    //now we know that delpos is on the beginning of next token
-   tlen=(token_end-chars())-fLastTokenStart+1;
+   tlen=(token_end-my_data->chars)-fLastTokenStart+1;
    if (tlen==0) {
        GFREE(fTokenDelimiter);
        fLastTokenStart=0;
        return false;
        }
-   token.replace_data(tlen);
-   ::memcpy(token.chrs(), &chars()[fLastTokenStart], tlen);
-   fLastTokenStart=delpos-chars();
+   token.prep_data(tlen);
+   ::memcpy(token.chrs(), &my_data->chars[fLastTokenStart], tlen);
+   fLastTokenStart=delpos-my_data->chars;
    return true;
    }
  //return true;
@@ -1223,14 +1250,15 @@ size_t GStr::read(FILE* stream, const char* delimiter, size_t bufsize) {
             readbufsize=bufsize;
             }
  if (bufsize==0) {
-    replace_data(0);
+    prep_data(0);
     return 0; //clear the string and free the buffer
     }
  size_t numread;
  size_t acc_len=0; //accumulated length
  int seplen=strlen(delimiter);
  void* p=NULL;
- Data *data = new_data(0);
+ //Data *data = new_data(0);
+ Data* data = &null_data;
  do {
    numread=fread(readbuf, 1, bufsize, stream);
    if (numread) {

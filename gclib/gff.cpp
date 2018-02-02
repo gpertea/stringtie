@@ -358,6 +358,7 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 	 is_t_data=true; //because its name will be attached to parented transcripts
  }
  char* Parent=NULL;
+ //TODO: reject non-transcript lines early if only transcripts are requested
  if (reader->is_gff3 || reader->gff_type==0) {
 	ID=extractAttr("ID=",true);
 	 /*
@@ -672,8 +673,8 @@ int GffObj::addExon(uint segstart, uint segend, double sc, char fr, int qs, int 
   if (exons.Count()==0) {
       if (iscds) isCDS=true; //for now, assume CDS only if first "exon" given is a CDS
       if (exon_ftype_id<0) {
-         exon_ftype_id = isTranscript() ? gff_fid_exon : ftype_id;
-         }
+         exon_ftype_id = (isTranscript() || isGene()) ? gff_fid_exon : ftype_id;
+      }
   }
   //special treatment of start/stop codon features, they might be broken/split between exons (?)
   //we consider these as part of the CDS
@@ -1130,13 +1131,7 @@ char* GffReader::gfoBuildId(const char* id, const char* ctg) {
  strcpy(buf+idlen+1, ctg);
  return buf;
 }
-/*
-void GffReader::gfoRemove(const char* id, const char* ctg) {
- char* buf=gfoBuildId(id,ctg);
- phash.Remove(buf);
- GFREE(buf);
-}
-*/
+
 GffObj* GffReader::gfoAdd(GffObj* gfo) {
  GPVec<GffObj>* glst=phash.Find(gfo->gffID);
  if (glst==NULL)
@@ -1149,6 +1144,16 @@ GffObj* GffReader::gfoAdd(GffObj* gfo) {
 GffObj* GffReader::gfoAdd(GPVec<GffObj>& glst, GffObj* gfo) {
  int i=glst.Add(gfo);
  return glst[i];
+}
+
+GffObj* GffReader::gfoReplace(GPVec<GffObj>& glst, GffObj* gfo, GffObj* toreplace) {
+ for (int i=0;i<glst.Count();++i) {
+	 if (glst[i]==toreplace) {
+		 glst.Put(i,gfo);
+		 break;
+	 }
+ }
+ return gfo;
 }
 
 bool GffReader::pFind(const char* id, GPVec<GffObj>*& glst) {
@@ -1204,15 +1209,20 @@ GffObj* GffReader::updateParent(GffObj* newgfo, GffObj* parent) {
 }
 
 GffObj* GffReader::newGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr,
-                          GffObj* parent, GffExon* pexon, GPVec<GffObj>* glst) {
+                          GffObj* parent, GffExon* pexon, GPVec<GffObj>* glst, bool replace_parent) {
   GffObj* newgfo=new GffObj(this, gffline, keepAttr, noExonAttr);
   GffObj* r=NULL;
   gflst.Add(newgfo);
-  r=(glst) ? gfoAdd(*glst, newgfo) : gfoAdd(newgfo);
-  if (parent!=NULL) {
-    updateParent(r, parent);
-    if (pexon!=NULL) parent->removeExon(pexon);
-    }
+  if (replace_parent && glst) {
+	r=gfoReplace(*glst, newgfo, parent);
+	updateParent(r, parent);
+  } else {
+	  r=(glst) ? gfoAdd(*glst, newgfo) : gfoAdd(newgfo);
+	  if (parent!=NULL) {
+		updateParent(r, parent);
+		if (pexon!=NULL) parent->removeExon(pexon);
+	  }
+  }
   return r;
 }
 
@@ -1366,7 +1376,7 @@ GffObj* GffReader::readNext() { //user must free the returned GffObj*
     } //while nextgffline()
  } //GFF records
  if (gfo!=NULL) {
-		if (gfo->exons.Count()==0) {
+		if (gfo->exons.Count()==0) { //FIXME: should we only do this just for genes or transcripts?!
 			gfo->addExon(gfo->start, gfo->end);
 		}
 	if (tseg.start>0) {
@@ -1440,10 +1450,11 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 						//this line has the main attributes for this ID
 						updateGffRec(prevseen, gffline, keepAttr);
 					}
-					else
-					{ //duplicate ID -- but this could also be a discontinuous feature according to GFF3 specs
-					  //e.g. a trans-spliced transcript - but segments should not overlap
-						if (prevseen->overlap(gffline->fstart, gffline->fend)) {
+					else { //possibly a duplicate ID -- but this could also be a discontinuous feature according to GFF3 specs
+					    //e.g. a trans-spliced transcript - though segments should not overlap!
+						bool gtf_gene_dupID=(prevseen->isGene() && gffline->is_gtf_transcript);
+						if (prevseen->overlap(gffline->fstart, gffline->fend) && !gtf_gene_dupID) {
+							//in some GTFs a gene ID may actually be the same with the parented transcript ID (thanks)
 							//overlapping feature with same ID is going too far
 							GMessage("GFF Error: overlapping duplicate %s feature (ID=%s)\n", gffline->ftype, gffline->ID);
 							//validation_errors = true;
@@ -1452,14 +1463,20 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 								gffline=NULL;
 								continue;
 							}
-							else exit(1);
+							//else exit(1);
 						}
-						//create a separate entry (true discontinuous feature)
-						prevseen=newGffRec(gffline, keepAttr, noExonAttr,
-								prevseen->parent, NULL, prevgflst);
-						if (gff_warns) {
-							GMessage("GFF Warning: duplicate feature ID %s (%d-%d) (discontinuous feature?)\n",
-									gffline->ID, gffline->fstart, gffline->fend);
+						if (gtf_gene_dupID) {
+							//special GTF case where parent gene_id matches transcript_id (sigh)
+							prevseen=newGffRec(gffline, keepAttr, noExonAttr, prevseen, NULL, prevgflst, true);
+						}
+						else {
+							//create a separate entry (true discontinuous feature)
+							prevseen=newGffRec(gffline, keepAttr, noExonAttr,
+									prevseen->parent, NULL, prevgflst);
+							if (gff_warns) {
+								GMessage("GFF Warning: duplicate feature ID %s (%d-%d) (discontinuous feature?)\n",
+										gffline->ID, gffline->fstart, gffline->fend);
+							}
 						}
 					} //duplicate ID in the same locus
 				} //ID seen previously in the same locus
@@ -1473,100 +1490,105 @@ void GffReader::readAll(bool keepAttr, bool mergeCloseExons, bool noExonAttr) {
 			else { //--- it's a child feature (exon/CDS or even a mRNA with a gene as parent)
 				//updates all the declared parents with this child
 				bool found_parent=false;
-				GffObj* newgfo=prevseen;
-				GPVec<GffObj>* newgflst=NULL;
-				GVec<int> kparents; //kept parents (non-discarded)
-				GVec< GPVec<GffObj>* > kgflst(false);
-				GPVec<GffObj>* gflst0=NULL;
-				for (int i=0;i<gffline->num_parents;i++) {
-					newgflst=NULL;
-					//if (transcriptsOnly && (
-					if (discarded_ids.Find(gffline->parents[i])!=NULL) continue;
-					if (!pFind(gffline->parents[i], newgflst))
-						continue; //skipping discarded parent feature
-					kparents.Add(i);
-					if (i==0) gflst0=newgflst;
-					kgflst.Add(newgflst);
+				if (gffline->is_gtf_transcript && prevseen && prevseen->parent) {
+					found_parent=true; //parent already found in special GTF case
 				}
-				if (gffline->num_parents>0 && kparents.Count()==0) {
-					kparents.cAdd(0);
-					kgflst.Add(gflst0);
-				}
-				for (int k=0;k<kparents.Count();k++) {
-					int i=kparents[k];
-					newgflst=kgflst[k];
-					GffObj* parentgfo=NULL;
-					if (gffline->is_transcript || gffline->exontype==0) {//likely a transcript
-						//parentgfo=gfoFind(gffline->parents[i], newgflst, gffline->gseqname,
-						//		gffline->strand, gffline->fstart, gffline->fend);
-						if (newgflst!=NULL && newgflst->Count()>0)
-							parentgfo = newgflst->Get(0);
+				else {
+					GffObj* newgfo=prevseen;
+					GPVec<GffObj>* newgflst=NULL;
+					GVec<int> kparents; //kept parents (non-discarded)
+					GVec< GPVec<GffObj>* > kgflst(false);
+					GPVec<GffObj>* gflst0=NULL;
+					for (int i=0;i<gffline->num_parents;i++) {
+						newgflst=NULL;
+						//if (transcriptsOnly && (
+						if (discarded_ids.Find(gffline->parents[i])!=NULL) continue;
+						if (!pFind(gffline->parents[i], newgflst))
+							continue; //skipping discarded parent feature
+						kparents.Add(i);
+						if (i==0) gflst0=newgflst;
+						kgflst.Add(newgflst);
 					}
-					else {
-						//for exon-like entities we only need a parent to be in locus distance,
-						//on the same strand
-						parentgfo=gfoFind(gffline->parents[i], newgflst, gffline->gseqname,
-								gffline->strand, gffline->fstart);
+					if (gffline->num_parents>0 && kparents.Count()==0) {
+						kparents.cAdd(0);
+						kgflst.Add(gflst0);
 					}
-					if (parentgfo!=NULL) { //parent GffObj parsed earlier
-						found_parent=true;
-						if (parentgfo->isGene() && (gffline->is_transcript ||
-								 gffline->exontype==0)) {
-							//not an exon, but a transcript parented by a gene
-							if (newgfo) {
-								updateParent(newgfo, parentgfo);
-							}
-							else {
-								newgfo=newGffRec(gffline, keepAttr, noExonAttr, parentgfo);
-							}
+					for (int k=0;k<kparents.Count();k++) {
+						int i=kparents[k];
+						newgflst=kgflst[k];
+						GffObj* parentgfo=NULL;
+						if (gffline->is_transcript || gffline->exontype==0) {//likely a transcript
+							//parentgfo=gfoFind(gffline->parents[i], newgflst, gffline->gseqname,
+							//		gffline->strand, gffline->fstart, gffline->fend);
+							if (newgflst!=NULL && newgflst->Count()>0)
+								parentgfo = newgflst->Get(0);
 						}
-						else { //potential exon subfeature?
-							bool addExon=false;
-							if (transcriptsOnly) {
-								if (gffline->exontype>0) addExon=true;
+						else {
+							//for exon-like entities we only need a parent to be in locus distance,
+							//on the same strand
+							parentgfo=gfoFind(gffline->parents[i], newgflst, gffline->gseqname,
+									gffline->strand, gffline->fstart);
+						}
+						if (parentgfo!=NULL) { //parent GffObj parsed earlier
+							found_parent=true;
+							if (parentgfo->isGene() && (gffline->is_transcript ||
+									 gffline->exontype==0)) {
+								//not an exon, but a transcript parented by a gene
+								if (newgfo) {
+									updateParent(newgfo, parentgfo);
+								}
+								else {
+									newgfo=newGffRec(gffline, keepAttr, noExonAttr, parentgfo);
+								}
 							}
-							else { //always discard silly "intron" features
-								if (! (gffline->exontype==exgffIntron && (parentgfo->isTranscript() || parentgfo->exons.Count()>0)))
-								  addExon=true;
-							}
-							if (addExon)
-								if (!addExonFeature(parentgfo, gffline, &pex, noExonAttr))
-								   validation_errors=true;
+							else { //potential exon subfeature?
+								bool addExon=false;
+								if (transcriptsOnly) {
+									if (gffline->exontype>0) addExon=true;
+								}
+								else { //always discard silly "intron" features
+									if (! (gffline->exontype==exgffIntron && (parentgfo->isTranscript() || parentgfo->exons.Count()>0)))
+									  addExon=true;
+								}
+								if (addExon)
+									if (!addExonFeature(parentgfo, gffline, &pex, noExonAttr))
+									   validation_errors=true;
 
+							}
+						} //overlapping parent feature found
+					} //for each parsed parent Id
+					if (!found_parent) { //new GTF-like record starting directly here as a subfeature
+						//or it could be some chado GFF3 barf with exons coming BEFORE their parent :(
+						//or it could also be a stray transcript without a parent gene defined previously
+						//check if this feature isn't parented by a previously stored "child" subfeature
+						char* subp_name=NULL;
+						CNonExon* subp=NULL;
+						if (!gffline->is_transcript) { //don't bother with this check for obvious transcripts
+							if (pex.Count()>0) subp=subfPoolCheck(gffline, pex, subp_name);
+							if (subp!=NULL) { //found a subfeature that is the parent of this (!)
+								//promote that subfeature to a full GffObj
+								GffObj* gfoh=promoteFeature(subp, subp_name, pex, keepAttr, noExonAttr);
+								//add current gffline as an exon of the newly promoted subfeature
+								if (!addExonFeature(gfoh, gffline, &pex, noExonAttr))
+									validation_errors=true;
+							}
 						}
-					} //overlapping parent feature found
-				} //for each parsed parent Id
-				if (!found_parent) { //new GTF-like record starting directly here as a subfeature
-					//or it could be some chado GFF3 barf with exons coming BEFORE their parent :(
-					//or it could also be a stray transcript without a parent gene defined previously
-					//check if this feature isn't parented by a previously stored "child" subfeature
-					char* subp_name=NULL;
-					CNonExon* subp=NULL;
-					if (!gffline->is_transcript) { //don't bother with this check for obvious transcripts
-						if (pex.Count()>0) subp=subfPoolCheck(gffline, pex, subp_name);
-						if (subp!=NULL) { //found a subfeature that is the parent of this (!)
-							//promote that subfeature to a full GffObj
-							GffObj* gfoh=promoteFeature(subp, subp_name, pex, keepAttr, noExonAttr);
-							//add current gffline as an exon of the newly promoted subfeature
-							if (!addExonFeature(gfoh, gffline, &pex, noExonAttr))
-								validation_errors=true;
+						if (subp==NULL) { //no parent subfeature seen before
+							//loc_debug=true;
+							GffObj* ngfo=prevseen;
+							if (ngfo==NULL) {
+								//if it's an exon type, create directly the parent with this exon
+								//but if it's recognized as a transcript, the object itself is created
+								ngfo=newGffRec(gffline, keepAttr, noExonAttr, NULL, NULL, newgflst);
+							}
+							if (!ngfo->isTranscript() &&
+									gffline->ID!=NULL && gffline->exontype==0)
+								subfPoolAdd(pex, ngfo);
+							//even those with errors will be added here!
 						}
-					}
-					if (subp==NULL) { //no parent subfeature seen before
-						//loc_debug=true;
-						GffObj* ngfo=prevseen;
-						if (ngfo==NULL) {
-							//if it's an exon type, create directly the parent with this exon
-							//but if it's recognized as a transcript, the object itself is created
-							ngfo=newGffRec(gffline, keepAttr, noExonAttr, NULL, NULL, newgflst);
-						}
-						if (!ngfo->isTranscript() &&
-								gffline->ID!=NULL && gffline->exontype==0)
-							subfPoolAdd(pex, ngfo);
-						//even those with errors will be added here!
-					}
-					GFREE(subp_name);
-				} //no previous parent found
+						GFREE(subp_name);
+					} //no previous parent found
+				}
 			} //parented feature
 			//--
 			delete gffline;
@@ -1605,7 +1627,7 @@ void GfList::finalize(GffReader* gfr, bool mergeCloseExons,
   }
   if (discarded.Count()>0) {
           this->Pack();
-          }
+  }
   if (mustSort) { //force (re-)sorting
      this->setSorted(false);
      this->setSorted((GCompareProc*)gfo_cmpByLoc);
@@ -1665,61 +1687,65 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
  	//shrink transcript to the exons' span
  	this->start=exons.First()->start;
  	this->end=exons.Last()->end;
- 	//also update the stats for the reference sequence
- 	if (!this->isDiscarded()) { //collect stats about the underlying genomic sequence
- 		if (gfr->gseqtable.Count()<=gseq_id) {
- 			gfr->gseqtable.setCount(gseq_id+1);
- 		}
- 		GSeqStat* gsd=gfr->gseqtable[gseq_id];
- 		if (gsd==NULL) {
- 			gsd=new GSeqStat(gseq_id,names->gseqs.getName(gseq_id));
- 			gfr->gseqtable.Put(gseq_id, gsd);
- 			gfr->gseqStats.Add(gsd);
- 		}
- 		gsd->fcount++;
- 		if (start<gsd->mincoord) gsd->mincoord=start;
- 		if (end>gsd->maxcoord) gsd->maxcoord=end;
- 		if (this->len()>gsd->maxfeat_len) {
- 			gsd->maxfeat_len=this->len();
- 			gsd->maxfeat=this;
- 		}
- 	}
- 	uptr=NULL;
- 	udata=0;
  }
+ //more post processing of accepted records
+ if (!this->isDiscarded()) {
+ 	 //attribute reduction for GTF records
+ 	 if (keepAttrs && !noExonAttr && !hasGffID()
+ 	 		&& exons.Count()>0 && exons[0]->attrs!=NULL) {
+ 	 	bool attrs_discarded=false;
+ 	 	for (int a=0;a<exons[0]->attrs->Count();a++) {
+ 	 		int attr_name_id=exons[0]->attrs->Get(a)->attr_id;
+ 	 		char* attr_name=names->attrs.getName(attr_name_id);
+ 	 		char* attr_val =exons[0]->attrs->Get(a)->attr_val;
+ 	 		bool sameExonAttr=true;
+ 	 		for (int i=1;i<exons.Count();i++) {
+ 	 			char* ov=exons[i]->getAttr(attr_name_id);
+ 	 			if (ov==NULL || (strcmp(ov,attr_val)!=0)) {
+ 	 				sameExonAttr=false;
+ 	 				break;
+ 	 			}
+ 	 		}
+ 	 		if (sameExonAttr) {
+ 	 			//delete this attribute from exons level
+ 	 			attrs_discarded=true;
+ 	 			this->addAttr(attr_name, attr_val);
+ 	 			for (int i=1;i<exons.Count();i++) {
+ 	 				removeExonAttr(*(exons[i]), attr_name_id);
+ 	 			}
+ 	 			exons[0]->attrs->freeItem(a);
+ 	 		}
+ 	 	}
+ 	 	if (attrs_discarded) exons[0]->attrs->Pack();
+ 	 }
+ 	 //FIXME: fix dubious, malformed cases of exonless, childless transcripts/genes (?)
+ 	 //FIXME: this is BAD for super-genes(loci) that just encompass (but not parent)
+ 	 //       multiple smaller genes ! (like MHC loci in NCBI annotation)
+ 	 if (exons.Count()==0 && (isTranscript() || (isGene() && children.Count()==0)) ) {
+ 		 //add exon feature to an exonless transcript
+ 		 addExon(this->start, this->end);
+ 	 }
 
- //attribute reduction for GTF records
- if (keepAttrs && !noExonAttr && !hasGffID()
- 		&& exons.Count()>0 && exons[0]->attrs!=NULL) {
- 	bool attrs_discarded=false;
- 	for (int a=0;a<exons[0]->attrs->Count();a++) {
- 		int attr_name_id=exons[0]->attrs->Get(a)->attr_id;
- 		char* attr_name=names->attrs.getName(attr_name_id);
- 		char* attr_val =exons[0]->attrs->Get(a)->attr_val;
- 		bool sameExonAttr=true;
- 		for (int i=1;i<exons.Count();i++) {
- 			char* ov=exons[i]->getAttr(attr_name_id);
- 			if (ov==NULL || (strcmp(ov,attr_val)!=0)) {
- 				sameExonAttr=false;
- 				break;
- 			}
- 		}
- 		if (sameExonAttr) {
- 			//delete this attribute from exons level
- 			attrs_discarded=true;
- 			this->addAttr(attr_name, attr_val);
- 			for (int i=1;i<exons.Count();i++) {
- 				removeExonAttr(*(exons[i]), attr_name_id);
- 			}
- 			exons[0]->attrs->freeItem(a);
- 		}
+ 	//collect stats for the reference genomic sequence
+ 	if (gfr->gseqtable.Count()<=gseq_id) {
+ 		gfr->gseqtable.setCount(gseq_id+1);
  	}
- 	if (attrs_discarded) exons[0]->attrs->Pack();
+ 	GSeqStat* gsd=gfr->gseqtable[gseq_id];
+ 	if (gsd==NULL) {
+ 		gsd=new GSeqStat(gseq_id,names->gseqs.getName(gseq_id));
+ 		gfr->gseqtable.Put(gseq_id, gsd);
+ 		gfr->gseqStats.Add(gsd);
+ 	}
+ 	gsd->fcount++;
+ 	if (start<gsd->mincoord) gsd->mincoord=start;
+ 	if (end>gsd->maxcoord) gsd->maxcoord=end;
+ 	if (this->len()>gsd->maxfeat_len) {
+ 		gsd->maxfeat_len=this->len();
+ 		gsd->maxfeat=this;
+ 	}
  }
- if (exons.Count()==0 && isTranscript()) {
-	 //add exon feature to an exonless transcript
-	 addExon(this->start, this->end);
- }
+ uptr=NULL;
+ udata=0;
  return this;
 }
 

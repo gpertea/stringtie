@@ -360,20 +360,25 @@ class GSeg {
 
 //basic dynamic array template for primitive types
 //which can only grow (reallocate) as needed
-#define GDynArray_INDEX_ERR "Error: invalid index (%d) in dynamic array!\n"
+
+//optimize index test
+#define GDynArray_INDEX_ERR "Error: use of index (%d) in GDynArray of size %d!\n"
  #if defined(NDEBUG) || defined(NODEBUG) || defined(_NDEBUG) || defined(NO_DEBUG)
  #define GDynArray_TEST_INDEX(x)
 #else
  #define GDynArray_TEST_INDEX(x) \
- if (x>=fCount) GError(GDynArray_INDEX_ERR, x)
+ if (fCount==0 || x>=fCount) GError(GDynArray_INDEX_ERR, x, fCount)
 #endif
 
 #define GDynArray_MAXCOUNT UINT_MAX-1
 #define GDynArray_NOIDX UINT_MAX
 
+//basic dynamic array (vector) template for simple/primitive types or structs
+//Warning: uses malloc so it will never call the item's default constructor when growing
+
 template<class OBJ> class GDynArray {
  protected:
-	bool byptr;
+	bool byptr; //in-place copy (pointer) takeover of existing OBJ[]
     OBJ *fArray;
     uint fCount;
     uint fCapacity; // size of allocated memory
@@ -401,12 +406,12 @@ template<class OBJ> class GDynArray {
     		Clear();
     		return *this;
     	}
-    	setCapacity(a.fCapacity); //set size
+    	increaseCapacity(a.fCapacity); //set size
         memcpy(fArray, a.fArray, sizeof(OBJ)*a.fCount);
         return *this;
     }
 
-    OBJ& operator [] (uint idx) {// get array item
+    OBJ& operator[] (uint idx) {// get array item
     	GDynArray_TEST_INDEX(idx);
     	return fArray[idx];
     }
@@ -416,53 +421,78 @@ template<class OBJ> class GDynArray {
     	if (GDynArray_MAXCOUNT-delta<=fCapacity)
     		delta=GDynArray_MAXCOUNT-fCapacity;
     	if (delta<=1) GError("Error at GDynArray::Grow(): max capacity reached!\n");
-    	setCapacity(fCapacity + delta);
+    	increaseCapacity(fCapacity + delta);
     }
-#define GDYNARRAY_ADD(item) \
+#define GDynArray_ADD(item) \
     	if (fCount==MAX_UINT-1) GError("Error at GDynArray: cannot add item, maximum count reached!\n"); \
     	if ((++fCount) > fCapacity) Grow(); \
     	fArray[fCount-1] = item;
 
-    uint Add(OBJ* item) { // Add item to the end of array by pointer
+    uint Add(OBJ* item) { // Add item to the end of array
+      //element given by pointer
       if (item==NULL) return GDynArray_NOIDX;
-  	  GDYNARRAY_ADD( (*item) );
+  	  GDynArray_ADD( (*item) );
   	  return (fCount-1);
     }
 
-    uint Add(OBJ item) { // Add item copy to the end of array
-	  GDYNARRAY_ADD(item);
+    uint Add(OBJ item) { // Add OBJ copy to the end of array
+	  GDynArray_ADD(item);
 	  return (fCount-1);
     }
 
-    uint Push(OBJ item) {
-    	GDYNARRAY_ADD(item);
+    uint Push(OBJ item) { //same as Add
+    	GDynArray_ADD(item);
     	return (fCount-1);
     }
 
-    OBJ Pop() {
-    	if (fCount==0) return (OBJ)NULL;
+    OBJ Pop() { //shoddy.. Do NOT call this for an empty array!
+    	if (fCount==0) return (OBJ)NULL; //a NULL cast operator is required
     	--fCount;
     	return fArray[fCount];
     }
 
     uint Count() { return fCount; } // get size of array (elements)
     uint Capacity() { return fCapacity; }
-    virtual void setCapacity(uint newcap) {
-    	if (newcap==0) { Clear(); return; } //better use Clear() instead
-    	if (newcap <= fCapacity) return; //never shrink -- use GVec for this
+    void increaseCapacity(uint newcap) {
+    	if (newcap==0) { Clear(); return; }
+    	if (newcap <= fCapacity) return; //never shrinks (use Pack() for this)
+    	GREALLOC(fArray, newcap*sizeof(OBJ));
+    	fCapacity=newcap;
+    }
+    void Trim(int tcount=1) {
+    	//simply cut (discard) the last tcount items
+    	//new Count is now fCount-tcount
+    	//does NOT shrink capacity accordingly!
+    	if (fCount>=tcount) fCount-=tcount;
+    }
+
+    void Pack() { //shrink capacity to fCount+dyn_array_defcap
+    	if (fCapacity-fCount<=dyn_array_defcap) return;
+    	int newcap=fCount+dyn_array_defcap;
     	GREALLOC(fArray, newcap*sizeof(OBJ));
     	fCapacity=newcap;
     }
 
-    void Clear() { // clear array
+    inline void Shrink() { Pack(); }
+
+    void Delete(uint idx) {
+	  GDynArray_TEST_INDEX(idx);
+	  --fCount;
+	  if (idx<fCount)
+		  memmove(&fArray[idx], &fArray[idx+1], (fCount-idx)*sizeof(OBJ));
+    }
+
+    inline void Remove(uint idx) { Delete(idx); }
+
+    void Clear() { // clear array, shrinking its allocated memory
     	fCount = 0;
     	GREALLOC(fArray, sizeof(OBJ)*dyn_array_defcap);
     	// set initial memory size again
     	fCapacity = dyn_array_defcap;
     }
 
-    void reset() {
-    	fCount = 0; //do not deallocate, just show it empty
+    void Reset() {// fast clear array WITHOUT deallocating it
+    	fCount = 0;
     }
 	//pointer getptr() { return (pointer) fArray; }
 	OBJ* operator()() { return fArray; }

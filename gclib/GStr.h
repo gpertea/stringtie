@@ -30,7 +30,7 @@ class GStr {
     public:
         GStr();
         GStr(const GStr& s);
-        GStr(const char* s);
+        GStr(const char* s, uint addcap=4);
         GStr(const int i);
         GStr(const double f);
         GStr(char c, int n = 1);
@@ -68,7 +68,6 @@ class GStr {
         GStr& operator+=(unsigned long l) { return append(l); }
         GStr& operator+=(double f);
       //interface:
-      public:
         int length() const;
         bool is_empty() const;
         bool is_space() const;
@@ -156,9 +155,9 @@ class GStr {
         GStr& chomp(const char* cstr); //like trimR, but given string is taken as a whole
         GStr& trimL(const char* c=" \t\n\r"); //trim only left end
         GStr& trimL(char c=' ');
-        GStr& padR(int len, char c=' '); //align it in len spaces to the right
-        GStr& padL(int len, char c=' '); //align it in len spaces to the left
-        GStr& padC(int len, char c=' '); //center it
+        GStr& padR(uint len, char c=' '); //align it in len spaces to the right
+        GStr& padL(uint len, char c=' '); //align it in len spaces to the left
+        GStr& padC(uint len, char c=' '); //center it
         size_t read(FILE* stream, const char* delimiter="\n", size_t bufsize=4096);
           //read next token from stream, using the given string as
           //a marker where the block should stop
@@ -174,14 +173,15 @@ class GStr {
         static void invalid_index_error(const char* fname);
         struct Data {//structure holding actual
                      //string data and reference count information
-               Data() { ref_count=0; length=0; chars[0] = '\0'; }
-               unsigned int ref_count;
-               int length;
+               Data():ref_count(0), cap(0),length(0) { chars[0] = 0; }
+               uint ref_count; //reference count
+               uint cap; //allocated string capacity (excluding \0 end char)
+               uint length; //actual string length (excluding \0 end char)
                char chars[1];
               };
-        static Data* new_data(int length); //alloc a specified length string's Data
-        static Data* new_data(const char* str); //alloc a copy of a specified string
-        void replace_data(int length);
+        static Data* new_data(uint len, uint addcap=0); //alloc a specified length string's Data
+        static Data* new_data(const char* str, uint addcap=0); //alloc a copy of a specified string, with an additional cap
+        void prep_data(uint len, uint addcap=0); //allocates memory for the string
         void replace_data(Data* data);
         void make_unique();
         char* chrs(); // this is dangerous, length should not be affected

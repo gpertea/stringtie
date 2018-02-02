@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.4"
+#define VERSION "1.3.4a"
 
 //#define DEBUGPRINT 1
 
@@ -325,8 +325,8 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 	   if (skipGseq) continue;
 	   if (m->exons.Count()==0) {
 		    if (verbose)
-		    	GMessage("Warning: exonless GFF object %s found, added implicit exon %d-%d.\n",
-		    			m->getID(),m->start, m->end);
+		    	GMessage("Warning: exonless GFF %s feature with ID %s found, added implicit exon %d-%d.\n",
+		    			m->getFeatureName(), m->getID(), m->start, m->end);
 		    m->addExon(m->start, m->end); //should never happen!
 	   }
 	   //DONE: always keep a RC_TData pointer around, with additional info about guides
@@ -344,7 +344,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		 printTime(stderr);
 		 GMessage(" %d reference transcripts loaded.\n", gffr.gflst.Count());
 	 }
-	//fclose(f); GffReader will close it anyway
  }
 
 #ifdef GFF_DEBUG
