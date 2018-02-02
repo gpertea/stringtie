@@ -1149,7 +1149,8 @@ GffObj* GffReader::gfoAdd(GPVec<GffObj>& glst, GffObj* gfo) {
 GffObj* GffReader::gfoReplace(GPVec<GffObj>& glst, GffObj* gfo, GffObj* toreplace) {
  for (int i=0;i<glst.Count();++i) {
 	 if (glst[i]==toreplace) {
-		 glst.Put(i,gfo);
+		 //glst.Put(i,gfo);
+		 glst[i]=gfo;
 		 break;
 	 }
  }
@@ -1733,7 +1734,8 @@ GffObj* GffObj::finalize(GffReader* gfr, bool mergeCloseExons, bool keepAttrs, b
  	GSeqStat* gsd=gfr->gseqtable[gseq_id];
  	if (gsd==NULL) {
  		gsd=new GSeqStat(gseq_id,names->gseqs.getName(gseq_id));
- 		gfr->gseqtable.Put(gseq_id, gsd);
+ 		//gfr->gseqtable.Put(gseq_id, gsd);
+ 		gfr->gseqtable[gseq_id]=gsd;
  		gfr->gseqStats.Add(gsd);
  	}
  	gsd->fcount++;

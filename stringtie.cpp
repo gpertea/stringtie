@@ -1,4 +1,4 @@
-//#define GFF_DEBUG 1 //debugging guides loading
+//#define GFF_DEBUG 1 //debugging GFF/GTF loading
 #include "rlink.h"
 #include "tmerge.h"
 #ifndef NOTHREADS

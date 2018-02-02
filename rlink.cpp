@@ -285,7 +285,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		if (currentstart<=pairstart) { // if pairstart is in a previous bundle I don't care about it
 
 			//GStr readname(brec.name());
-			GStr id(brec.name(), 14); // init id with readname
+			GStr id(brec.name(), 16); // init id with readname + append buffer
 			if(pairstart<=readstart) { // if I've seen the pair already <- I might not have seen it yet because the pair starts at the same place
 				id+='-';id+=pairstart;
 				id+=".=";id+=hi; // (!) this useless suffix actually speeds up the hash by improving distribution!

@@ -289,12 +289,6 @@ bool GStr::operator!=(const char *s) const {
  return (strcmp(my_data->chars, s) != 0);
  }
 
-GStr& GStr::append(char c) {
- char buf[5];
- sprintf(buf,"%c",c);
- return append(buf);
- }
-
 GStr& GStr::append(int i) {
  char buf[20];
  sprintf(buf,"%d",i);
@@ -973,13 +967,32 @@ GStr& GStr::insert(const char *s, int idx) {
 }
 //=========================================
 
+GStr& GStr::append(char c) {
+  make_unique(); //edit operation ahead
+  uint newlen=my_data->length+1;
+  if (my_data->cap==0) {
+    prep_data(1, 6);
+    my_data->chars[0]=c;
+    return *this;
+  }
+  if (newlen>my_data->cap) {
+	  //not enough room to append this char
+	  GREALLOC(my_data, sizeof(Data)+newlen);
+	  my_data->cap=newlen;
+  }
+  my_data->chars[my_data->length]=c;
+  my_data->length++;
+  my_data->chars[my_data->length]='\0';
+  return *this;
+ }
+
 GStr& GStr::append(const char* s) {
   make_unique(); //edit operation ahead
   uint len=::strlen(s);
   uint newlen=len+my_data->length;
   if (newlen<=my_data->length) return *this;
-  if (my_data->length==0) {
-    prep_data(len);
+  if (my_data->length==0 && my_data->cap<newlen) {
+    prep_data(len,4);
     ::memcpy(my_data->chars, s, len);
     return *this;
    }

@@ -161,10 +161,15 @@ template <class OBJ> class GPVec {
     GPVec(GPVec<OBJ>& list); //copy constructor?
     GPVec(GPVec<OBJ>* list); //kind of a copy constructor
     const GPVec<OBJ>& operator=(GPVec<OBJ>& list);
-    OBJ* Get(int i);
-    OBJ* operator[](int i) { return this->Get(i); }
-    //OBJ*& operator[](int i) { return fList[i]; }
-    void Reverse(); //reverse pointer array; WARNING: will break the sort order if sorted!
+    inline OBJ* Get(int i) {
+    	TEST_INDEX(i);
+        return fList[i];
+    }
+     //OBJ* operator[](int i) { return this->Get(i); }
+    inline OBJ*& operator[](int i) {
+    	 TEST_INDEX(i); return fList[i];
+    }
+    void Reverse(); //reverse pointer array; WARNING: will break(reverse) the sort order if sorted!
     void freeItem(int idx); //calls fFreeProc (or DefaultFreeProc) on fList[idx] and sets NULL there, doesn't pack!
                       //it will free even if fFreeProc is NULL!
     void setFreeItem(GFreeProc *freeProc) { fFreeProc=freeProc; }
@@ -692,11 +697,6 @@ template <class OBJ> void GPVec<OBJ>::Exchange(int idx1, int idx2) {
 template <class OBJ> void GPVec<OBJ>::Expand() {
  if (fCount==fCapacity) Grow();
  //return this;
-}
-
-template <class OBJ> OBJ* GPVec<OBJ>::Get(int idx) {
- TEST_INDEX(idx);
- return fList[idx];
 }
 
 template <class OBJ> void GPVec<OBJ>::Grow() {
