@@ -1018,7 +1018,7 @@ GStr& GStr::appendmem(const char* m, int len) {
     return *this;
    }
   //faster solution with realloc
-  if (newlen<=my_data->cap) {
+  if (newlen>my_data->cap) {
 	  //not enough room to append these chars
 	  GREALLOC(my_data, sizeof(Data)+newlen);
 	  my_data->cap=newlen;
