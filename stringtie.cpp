@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.4c"
+#define VERSION "1.3.4d"
 
 //#define DEBUGPRINT 1
 
@@ -1197,22 +1197,22 @@ void noMoreBundles() {
 void processBundle(BundleData* bundle) {
 	if (verbose) {
 	#ifndef NOTHREADS
-			GLockGuard<GFastMutex> lock(logMutex);
+		GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%lu) (%d guides) loaded, begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
+		GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count());
-#ifdef GMEMTRACE
-		double vm,rsm;
-		get_mem_usage(vm, rsm);
-		GMessage("\t\tstart memory usage: %6.1fMB\n",rsm/1024);
-		if (rsm>maxMemRS) {
-			maxMemRS=rsm;
-			maxMemVM=vm;
-			maxMemBundle.format("%s:%d-%d(%d)", bundle->refseq.chars(), bundle->start, bundle->end, bundle->readlist.Count());
-		}
-#endif
+	#ifdef GMEMTRACE
+			double vm,rsm;
+			get_mem_usage(vm, rsm);
+			GMessage("\t\tstart memory usage: %6.1fMB\n",rsm/1024);
+			if (rsm>maxMemRS) {
+				maxMemRS=rsm;
+				maxMemVM=vm;
+				maxMemBundle.format("%s:%d-%d(%d)", bundle->refseq.chars(), bundle->start, bundle->end, bundle->readlist.Count());
+			}
+	#endif
 	}
 #ifdef B_DEBUG
 	for (int i=0;i<bundle->keepguides.Count();++i) {
@@ -1278,8 +1278,8 @@ void processBundle(BundleData* bundle) {
 	  fprintf(stderr,"Number of fragments in bundle: %g with sum %g\n",bundle->num_fragments,bundle->frag_len);
 	  */
 	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
-	  		bundle->start, bundle->end, bundle->readlist.Count(), bundle->pred.Count());
+	  GMessage("^bundle %s:%d-%d done (%d processed potential transcripts).\n",bundle->refseq.chars(),
+	  		bundle->start, bundle->end, bundle->pred.Count());
 	#ifdef GMEMTRACE
 		    double vm,rsm;
 		    get_mem_usage(vm, rsm);

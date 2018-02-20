@@ -2,11 +2,20 @@ BAM := ./samtools-0.1.18
 #path to the directory where the samtools package was built (in place)
 #so libbam.a and *.h files MUST be in here
 
-GDIR :=./gclib
+GDIR      :=./gclib
 
-INCDIRS := -I. -I${GDIR} -I${BAM}
+INCDIRS   := -I. -I${GDIR} -I${BAM}
 
-CC      := g++
+CC        := g++
+
+BASEFLAGS := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
+-D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti
+
+LINKER    := g++
+
+LDFLAGS   := -g -L${BAM} $(LDFLAGS)
+
+LIBS      := -lbam -lz
 
 ifneq (,$(findstring nothreads,$(MAKECMDGOALS)))
  NOTHREADS=1
@@ -17,36 +26,26 @@ ifneq (,$(findstring mingw,$(shell ${CC} -dumpmachine)))
  WINDOWS=1
 endif
 
-LFLAGS = 
 # MinGW32 GCC 4.5 link problem fix
 #ifdef WINDOWS
 ifneq (,$(findstring 4.5.,$(shell g++ -dumpversion)))
- LFLAGS += -static-libstdc++ -static-libgcc
+ STATIC_CLIB=1
 endif
 #endif
 
 # Misc. system commands
-#ifdef WINDOWS
-RM = del /Q
-#else
-RM = rm -f
-#endif
+ifdef WINDOWS
+ RM = del /Q
+else
+ RM = rm -f
+endif
 
 # File endings
 ifdef WINDOWS
-EXE = .exe
+ EXE = .exe
 else
-EXE =
+ EXE =
 endif
-
-BASEFLAGS  := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
--D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti
-
-# C/C++ linker
-
-LINKER  := g++
-
-LIBS := -lbam -lz
 
 # Non-windows systems need pthread
 ifndef WINDOWS
@@ -59,19 +58,16 @@ ifdef NOTHREADS
   BASEFLAGS += -DNOTHREADS
 endif
 
-###----- generic build rule
-
 #ifneq (,$(findstring release,$(MAKECMDGOALS)))
+
 ifneq (,$(filter %release %static, $(MAKECMDGOALS)))
   # -- release build
-  CFLAGS := -O3 -DNDEBUG -g $(BASEFLAGS)
-  LDFLAGS := -g -L${BAM} ${LFLAGS}
-  ifneq (,$(findstring static,$(MAKECMDGOALS)))
-    LDFLAGS += -static-libstdc++ -static-libgcc
-  endif
+  RELEASE_BUILD=1
+  CFLAGS := -DNDEBUG -g $(BASEFLAGS) $(CFLAGS) -O3
 else
   ifneq (,$(filter %memcheck %memdebug, $(MAKECMDGOALS)))
-     #make memcheck : use the statically linked address sanitizer in gcc 4.9.x
+     #use sanitizer in gcc 4.9+
+     MEMCHECK_BUILD=1
      GCCVER49 := $(shell expr `g++ -dumpversion | cut -f1,2 -d.` \>= 4.9)
      ifeq "$(GCCVER49)" "0"
        $(error gcc version 4.9 or greater is required for this build target)
@@ -84,35 +80,52 @@ else
        #CFLAGS += -fcheck-pointer-bounds -mmpx
      endif
      CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector $(CFLAGS)
-     LDFLAGS := -g -L${BAM}
      LIBS := -lasan -lubsan -ldl $(LIBS)
   else
-   ifneq (,$(filter %memtrace %memusage %memuse, $(MAKECMDGOALS)))
-       BASEFLAGS += -DGMEMTRACE
-       GMEMTRACE=1
-   endif
-   #just plain debug build
-    CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
-    LDFLAGS := -g -L${BAM}
+    ifeq (,$(findstring clean,$(MAKECMDGOALS)))
+     #just plain debug build
+     DEBUG_BUILD=1
+     CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
+    endif
   endif
 endif
 
-%.o : %.cpp
-	${CC} ${CFLAGS} -c $< -o $@
+ifdef RELEASE_BUILD
+ ifneq (,$(findstring static, $(MAKECMDGOALS)))
+    STATIC_CLIB=1
+ endif
+endif
+
+ifdef STATIC_CLIB
+ LDFLAGS += -static-libstdc++ -static-libgcc
+endif
+
+ifdef DEBUG_BUILD
+  $(warning Building DEBUG version [much slower], use 'make release' for a fast, optimized program.)
+  DBG_WARN=@echo
+  DBG_WARN+='WARNING: built DEBUG version [much slower], use "make release" for a fast, optimized program.'
+endif
+
 
 OBJS := ${GDIR}/GBase.o ${GDIR}/GArgs.o ${GDIR}/GStr.o ${GDIR}/GBam.o \
  ${GDIR}/gdna.o ${GDIR}/codons.o ${GDIR}/GFaSeqGet.o ${GDIR}/gff.o 
 
-ifdef GMEMTRACE
- OBJS += ${GDIR}/proc_mem.o
+
+ifneq (,$(filter %memtrace %memusage %memuse, $(MAKECMDGOALS)))
+    CFLAGS += -DGMEMTRACE
+    OBJS += ${GDIR}/proc_mem.o
 endif
 
 ifndef NOTHREADS
  OBJS += ${GDIR}/GThreads.o 
 endif
 
+
+%.o : %.cpp
+	${CC} ${CFLAGS} -c $< -o $@
+
 OBJS += rlink.o tablemaker.o tmerge.o
- 
+
 all release static debug: stringtie${EXE}
 memcheck memdebug: stringtie${EXE}
 memuse memusage memtrace: stringtie${EXE}
@@ -127,6 +140,8 @@ ${BAM}/libbam.a:
 	cd ${BAM} && make lib
 stringtie: ${BAM}/libbam.a $(OBJS) stringtie.o
 	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LIBS}
+	@echo
+	${DBG_WARN}
 
 .PHONY : clean cleanall cleanAll allclean
 

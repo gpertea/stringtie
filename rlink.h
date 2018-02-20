@@ -473,7 +473,7 @@ struct BundleData {
  int start;
  int end;
  //bool covSaturated;
- unsigned long numreads; // number of reads in bundles
+ unsigned long numreads; // number of read alignments found in this bundle
  /*
  float wnumreads; // NEW: weighted numreads; a multi-mapped read mapped in 2 places will contribute only 0.5
  double sumreads; // sum of all reads' lengths in bundle
@@ -491,14 +491,13 @@ struct BundleData {
 
  GStr refseq;
  GList<CReadAln> readlist;
- GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
+ GVec<float> bpcov[3];
  GList<CJunction> junction;
  GPVec<GffObj> keepguides;
  GPVec<CTCov> covguides;
  GList<CPrediction> pred;
  RC_BundleData* rc_data;
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
-		 //covSaturated(false),
 		 numreads(0),
 		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
 		 refseq(), readlist(false,true), //bpcov(1024),
@@ -553,7 +552,6 @@ struct BundleData {
 	start=0;
 	end=0;
 	status=BUNDLE_STATUS_CLEAR;
-	//covSaturated=false;
 	numreads=0;
 	num_fragments=0;
 	frag_len=0;
@@ -570,7 +568,6 @@ struct BundleData {
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata);
-		 //GBamRecord& brec, char strand, int nh, int hi);
 
 void countFragment(BundleData& bdata, GBamRecord& brec, int hi,int nh);
 

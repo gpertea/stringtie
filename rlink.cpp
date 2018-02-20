@@ -196,7 +196,6 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
     int hi=alndata.hi;
 	int readstart=brec.start;
 	CReadAln* readaln=NULL;                        // readaln is initialized with NULL
-	//bool covSaturated=false;                       // coverage is set to not saturated
 
 	bool match=false;  // true if current read matches a previous read
 	int n=readlist.Count()-1;
@@ -217,7 +216,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		bdata.start=currentstart;
 		bdata.end=currentend;
 	}
-	bdata.numreads++;                         // number of reads gets increased no matter what
+	bdata.numreads++;                // number of reads (alignments) actually considered
 	//bdata.wnumreads+=float(1)/nh;
 
 	if (!match) { // if this is a new read I am seeing I need to set it up
