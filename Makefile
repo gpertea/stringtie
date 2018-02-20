@@ -101,9 +101,9 @@ ifdef STATIC_CLIB
 endif
 
 ifdef DEBUG_BUILD
-  $(warning Building DEBUG version [much slower], use 'make release' for a fast, optimized program.)
+  $(warning Building DEBUG version of stringtie.. )
   DBG_WARN=@echo
-  DBG_WARN+='WARNING: built DEBUG version [much slower], use "make release" for a fast, optimized program.'
+  DBG_WARN+='WARNING: built DEBUG version [much slower], use "make clean release" for a faster, optimized version of the program.'
 endif
 
 
