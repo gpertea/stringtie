@@ -3,7 +3,10 @@ import re, csv, sys, os, glob, warnings, itertools
 from math import ceil
 from optparse import OptionParser
 from operator import itemgetter
-#note that the gtf files in the sample folders have same # of lines, just different order(?)
+
+MIN_PYTHON = (2, 7)
+if sys.version_info < MIN_PYTHON:
+    sys.exit("Python %s.%s or later is required.\n" % MIN_PYTHON)
 
 parser=OptionParser(description='Generates two CSV files containing the count matrices for genes and transcripts, using the coverage values found in the output of `stringtie -e`')
 parser.add_option('-i', '--input', '--in', default='ballgown', help="the parent directory of the sample sub-directories or a textfile listing the paths to GTF files [default: %default]")
