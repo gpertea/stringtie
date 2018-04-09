@@ -26,20 +26,20 @@ struct Codon {
    nuc[1]=toupper(s2);
    nuc[2]=toupper(s3);
    }
- 
-   
+
+
  char& operator[](int idx) {
-   if (idx<0 || idx>2) 
+   if (idx<0 || idx>2)
       GError("Error: Codon index out of bounds!\n");
    return nuc[idx];
    }
 
  char operator[](int idx) const {
-   if (idx<0 || idx>2) 
+   if (idx<0 || idx>2)
       GError("Error: Codon index out of bounds!\n");
    return nuc[idx];
    }
- 
+
  char translate();
  };
 
@@ -48,7 +48,8 @@ struct Codon {
 // responsible for freeing the returned string!
 char* translateDNA(const char* dnastr, int& aalen, int dnalen=0);
 
+char translateCodon(const char* dna); //returns the aminoacid code for the 1st codon at dna
 
 bool codonTableInit();
- 
+
 #endif

@@ -3,8 +3,8 @@
 
 const char* IUPAC_2BIT  ="AACCTTGGTTAAAAAACCCCGGAAAAAACCAAAAAA";
 const char* IUPAC_2BITN ="001133223300000011112200000011000000";
-const char* IUPAC_DEFS  ="AaCcTtGgUuMmRrWwSsYyKkVvHhDdBbNnXx-*";
-const char* IUPAC_COMP  ="TtGgAaCcAaKkYyWwSsRrMmBbDdHhVvNnXx-*";
+const char* IUPAC_DEFS ="AaCcTtGgUuMmRrWwSsYyKkVvHhDdBbNnXx-*";
+const char* IUPAC_COMP ="TtGgAaCcAaKkYyWwSsRrMmBbDdHhVvNnXx-*";
 
 #define A_2BIT 0 // 00
 #define C_2BIT 1 // 01

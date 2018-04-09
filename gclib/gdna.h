@@ -2,6 +2,9 @@
 #define GDNA_H
 #include "GBase.h"
 
+extern const char* IUPAC_DEFS;
+extern const char* IUPAC_COMP;
+
 char ntComplement(char c);
 
 //in-place reverse complement of a nucleotide (sub)sequence

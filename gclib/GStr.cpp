@@ -49,10 +49,14 @@ GStr::Data* GStr::new_data(const char* str, uint addcap) {
  }
 
 void GStr::prep_data(uint len, uint addcap) {
-
-    if (len+addcap == my_data->cap && my_data->ref_count <= 1)
+	uint newcap=len+addcap;
+    if (newcap > 0 && my_data->ref_count <= 1 &&
+    	   my_data->cap>=newcap && my_data->cap-newcap<(newcap>>1)+2) {
+    	//no need to shrink/reallocate the already allocated space
+    	my_data->length = len;
+    	my_data->chars[len]=0;
         return;
-
+    }
     if (my_data != &null_data && --my_data->ref_count == 0)
         GFREE(my_data);
 
@@ -66,6 +70,13 @@ void GStr::prep_data(uint len, uint addcap) {
     else
         my_data = &null_data;
 }
+
+GStr& GStr::clear(int init_cap) {
+  make_unique(); //edit operation ahead
+  prep_data(0, init_cap);
+  return *this;
+  }
+
 
 void GStr::replace_data(Data *data) {
     if (my_data != &null_data && --my_data->ref_count == 0)
@@ -113,6 +124,20 @@ GStr::GStr():my_data(&null_data) {
  readbuf=NULL;
  readbufsize=0;
  }
+
+//detach from the string data, returning a pointer to it
+char* GStr::detach() {
+ make_unique();
+ char *r=my_data->chars;
+ my_data=&null_data;
+ fTokenDelimiter=NULL;
+ fTokenizeMode=tkCharSet;
+ fLastTokenStart=0;
+ readbuf=NULL;
+ readbufsize=0;
+ return r;
+}
+
 
 GStr::GStr(const GStr& s): my_data(&null_data){
  fTokenDelimiter=NULL;
@@ -165,7 +190,8 @@ GStr::GStr(char c, int n): my_data(&null_data) {
   fLastTokenStart=0;
   readbuf=NULL;
   readbufsize=0;
-  prep_data(n); ::memset(chrs(), c, n);
+  prep_data(n);
+  ::memset(chrs(), c, n);
   }
 
 GStr::~GStr() {
@@ -201,7 +227,7 @@ GStr& GStr::operator=(const char *s) {
   if (s==NULL) {
     prep_data(0);
     return *this;
-    }
+  }
   const int len = ::strlen(s); prep_data(len);
   ::memcpy(my_data->chars, s, len);
   return *this;
@@ -328,12 +354,6 @@ GStr GStr::copy() const {
  GStr newstring(*this);
  return newstring;
  }
-
-GStr& GStr::clear() {
-  make_unique(); //edit operation ahead
-  prep_data(0);
-  return *this;
-  }
 
 int GStr::index(const GStr& s, int start_index) const {
  return index(s.chars(), start_index);
@@ -996,16 +1016,43 @@ GStr& GStr::append(const char* s) {
     ::memcpy(my_data->chars, s, len);
     return *this;
    }
-  if (newlen>my_data->cap) {
+  if (newlen>=my_data->cap) {
 	  //not enough room to append these chars
-	  GREALLOC(my_data, sizeof(Data)+newlen);
-	  my_data->cap=newlen;
+	  GREALLOC(my_data, sizeof(Data)+newlen+1);
+	  my_data->cap=newlen+1;
   }
   ::memcpy(my_data->chars+my_data->length, s, len);
   my_data->length=newlen;
   my_data->chars[newlen]='\0';
   return *this;
 }
+
+GStr& GStr::append(const char* s, int len) {
+  make_unique(); //edit operation ahead
+  //uint len=::strlen(s);
+  uint newlen=len+my_data->length;
+  if (newlen<=my_data->length) return *this;
+  if (my_data->length==0 && my_data->cap<newlen) {
+    prep_data(len,4);
+    ::strncpy(my_data->chars, s, len);
+    return *this;
+   }
+  if (newlen>=my_data->cap) {
+	  //not enough room to append these chars
+	  GREALLOC(my_data, sizeof(Data)+newlen+1);
+	  my_data->cap=newlen+1;
+  }
+  //strncpy(my_data->chars+my_data->length, s, len);
+  newlen=my_data->length;
+  for (int i=0;s[i]!='\0' && i<len;++i) {
+	my_data->chars[my_data->length+i]=s[i];
+	++newlen;
+  }
+  my_data->length=newlen;
+  my_data->chars[newlen]='\0';
+  return *this;
+}
+
 
 GStr& GStr::appendmem(const char* m, int len) {
   if (len<=0) return *this;
@@ -1018,10 +1065,10 @@ GStr& GStr::appendmem(const char* m, int len) {
     return *this;
    }
   //faster solution with realloc
-  if (newlen>my_data->cap) {
+  if (newlen>=my_data->cap) {
 	  //not enough room to append these chars
-	  GREALLOC(my_data, sizeof(Data)+newlen);
-	  my_data->cap=newlen;
+	  GREALLOC(my_data, sizeof(Data)+newlen+1);
+	  my_data->cap=newlen+1;
   }
   ::memcpy(my_data->chars + my_data->length, m, len);
   my_data->length=newlen;

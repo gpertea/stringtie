@@ -316,15 +316,17 @@ int Gstricmp(const char* a, const char* b, int n) {
   }
 }
 
-int strsplit(char* str, char** fields, int maxfields, const char* delim) {
+int strsplit(char* str, GDynArray<char*>& fields, const char* delim, int maxfields) {
  //splits by placing 0 where any of the delim chars are found, setting fields[] to the beginning
  //of each field (stopping after maxfields); returns number of fields parsed
  int tidx=0;
  bool afterdelim=true;
  int i=0;
+ fields.Reset();
  while (str[i]!=0 && tidx<maxfields) {
     if (afterdelim) {
-        fields[tidx]=str+i;
+        //fields[tidx]=str+i;
+    	fields.Add(str+i);
         tidx++;
         }
     afterdelim=false;
@@ -340,15 +342,17 @@ int strsplit(char* str, char** fields, int maxfields, const char* delim) {
  return tidx;
 }
 
-int strsplit(char* str, char** fields, int maxfields, const char delim) {
+int strsplit(char* str, GDynArray<char*>& fields, const char delim, int maxfields) {
   //splits by placing 0 where delim is found, setting fields[] to the beginning
   //of each field (stopping after maxfields); returns number of fields parsed
   int tidx=0;
   bool afterdelim=true;
   int i=0;
+  fields.Reset();
   while (str[i]!=0 && tidx<maxfields) {
      if (afterdelim) {
-         fields[tidx]=str+i;
+         //fields[tidx]=str+i;
+    	 fields.Add(str+i);
          tidx++;
          }
      afterdelim=false;
@@ -364,15 +368,17 @@ int strsplit(char* str, char** fields, int maxfields, const char delim) {
   return tidx;
 }
 
-int strsplit(char* str, char** fields, int maxfields) {
+int strsplit(char* str,  GDynArray<char*>& fields, int maxfields) {
   //splits by placing 0 where delim is found, setting fields[] to the beginning
   //of each field (stopping after maxfields); returns number of fields parsed
   int tidx=0;
   bool afterdelim=true;
   int i=0;
+  fields.Reset();
   while (str[i]!=0 && tidx<maxfields) {
      if (afterdelim) {
-         fields[tidx]=str+i;
+         //fields[tidx]=str+i;
+    	 fields.Add(str+i);
          tidx++;
          }
      afterdelim=false;

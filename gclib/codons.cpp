@@ -51,7 +51,7 @@ unsigned short packCodon(char n1, char n2, char n3) {
  byte b1=n1-'A';
  byte b2=n2-'A';
  byte b3=n3-'A';
- b1 |= (b2 << 5); 
+ b1 |= (b2 << 5);
  b2 = (b2 >> 3) | (b3 << 2);
  return ( ((unsigned short)b2) << 8) + b1;
  }
@@ -62,7 +62,7 @@ bool codonTableInit() {
  for (int i=0;i<cdsize;i+=4) {
    unsigned short aacode=packCodon(codonData[i], codonData[i+1], codonData[i+2]);
    codonTable[aacode]=codonData[i+3];
-   } 
+   }
  return true;
  }
 
@@ -87,4 +87,10 @@ char* translateDNA(const char* dnastr, int& aalen, int dnalen) {
    r[ai]=codonTable[packCodon(toupper(dnastr[i]),toupper(dnastr[i+1]),toupper(dnastr[i+2]))];
    }
  return r;
+}
+
+char translateCodon(const char* dna) { //returns the aminoacid code for the 1st codon at dna
+	if (dna==NULL) return 0;
+	if (dna[0]==0 || dna[1]==0 || dna[2]==0) return 0;
+    return codonTable[packCodon(toupper(dna[0]),toupper(dna[1]),toupper(dna[2]))];
 }

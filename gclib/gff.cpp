@@ -361,22 +361,32 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
  /*
   Rejecting non-transcript lines early if only transcripts are requested ?!
   It would be faster to do this here but there are GFF cases when we reject a parent feature here
- (e.g. protein with 2 CDS children) and then their exon/CDS children show up and
+  (e.g. protein with 2 CDS children) and then their exon/CDS children show up and
   get assigned to an implicit parent mRNA
   The solution is to still load this parent as GffObj for now and BAN it later
   so its children get dismissed/discarded as well.
  */
+ char *gtf_tid=NULL;
+ char *gtf_gid=NULL;
  if (reader->is_gff3 || reader->gff_type==0) {
 	ID=extractAttr("ID=",true);
 	Parent=extractAttr("Parent=",true);
 	if (reader->gff_type==0) {
 		if (ID!=NULL || Parent!=NULL) reader->is_gff3=true;
-			else reader->is_gtf=true;
+			else { //check if it looks like a GTF
+				gtf_tid=extractAttr("transcript_id", true, true);
+				if (gtf_tid==NULL) {
+					gtf_gid=extractAttr("gene_id", true, true);
+					if (gtf_gid==NULL) return; //cannot determine file type yet
+				}
+				reader->is_gtf=true;
+			}
 	}
  }
 
  if (reader->is_gff3) {
 	 //parse as GFF3
+	 //if (ID==NULL && Parent==NULL) return; //silently ignore unidentified/unlinked features
 	 if (ID!=NULL) {
 		 //has ID attr so it's likely to be a parent feature
 		 //look for explicit gene name
@@ -480,8 +490,8 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 	 }
 	 if (is_gene) {
 		 reader->gtf_gene=true;
-		 ID=extractAttr("transcript_id", true, true); //Ensemble GTF might lack this
-		 gene_id=extractAttr("gene_id");
+		 ID = (gtf_tid!=NULL) ? gtf_tid : extractAttr("transcript_id", true, true); //Ensemble GTF might lack this
+		 gene_id = (gtf_gid!=NULL) ? gtf_gid : extractAttr("gene_id", true, true);
 		 if (ID==NULL) {
 			 // no transcript_id -- this is not a valid GTF2 format, but Ensembl
 			 //is being known to add "gene" features with only gene_id in their GTF
@@ -492,21 +502,21 @@ GffLine::GffLine(GffReader* reader, const char* l): _parents(NULL), _parents_len
 		 // else if (strcmp(gene_id, ID)==0) //GENCODE v20 gene feature ?
 	 }
 	 else if (is_transcript) {
-		ID=extractAttr("transcript_id", true, true);
+		 ID = (gtf_tid!=NULL) ? gtf_tid : extractAttr("transcript_id", true, true);
 		//gene_id=extractAttr("gene_id"); // for GTF this is the only attribute accepted as geneID
 		 if (ID==NULL) {
 			 	 //something is wrong here, cannot parse the GTF ID
 				 GMessage("Warning: invalid GTF record, transcript_id not found:\n%s\n", l);
 				 return;
 		 }
-		gene_id=extractAttr("gene_id");
+		 gene_id = (gtf_gid!=NULL) ? gtf_gid : extractAttr("gene_id", true, true);
 		if (gene_id!=NULL)
 			Parent=Gstrdup(gene_id);
 		reader->gtf_transcript=true;
 		is_gtf_transcript=1;
 	 } else { //must be an exon type
-		 Parent=extractAttr("transcript_id", true, true);
-		 gene_id=extractAttr("gene_id"); // for GTF this is the only attribute accepted as geneID
+		 Parent = (gtf_tid!=NULL) ? gtf_tid : extractAttr("transcript_id", true, true);
+		 gene_id = (gtf_gid!=NULL) ? gtf_gid : extractAttr("gene_id", true, true); // for GTF this is the only attribute accepted as geneID
 		 //old pre-GTF2 formats like Jigsaw's (legacy)
 		 if (Parent==NULL && exontype==exgffExon) {
 			 if (startsWith(track,"jigsaw")) {

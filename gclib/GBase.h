@@ -221,10 +221,6 @@ char* Gstrdup(const char* sfrom, const char* sto);
 char* Gsubstr(const char* str, char* from, char* to=NULL);
 //extracts a substring, allocating it, including boundaries (from/to)
 
-int strsplit(char* str, char** fields, int maxfields, const char* delim);
-int strsplit(char* str, char** fields, int maxfields, const char delim);
-int strsplit(char* str, char** fields, int maxfields); //splits by tab or space
-
 char* replaceStr(char* &str, char* newvalue);
 
 //conversion: to Lower/Upper case
@@ -498,6 +494,18 @@ template<class OBJ> class GDynArray {
 	OBJ* operator()() { return fArray; }
 };
 
+
+int strsplit(char* str, GDynArray<char*>& fields, const char* delim, int maxfields=MAX_INT);
+//splits a string by placing 0 where any of the delim chars are found, setting fields[] to the beginning
+//of each field (stopping after maxfields); returns number of fields parsed
+
+int strsplit(char* str, GDynArray<char*>& fields, const char delim, int maxfields=MAX_INT);
+//splits a string by placing 0 where the delim char is found, setting fields[] to the beginning
+//of each field (stopping after maxfields); returns number of fields parsed
+
+int strsplit(char* str, GDynArray<char*>& fields, int maxfields=MAX_INT); //splits by tab or space
+//splits a string by placing 0 where tab or space is found, setting fields[] to the beginning
+//of each field (stopping after maxfields); returns number of fields parsed
 
 //--------------------------------------------------------
 // ************** simple line reading class for text files
