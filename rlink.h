@@ -281,7 +281,7 @@ struct CReadAln:public GSeg {
 	uint len;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
 	GVec<float> pair_count;   // keeps count for all paired reads
-	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
+	GVec<int> pair_idx;     // keeps indices for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
 	GPVec<CJunction> juncs;
     TAlnInfo* tinfo;
