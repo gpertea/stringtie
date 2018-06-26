@@ -1,28 +1,32 @@
-BAM := ./samtools-0.1.18
-#path to the directory where the samtools package was built (in place)
-#so libbam.a and *.h files MUST be in here
+#-- for now these MUST point to the included samtools-0.x.x and gclib subdirectories
+BAM  := ./samtools-0.1.18
+GDIR := ./gclib
+#--
 
-GDIR      :=./gclib
+INCDIRS := -I. -I${GDIR} -I${BAM}
 
-INCDIRS   := -I. -I${GDIR} -I${BAM}
-
-CC        := g++
+#CXX  ?= g++
+CXX   := $(if $(CXX),$(CXX),g++)
 
 BASEFLAGS := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
 -D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti
+#for gcc 8+ add: -Wno-class-memaccess
 
-LINKER    := g++
 
-LDFLAGS   := -g -L${BAM} $(LDFLAGS)
+LINKER  := $(if $(LINKER),$(LINKER),g++)
 
-LIBS      := -lbam -lz
+LDFLAGS := $(if $(LDFLAGS),$(LDFLAGS),-g)
+
+LDFLAGS += -L${BAM}
+
+LIBS    := -lbam -lz
 
 ifneq (,$(findstring nothreads,$(MAKECMDGOALS)))
  NOTHREADS=1
 endif
 
 #detect MinGW (Windows environment)
-ifneq (,$(findstring mingw,$(shell ${CC} -dumpmachine)))
+ifneq (,$(findstring mingw,$(shell ${CXX} -dumpmachine)))
  WINDOWS=1
 endif
 
@@ -63,7 +67,8 @@ endif
 ifneq (,$(filter %release %static, $(MAKECMDGOALS)))
   # -- release build
   RELEASE_BUILD=1
-  CFLAGS := -DNDEBUG -g $(BASEFLAGS) $(CFLAGS) -O3
+  CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O3)
+  CXXFLAGS += -DNDEBUG $(BASEFLAGS)
 else
   ifneq (,$(filter %memcheck %memdebug, $(MAKECMDGOALS)))
      #use sanitizer in gcc 4.9+
@@ -72,21 +77,21 @@ else
      ifeq "$(GCCVER49)" "0"
        $(error gcc version 4.9 or greater is required for this build target)
      endif
-     CFLAGS := -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
+     CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
+     CXXFLAGS += -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
      GCCVER5 := $(shell expr `g++ -dumpversion | cut -f1 -d.` \>= 5)
      ifeq "$(GCCVER5)" "1"
-       CFLAGS += -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=vptr
-       CFLAGS += -fsanitize=float-cast-overflow -fsanitize=object-size
-       #CFLAGS += -fcheck-pointer-bounds -mmpx
+       CXXFLAGS += -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=vptr
+       CXXFLAGS += -fsanitize=float-cast-overflow -fsanitize=object-size
+       #CXXFLAGS += -fcheck-pointer-bounds -mmpx
      endif
-     CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector $(CFLAGS)
+     CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector
      LIBS := -lasan -lubsan -ldl $(LIBS)
   else
-    ifeq (,$(findstring clean,$(MAKECMDGOALS)))
      #just plain debug build
      DEBUG_BUILD=1
-     CFLAGS := -g -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
-    endif
+     CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
+     CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
   endif
 endif
 
@@ -106,13 +111,11 @@ ifdef DEBUG_BUILD
   DBG_WARN+='WARNING: built DEBUG version [much slower], use "make clean release" for a faster, optimized version of the program.'
 endif
 
-
 OBJS := ${GDIR}/GBase.o ${GDIR}/GArgs.o ${GDIR}/GStr.o ${GDIR}/GBam.o \
  ${GDIR}/gdna.o ${GDIR}/codons.o ${GDIR}/GFaSeqGet.o ${GDIR}/gff.o 
 
-
 ifneq (,$(filter %memtrace %memusage %memuse, $(MAKECMDGOALS)))
-    CFLAGS += -DGMEMTRACE
+    CXXFLAGS += -DGMEMTRACE
     OBJS += ${GDIR}/proc_mem.o
 endif
 
@@ -120,9 +123,8 @@ ifndef NOTHREADS
  OBJS += ${GDIR}/GThreads.o 
 endif
 
-
 %.o : %.cpp
-	${CC} ${CFLAGS} -c $< -o $@
+	${CXX} ${CXXFLAGS} -c $< -o $@
 
 OBJS += rlink.o tablemaker.o tmerge.o
 
