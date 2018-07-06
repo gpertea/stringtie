@@ -702,6 +702,45 @@ extern "C" {
   @param  end  end of the region, 0-based
   @return      bin
  */
+static inline int aux_type2size(uint8_t type)
+{
+    switch (type) {
+    case 'A': case 'c': case 'C':
+        return 1;
+    case 's': case 'S':
+        return 2;
+    case 'i': case 'I': case 'f':
+        return 4;
+    case 'd':
+        return 8;
+    case 'Z': case 'H': case 'B':
+        return type;
+    default:
+        return 0;
+    }
+}
+
+static inline uint8_t* skip_aux(uint8_t* s) {
+	int size = aux_type2size(*s); ++s; // skip type
+	uint32_t n;
+	switch (size) {
+	case 'Z':
+	case 'H':
+		while (*s) ++s;
+		return s+1;
+	case 'B':
+		size = aux_type2size(*s); ++s;
+		memcpy(&n, s, 4); s += 4;
+		return s + size * n;
+	case 0:
+		abort();
+		break;
+	default:
+		return s + size;
+	}
+}
+ 
+
 static inline int bam_reg2bin(uint32_t beg, uint32_t end)
 {
 	--end;

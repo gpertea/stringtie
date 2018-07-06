@@ -68,6 +68,15 @@ int GArgs::parseArgs(bool nodigitopts) {
   int p=1; //skip program name
   int f=0;
   while (p<_argc) {
+   /* silly patch for annnoying OSX gdb issues: 
+   #if defined(__APPLE__) && defined(DEBUG)
+   int alen=strlen(_argv[p]);
+   if (alen>1 && _argv[p][0]=='\'' && _argv[p][alen-1]=='\'') {
+     _argv[p]++;
+     _argv[p][alen-1]='\0';
+   }
+   #endif
+   */
    if (_argv[p][0]=='-' && (_argv[p][1]==0 || _argv[p][1]!='-')) { 
      //single-dash argument
      int cpos=1;

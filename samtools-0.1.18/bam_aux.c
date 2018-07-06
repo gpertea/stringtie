@@ -25,6 +25,8 @@ uint8_t *bam_aux_get_core(bam1_t *b, const char tag[2])
 	return bam_aux_get(b, tag);
 }
 
+/*
+
 inline int aux_type2size(uint8_t type)
 {
     switch (type) {
@@ -42,7 +44,6 @@ inline int aux_type2size(uint8_t type)
         return 0;
     }
 }
-
 inline uint8_t* skip_aux(uint8_t* s) {
 	int size = aux_type2size(*s); ++s; // skip type
 	uint32_t n;
@@ -62,7 +63,7 @@ inline uint8_t* skip_aux(uint8_t* s) {
 		return s + size;
 	}
 }
-
+*/
 /*
 #define __skip_tag(s) do { \
 		int type = toupper(*(s)); \
