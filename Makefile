@@ -62,7 +62,7 @@ ifdef NOTHREADS
   BASEFLAGS += -DNOTHREADS
 endif
 
-#ifneq (,$(findstring release,$(MAKECMDGOALS)))
+DMACH := $(shell g++ -dumpmachine)
 
 ifneq (,$(filter %release %static, $(MAKECMDGOALS)))
   # -- release build
@@ -91,6 +91,9 @@ else
      #just plain debug build
      DEBUG_BUILD=1
      CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
+     ifneq (, $(findstring darwin, $(DMACH)))
+        CXXFLAGS += -gdwarf-3
+     endif
      CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
   endif
 endif
@@ -150,6 +153,7 @@ stringtie: ${BAM}/libbam.a $(OBJS) stringtie.o
 # target for removing all object files
 
 clean:
+	echo $(PATH)
 	${RM} stringtie${EXE} stringtie.o*  $(OBJS)
 	${RM} core.*
 allclean cleanAll cleanall:

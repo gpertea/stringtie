@@ -2,7 +2,7 @@
 #include "GArgs.h"
 #include <ctype.h>
 
-GArgs::GArgs(int argc, char* const argv[], const char* format, bool nodigitopts) {
+GArgs::GArgs(int argc, char* argv[], const char* format, bool nodigitopts) {
    /* format can be:
       <string>{;|=} e.g. disable-test;PID=S= for --disable-test PID=50 (or --PID 50) S=3.5 etc.
       <letter>[:]  e.g. p:hT  for -p testing (or -ptesting) -h -T
@@ -63,20 +63,24 @@ while (fstr-format < fmtlen ) {
  //-- now parse the arguments based on the given format specification
  parseArgs(nodigitopts);
  }
- 
+
+void dbg_dequote(char* &p) {
+   int alen=strlen(p);
+   if (alen>1 && p[0]=='\'' && p[alen-1]=='\'') {
+	 p++;
+	 p[alen-2 ]='\0';
+   }
+}
+
 int GArgs::parseArgs(bool nodigitopts) {
   int p=1; //skip program name
   int f=0;
   while (p<_argc) {
-   /* silly patch for annnoying OSX gdb issues: 
+   // silly patch for annnoying MacOS gdb/eclipse issues:
    #if defined(__APPLE__) && defined(DEBUG)
-   int alen=strlen(_argv[p]);
-   if (alen>1 && _argv[p][0]=='\'' && _argv[p][alen-1]=='\'') {
-     _argv[p]++;
-     _argv[p][alen-1]='\0';
-   }
+	   dbg_dequote(_argv[p]);
    #endif
-   */
+   //--
    if (_argv[p][0]=='-' && (_argv[p][1]==0 || _argv[p][1]!='-')) { 
      //single-dash argument
      int cpos=1;
@@ -119,8 +123,11 @@ int GArgs::parseArgs(bool nodigitopts) {
             if (_argv[p][cpos+1]=='\0') {
                 if (p+1<_argc && _argv[p+1][0]!=0) { //value is the whole next argument
                    p++;
+				#if defined(__APPLE__) && defined(DEBUG)
+				   dbg_dequote(_argv[p]);
+				#endif
                    args[count].value=Gstrdup(_argv[p]);
-                   }
+                }
                   else {
                    errarg=p;
                    err_valmissing=true;
@@ -234,7 +241,7 @@ void GArgs::printCmdLine(FILE* fout) {
    }
 }
 
-GArgs::GArgs(int argc, char* const argv[], const GArgsDef fmtrecs[], bool nodigitopts) {
+GArgs::GArgs(int argc, char* argv[], const GArgsDef fmtrecs[], bool nodigitopts) {
  fmtcount=0;
  count=0;
  nonOptCount=0;

@@ -248,7 +248,7 @@ int waitForData(BundleData* bundles);
 
 TInputFiles bamreader;
 
-int main(int argc, char * const argv[]) {
+int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv, 

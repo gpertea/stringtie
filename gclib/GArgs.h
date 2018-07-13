@@ -44,7 +44,7 @@ class GArgs {
      //int code; // if GArgsDef[] constructor was used, for getOpt
      };
    int _argc;            
-   char* const *_argv; //the original main() values
+   char** _argv; //the original main() values
    argdata* args; //arguments table after parsing it
    int count; //total count of elements in 'args' array
    int nonOptCount; //count of non-dashed, non= arguments
@@ -59,14 +59,14 @@ class GArgs {
    int validLongOpt(char* o, char* to);
  public:
  
-   GArgs(int argc, char* const argv[], const char* format, bool nodigitopts=false);
+   GArgs(int argc, char* argv[], const char* format, bool nodigitopts=false);
    /* format can be:
        <string>{;|=} e.g. disable-test;PID=S= for --disable-test PID=50 (or --PID 50) S=3.5 etc.
        <letter>[:]  e.g. p:hT  for -p testing (or -ptesting) -h -T
    This means that the long options, if present, should be given at the beginning
    of the format string, before the single-dash, single-char options
    */
-   GArgs(int argc, char* const argv[], const GArgsDef fmtrecs[], bool nodigitopts=false);
+   GArgs(int argc, char* argv[], const GArgsDef fmtrecs[], bool nodigitopts=false);
    
    ~GArgs();
    int isError(); // returns the offending argv position or 0 if no error
