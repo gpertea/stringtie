@@ -152,8 +152,8 @@ stringtie: ${BAM}/libbam.a $(OBJS) stringtie.o
 
 # target for removing all object files
 
+#	echo $(PATH)
 clean:
-	echo $(PATH)
 	${RM} stringtie${EXE} stringtie.o*  $(OBJS)
 	${RM} core.*
 allclean cleanAll cleanall:
