@@ -26,12 +26,10 @@ uint8_t* dupalloc_bdata(bam1_t *b, int size) {
   return odata; //user must FREE this after
 }
 
-//from bam_import.c
-//extern unsigned short bam_char2flag_table[];
-
 GBamRecord::GBamRecord(const char* qname, int32_t gseq_tid,
                  int pos, bool reverse, const char* qseq,
-                 const char* cigar, const char* quals):exons(1) {
+                 const char* cigar, const char* quals):exons(1),
+                		 clipL(0), clipR(0), mapped_len(0) {
    novel=true;
    bam_header=NULL;
    b=bam_init1();
@@ -264,7 +262,7 @@ switch (cop) {
       num_mismatches+=cl;
  case BAM_CMATCH: // M
       //have to actually check for mismatches: num_mismatches+=count_mismatches;
- case BAM_CEQUAL: // = 
+ case BAM_CEQUAL: // =
       //printf("[%d-%d]", gpos, gpos + cl - 1);
       gpos+=cl;
       rpos+=cl;
@@ -277,7 +275,7 @@ switch (cop) {
       break;
 
  case BAM_CHARD_CLIP:
-      // printf("[%d]", pos);  // No coverage 
+      // printf("[%d]", pos);  // No coverage
       // gpos is not advanced by this operation
       break;
 
@@ -291,14 +289,14 @@ switch (cop) {
       // adds cl bases "throughput" but not genomic position "coverage" (gap in genomic seq)
       // should also add cl to the number of "mismatches" (unaligned read bases)
       num_mismatches+=cl;
-      // How you handle this is application dependent 
-      // gpos is not advanced by this operation 
+      // How you handle this is application dependent
+      // gpos is not advanced by this operation
       rpos+=cl;
       break;
 
  case BAM_CDEL: // D
       //deletion in reference sequence relative to the read (gap in read sequence)
-      // printf("[%d-%d]", pos, pos + cl - 1);  
+      // printf("[%d-%d]", pos, pos + cl - 1);
       // Spans positions
       num_mismatches+=cl;
       gpos += cl;
@@ -306,8 +304,8 @@ switch (cop) {
 
  case BAM_CREF_SKIP: // N
       // intron
-      //special skip operation, not contributing to "edit distance", 
-      // printf("[%d-%d]", pos, pos + cl - 1); // Spans positions, No Coverage 
+      //special skip operation, not contributing to "edit distance",
+      // printf("[%d-%d]", pos, pos + cl - 1); // Spans positions, No Coverage
       //   so num_mismatches is not updated
       gpos+=cl;
       break;
@@ -329,6 +327,8 @@ switch (cop) {
    //--- UBsan protection end
    int l=0;
    mapped_len=0;
+   clipL=0;
+   clipR=0;
    start=c->pos+1; //genomic start coordinate, 1-based (BAM core.pos is 0-based)
    int exstart=c->pos;
    for (int i = 0; i < c->n_cigar; ++i) {
@@ -346,14 +346,18 @@ switch (cop) {
                l += cigar[i]>>4;
                exstart=c->pos+l;
                }
+           else if (op == BAM_CSOFT_CLIP) {
+        	   if (l) clipR=(cigar[i]>>4);
+        	     else clipL=(cigar[i]>>4);
+           }
         }
    GSeg exon(exstart+1,c->pos+l);
    exons.Add(exon);
    mapped_len+=exon.len();
-   end=c->pos+l; //genomic start coordinate
+   end=c->pos+l; //genomic end coordinate
    delete[] cigar; //UBsan protection
  }
- 
+
  uint8_t* GBamRecord::find_tag(const char tag[2]) {
    return bam_aux_get(this->b, tag);
  }

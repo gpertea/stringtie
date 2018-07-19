@@ -24,11 +24,13 @@ class GBamRecord: public GSeg {
    uint8_t abuf[512];
  public:
    GVec<GSeg> exons; //coordinates will be 1-based
+   int clipL; //soft clipping data, as seen in the CIGAR string
+   int clipR;
    int mapped_len; //sum of exon lengths
    //created from a reader:
    void bfree_on_delete(bool b_free=true) { novel=b_free; }
    GBamRecord(bam1_t* from_b=NULL, bam_header_t* b_header=NULL, bool b_free=true):exons(1),
-		   mapped_len(0) {
+		   clipL(0), clipR(0), mapped_len(0) {
       bam_header=NULL;
       if (from_b==NULL) {
            b=bam_init1();
@@ -44,7 +46,7 @@ class GBamRecord: public GSeg {
    }
 
    GBamRecord(GBamRecord& r):GSeg(r.start, r.end), exons(r.exons),
-		   mapped_len(r.mapped_len) { //copy constructor
+		   clipL(r.clipL), clipR(r.clipR), mapped_len(r.mapped_len) { //copy constructor
 	      //makes a new copy of the bam1_t record etc.
 	      clear();
 	      b=bam_dup1(r.b);
@@ -60,6 +62,8 @@ class GBamRecord: public GSeg {
       start=r.start;
       end=r.end;
       exons = r.exons;
+      clipL = r.clipL;
+      clipR = r.clipR;
       mapped_len=r.mapped_len;
       return *this;
       }
@@ -78,7 +82,7 @@ class GBamRecord: public GSeg {
 
     ~GBamRecord() {
        clear();
-       }
+    }
 
     void parse_error(const char* s) {
       GError("BAM parsing error: %s\n", s);
@@ -91,11 +95,11 @@ class GBamRecord: public GSeg {
       b->core.mtid=mtid;
       b->core.mpos=m0pos; // should be -1 if '*'
       b->core.isize=isize; //should be 0 if not available
-      }
+    }
 
     void set_flags(uint16_t flags) {
       b->core.flag=flags;
-      }
+    }
 
     //creates a new record from 1-based alignment coordinate
     //quals should be given as Phred33
@@ -112,7 +116,7 @@ class GBamRecord: public GSeg {
     void add_quals(const char* quals); //quality values string in Phred33 format
     void add_aux(const char* str); //adds one aux field in plain SAM text format (e.g. "NM:i:1")
     void add_aux(const char tag[2], char atype, int len, uint8_t *data) {
-      //IMPORTANT:  strings (Z,H) should include the terminal \0 
+      //IMPORTANT:  strings (Z,H) should include the terminal \0
       int addz=0;
       if ((atype=='Z' || atype=='H') && data[len-1]!=0) {
         addz=1;

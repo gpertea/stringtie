@@ -31,8 +31,6 @@ extern uint junctionsupport; // anchor length for junction to be considered well
 extern int junctionthr; // number of reads needed to support a particular junction
 extern float readthr;     // read coverage per bundle bp to accept it; otherwise considered noise
 extern uint bundledist;  // reads at what distance should be considered part of separate bundles
-                        // <- this is not addressed everywhere, e.g. in infer_transcripts -> look into this
-
 extern bool includesource;
 //extern bool EM;
 //extern bool weight;
@@ -12926,10 +12924,14 @@ int build_graphs(BundleData* bdata) {
 
     // ### predict transcripts for unstranded bundles here
 	//if(fraglen)
-	for(int b=0;b<bundle[1].Count();b++) {
-
-    	if(bundle[1][b]->nread && (bundle[1][b]->multi/bundle[1][b]->nread)<=mcov && (guides.Count() || bundle[1][b]->len >= mintranscriptlen)) { // there might be small transfrags that are worth showing, but here I am ignoring them
-
+	for(int b=0;b<bundle[1].Count();b++) if (bundle[1][b]->nread) {
+		double multi_perc=bundle[1][b]->multi/bundle[1][b]->nread;
+    	if (multi_perc>mcov) {
+    		if (verbose) GMessage("  bundle %s:%d-%d rejected due to multi-mapped reads %.3f% > threshold %.3f%\n",
+    				 bdata->refseq.chars(), bnode[1][bundle[1][b]->startnode]->start,
+					 bnode[1][bundle[1][b]->lastnodeid]->end, multi_perc, mcov);
+    	} else if (guides.Count() || bundle[1][b]->len >= mintranscriptlen) {
+		   // there might be small transfrags that are worth showing, but here I am ignoring them
     		// bundle might contain multiple fragments of a transcript but since we don't know the complete structure -> print only the pieces that are well represented
     		CBundlenode *currbnode=bnode[1][bundle[1][b]->startnode];
     		int t=1;
@@ -13014,8 +13016,8 @@ int build_graphs(BundleData* bdata) {
     			}
     			currbnode=currbnode->nextnode;
     		}
-    	}
-    }
+    	} //processing bundle
+    } //non-empty bundle
 
     //fprintf(stderr,"Done with unstranded bundles\n");
     if (bnodeguides) delete[] bnodeguides;

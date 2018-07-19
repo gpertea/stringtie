@@ -11,45 +11,6 @@
 #define S_ISREG(mode)  (((mode) & S_IFMT) == S_IFREG)
 #endif
 
-/*
-#ifdef _DEFINE_WIN32_FSEEKO
- int fseeko(FILE *stream, off_t offset, int whence) {
-   
-   }
-#endif
-
-#ifdef _DEFINE_WIN32_FTELLO
- off_t ftello(FILE *stream) {
-  
-  }
-#endif
-*/
-
-/*
-int saprintf(char **retp, const char *fmt, ...) {
-  va_list argp;
-  int len;
-  char *buf;
-
-  va_start(argp, fmt);
-  len = vsnprintf(NULL, 0, fmt, argp);
-  va_end(argp);
-  GMALLOC(buf, (len + 1));
-  if(buf == NULL)
-    {
-    *retp = NULL;
-    return -1;
-    }
-
-  va_start(argp, fmt);
-  vsnprintf(buf, len+1, fmt, argp);
-  va_end(argp);
-
-  *retp = buf;
-  return len;
-}
-*/
-
 //************************* Debug helpers **************************
 // Assert failed routine
 void GAssert(const char* expression, const char* filename, unsigned int lineno){
@@ -81,13 +42,13 @@ void GError(const char* format,...){
     vfprintf(stderr,format,arguments);
     va_end(arguments);
     #ifdef DEBUG
-     // modify here if you [don't] want a core dump
+     // comment this if you do NOT want a core dump
      abort();
     #endif
   #endif
     exit(1);
   }
-  
+
 // Warning routine (just print message without exiting)
 void GMessage(const char* format,...){
   #ifdef __WIN32__
@@ -153,10 +114,10 @@ void GFree(pointer* ptr){
   *ptr=NULL;
   }
 
-char* Gstrdup(const char* str) {
+char* Gstrdup(const char* str, int xtracap) {
   if (str==NULL) return NULL;
   char *copy=NULL;
-  GMALLOC(copy, strlen(str)+1);
+  GMALLOC(copy, strlen(str)+1+xtracap);
   strcpy(copy,str);
   return copy;
   }
@@ -186,7 +147,6 @@ int Gstrcmp(const char* a, const char* b, int n) {
    if (n<0) return strcmp(a,b);
        else return strncmp(a,b,n);
  }
-
 }
 
 int G_mkdir(const char* path, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) ) {
@@ -216,7 +176,7 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 	mode_t process_mask = umask(0); //is this really needed?
 	if (!recursive) {
 	   int r=G_mkdir(path, perms);
-	   if (r!=0) 
+	   if (r!=0)
 	      GMessage("Warning: G_mkdir(%s) failed: %s\n", path, strerror(errno));
 	   umask(process_mask);
 	   return r;
@@ -448,7 +408,7 @@ char* rstrchr(char* str, char ch) {  /* returns a pointer to the rightmost
     p--;
     }
  return NULL;
- }
+}
 
 
 /* DOS/UNIX safer fgets : reads a text line from a (binary) file and
@@ -561,8 +521,6 @@ char* strupper(char * str) {//changes string in place
   return str;
 }
 
-
-
 //test if a char is in a given string (set)
 bool chrInStr(char c, const char* str) {
  if (str==NULL || *str=='\0') return false;
@@ -591,7 +549,6 @@ char* rstrfind(const char* str, const char* substr) {
  return NULL;
 }
 
-
 char* strifind(const char* str,  const char* substr) {
  // case insensitive version of strstr -- finding a string within another
   int l,i;
@@ -608,8 +565,6 @@ char* strifind(const char* str,  const char* substr) {
      }
   return NULL;
 }
-
-
 
 // tests if string s has the given prefix
 bool startsWith(const char* s, const char* prefix) {
@@ -636,7 +591,45 @@ bool endsWith(const char* s, const char* suffix) {
  if (i<j) return false;
  while (j>=0 && s[i]==suffix[j]) { i--; j--; }
  return (j==-1);
- }
+}
+
+bool endsiWith(const char* s, const char* suffix) {
+ if (suffix==NULL || s==NULL) return false;
+ if (suffix[0]==0) return true; //special case: empty suffix
+ int j=strlen(suffix)-1;
+ int i=strlen(s)-1;
+ if (i<j) return false;
+ while (j>=0 && tolower(s[i])==tolower(suffix[j])) { i--; j--; }
+ return (j==-1);
+}
+
+bool trimSuffix(char* s, const char* suffix) {
+	if (suffix==NULL || s==NULL) return false;
+	if (suffix[0]==0) return true; //special case: empty suffix
+	int j=strlen(suffix)-1;
+	int i=strlen(s)-1;
+	if (i<j) return false;
+	while (j>=0 && s[i]==suffix[j]) { i--; j--; }
+	if (j==-1) { //suffix found
+		s[i+1]='\0'; //cut here
+		return true;
+	}
+	return false;
+}
+
+bool trimiSuffix(char* s, const char* suffix) {
+	if (suffix==NULL || s==NULL) return false;
+	if (suffix[0]==0) return true; //special case: empty suffix
+	int j=strlen(suffix)-1;
+	int i=strlen(s)-1;
+	if (i<j) return false;
+	while (j>=0 && tolower(s[i])==tolower(suffix[j])) { i--; j--; }
+	if (j==-1) { //suffix found
+		s[i+1]='\0'; //cut here
+		return true;
+	}
+	return false;
+}
 
 
 char* reverseChars(char* str, int slen) {
@@ -652,10 +645,9 @@ char* reverseChars(char* str, int slen) {
   return str;
 }
 
-
-char* rstrstr(const char* rstart, const char *lend, const char* substr) {  /*like strstr, but starts searching
- from right end, going up to lend and returns a pointer to the last (right)
- matching character in str */
+char* rstrstr(const char* rstart, const char *lend, const char* substr) {
+ //like strstr, but starts searching from right end, going up to lend and
+ //returns a pointer to the last (right) matching character in str
  char *p;
  int l,i;
  l=strlen(substr);
@@ -667,7 +659,6 @@ char* rstrstr(const char* rstart, const char *lend, const char* substr) {  /*lik
     }
  return NULL;
  }
-
 
 //hash function used for strings in GHash
 int strhash(const char* str){
@@ -706,7 +697,6 @@ int fnv1a_hash(const char* cp) {
     return (h & 0x7FFFFFFF);
 }
 
-
 // removes the last part (file or directory name) of a full path
 // this is a destructive operation for the given string!!!
 // the trailing '/' is guaranteed to be there
@@ -733,7 +723,7 @@ const char* getFileExt(const char* filepath) {
  if (filepath==NULL) return NULL;
  for (p=filepath, dp=filepath, sep=filepath;*p!='\0';p++) {
      if (*p=='.') dp=p+1;
-       else if (*p=='/' || *p=='\\') 
+       else if (*p=='/' || *p=='\\')
                   sep=p+1;
      }
  return (dp>sep) ? dp : NULL ;
@@ -759,14 +749,24 @@ int fileExists(const char* fname) {
 }
 
 int64 fileSize(const char* fpath) {
+#ifdef __WIN32__
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    if (!GetFileAttributesEx(name, GetFileExInfoStandard, &fad))
+        return -1; // error condition, could call GetLastError to find out more
+    LARGE_INTEGER size;
+    size.HighPart = fad.nFileSizeHigh;
+    size.LowPart = fad.nFileSizeLow;
+    return size.QuadPart;
+#else
   struct stat results;
   if (stat(fpath, &results) == 0)
       // The size of the file in bytes is in
       return (int64)results.st_size;
   else
-      // An error occurred
+    //An error occurred
     //GMessage("Error at stat(%s)!\n", fpath);
-    return 0;
+    return -1;
+#endif
 }
 
 bool parseNumber(char* &p, double& v) {

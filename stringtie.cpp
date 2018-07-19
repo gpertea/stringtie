@@ -22,11 +22,11 @@
 #define DBGPRINT4(a,b,c,d) GMessage(a,b,c,d)
 #define DBGPRINT5(a,b,c,d,e) GMessage(a,b,c,d,e)
 #else
-#define DBGPRINT(x) 
-#define DBGPRINT2(a,b) 
-#define DBGPRINT3(a,b,c) 
-#define DBGPRINT4(a,b,c,d) 
-#define DBGPRINT5(a,b,c,d,e) 
+#define DBGPRINT(x)
+#define DBGPRINT2(a,b)
+#define DBGPRINT3(a,b,c)
+#define DBGPRINT4(a,b,c,d)
+#define DBGPRINT5(a,b,c,d,e)
 #endif
 
 #define USAGE "StringTie v" VERSION " usage:\n\
@@ -53,7 +53,7 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  -v verbose (log bundle processing details)\n\
  -g gap between read mappings triggering a new bundle (default: 50)\n\
  -C output a file with reference transcripts that are covered by reads\n\
- -M fraction of bundle allowed to be covered by multi-hit reads (default:0.95)\n\
+ -M fraction of bundle allowed to be covered by multi-hit reads (default:0.96)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
  -B enable output of Ballgown table files which will be created in the\n\
@@ -87,7 +87,7 @@ the following options are available:\n\
                    these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
-/* 
+/*
  -e (mergeMode)  include estimated coverage information in the preidcted transcript\n\
  -E (mergeMode)   enable the name of the input transcripts to be included\n\
                   in the merge output (default: no)\n\
@@ -141,7 +141,7 @@ uint junctionsupport=10; // anchor length for junction to be considered well sup
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise considered noise; paper uses 3
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
-float mcov=0.95; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
+float mcov=0.96; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 
 int no_xs=0; // number of records without the xs tag
 
@@ -251,7 +251,7 @@ TInputFiles bamreader;
 int main(int argc, char* argv[]) {
 
  // == Process arguments.
- GArgs args(argc, argv, 
+ GArgs args(argc, argv,
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
    "debug;help;version;keeptmp;bam;fr;rf;merge;exclude=zZSEihvteux:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);

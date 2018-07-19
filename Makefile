@@ -1,17 +1,24 @@
-#-- for now these MUST point to the included samtools-0.x.x and gclib subdirectories
+#-- for now these MUST point to the included "samtools-0.x.x" and "gclib" sub-directories
 BAM  := ./samtools-0.1.18
 GDIR := ./gclib
 #--
 
 INCDIRS := -I. -I${GDIR} -I${BAM}
 
-#CXX  ?= g++
 CXX   := $(if $(CXX),$(CXX),g++)
 
 BASEFLAGS := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
 -D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-exceptions -fno-rtti
 #for gcc 8+ add: -Wno-class-memaccess
+GCCVER5 := $(shell expr `${CXX} -dumpversion | cut -f1 -d.` \>= 5)
+ifeq "$(GCCVER5)" "1"
+ BASEFLAGS += -Wno-implicit-fallthrough
+endif
 
+GCCVER8 := $(shell expr `${CXX} -dumpversion | cut -f1 -d.` \>= 8)
+ifeq "$(GCCVER8)" "1"
+  BASEFLAGS += -Wno-class-memaccess
+endif
 
 LINKER  := $(if $(LINKER),$(LINKER),g++)
 
@@ -32,7 +39,7 @@ endif
 
 # MinGW32 GCC 4.5 link problem fix
 #ifdef WINDOWS
-ifneq (,$(findstring 4.5.,$(shell g++ -dumpversion)))
+ifneq (,$(findstring 4.5.,$(shell ${CXX} -dumpversion)))
  STATIC_CLIB=1
 endif
 #endif
@@ -62,7 +69,7 @@ ifdef NOTHREADS
   BASEFLAGS += -DNOTHREADS
 endif
 
-DMACH := $(shell g++ -dumpmachine)
+DMACH := $(shell ${CXX} -dumpmachine)
 
 ifneq (,$(filter %release %static, $(MAKECMDGOALS)))
   # -- release build
@@ -73,13 +80,12 @@ else
   ifneq (,$(filter %memcheck %memdebug, $(MAKECMDGOALS)))
      #use sanitizer in gcc 4.9+
      MEMCHECK_BUILD=1
-     GCCVER49 := $(shell expr `g++ -dumpversion | cut -f1,2 -d.` \>= 4.9)
+     GCCVER49 := $(shell expr `${CXX} -dumpversion | cut -f1,2 -d.` \>= 4.9)
      ifeq "$(GCCVER49)" "0"
        $(error gcc version 4.9 or greater is required for this build target)
      endif
      CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
      CXXFLAGS += -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
-     GCCVER5 := $(shell expr `g++ -dumpversion | cut -f1 -d.` \>= 5)
      ifeq "$(GCCVER5)" "1"
        CXXFLAGS += -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=vptr
        CXXFLAGS += -fsanitize=float-cast-overflow -fsanitize=object-size
@@ -115,7 +121,7 @@ ifdef DEBUG_BUILD
 endif
 
 OBJS := ${GDIR}/GBase.o ${GDIR}/GArgs.o ${GDIR}/GStr.o ${GDIR}/GBam.o \
- ${GDIR}/gdna.o ${GDIR}/codons.o ${GDIR}/GFaSeqGet.o ${GDIR}/gff.o 
+ ${GDIR}/gdna.o ${GDIR}/codons.o ${GDIR}/GFastaIndex.o ${GDIR}/GFaSeqGet.o ${GDIR}/gff.o 
 
 ifneq (,$(filter %memtrace %memusage %memuse, $(MAKECMDGOALS)))
     CXXFLAGS += -DGMEMTRACE
