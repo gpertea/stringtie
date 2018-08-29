@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.4d"
+#define VERSION "1.3.5"
 
 //#define DEBUGPRINT 1
 
@@ -53,7 +53,7 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  -v verbose (log bundle processing details)\n\
  -g gap between read mappings triggering a new bundle (default: 50)\n\
  -C output a file with reference transcripts that are covered by reads\n\
- -M fraction of bundle allowed to be covered by multi-hit reads (default:0.96)\n\
+ -M fraction of bundle allowed to be covered by multi-hit reads (default: 1.0)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
  -B enable output of Ballgown table files which will be created in the\n\
@@ -87,28 +87,8 @@ the following options are available:\n\
                    these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
-/*
- -e (mergeMode)  include estimated coverage information in the preidcted transcript\n\
- -E (mergeMode)   enable the name of the input transcripts to be included\n\
-                  in the merge output (default: no)\n\
- -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 1)\n\ \\ deprecated for now
- -O disable the coverage saturation limit and use a slower two-pass approach\n\
-    to process the input alignments, collapsing redundant reads\n\
- -Z disable fast computing for transcript path (no zoom); default: yes\n\
- -i the reference annotation contains partial transcripts\n\
- -w weight the maximum flow algorithm towards the transcript with higher rate (abundance); default: no\n\
- -y include EM algorithm in max flow estimation; default: no\n\
- -z don't include source in the max flow algorithm\n\
- -P output file with all transcripts in reference that are partially covered by reads
- -M fraction of bundle allowed to be covered by multi-hit reads (paper uses default: 1)\n\
- -c minimum bundle reads per bp coverage to consider for assembly (paper uses default: 3)\n\
- -S more sensitive run (default: no) disabled for now \n\
- -s coverage saturation threshold; further read alignments will be\n\
-    ignored in a region where a local coverage depth of <maxcov> \n\
-    is reached (default: 1,000,000);\n\ \\ deprecated
-*/
-//---- globals
 
+//---- globals ----
 FILE* f_out=NULL;
 FILE* c_out=NULL;
 //#define B_DEBUG 1
@@ -141,7 +121,7 @@ uint junctionsupport=10; // anchor length for junction to be considered well sup
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise considered noise; paper uses 3
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
-float mcov=0.96; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
+float mcov=1.0; // fraction of bundle allowed to be covered by multi-hit reads; paper used 1
 
 int no_xs=0; // number of records without the xs tag
 
