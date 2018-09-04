@@ -406,7 +406,6 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 	 bool chr_changed=false;
 	 int pos=0;
 	 const char* refseqName=NULL;
-	 //char strand=0;
 	 char xstrand=0;
 	 int nh=1;
 	 int hi=0;
@@ -441,7 +440,8 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		 }
 		 if (xstrand=='.' && brec->exons.Count()>1) {
 			 no_xs++;
-			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
+			 //continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments) ?
+			 //this is changed in StringTie 2 !
 		 }
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
@@ -461,10 +461,12 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			 if (alncounts.Count()<=gseq_id) {
 				 alncounts.Resize(gseq_id+1, 0);
 			 }
-			 else if (alncounts[gseq_id]>0) GError(ERR_BAM_SORT);
+			 else if (alncounts[gseq_id]>0)
+				 GError(ERR_BAM_SORT);
 			 prev_pos=0;
 		 }
-		 if (pos<prev_pos) GError(ERR_BAM_SORT);
+		 if (pos<prev_pos)
+			 GError(ERR_BAM_SORT);
 		 prev_pos=pos;
 		 if (skipGseq) continue;
 		 alncounts[gseq_id]++;
@@ -657,19 +659,18 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 				 }
 			 } while (cend_changed);
 		 }
-	 } //adjusted currentend and checked for overlapping reference transcripts
+	 } //adjusted currentend ; selected overlapping reference transcripts
 	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
      bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
-     if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide
-    	 //check for overlaps with ref transcripts which may set xstrand
+	 //overlaps with ref transcripts may set xstrand if needed
+     if (!eonly || ovlpguide) {
+    	 // in -e mode: a read alignment is discarded if it doesn't overlap a reference transcript!
     	 if (xstrand=='+') alndata.strand=1;
     	 else if (xstrand=='-') alndata.strand=-1;
-    	 //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
-    	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
-    	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
-    	 //if (!ballgown || ref_overlap)
-    	 processRead(currentstart, currentend, *bundle, hashread, alndata);
-			  // *brec, strand, nh, hi);
+    	 //this is changed in StringTie 2 ! (improved transcription strand guessing)
+    	 bool XSmissing=(alndata.strand==0 && brec->exons.Count()>1);
+    	 if (!XSmissing)
+    	   processRead(currentstart, currentend, *bundle, hashread, alndata);
      }
  } //for each read alignment
 

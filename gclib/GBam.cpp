@@ -388,9 +388,8 @@ switch (cop) {
 
  char GBamRecord::spliceStrand() { // '+', '-' from the XS tag, or 0 if no XS tag
    char c=tag_char("XS");
-   if (c) return c;
-     else return '.';
-   }
+   return ((c=='+' || c=='-') ? c : '.');
+ }
 
  char* GBamRecord::sequence() { //user must free this after use
    char *s = (char*)bam1_seq(b);

@@ -428,7 +428,8 @@ struct GReadAlnData {
 	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
 	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
 			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
-					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
+					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { }
+	void clear() { delete tinfo; }
 	~GReadAlnData() { delete tinfo; }
 };
 
@@ -526,18 +527,13 @@ struct BundleData {
 	  			rc_tdata, rc_edata, rc_idata);
 	  }
  }
- /* after reference annotation was loaded
- void rc_finalize_refs() {
-     if (rc_data==NULL) return;
-     //rc_data->setupCov();
-	}
-	Not needed here, we update the coverage span as each transcript is added
- */
+
  void keepGuide(GffObj* scaff, GPVec<RC_TData>* rc_tdata=NULL,
 		 GPVec<RC_Feature>* rc_edata=NULL, GPVec<RC_Feature>* rc_idata=NULL);
 
- //bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
  bool evalReadAln(GReadAlnData& alndata, char& strand);
+   //update read alndata with info about reference overlaps
+   //also updates the transcription strand if needed/possible
 
  void Clear() {
 	keepguides.Clear();
