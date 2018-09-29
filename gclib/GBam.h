@@ -155,7 +155,7 @@ class GBamRecord: public GSeg {
     return r;
     }
  bool revStrand() {
-   //this is the raw alignment strand, NOT the transcription (XS) strand
+   //this is the raw alignment strand, NOT the transcription/splice strand
    return ((b->core.flag & BAM_FREVERSE) != 0);
    }
  const char* refName() {

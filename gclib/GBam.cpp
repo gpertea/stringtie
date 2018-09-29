@@ -388,6 +388,14 @@ switch (cop) {
 
  char GBamRecord::spliceStrand() { // '+', '-' from the XS tag, or 0 if no XS tag
    char c=tag_char("XS");
+   if (c==0) {
+    //try minimap2's "ts" tag
+    char m=tag_char("ts");
+    if (m=='+' || m=='-') {
+       if ((this->b->core.flag & BAM_FREVERSE) != 0) c=((m=='+') ? '-' : '+');
+         else c=m;
+    }
+   }
    return ((c=='+' || c=='-') ? c : '.');
  }
 
