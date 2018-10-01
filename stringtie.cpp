@@ -1,4 +1,4 @@
-//#define GFF_DEBUG 1 //debugging GFF/GTF loading
+//#define GFF_DEBUG 1 //debugging guides loading
 #include "rlink.h"
 #include "tmerge.h"
 #ifndef NOTHREADS
@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.5"
+#define VERSION "2.0"
 
 //#define DEBUGPRINT 1
 
@@ -22,11 +22,11 @@
 #define DBGPRINT4(a,b,c,d) GMessage(a,b,c,d)
 #define DBGPRINT5(a,b,c,d,e) GMessage(a,b,c,d,e)
 #else
-#define DBGPRINT(x)
-#define DBGPRINT2(a,b)
-#define DBGPRINT3(a,b,c)
-#define DBGPRINT4(a,b,c,d)
-#define DBGPRINT5(a,b,c,d,e)
+#define DBGPRINT(x) 
+#define DBGPRINT2(a,b) 
+#define DBGPRINT3(a,b,c) 
+#define DBGPRINT4(a,b,c,d) 
+#define DBGPRINT5(a,b,c,d,e) 
 #endif
 
 #define USAGE "StringTie v" VERSION " usage:\n\
@@ -49,11 +49,12 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  -t disable trimming of predicted transcripts based on coverage\n\
     (default: coverage trimming is enabled)\n\
  -c minimum reads per bp coverage to consider for transcript assembly\n\
-    (default: 2.5)\n\
+    (default: adapative read coverage)\n\
+ -d disable adaptive read coverage mode (default: yes)\n\
  -v verbose (log bundle processing details)\n\
- -g gap between read mappings triggering a new bundle (default: 50)\n\
+ -g gap between read mappings triggering a new bundle; not adaptive mode (default: 50)\n\
  -C output a file with reference transcripts that are covered by reads\n\
- -M fraction of bundle allowed to be covered by multi-hit reads (default: 1.0)\n\
+ -M fraction of bundle allowed to be covered by multi-hit reads (default:1)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
  -B enable output of Ballgown table files which will be created in the\n\
@@ -87,8 +88,28 @@ the following options are available:\n\
                    these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
+/* 
+ -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 1)\n\ \\ deprecated for now
+ -O disable the coverage saturation limit and use a slower two-pass approach\n\
+    to process the input alignments, collapsing redundant reads\n\
+ -Z disable fast computing for transcript path (no zoom); default: yes\n\
+ -i the reference annotation contains partial transcripts\n\
+ -w weight the maximum flow algorithm towards the transcript with higher rate (abundance); default: no\n\
+ -y include EM algorithm in max flow estimation; default: no\n\
+ -z don't include source in the max flow algorithm\n\
+ -P output file with all transcripts in reference that are partially covered by reads
+ -M fraction of bundle allowed to be covered by multi-hit reads (paper uses default: 1)\n\
+ -c minimum bundle reads per bp coverage to consider for assembly (paper uses default: 3)\n\
+ -S more sensitive run (default: no) disabled for now \n\
+ -s coverage saturation threshold; further read alignments will be\n\
+    ignored in a region where a local coverage depth of <maxcov> \n\
+    is reached (default: 1,000,000);\n\ \\ deprecated
+ -e (mergeMode)  include estimated coverage information in the preidcted transcript\n\
+ -E (mergeMode)   enable the name of the input transcripts to be included\n\
+                  in the merge output (default: no)\n\
+*/
+//---- globals
 
-//---- globals ----
 FILE* f_out=NULL;
 FILE* c_out=NULL;
 //#define B_DEBUG 1
@@ -102,7 +123,7 @@ GStr tmp_path;
 GStr tmpfname;
 GStr genefname;
 bool guided=false;
-bool trim=true;
+bool trim=false;
 bool fast=true;
 bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
 bool nomulti=false;
@@ -119,9 +140,12 @@ int mintranscriptlen=200; // minimum length for a transcript to be printed
 //int sensitivitylevel=1;
 uint junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
 int junctionthr=1; // number of reads needed to support a particular junction
-float readthr=2.5;     // read coverage per bundle bp to accept it; otherwise considered noise; paper uses 3
+float readthr=1;     // read coverage per bundle bp to accept it; // paper uses 3
+float singlethr=3;
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
-float mcov=1.0; // fraction of bundle allowed to be covered by multi-hit reads; paper used 1
+float mcov=1; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
+int allowed_nodes=1000;
+bool adaptive=true; // adaptive read coverage -> depends on the overall gene coverage
 
 int no_xs=0; // number of records without the xs tag
 
@@ -221,6 +245,9 @@ bool noThreadsWaiting();
 
 void workerThread(GThreadData& td); // Thread function
 
+//check if a worker thread popped the data queue:
+bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount); 
+
 //prepare the next free bundle for loading
 int waitForData(BundleData* bundles);
 #endif
@@ -231,7 +258,7 @@ TInputFiles bamreader;
 int main(int argc, char* argv[]) {
 
  // == Process arguments.
- GArgs args(argc, argv,
+ GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
    "debug;help;version;keeptmp;bam;fr;rf;merge;exclude=zZSEihvteux:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
@@ -305,8 +332,8 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 	   if (skipGseq) continue;
 	   if (m->exons.Count()==0) {
 		    if (verbose)
-		    	GMessage("Warning: exonless GFF %s feature with ID %s found, added implicit exon %d-%d.\n",
-		    			m->getFeatureName(), m->getID(), m->start, m->end);
+		    	GMessage("Warning: exonless GFF object %s found, added implicit exon %d-%d.\n",
+		    			m->getID(),m->start, m->end);
 		    m->addExon(m->start, m->end); //should never happen!
 	   }
 	   //DONE: always keep a RC_TData pointer around, with additional info about guides
@@ -324,6 +351,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		 printTime(stderr);
 		 GMessage(" %d reference transcripts loaded.\n", gffr.gflst.Count());
 	 }
+	//fclose(f); GffReader will close it anyway
  }
 
 #ifdef GFF_DEBUG
@@ -365,7 +393,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 #ifndef NOTHREADS
-//model: one producer, multiple consumers
 #define DEF_TSTACK_SIZE 8388608
  int tstackSize=GThread::defaultStackSize();
  size_t defStackSize=0;
@@ -380,8 +407,6 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
- //the consumers take (pop) bundles out of this queue for processing
- //the producer populates this queue with bundles, built from the BAM file
 
  BundleData* bundles=new BundleData[num_cpus+1];
  //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
@@ -406,6 +431,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 	 bool chr_changed=false;
 	 int pos=0;
 	 const char* refseqName=NULL;
+	 //char strand=0;
 	 char xstrand=0;
 	 int nh=1;
 	 int hi=0;
@@ -438,11 +464,14 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 				 else xstrand='-';
 			 }
 		 }
+
+		 /*
 		 if (xstrand=='.' && brec->exons.Count()>1) {
 			 no_xs++;
-			 //continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments) ?
-			 //this is changed in StringTie 2 !
+			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
 		 }
+		 // I might still infer strand later */
+
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
@@ -461,12 +490,10 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			 if (alncounts.Count()<=gseq_id) {
 				 alncounts.Resize(gseq_id+1, 0);
 			 }
-			 else if (alncounts[gseq_id]>0)
-				 GError(ERR_BAM_SORT);
+			 else if (alncounts[gseq_id]>0) GError(ERR_BAM_SORT);
 			 prev_pos=0;
 		 }
-		 if (pos<prev_pos)
-			 GError(ERR_BAM_SORT);
+		 if (pos<prev_pos) GError(ERR_BAM_SORT);
 		 prev_pos=pos;
 		 if (skipGseq) continue;
 		 alncounts[gseq_id]++;
@@ -508,7 +535,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			//push this in the bundle queue where it'll be picked up by the threads
 			DBGPRINT2("##> Locking queueMutex to push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
 			int qCount=0;
-			queueMutex.lock(); // FIXME: possible point of contention here between multiple threads
+			queueMutex.lock();
 			bundleQueue.Push(bundle);
 			bundleWork |= 0x02; //set bit 1
 			qCount=bundleQueue.Count();
@@ -659,18 +686,19 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 				 }
 			 } while (cend_changed);
 		 }
-	 } //adjusted currentend ; selected overlapping reference transcripts
+	 } //adjusted currentend and checked for overlapping reference transcripts
 	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
      bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
-	 //overlaps with ref transcripts may set xstrand if needed
-     if (!eonly || ovlpguide) {
-    	 // in -e mode: a read alignment is discarded if it doesn't overlap a reference transcript!
+     if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide
+    	 //check for overlaps with ref transcripts which may set xstrand
     	 if (xstrand=='+') alndata.strand=1;
     	 else if (xstrand=='-') alndata.strand=-1;
-    	 //this is changed in StringTie 2 ! (improved transcription strand guessing)
-    	 bool XSmissing=(alndata.strand==0 && brec->exons.Count()>1);
-    	 if (!XSmissing)
-    	   processRead(currentstart, currentend, *bundle, hashread, alndata);
+    	 //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
+    	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
+    	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
+    	 //if (!ballgown || ref_overlap)
+    	 processRead(currentstart, currentend, *bundle, hashread, alndata);
+			  // *brec, strand, nh, hi);
      }
  } //for each read alignment
 
@@ -854,6 +882,7 @@ void processOptions(GArgs& args) {
 	 mergeMode=(args.getOpt("merge")!=NULL);
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
 	 fast=!(args.getOpt('Z')!=NULL);
+	 adaptive=!(args.getOpt('d')!=NULL);
 	 verbose=(args.getOpt('v')!=NULL);
 	 if (verbose) {
 	     fprintf(stderr, "Running StringTie " VERSION ". Command line:\n");
@@ -902,14 +931,13 @@ void processOptions(GArgs& args) {
 	 }
 	*/
 
-	 s=args.getOpt('g');
-	 if (!s.is_empty()) bundledist=s.asInt();
-	 else if(mergeMode) bundledist=250; // should figure out here a reasonable parameter for merge
+
 	 s=args.getOpt('p');
 	 if (!s.is_empty()) {
 		   num_cpus=s.asInt();
 		   if (num_cpus<=0) num_cpus=1;
 	 }
+
 	 s=args.getOpt('a');
 	 if (!s.is_empty()) {
 		 junctionsupport=(uint)s.asInt();
@@ -926,6 +954,11 @@ void processOptions(GArgs& args) {
 		 }
 	 }
 	 else if(mergeMode) readthr=0;
+
+	 s=args.getOpt('g');
+	 if (!s.is_empty()) { bundledist=s.asInt(); adaptive=false;}
+	 else if(mergeMode) bundledist=250; // should figure out here a reasonable parameter for merge
+	 else if(adaptive) bundledist=200; // set bundledist higher for adaptive purposes
 
 	 s=args.getOpt('F');
 	 if (!s.is_empty()) {
@@ -1178,22 +1211,22 @@ void noMoreBundles() {
 void processBundle(BundleData* bundle) {
 	if (verbose) {
 	#ifndef NOTHREADS
-		GLockGuard<GFastMutex> lock(logMutex);
+			GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
+		GMessage(">bundle %s:%d-%d(%lu) (%d guides) loaded, begins processing...\n",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
                 bundle->keepguides.Count());
-	#ifdef GMEMTRACE
-			double vm,rsm;
-			get_mem_usage(vm, rsm);
-			GMessage("\t\tstart memory usage: %6.1fMB\n",rsm/1024);
-			if (rsm>maxMemRS) {
-				maxMemRS=rsm;
-				maxMemVM=vm;
-				maxMemBundle.format("%s:%d-%d(%d)", bundle->refseq.chars(), bundle->start, bundle->end, bundle->readlist.Count());
-			}
-	#endif
+#ifdef GMEMTRACE
+		double vm,rsm;
+		get_mem_usage(vm, rsm);
+		GMessage("\t\tstart memory usage: %6.1fMB\n",rsm/1024);
+		if (rsm>maxMemRS) {
+			maxMemRS=rsm;
+			maxMemVM=vm;
+			maxMemBundle.format("%s:%d-%d(%d)", bundle->refseq.chars(), bundle->start, bundle->end, bundle->readlist.Count());
+		}
+#endif
 	}
 #ifdef B_DEBUG
 	for (int i=0;i<bundle->keepguides.Count();++i) {
@@ -1221,7 +1254,7 @@ void processBundle(BundleData* bundle) {
 
 	}
 #endif
-	int ngenes=infer_transcripts(bundle);
+	infer_transcripts(bundle);
 
 	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
@@ -1231,7 +1264,7 @@ void processBundle(BundleData* bundle) {
 		GLockGuard<GFastMutex> lock(printMutex);
 #endif
 		if(mergeMode) GeneNo=printMergeResults(bundle, GeneNo,bundle->refseq);
-		else GeneNo=printResults(bundle, ngenes, GeneNo, bundle->refseq);
+		else GeneNo=printResults(bundle, GeneNo, bundle->refseq);
 	}
 
 	if (bundle->num_fragments) {
@@ -1259,8 +1292,8 @@ void processBundle(BundleData* bundle) {
 	  fprintf(stderr,"Number of fragments in bundle: %g with sum %g\n",bundle->num_fragments,bundle->frag_len);
 	  */
 	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d done (%d processed potential transcripts).\n",bundle->refseq.chars(),
-	  		bundle->start, bundle->end, bundle->pred.Count());
+	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
+	  		bundle->start, bundle->end, bundle->readlist.Count(), bundle->pred.Count());
 	#ifdef GMEMTRACE
 		    double vm,rsm;
 		    get_mem_usage(vm, rsm);
@@ -1289,8 +1322,7 @@ void workerThread(GThreadData& td) {
 	//wait for a ready bundle in the queue, until there is no hope for incoming bundles
 	DBGPRINT2("---->> Thread%d starting..\n",td.thread->get_id());
 	DBGPRINT2("---->> Thread%d locking queueMutex..\n",td.thread->get_id());
-	queueMutex.lock(); //FIXME: possible point of contention
-	//enter wait-for-notification loop
+	queueMutex.lock(); //enter wait-for-notification loop
 	while (bundleWork) {
 		DBGPRINT3("---->> Thread%d: waiting.. (queue len=%d)\n",td.thread->get_id(), bundleQueue->Count());
 		waitMutex.lock();
@@ -1330,6 +1362,15 @@ void workerThread(GThreadData& td) {
 	} //while there is reason to live
 	queueMutex.unlock();
 	DBGPRINT2("---->> Thread%d DONE.\n", td.thread->get_id());
+}
+
+bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount) {
+  int c;
+  queueMutex.lock();
+   c=bundleQueue.Count();
+  queueMutex.unlock();
+  DBGPRINT3("##> post-notification check: qlen is now %d (was %d)\n", c, prevCount);
+  return (c==0 || c<prevCount);
 }
 
 //prepare the next available bundle slot for loading

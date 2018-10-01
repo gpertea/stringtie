@@ -12,6 +12,7 @@
 #define MAX_NODE 1000000
 
 #define DROP 0.5
+#define ERROR_PERC 0.1
 
 #define CHI_WIN 100
 #define CHI_THR 50
@@ -25,11 +26,15 @@ const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
 const int MAX_MAXCOMP=200; // is 200 too much, or should I set it up to 150?
 
-//const uint longintron=20000; // don't trust introns longer than this unless there is higher evidence; 93.5% of all human annotated introns are shorter than this
-const uint longintron=100000; // don't trust introns longer than this unless there is higher evidence; 99% of all human annotated introns are shorter than this
-const uint longintronanchor=20; // I need a higher anchor for long introns
+//const uint largeintron=20000; // don't trust introns longer than this unless there is higher evidence; less than 10% of all human annotated introns are longer than this
+const uint longintron=70000; // don't trust introns longer than this unless there is higher evidence; about 98% of all human annotated introns are shorter than this
+const uint verylongintron=100000; // don't trust introns longer than this unless there is higher evidence; about 99% of all human annotated introns are shorter than this
+const uint longintronanchor=25; // I need a higher anchor for long introns -> use a smaller value here? i.e. 20?
+const uint verylongintronanchor=35; // I need a higher anchor for very long introns
 
 const float mismatchfrac=0.02;
+
+const float highcov=20; // hight coverage (per bp) of exon
 
 const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
@@ -97,12 +102,11 @@ enum BundleStatus {
 struct CBundle {
 	int len;
 	float cov;
-	float nread;
 	float multi;
 	int startnode;  // id of start node in bundle of same strand
 	int lastnodeid; // id of last node added to bundle
-	CBundle(int _len=0, float _cov=0, float _nread=0,float _multi=0, int _start=-1, int _last=-1):
-		len(_len),cov(_cov),nread(_nread),multi(_multi), startnode(_start),lastnodeid(_last) {}
+	CBundle(int _len=0, float _cov=0, float _multi=0, int _start=-1, int _last=-1):
+			len(_len),cov(_cov),multi(_multi), startnode(_start),lastnodeid(_last) {}
 };
 
 struct CPath {
@@ -175,19 +179,38 @@ struct CGroup:public GSeg {
 	int color;
 	int grid;
 	float cov_sum;
-	float nread;
 	float multi;
 	float neg_prop; // proportion of negative reads assigned to group out of all positives and negatives
 	CGroup *next_gr;
-	CGroup(int rstart=0, int rend=0, int _color=-1, int _grid=0, float _cov_sum=0,float _nread=0,float _multi=0,float _neg_prop=0,
-			CGroup *_next_gr=NULL): GSeg(rstart, rend), color(_color), grid(_grid),
-			cov_sum(_cov_sum), nread(_nread),multi(_multi), neg_prop(_neg_prop), next_gr(_next_gr) { }
+	CGroup(int rstart=0, int rend=0, int _color=-1, int _grid=0, float _cov_sum=0,
+			float _multi=0,float _neg_prop=0,CGroup *_next_gr=NULL): GSeg(rstart, rend), color(_color), grid(_grid),cov_sum(_cov_sum),
+			multi(_multi), neg_prop(_neg_prop), next_gr(_next_gr) { }
 };
 
 struct CMerge {
 	GStr name;
 	GVec<int> fidx; // file indices for the transcripts in the merge
 	CMerge(const char* rname=NULL):name(rname),fidx() {}
+};
+
+
+struct CExon{
+	int predno;
+	int exonno;
+	float exoncov;
+	CExon(int p=0,int e=0,float c=0):predno(p),exonno(e),exoncov(c) {}
+};
+
+struct TwoFloat{
+	float start;
+	float end;
+	TwoFloat(float v1=0,float v2=0):start(v1),end(v2) {}
+};
+
+struct CPred{
+	int predno;
+	float cov;
+	CPred(int p=0,float c=0):predno(p),cov(c) {}
 };
 
 struct CPrediction:public GSeg {
@@ -281,7 +304,7 @@ struct CReadAln:public GSeg {
 	uint len;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
 	GVec<float> pair_count;   // keeps count for all paired reads
-	GVec<int> pair_idx;     // keeps indices for all pairs in assembly mode, or all reads that were collapsed in merge mode
+	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
 	GPVec<CJunction> juncs;
     TAlnInfo* tinfo;
@@ -289,6 +312,35 @@ struct CReadAln:public GSeg {
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
 					strand(_strand),nh(_nh), len(0), read_count(0), pair_count(),pair_idx(),
 					segs(), juncs(false), tinfo(tif) { }
+	CReadAln(CReadAln &rd):GSeg(rd.start,rd.end) { // copy contructor
+		strand=rd.strand;
+		nh=rd.nh;
+		len=rd.len;
+		read_count=rd.read_count;
+		pair_count=rd.pair_count;
+		pair_idx=rd.pair_idx;
+		juncs=rd.juncs;
+		tinfo=rd.tinfo;
+	}
+	int overlapSegLen(CReadAln* r) {
+
+		if (r->start>end || start>r->end) return 0;
+
+		int i=0;
+		int j=0;
+		int len=0;
+		while(i<segs.Count()) {
+			if(segs[i].end<r->segs[j].start) i++;
+			else if(r->segs[j].end<segs[i].start) j++;
+			else { // there is overlap
+				len+=segs[i].overlapLen(r->segs[j].start,r->segs[j].end);
+				if(segs[i].end<r->segs[j].end) i++;
+				else j++;
+			}
+			if(j==r->segs.Count()) break;
+		}
+		return len;
+	}
 	~CReadAln() { delete tinfo; }
 };
 
@@ -296,6 +348,24 @@ struct CGraphinfo {
 	int ngraph;
 	int nodeno;
 	CGraphinfo(int ng=-1,int nnode=-1):ngraph(ng),nodeno(nnode){}
+};
+
+struct CGJunc {
+	int leftnode;
+	int rightnode;
+	double cov; // ngood
+	double goodcov; // ngood_reads
+	CGJunc(int n1=0,int n2=0,double _cov=0,double _goodcov=0):leftnode(n1),rightnode(n2),cov(_cov),goodcov(_goodcov){}
+};
+
+
+struct CGNode {
+	int id;    // initial id in graphno
+	bool last; // if this is last node (to be linked to sink later)
+	bool keep; // if I keep it in the final count (true by default)
+	bool merge; // if this node needs to be merged to its adjacent node
+	bool future;
+	CGNode(int _id=0,bool _last=false,bool _keep=true, bool _merge=false, bool _future=false):id(_id),last(_last),keep(_keep),merge(_merge),future(_future){}
 };
 
 struct CTreePat {
@@ -340,6 +410,21 @@ struct CInterval {
 	float val; // interval value or interval last position depending on use
 	CInterval *next; // next interval;
 	CInterval(uint _pos=0,float _val=0,CInterval *_next=NULL):pos(_pos),val(_val),next(_next) {}
+};
+
+
+struct CMaxIntv:public GSeg {
+	GVec<CExon> node;
+	CMaxIntv *next; // next interval;
+	CMaxIntv(uint start=0,uint end=0):GSeg(start,end),node(),next(NULL) {}
+	CMaxIntv(GVec<CExon>& _node,uint start,uint end,CMaxIntv *_next=NULL):GSeg(start,end),node(_node),next(_next) {}
+};
+
+struct GInterval {
+	uint start;
+	uint end;
+	GInterval *next;
+	GInterval(uint _start, uint _end,GInterval *_next=NULL):start(_start),end(_end),next(_next) {}
 };
 
 struct CTrInfo {
@@ -401,7 +486,7 @@ struct CJunction:public GSeg {
 	double nreads_good;
 	double leftsupport;
 	double rightsupport;
-	double nm;
+	double nm; // number of reads with a high nm (multi-mapped or high mismatch)
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
 			strand(_strand), guide_match(0), nreads(0),nreads_good(0),
 			leftsupport(0),rightsupport(0),nm(0) {}
@@ -428,8 +513,7 @@ struct GReadAlnData {
 	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
 	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
 			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
-					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { }
-	void clear() { delete tinfo; }
+					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
 	~GReadAlnData() { delete tinfo; }
 };
 
@@ -474,7 +558,7 @@ struct BundleData {
  int start;
  int end;
  //bool covSaturated;
- unsigned long numreads; // number of read alignments found in this bundle
+ unsigned long numreads; // number of reads in bundles
  /*
  float wnumreads; // NEW: weighted numreads; a multi-mapped read mapped in 2 places will contribute only 0.5
  double sumreads; // sum of all reads' lengths in bundle
@@ -492,13 +576,14 @@ struct BundleData {
 
  GStr refseq;
  GList<CReadAln> readlist;
- GVec<float> bpcov[3];
+ GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
  GPVec<GffObj> keepguides;
  GPVec<CTCov> covguides;
  GList<CPrediction> pred;
  RC_BundleData* rc_data;
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
+		 //covSaturated(false),
 		 numreads(0),
 		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
 		 refseq(), readlist(false,true), //bpcov(1024),
@@ -527,13 +612,18 @@ struct BundleData {
 	  			rc_tdata, rc_edata, rc_idata);
 	  }
  }
-
+ /* after reference annotation was loaded
+ void rc_finalize_refs() {
+     if (rc_data==NULL) return;
+     //rc_data->setupCov();
+	}
+	Not needed here, we update the coverage span as each transcript is added
+ */
  void keepGuide(GffObj* scaff, GPVec<RC_TData>* rc_tdata=NULL,
 		 GPVec<RC_Feature>* rc_edata=NULL, GPVec<RC_Feature>* rc_idata=NULL);
 
+ //bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
  bool evalReadAln(GReadAlnData& alndata, char& strand);
-   //update read alndata with info about reference overlaps
-   //also updates the transcription strand if needed/possible
 
  void Clear() {
 	keepguides.Clear();
@@ -548,6 +638,7 @@ struct BundleData {
 	start=0;
 	end=0;
 	status=BUNDLE_STATUS_CLEAR;
+	//covSaturated=false;
 	numreads=0;
 	num_fragments=0;
 	frag_len=0;
@@ -564,10 +655,11 @@ struct BundleData {
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata);
+		 //GBamRecord& brec, char strand, int nh, int hi);
 
 void countFragment(BundleData& bdata, GBamRecord& brec, int hi,int nh);
 
-int printResults(BundleData* bundleData, int ngenes, int geneno, GStr& refname);
+int printResults(BundleData* bundleData, int geneno, GStr& refname);
 int printMergeResults(BundleData* bundleData, int geneno, GStr& refname);
 
 int infer_transcripts(BundleData* bundle);
