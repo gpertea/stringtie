@@ -1,5 +1,4 @@
 #include "GBase.h"
-#include <stdarg.h>
 #include <ctype.h>
 #include <errno.h>
 
@@ -285,10 +284,9 @@ int strsplit(char* str, GDynArray<char*>& fields, const char* delim, int maxfiel
  fields.Reset();
  while (str[i]!=0 && tidx<maxfields) {
     if (afterdelim) {
-        //fields[tidx]=str+i;
-    	fields.Add(str+i);
-        tidx++;
-        }
+       fields.Add(str+i);
+       tidx++;
+    }
     afterdelim=false;
     if (chrInStr(str[i],(char*)delim)) {
         str[i]=0;
@@ -296,9 +294,9 @@ int strsplit(char* str, GDynArray<char*>& fields, const char* delim, int maxfiel
         while (str[i]!=0 && chrInStr(str[i], (char*)delim)) i++;
         afterdelim=true;
         continue;
-        }
-    i++;
     }
+    i++;
+ }
  return tidx;
 }
 
@@ -311,10 +309,9 @@ int strsplit(char* str, GDynArray<char*>& fields, const char delim, int maxfield
   fields.Reset();
   while (str[i]!=0 && tidx<maxfields) {
      if (afterdelim) {
-         //fields[tidx]=str+i;
     	 fields.Add(str+i);
          tidx++;
-         }
+     }
      afterdelim=false;
      if (str[i]==delim) {
          str[i]=0;
@@ -322,9 +319,9 @@ int strsplit(char* str, GDynArray<char*>& fields, const char delim, int maxfield
          while (str[i]!=0 && str[i]==delim) i++;
          afterdelim=true;
          continue;
-         }
-     i++;
      }
+     i++;
+  }
   return tidx;
 }
 
@@ -337,10 +334,9 @@ int strsplit(char* str,  GDynArray<char*>& fields, int maxfields) {
   fields.Reset();
   while (str[i]!=0 && tidx<maxfields) {
      if (afterdelim) {
-         //fields[tidx]=str+i;
-    	 fields.Add(str+i);
-         tidx++;
-         }
+        fields.Add(str+i);
+        tidx++;
+     }
      afterdelim=false;
      if (str[i]==' ' || str[i]=='\t') {
          str[i]=0;
@@ -348,9 +344,9 @@ int strsplit(char* str,  GDynArray<char*>& fields, int maxfields) {
          while (str[i]!=0 && (str[i]=='\t' || str[i]==' ')) i++;
          afterdelim=true;
          continue;
-         }
-     i++;
      }
+     i++;
+  }
   return tidx;
 }
 
@@ -796,7 +792,7 @@ bool parseDouble(char* &p, double& v) {
  return parseNumber(p,v);
 }
 
-bool parseInt(char* &p, int& i) {
+bool parseInt(char* &p, int& i) { //pointer p is advanced after the number
  while (*p==' ' || *p=='\t') p++;
  char* start=p;
  if (*p=='-') p++;
@@ -814,7 +810,44 @@ bool parseInt(char* &p, int& i) {
  return true;
 }
 
-bool parseUInt(char* &p, uint& i) {
+bool strToInt(char* p, int& i) {
+	 while (*p==' ' || *p=='\t') p++;
+	 char* start=p;
+	 if (*p=='-') p++;
+	       else if (*p=='+') { p++;start++; }
+	 while ((*p>='1' && *p<='9') || *p=='0') p++;
+	 //now p is on a non-digit;
+	 if (*start=='-' && p==start+1) return false;
+	 char saved=*p;
+	 *p='\0';
+	 char* endptr=p;
+	 long l=strtol(start,&endptr,10);
+	 i=(int)l;
+	 *p=saved;
+	 if (endptr!=p || i!=l) return false;
+	 return true;
+}
+
+bool strToUInt(char* p, uint& i) {
+	 while (*p==' ' || *p=='\t') p++;
+	 char* start=p;
+	 if (*p=='-') return false;
+	       else if (*p=='+') { p++;start++; }
+	 while ((*p>='1' && *p<='9') || *p=='0') p++;
+	 //now p is on a non-digit;
+	 if (*start=='-' && p==start+1) return false;
+	 char saved=*p;
+	 *p='\0';
+	 char* endptr=p;
+	 unsigned long l=strtoul(start,&endptr,10);
+	 i=(uint) l;
+	 *p=saved;
+	 if (endptr!=p || i!=l) return false;
+	 return true;
+}
+
+
+bool parseUInt(char* &p, uint& i) { //pointer p is advanced after the number
  while (*p==' ' || *p=='\t') p++;
  char* start=p;
  if (*p=='-') return false;

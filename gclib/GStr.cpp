@@ -1026,6 +1026,21 @@ GStr& GStr::append(const char* s) {
   my_data->chars[newlen]='\0';
   return *this;
 }
+GStr& GStr::appendQuoted(const char* s, char q, bool onlyIfSpaced) {
+	if (onlyIfSpaced) {
+		if (strpbrk(s, "\t ")==NULL)
+			return this->append(s);
+	}
+	char qend=q;
+	if (q=='[' || q=='{' || q=='<')
+		qend=q+2;
+	else if (q=='(')
+		qend=')';
+	this->append(q);
+	this->append(s);
+	this->append(qend);
+	return *this;
+}
 
 GStr& GStr::append(const char* s, int len) {
   make_unique(); //edit operation ahead

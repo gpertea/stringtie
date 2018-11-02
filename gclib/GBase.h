@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdint.h>
+#include <stdarg.h>
 
 #if defined __WIN32__ || defined WIN32 || defined _WIN32 || defined _WIN32_
   #ifndef __WIN32__
@@ -614,8 +615,10 @@ void writeFasta(FILE *fw, const char* seqid, const char* descr,
 bool parseNumber(char* &p, double& v);
 bool parseDouble(char* &p, double& v); //just an alias for parseNumber
 
-bool parseInt(char* &p, int& i);
-bool parseUInt(char* &p, uint& i);
+bool strToInt(char* p, int& i);
+bool strToUInt(char* p, uint& i);
+bool parseInt(char* &p, int& i); //advance pointer p after the number
+bool parseUInt(char* &p, uint& i); //advance pointer p after the number
 bool parseHex(char* &p,  uint& i);
 
 #endif /* G_BASE_DEFINED */

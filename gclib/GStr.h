@@ -91,6 +91,7 @@ class GStr {
         GStr& insert(const GStr& s, int index = 0);
         GStr& insert(const char* s, int index = 0);
         GStr& append(const char* s);
+        GStr& appendQuoted(const char* s, char q='"', bool onlyIfSpaced=false);
         GStr& appendmem(const char* m, int len);
         GStr& append(const char* m, int len); //same as appendmem but stops at '\0'
 
