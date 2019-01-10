@@ -31,8 +31,6 @@ freely, subject to the following restrictions:
 #endif
 #include <string.h>
 
-//namespace tthread {
-
 //------------------------------------------------------------------------------
 // condition_variable
 //------------------------------------------------------------------------------
@@ -181,7 +179,7 @@ struct _thread_start_info {
   GThread * mThread;          ///< Pointer to the thread object.
   */
   GThreadData threadData;
-  //void (*mFunction)(void *, GThread*); 
+  //void (*mFunction)(void *, GThread*);
   void (*mFunction)(void *); ///< Pointer to the function to be executed.
   void (*gtFunction)(GThreadData&); //custom variant, passing GThreadData
   //handy constructors:
@@ -190,12 +188,12 @@ struct _thread_start_info {
       gtFunction=NULL;
       }
   _thread_start_info(GThread* t, void (*aFunc)(void *), void* udata):
-    threadData(udata, t) { 
+    threadData(udata, t) {
        mFunction=aFunc;
        gtFunction=NULL;
        }
   _thread_start_info(GThread* t, void (*gtFunc)(GThreadData &), void* udata):
-    threadData(udata, t) { 
+    threadData(udata, t) {
        mFunction=NULL;
        gtFunction=gtFunc;
        }
@@ -225,8 +223,8 @@ void * GThread::wrapper_function(void * aArg)
   }
 */
   //ti->mFunction(ti->mArg, ti->mThread);
-  
-  //cheap trick to pass current GThread pointer 
+
+  //cheap trick to pass current GThread pointer
   //when the user doesn't pass anything
   if (ti->gtFunction) {
     ti->gtFunction(ti->threadData);
@@ -297,7 +295,7 @@ void GThread::initStart(void* tidata, size_t stacksize) {
 
 GThread::GThread(void (*aFunction)(void *), void * aArg, size_t stacksize): mId(0), mHandle(0), mNotAThread(true)
 #if defined(_GTHREADS_WIN32_)
-    , mWin32ThreadID(0) 
+    , mWin32ThreadID(0)
 #endif
     {
   kickStart(aFunction, aArg, stacksize);
@@ -312,8 +310,8 @@ void GThread::kickStart(void (*aFunction)(void *), void * aArg, size_t stacksize
   initStart(ti, stacksize);
 }
 
-//custom alternate constructor (non-C++11 compatible), passing GThreadData back to the 
-//user function in order to easily retrieve current GThread object 
+//custom alternate constructor (non-C++11 compatible), passing GThreadData back to the
+//user function in order to easily retrieve current GThread object
 //(better alternative to this_thread)
 GThread::GThread(void (*gFunction)(GThreadData& thread_data), void * aArg, size_t stacksize) {
 	kickStart(gFunction, aArg, stacksize);
@@ -375,7 +373,7 @@ void GThread::detach()
 
 void GThread::wait_all() {
   while (GThread::num_running()>0)
-	this_thread::sleep_for(chrono::milliseconds(4));
+	current_thread::sleep_for(2);
 }
 
 
@@ -394,7 +392,7 @@ int GThread::get_id() const
     return 0; //FIXME: don't use this
    else
      return mId;
-/*      
+/*
 #if defined(_GTHREADS_WIN32_)
   return id((unsigned long int) mWin32ThreadID);
 #elif defined(_GTHREADS_POSIX_)
@@ -421,12 +419,13 @@ unsigned GThread::hardware_concurrency()
 }
 
 
+
+
 //------------------------------------------------------------------------------
-// this_thread
+// current_thread
 //------------------------------------------------------------------------------
 /*
-int this_thread::get_id()
-{
+int current_thread::get_id() {
 #if defined(_GTHREADS_WIN32_)
   return thread::id((unsigned long int) GetCurrentThreadId());
 #elif defined(_GTHREADS_POSIX_)
@@ -434,4 +433,23 @@ int this_thread::get_id()
 #endif
 }
 */
+
+void current_thread::yield() {
+#if defined(_GTHREADS_WIN32_)
+  Sleep(0);
+#else
+  sched_yield();
+#endif
+}
+// Blocks the calling thread for a certain time (given in milliseconds)
+// Example usage:
+// // Sleep for 100 milliseconds:
+// current_thread::sleep_for(100);
+void current_thread::sleep_for(const int32_t mstime) {
+#if defined(_GTHREADS_WIN32_)
+  Sleep(mstime);
+#else
+  usleep((useconds_t)(mstime*1000));
+#endif
+}
 

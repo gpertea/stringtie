@@ -34,6 +34,27 @@ void gffnames_unref(GffNames* &n) {
   if (n->numrefs==0) { delete n; n=NULL; }
 }
 
+int classcode_rank(char c) {
+	switch (c) {
+		case '=': return 0; //intron chain match
+		case 'c': return 2; //containment, perfect partial match (transfrag < reference)
+		case 'k': return 6; // reverse containment (reference < transfrag)
+		case 'm': return 6; // full span overlap with all reference introns either matching or retained
+		case 'n': return 6; // partial overlap transfrag with at least one intron retention
+		case 'j': return 6; // multi-exon transfrag with at least one junction match
+		case 'e': return 12; // single exon transfrag partially overlapping an intron of reference (possible pre-mRNA fragment)
+		case 'o': return 14; // other generic exon overlap
+		case 's': return 16; //"shadow" - an intron overlaps with a ref intron on the opposite strand (wrong strand mapping?)
+		case 'x': return 18; // generic overlap on opposite strand (usually wrong strand mapping)
+		case 'i': return 20; // intra-intron (transfrag fully contained within a reference intron)
+		case 'y': return 30; // no exon overlap: ref exons fall within transfrag introns!
+		case 'p': return 90; //polymerase run
+		case 'r': return 92; //repeats
+		case 'u': return 94; //intergenic
+		case  0 : return 100;
+		 default: return 96;
+		}
+}
 
 const char* strExonType(char xtype) {
 	static const char* extbl[7]={"None", "start_codon", "stop_codon", "CDS", "UTR", "CDS_UTR", "exon"};
@@ -277,6 +298,14 @@ BEDLine::BEDLine(GffReader* reader, const char* l): skip(true), dupline(NULL), l
 		}
 		GFREE(cdstr);
 	  }
+  }
+  if (cds_start==0 && cds_end==0 && tidx>7) {
+	//check if columns 7,8 can be reasonably assumed to be CDS start-end coordinates
+	if (strToUInt(t[6], cds_start) && strToUInt(t[7], cds_end) && cds_end>cds_start) {
+       if (cds_start>=fstart-1 && cds_end<=fend)
+    	    cds_start++;
+       else { cds_start=0; cds_end=0; }
+	}
   }
   skip=false;
 }
@@ -2178,7 +2207,7 @@ void GffObj::mRNA_CDS_coords(uint& cds_mstart, uint& cds_mend) {
   //return spliced;
 }
 
-char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst)
+char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GMapSegments* seglst)
 {
     if (faseq==NULL) { GMessage("Warning: getUnspliced(NULL,.. ) called!\n");
         return NULL;
@@ -2197,29 +2226,27 @@ char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst)
     int seqend=exons.Last()->end;
 
     int unsplicedlen = 0;
-
+    if (seglst)
+    	seglst->Clear(strand);
     unsplicedlen += seqend - seqstart + 1;
 
     GMALLOC(unspliced, unsplicedlen+1); //allocate more here
     //uint seqstart, seqend;
-
     int s = 0; //resulting nucleotide counter
     if (strand=='-')
     {
         if (seglst!=NULL)
-            seglst->Add(new GSeg(s+1,s+1+seqend-seqstart));
-        for (int i=seqend;i>=seqstart;i--)
-        {
+            seglst->add(s+1,s+1+seqend-seqstart, seqstart, seqend);
+        for (int i=seqend;i>=seqstart;i--)   {
             unspliced[s] = ntComplement(gsubseq[i-start]);
             s++;
         }//for each nt
     } // - strand
-    else
-    { // + strand
+    else {
+      // + strand
         if (seglst!=NULL)
-            seglst->Add(new GSeg(s+1,s+1+seqend-seqstart));
-        for (int i=seqstart;i<=seqend;i++)
-        {
+            seglst->add(s+1,s+1+seqend-seqstart, seqstart, seqend);
+        for (int i=seqstart;i<=seqend;i++) {
             unspliced[s]=gsubseq[i-start];
             s++;
         }//for each nt
@@ -2231,10 +2258,12 @@ char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst)
 }
 
 char* GffObj::getSpliced(GFaSeqGet* faseq, bool CDSonly, int* rlen, uint* cds_start, uint* cds_end,
-          GList<GSeg>* seglst) {
+          GMapSegments* seglst, bool cds_open) {
+	//cds_open only makes sense when CDSonly is true by overriding CDS 3'end such that the end of
+	//the sequence beyond the 3' CDS end is also returned (the 3' UTR is appended to the CDS)
   if (CDSonly && CDstart==0) return NULL;
   if (faseq==NULL) {
-	  GMessage("Warning: getSpliced(NULL,.. ) called!\n");
+	  GMessage("Warning: getSpliced() called with uninitialized GFaSeqGet object!\n"); //should never happen
       return NULL;
   }
   //restore normal coordinates:
@@ -2255,90 +2284,96 @@ char* GffObj::getSpliced(GFaSeqGet* faseq, bool CDSonly, int* rlen, uint* cds_st
          if (exons.Last()->start>exons.Last()->end) {
             GError("GffObj::getSpliced() error: improper genomic coordinate %d on %s for %s\n",
                   prevend,getGSeqName(), getID());
-            }
-         covlen-=endadj;
          }
+         covlen-=endadj;
      }
+  }
   char* spliced=NULL;
   GMALLOC(spliced, covlen+1); //allocate more here
-  uint seqstart, seqend;
+  uint g_start=0, g_end=0;
   int cdsadj=0;
   if (CDphase=='1' || CDphase=='2') {
       cdsadj=CDphase-'0';
-      }
+  }
+  uint CDS_start=CDstart;
+  uint CDS_stop=CDend;
+  if (cdsadj>0) {
+     if (strand=='-') CDS_stop-=cdsadj;
+     else CDS_start+=cdsadj;
+  }
   if (CDSonly) {
-     seqstart=CDstart;
-     seqend=CDend;
-     if (strand=='-') seqend-=cdsadj;
-           else seqstart+=cdsadj;
-     if (seqend-seqstart<3)
+    g_start=CDS_start;
+    g_end=CDS_stop;
+    if (g_end-g_start<3)
     	 GMessage("Warning: CDS %d-%d too short for %s, check your data.\n",
-    			 seqstart, seqend, gffID);
-     }
-   else {
-     seqstart=exons.First()->start;
-     seqend=exons.Last()->end;
-     }
+    			 g_start, g_end, gffID);
+  } else { //all exon content, not just CDS
+    g_start=exons.First()->start;
+    g_end=exons.Last()->end;
+    cds_open=false; //override mistaken user request
+  }
+  if (seglst!=NULL) seglst->Clear(strand);
   int s=0; //resulting nucleotide counter
   if (strand=='-') {
+    if (cds_open) {// appending 3'UTR
+    	g_start=exons.First()->start;
+    	//CDS_start=g_start;
+    }
     for (int x=exons.Count()-1;x>=0;x--) {
        uint sgstart=exons[x]->start;
        uint sgend=exons[x]->end;
-       if (seqend<sgstart || seqstart>sgend) continue;
-       if (seqstart>=sgstart && seqstart<=sgend)
-             sgstart=seqstart; //seqstart within this segment
-       if (seqend>=sgstart && seqend<=sgend)
-             sgend=seqend; //seqend within this segment
+       if (g_end<sgstart || g_start>sgend) continue;
+       if (g_start>=sgstart && g_start<=sgend)
+          sgstart=g_start; //3' end within this segment
+       if (g_end>=sgstart && g_end<=sgend)
+          sgend=g_end; //5' end within this segment
        if (seglst!=NULL)
-           seglst->Add(new GSeg(s+1,s+1+sgend-sgstart));
+          seglst->add(s+1,s+1+sgend-sgstart,sgend,sgstart);
        for (uint i=sgend;i>=sgstart;i--) {
-            spliced[s] = ntComplement(gsubseq[i-start]);
-            s++;
-            }//for each nt
-
-       if (!CDSonly && cds_start!=NULL && CDstart>0) {
-          if (CDstart>=sgstart && CDstart<=sgend) {
-             //CDstart in this segment
-             //and we are getting the whole transcript
-             *cds_end=s-(CDstart-sgstart);
-             }
-          if (CDend>=sgstart && CDend<=sgend) {
-             //CDstart in this segment
-             //and we are getting the whole transcript
-             *cds_start=s-(CDend-cdsadj-sgstart);
-             }
-         }//update local CDS coordinates
+         spliced[s] = ntComplement(gsubseq[i-start]);
+         s++;
+       }//for each nt
+       //--update local CDS start-end coordinates
+       if (cds_start!=NULL && CDS_stop>=sgstart && CDS_stop<=sgend) {
+         //CDS start in this segment
+         *cds_start=s-(CDS_stop-sgstart);
+       }
+       if (cds_end!=NULL && CDS_start>=sgstart && CDS_start<=sgend) {
+         //CDS stop in this segment
+         *cds_end=s-(CDS_start-sgstart);
+       }
       } //for each exon
     } // - strand
    else { // + strand
+    if (cds_open) { // appending 3'UTR
+      	g_end=exons.Last()->end;
+      	//CDS_stop=g_end;
+    }
     for (int x=0;x<exons.Count();x++) {
       uint sgstart=exons[x]->start;
       uint sgend=exons[x]->end;
-      if (seqend<sgstart || seqstart>sgend) continue;
-      if (seqstart>=sgstart && seqstart<=sgend)
-            sgstart=seqstart; //seqstart within this segment
-      if (seqend>=sgstart && seqend<=sgend)
-            sgend=seqend; //seqend within this segment
+      if (g_end<sgstart || g_start>sgend) continue;
+      if (g_start>=sgstart && g_start<=sgend)
+            sgstart=g_start; //seqstart within this segment
+      if (g_end>=sgstart && g_end<=sgend)
+            sgend=g_end; //seqend within this segment
       if (seglst!=NULL)
-          seglst->Add(new GSeg(s+1,s+1+sgend-sgstart));
+          seglst->add(s+1,s+1+sgend-sgstart, sgstart, sgend);
       for (uint i=sgstart;i<=sgend;i++) {
           spliced[s]=gsubseq[i-start];
           s++;
-          }//for each nt
-      if (!CDSonly && cds_start!=NULL && CDstart>0) {
-         if (CDstart>=sgstart && CDstart<=sgend) {
-            //CDstart in this segment
-            //and we are getting the whole transcript
-            *cds_start=s-(sgend-CDstart-cdsadj);
-            }
-         if (CDend>=sgstart && CDend<=sgend) {
-            //CDstart in this segment
-            //and we are getting the whole transcript
-            *cds_end=s-(sgend-CDend);
-            }
-        }//update local CDS coordinates
-      } //for each exon
-    } // + strand
+      }//for each nt
+      //--update local CDS start-end coordinates
+      if (cds_start!=NULL && CDS_start>=sgstart && CDS_start<=sgend) {
+        //CDS start in this segment
+        *cds_start=s-(sgend-CDS_start);
+      }
+      if (cds_end!=NULL && CDS_stop>=sgstart && CDS_stop<=sgend) {
+        //CDS stop in this segment
+        *cds_end=s-(sgend-CDS_stop);
+      }
+    } //for each exon
+  } // + strand
   spliced[s]=0;
   if (rlen!=NULL) *rlen=s;
   return spliced;
@@ -2353,7 +2388,7 @@ char* GffObj::getSplicedTr(GFaSeqGet* faseq, bool CDSonly, int* rlen) {
   const char* gsubseq=faseq->subseq(start, fspan);
   if (gsubseq==NULL) {
     GError("Error getting subseq for %s (%d..%d)!\n", gffID, start, end);
-    }
+  }
 
   char* translation=NULL;
   GMALLOC(translation, (int)(covlen/3)+1);
@@ -2724,4 +2759,203 @@ void GffObj::getCDSegs(GArray<GffCDSeg>& cds) {
        cds.Add(cdseg);
        } //for each exon
    } // + strand
+}
+
+//-- transcript overlap classification functions
+
+bool singleExonTMatch(GffObj& m, GffObj& r, int& ovlen) {
+ //if (m.exons.Count()>1 || r.exons.Count()>1..)
+ GSeg mseg(m.start, m.end);
+ ovlen=mseg.overlapLen(r.start,r.end);
+ // fuzzy matching for single-exon transcripts:
+ // overlap should be 80% of the length of the longer one
+ if (m.covlen>r.covlen) {
+   return ( (ovlen >= m.covlen*0.8) ||
+		   (ovlen >= r.covlen*0.8 && ovlen >= m.covlen* 0.7 ));
+		   //allow also some fuzzy reverse containment
+ } else
+   return (ovlen >= r.covlen*0.8);
+}
+
+//formerly in gffcompare
+char getOvlCode(GffObj& m, GffObj& r, int& ovlen) {
+	ovlen=0; //total actual exonic overlap
+	if (!m.overlap(r.start,r.end)) return 0;
+	int jmax=r.exons.Count()-1;
+	//int iovlen=0; //total m.exons overlap with ref introns
+	char rcode=0;
+	if (m.exons.Count()==1) { //single-exon transfrag
+		GSeg mseg(m.start, m.end);
+		if (jmax==0) { //also single-exon ref
+			//ovlen=mseg.overlapLen(r.start,r.end);
+			if (singleExonTMatch(m, r, ovlen))
+				return '=';
+			if (m.covlen<r.covlen)
+			   { if (ovlen >= m.covlen*0.8) return 'c'; } // fuzzy containment
+			else
+				if (ovlen >= r.covlen*0.8 ) return 'k';   // fuzzy reverse containment
+			return 'o'; //just plain overlapping
+		}
+		//-- single-exon qry overlaping multi-exon ref
+		//check full pre-mRNA case (all introns retained): code 'm'
+
+		if (m.start<=r.exons[0]->end && m.end>=r.exons[jmax]->start)
+			return 'm';
+
+		for (int j=0;j<=jmax;j++) {
+			//check if it's ~contained by an exon
+			int exovlen=mseg.overlapLen(r.exons[j]);
+			if (exovlen>0) {
+				ovlen+=exovlen;
+				if (m.start>r.exons[j]->start-4 && m.end<r.exons[j]->end+4) {
+					return 'c'; //close enough to be considered contained in this exon
+				}
+			}
+			if (j==jmax) break; //last exon here, no intron to check
+			//check if it fully covers an intron (retained intron)
+			if (m.start<r.exons[j]->end && m.end>r.exons[j+1]->start)
+				return 'n';
+			//check if it's fully contained by an intron
+			if (m.end<r.exons[j+1]->start && m.start>r.exons[j]->end)
+				return 'i';
+			// check if it's a potential pre-mRNA transcript
+			// (if overlaps this intron at least 10 bases)
+			uint introvl=mseg.overlapLen(r.exons[j]->end+1, r.exons[j+1]->start-1);
+			//iovlen+=introvl;
+			if (introvl>=10 && mseg.len()>introvl+10) { rcode='e'; }
+		} //for each ref exon
+		if (rcode>0) return rcode;
+		return 'o'; //plain overlap, uncategorized
+	} //single-exon transfrag
+	//-- multi-exon transfrag --
+	int imax=m.exons.Count()-1;// imax>0 here
+	if (jmax==0) { //single-exon reference overlap
+		//any exon overlap?
+		GSeg rseg(r.start, r.end);
+		for (int i=0;i<=imax;i++) {
+			//check if it's ~contained by an exon
+			int exovlen=rseg.overlapLen(m.exons[i]);
+			if (exovlen>0) {
+				ovlen+=exovlen;
+				if (r.start>m.exons[i]->start-4 && r.end<m.exons[i]->end+4) {
+					return 'k'; //reference contained in this assembled exon
+				}
+			}
+			if (i==imax) break;
+			if (r.end<m.exons[i+1]->start && r.start>m.exons[i]->end)
+				return 'y'; //ref contained in this transfrag intron
+		}
+		return 'o';
+	}
+	// * check if transfrag contained by a ref intron
+	for (int j=0;j<jmax;j++) {
+		if (m.end<r.exons[j+1]->start && m.start>r.exons[j]->end)
+			return 'i';
+	}
+	if (m.exons[imax]->start<r.exons[0]->end) {
+		//qry intron chain ends before ref intron chain starts
+		//check if last qry exon plugs the 1st ref intron
+		if (m.exons[imax]->start<=r.exons[0]->end &&
+			m.exons[imax]->end>=r.exons[1]->start) return 'n';
+		return 'o'; //only terminal exons overlap
+	}
+	else if (r.exons[jmax]->start<m.exons[0]->end) {
+		//qry intron chain starts after ref intron chain ends
+		//check if first qry exon plugs the last ref intron
+		if (m.exons[0]->start<=r.exons[jmax-1]->end &&
+			m.exons[0]->end>=r.exons[jmax]->start) return 'n';
+		return 'o'; //only terminal exons overlap
+	}
+	//check intron chain overlap (match, containment, intron retention etc.)
+	int i=1; //index of exon to the right of current qry intron
+	int j=1; //index of exon to the right of current ref intron
+	bool intron_conflict=false; //used for checking for retained introns
+	//from here on we check all qry introns against ref introns
+	bool junct_match=false; //true if at least a junction match is found
+	bool ichain_match=true; //if there is intron (sub-)chain match, to be updated by any mismatch
+	bool intron_ovl=false; //if any intron overlap is found
+	bool intron_retention=false; //if any ref intron is covered by a qry exon
+	int imfirst=0; //index of first intron match in query (valid>0)
+	int jmfirst=0; //index of first intron match in reference (valid>0)
+	int imlast=0;  //index of first intron match in query
+	int jmlast=0;  //index of first intron match in reference
+	//check for intron matches
+	while (i<=imax && j<=jmax) {
+		uint mstart=m.exons[i-1]->end;
+		uint mend=m.exons[i]->start;
+		uint rstart=r.exons[j-1]->end;
+		uint rend=r.exons[j]->start;
+		if (rend<mstart) { //qry intron starts after ref intron ends
+			if (!intron_conflict && r.exons[j]->overlap(mstart+1, mend-1))
+				intron_conflict=true;
+			if (!intron_retention && rstart>=m.exons[i-1]->start)
+				intron_retention=true;
+			if (intron_ovl) ichain_match=false;
+			j++;
+			continue;
+		} //no intron overlap, skipping ref intron
+		if (rstart>mend) { //qry intron ends before ref intron starts
+			//if qry intron overlaps the exon on the left, we have an intron conflict
+			if (!intron_conflict && r.exons[j-1]->overlap(mstart+1, mend-1))
+				intron_conflict=true;
+			if (!intron_retention && rend<=m.exons[i]->end)
+				intron_retention=true;
+			if (intron_ovl) ichain_match=false;
+			i++;
+			continue;
+		} //no intron overlap, skipping qry intron
+		intron_ovl=true;
+		//overlapping introns, test junction matching
+		bool smatch=(mstart==rstart); //TODO: what if the introns differ just by 2 bases at one end?
+		bool ematch=(mend==rend);
+		if (smatch || ematch) junct_match=true;
+		if (smatch && ematch) {
+			//perfect match for this intron
+			if (ichain_match) { //chain matching still possible
+			  if (jmfirst==0) jmfirst=j;
+			  if (imfirst==0) imfirst=i;
+			  imlast=i;
+			  jmlast=j;
+			}
+			i++; j++;
+			continue;
+		}
+		//intron overlapping but with at least a junction mismatch
+		intron_conflict=true;
+		ichain_match=false;
+		if (mend>rend) j++; else i++;
+	} //while checking intron overlaps
+	if (ichain_match) { //intron sub-chain match
+		if (imfirst==1 && imlast==imax) { // qry full intron chain match
+			if (jmfirst==1 && jmlast==jmax) return '='; //identical intron chains
+			// -- qry intron chain is shorter than ref intron chain --
+			int l_iovh=0;   // overhang of leftmost q exon left boundary beyond the end of ref intron to the left
+			int r_iovh=0;   // same type of overhang through the ref intron on the right
+			if (jmfirst>1 && r.exons[jmfirst-1]->start>m.start)
+				l_iovh = r.exons[jmfirst-1]->start - m.start;
+			if (jmlast<jmax && m.end > r.exons[jmlast]->end)
+				r_iovh = m.end - r.exons[jmlast]->end;
+			if (l_iovh<4 && r_iovh<4) return 'c';
+		} else if ((jmfirst==1 && jmlast==jmax)) {//ref full intron chain match
+			//check if the reference i-chain is contained in qry i-chain
+			int l_jovh=0;   // overhang of leftmost q exon left boundary beyond the end of ref intron to the left
+			int r_jovh=0;   // same type of overhang through the ref intron on the right
+			if (imfirst>1 && m.exons[imfirst-1]->start>r.start)
+				l_jovh = m.exons[imfirst-1]->start - r.start;
+			if (imlast<imax && r.end > m.exons[imlast]->end)
+				r_jovh = r.end - m.exons[imlast]->end;
+			if (l_jovh<4 && r_jovh<4) return 'k'; //reverse containment
+		}
+	}
+	//'=', 'c' and 'k' where checked and assigned, check for 'm' and 'n' before falling back to 'j'
+	if (!intron_conflict && (m.start<=r.exons[0]->end && m.end>=r.exons[jmax]->start)) {
+			return 'm';
+	}
+	if (intron_retention) return 'n';
+	if (junct_match) return 'j';
+	//we could have 'o' or 'y' here
+	//any real exon overlaps?
+	ovlen=m.exonOverlapLen(r);
+	if (ovlen>4) return 'o';
+	return 'y'; //all reference exons are within transfrag introns!
 }

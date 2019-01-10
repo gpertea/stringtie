@@ -14,14 +14,6 @@
 #include <boost/crc.hpp>  // for boost::crc_32_type
 #endif
 
-/*
-const byte exMskMajSpliceL = 0x01;
-const byte exMskMajSpliceR = 0x02;
-const byte exMskMinSpliceL = 0x04;
-const byte exMskMinSpliceR = 0x08;
-const byte exMskTag = 0x80;
-*/
-
 //reserved Gffnames::feats entries -- basic feature types
 extern int gff_fid_mRNA; // "mRNA" feature name
 extern int gff_fid_transcript; // *RNA, *transcript feature name
@@ -64,11 +56,98 @@ enum GffExonType {
 const char* strExonType(char xtype);
 
 class GffReader;
+class GffObj;
+
+//---transcript overlapping - utility functions:
+int classcode_rank(char c); //returns priority value for class codes
+
+char getOvlCode(GffObj& m, GffObj& r, int& ovlen); //returns: class code
+
+bool singleExonTMatch(GffObj& m, GffObj& r, int& ovlen); //single-exon fuzzy transcript match
+
+//---
+// -- tracking exon/CDS segments from local mRNA to genome coordinates
+class GMapSeg:public GSeg {
+public:
+	uint gstart; //genome start location
+	uint gend;   //genome end location
+	//gend<gstart when mapped on reverse strand !
+	GMapSeg(uint s=0, uint e=0, uint gs=0, uint ge=0):GSeg(s,e),
+			 gstart(gs), gend(ge) {};
+    int g_within(uint gc) {
+    	//return 0 if not within gstart-gend intervals
+    	//or offset from gstart otherwise (always positive)
+    	if (gstart>gend) { //reverse strand mapping
+    		if  (gc<gend || gc>gstart) return 0;
+			return (gstart-gc);
+    	}
+    	else {
+    		if (gc<gstart || gc>gend) return 0;
+    		return (gc-gstart);
+    	}
+    }
+};
+
+class GMapSegments:public GVec<GMapSeg> {
+  public:
+	int dir; //-1 or +1 (reverse/forward for genome coordinates)
+	GSeg lreg; // always 1,max local coord
+	GSeg greg; // genomic min,max coords
+	GMapSegments(char strand='+'):lreg(0,0),greg(0,0) {
+		dir=(strand=='-') ? -1 : 1;
+	}
+	void Clear(char strand='+') {
+		lreg.start=0;lreg.end=0;
+		greg.start=0;greg.end=0;
+		dir = (strand=='-') ? -1 : 1;;
+		GVec<GMapSeg>::Clear();
+	}
+    int add(uint s, uint e, uint gs, uint ge) {
+    	if (dir<0) {
+    		if (gs<ge) {
+    			Gswap(gs, ge);
+    		}
+    		if (gs>greg.end) greg.end=gs;
+    		if (ge<greg.start || greg.start==0) greg.start=ge;
+    	} else {
+    		if (ge>greg.end) greg.end=ge;
+    		if (gs<greg.start || greg.start==0) greg.start=gs;
+    	}
+    	GMapSeg gm(s, e, gs, ge);
+		if (gm.end>lreg.end) lreg.end=gm.end;
+		if (gm.start<lreg.start || lreg.start==0) lreg.start=gm.start;
+    	return GVec<GMapSeg>::Add(gm);
+    }
+    uint gmap(uint lc) { //takes a local coordinate and returns its mapping to genomic coordinates
+    	//returns 0 if mapping cannot be performed!
+    	if (lc==0 || fCount==0 || lc<lreg.start || lc>lreg.end) return 0;
+    	//find local segment containing this coord
+    	int i=0;
+    	while (i<fCount) {
+    		if (lc>=fArray[i].start && lc<=fArray[i].end)
+    			return (fArray[i].gstart+dir*(lc-fArray[i].start));
+    		++i;
+        }
+    	return 0;
+    }
+    uint lmap(uint gc) { //takes a genome coordinate and returns its mapping to local coordinates
+    	if (gc==0 || fCount==0 || gc<greg.start || gc>greg.end) return 0;
+    	//find genomic segment containing this coord
+    	int i=0;
+    	while (i<fCount) {
+    		int ofs=fArray[i].g_within(gc);
+    		if (ofs!=0)
+    			return (fArray[i].start+ofs);
+    		++i;
+        }
+    	return 0;
+    }
+};
 
 //reading a whole transcript from a BED-12 line
 class BEDLine {
  public:
-	bool skip;
+    bool skip;
     char* dupline; //duplicate of original line
     char* line; //this will have tabs replaced by \0
     int llen;
@@ -76,7 +155,7 @@ class BEDLine {
     uint fstart;
     uint fend;
     char strand;
-    char* ID; //transcript ID from BED-12+ (13th if exists, otherwise 4th)
+    char* ID; //transcript ID from BED-12 (4th column)
     char* info; //13th column - these could be GFF3 attributes
     uint cds_start;
     uint cds_end;
@@ -86,8 +165,6 @@ class BEDLine {
     ~BEDLine() {
     	GFREE(dupline);
     	GFREE(line);
-    	//GFREE(ID);
-    	//GFREE(extra);
     }
 };
 
@@ -924,8 +1001,9 @@ public:
    void getCDS_ends(uint& cds_start, uint& cds_end);
    void mRNA_CDS_coords(uint& cds_start, uint& cds_end);
    char* getSpliced(GFaSeqGet* faseq, bool CDSonly=false, int* rlen=NULL,
-           uint* cds_start=NULL, uint* cds_end=NULL, GList<GSeg>* seglst=NULL);
-    char* getUnspliced(GFaSeqGet* faseq, int* rlen, GList<GSeg>* seglst);
+           uint* cds_start=NULL, uint* cds_end=NULL, GMapSegments* seglst=NULL,
+		   bool cds_open=false);
+    char* getUnspliced(GFaSeqGet* faseq, int* rlen, GMapSegments* seglst=NULL);
    char* getSplicedTr(GFaSeqGet* faseq, bool CDSonly=true, int* rlen=NULL);
    //bool validCDS(GFaSeqGet* faseq); //has In-Frame Stop Codon ?
    bool empty() { return (start==0); }

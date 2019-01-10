@@ -522,12 +522,12 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			}
 			waitMutex.unlock();
 			haveBundles.notify_one();
-			this_thread::yield();
+			current_thread::yield();
 			queueMutex.lock();
 			while (bundleQueue.Count()==qCount) {
 				queueMutex.unlock();
 				haveBundles.notify_one();
-				this_thread::yield();
+				current_thread::yield();
 				queueMutex.lock();
 			}
 			queueMutex.unlock();
@@ -1163,11 +1163,11 @@ void noMoreBundles() {
 		  if (areThreadsWaiting) {
 		    DBGPRINT("##> NOTIFY ALL workers: no more data!\n");
 		    haveBundles.notify_all();
-		    this_thread::sleep_for(chrono::milliseconds(10));
+		    current_thread::sleep_for(10);
 		    waitMutex.lock();
 		     areThreadsWaiting=(threadsWaiting>0);
 		    waitMutex.unlock();
-		    this_thread::sleep_for(chrono::milliseconds(10));
+		    current_thread::sleep_for(10);
 		  }
 		} while (areThreadsWaiting); //paranoid check that all threads stopped waiting
 #else
@@ -1298,7 +1298,7 @@ void workerThread(GThreadData& td) {
 		queueMutex.unlock();
 		waitMutex.unlock();
 		haveThreads.notify_one(); //in case main thread is waiting
-		this_thread::yield();
+		current_thread::yield();
 		queueMutex.lock();
 		while (bundleWork && bundleQueue->Count()==0) {
 		    haveBundles.wait(queueMutex);//unlocks queueMutex and wait until notified
@@ -1321,7 +1321,7 @@ void workerThread(GThreadData& td) {
 				dataClear.Push(readyBundle->idx);
 				dataMutex.unlock();
 				haveClear.notify_one(); //inform main thread
-				this_thread::yield();
+				current_thread::yield();
 				queueMutex.lock();
 				DBGPRINT2("---->> Thread%d locked back queueMutex\n", td.thread->get_id());
 
