@@ -25,9 +25,9 @@ extern bool fast;
 
 extern int allowed_nodes;
 extern float isofrac;
+extern bool isunitig;
 extern float mcov;
 extern int mintranscriptlen; // minimum number for a transcript to be printed
-//extern int sensitivitylevel;
 extern uint junctionsupport; // anchor length for junction to be considered well supported <- consider shorter??
 extern int junctionthr; // number of reads needed to support a particular junction
 extern float readthr;     // read coverage per bundle bp to accept it; otherwise considered noise
@@ -81,49 +81,7 @@ void printBitVec(GBitVec& bv) {
    }
 }
 
-/*
-CJunction* add_junction(int start, int end, int leftsupport, int rightsupport,
-		GList<CJunction>& junction, char strand, int nh) {
-	int oidx=-1;
-	CJunction *nj=NULL;
-	//CJunction* nj=junction.AddIfNew(new CJunction(start, end, strand), true, &oidx);
-	CJunction jn(start, end, strand);
-	if (junction.Found(&jn, oidx)) {
-		nj=junction.Get(oidx);
-	}
-	else {
-		nj=new CJunction(start, end, strand);
-		junction.Add(nj);
-	}
-	//if (nh==0) nh=1;
-	//nj->nreads+=float(1)/nh;
-	if (leftsupport >= junctionsupport && rightsupport >=junctionsupport) {
-		nj->nreads_good+=float(1)/nh;
-	}
-	return nj;
-}
 
-
-
-void cov_add(GVec<float>& bpcov, int i, int j, float v) {
-	if (j>=bpcov.Count()) bpcov.Resize(j+1, 0);
-	for (int k=i;k<j;k++)
-		bpcov[k]+=v;
-}
-
-
-
-void cov_add(GVec<float>* bpcov, int sno, int i, int j, float v) {
-	bool neutral=false;
-	if(sno!=1) neutral=true; // why is neutral true here: because if the sno is -/+ than I want to add their counts to bpcov[1] too
-	if (j>=bpcov[sno].Count())
-		for(int s=0;s<3;s++) bpcov[s].Resize(j+1, 0);
-	for (int k=i;k<=j;k++) {
-		bpcov[sno][k]+=v; // if sno==1 then I add v to it here
-		if(neutral) bpcov[1][k]+=v; // if neutral (i.e. stranded) gets added to bpcov[1] here too => bpcov[1]=all coverage
-	}
-}
-*/
 
 void cov_edge_add(GVec<float> *bpcov, int sno, int start, int end, float v) {
 	bool neutral=false;
@@ -138,28 +96,84 @@ void cov_edge_add(GVec<float> *bpcov, int sno, int start, int end, float v) {
 	}
 }
 
-/*
-float getBCov(GVec<float>& bpcov, int p) {
-	//if (p<0) GMessage("Error: invalid bpcov index (%d)!\n", p);
-	if (p>=bpcov.Count()) return 0;
-	else return bpcov[p];
-}
+void add_read_to_cov(GList<CReadAln>& rd,int n,GVec<float> *bpcov,int refstart) {
 
+	int sno=(int)rd[n]->strand+1; // 0(-),1(.),2(+)
 
-bool maxCovReached(int currentstart, GBamRecord& brec, BundleData& bdata) { // coverage saturation is reached if read spans no portion of saturation less than maxReadCov
-	for (int i=0;i<brec.exons.Count();i++) {
-		if (getBCov(bdata.bpcov, brec.exons[i].start-currentstart)<=maxReadCov)
-			return false;
+	float single_count=rd[n]->read_count;
+	for(int i=0;i<rd[n]->pair_idx.Count();i++) {
+		single_count-=rd[n]->pair_count[i];
+		if(rd[n]->pair_idx[i]<=n) { // pair comes before
+			int np=rd[n]->pair_idx[i];
+			int pcount=rd[np]->segs.Count();
+			int rcount=rd[n]->segs.Count();
+			int snop=(int)rd[np]->strand+1; //v6
+			int p=0;
+			int r=0;
+			int nsegs=pcount+rcount;
+			while(nsegs) {
+				int start;
+				int end;
+				if(r<rcount) {
+					if(p==pcount || rd[np]->segs[p].start>rd[n]->segs[r].end) { // no more pair segments or pair segment comes after read segment
+						start=rd[n]->segs[r].start;
+						end=rd[n]->segs[r].end;
+						r++;
+						nsegs--;
+					}
+					else if(rd[np]->segs[p].end<rd[n]->segs[r].start) {
+						start=rd[np]->segs[p].start;
+						end=rd[np]->segs[p].end;
+						p++;
+						nsegs--;
+					}
+					else { // segments overlap
+						start=rd[np]->segs[p].start;
+						end=rd[np]->segs[p].end;
+						if((int)rd[n]->segs[r].start<start) start=rd[n]->segs[r].start;
+						p++;
+						nsegs--;
+						bool cont=true;
+						while(cont) {
+							cont=false;
+							if(r<rcount && (int)(rd[n]->segs[r].start)<=end) {
+								if((int)rd[n]->segs[r].end>end) end=rd[n]->segs[r].end;
+								r++;
+								nsegs--;
+								cont=true;
+							}
+							if(p<pcount && (int)(rd[np]->segs[p].start)<=end) {
+								if((int)rd[np]->segs[p].end>end) end=rd[np]->segs[p].end;
+								p++;
+								nsegs--;
+								cont=true;
+							}
+						}
+					}
+				}
+				else {
+					start=rd[np]->segs[p].start;
+					end=rd[np]->segs[p].end;
+					p++;
+					nsegs--;
+				}
+				//cov_edge_add(bpcov,sno,start-refstart,end-refstart+1,rd[n]->pair_count[i]);
+				/* v6 it doesn't make sense not to have this;*/
+				int strand=sno;
+				if(sno!=snop) {
+					if(sno==1) strand=snop;
+					else if(snop!=1) strand=1;
+				}
+				cov_edge_add(bpcov,strand,start-refstart,end-refstart+1,rd[n]->pair_count[i]);
+			}
+		}
 	}
-	if (!bdata.covSaturated) {
-		GMessage("Warning: bundle %s:%d-%d(%d) (%djs) reached coverage saturation (%d) starting with read mapped at %d\n",
-				bdata.refseq.chars(), bdata.start, bdata.end, bdata.numreads, bdata.junction.Count(),
-				maxReadCov, brec.start);
-		bdata.covSaturated=true;
+	if(single_count>epsilon) {
+		for(int i=0;i<rd[n]->segs.Count();i++) {
+			cov_edge_add(bpcov,sno,rd[n]->segs[i].start-refstart,rd[n]->segs[i].end-refstart+1,single_count);
+		}
 	}
-	return true;
 }
-*/
 
 void countFragment(BundleData& bdata, GBamRecord& brec, int nh) {
 	static uint32_t BAM_R2SINGLE = BAM_FREAD2 | BAM_FMUNMAP ;
@@ -173,26 +187,6 @@ void countFragment(BundleData& bdata, GBamRecord& brec, int nh) {
 		bdata.num_fragments+=float(1)/nh;
 	}
 
-	/*
-	if (hi==0) {
-		for (int i=0;i<brec.exons.Count();i++) {
-			bdata.frag_len+=brec.exons[i].len();
-		}
-		if (!brec.isPaired() || ((brec.flags()&BAM_FREAD1)!=0) ||
-				((brec.flags()&BAM_R2SINGLE)==BAM_R2SINGLE ) ) {
-			bdata.num_fragments++;
-		}
-	}
-	else if (hi==1) {
-		for (int i=0;i<brec.exons.Count();i++) {
-			bdata.frag_len1+=brec.exons[i].len();
-		}
-		if (!brec.isPaired() || ((brec.flags()&BAM_FREAD1)!=0) ||
-					((brec.flags()&BAM_R2SINGLE)==BAM_R2SINGLE ) ) {
-			bdata.num_fragments1++;
-		}
-	}
-	*/
 }
 
 bool exonmatch(GVec<GSeg> &prevexons, GVec<GSeg> &exons) {
@@ -201,6 +195,97 @@ bool exonmatch(GVec<GSeg> &prevexons, GVec<GSeg> &exons) {
 		if(prevexons[i].end!=exons[i].end || prevexons[i].start!=exons[i].start) return false;
 	}
 	return true;
+}
+
+bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
+
+	if(mdstr==NULL) return false;
+
+	//--make a copy of the string, in case the original is a const string
+	// (because the parseUInt() function modifies the string temporarily
+	char* mdstring=Gstrdup(mdstr);
+	char *p=mdstring;
+
+	int i=0;
+	int parsedlen=refstart;
+	int rdlen=0;
+
+	while (*p!='\0') {
+		unsigned int num_matches=0;
+		if (*p>='0' && *p<='9') {
+			parseUInt(p,num_matches);
+			//if (num_matches>0) GMessage("%d matching bases\n", num_matches);
+			parsedlen+=num_matches;
+			continue;
+		}
+		if (*p=='^') { //deletion --> found a problem with deletion
+			//GDynArray<char> deletion; //deletion string accumulates here (if needed)
+			int del_length=0;//tracking deletion length
+			char delbase=*(++p);
+			while (delbase>='A' && delbase<='Z') {
+				//deletion.Add(delbase);
+				del_length++;
+				delbase=*(++p);
+			}
+			while(i<rd->segs.Count() && rdlen+(int)rd->segs[i].len()<parsedlen) {
+				rdlen+=rd->segs[i].len();
+				i++;
+			}
+			if(i==rd->segs.Count()) break;
+
+			if((i && parsedlen-rd->segs[i].start<junctionsupport) || (i<rd->segs.Count()-1 && rd->segs[i].end+1-parsedlen-del_length<junctionsupport)) {
+				GFREE(mdstring);
+				return true;
+			}
+			parsedlen+=del_length;
+
+			/*GMessage("%d base(s) deletion [", del_length);
+			for (uint i=0;i<deletion.Count();++i) GMessage("%c",deletion[i]);
+			GMessage("]\n");*/
+			continue;
+		}
+		if (*p>='A' && *p<='Z') {
+			//GMessage("base mismatch [%c]\n",*p);
+			while(i<rd->segs.Count() && rdlen+(int)rd->segs[i].len()<parsedlen) {
+				rdlen+=rd->segs[i].len();
+				i++;
+			}
+			if(i==rd->segs.Count()) break;
+			if((i && parsedlen-rd->segs[i].start<junctionsupport) || (i<rd->segs.Count()-1 && rd->segs[i].end-parsedlen<junctionsupport)) {
+				GFREE(mdstring);
+				return true;
+			}
+			parsedlen++;
+		}
+		p++;
+	}
+
+	GFREE(mdstring);
+
+	uint32_t *cigar = bam1_cigar(b);
+	rdlen=0;
+	parsedlen=0;
+	i=0;
+	
+	for (int j = 0; j < b->core.n_cigar; ++j) {
+		int op = cigar[j]&0xf;
+		if (op == BAM_CMATCH || op==BAM_CEQUAL ||
+				op == BAM_CDIFF || op == BAM_CDEL) {
+			parsedlen += cigar[j]>>4;
+		}
+		else if(op == BAM_CINS) {
+			while(i<rd->segs.Count() && rdlen+(int)rd->segs[i].len()<parsedlen) {
+				rdlen+=rd->segs[i].len();
+				i++;
+			}
+			if(i==rd->segs.Count()) break;
+			if((i && parsedlen-rd->segs[i].start<junctionsupport) || (i<rd->segs.Count()-1 && rd->segs[i].end-parsedlen<junctionsupport)) {
+				return true;
+			}
+		}
+	}
+	
+	return false;
 }
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
@@ -216,25 +301,20 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	CReadAln* readaln=NULL;                        // readaln is initialized with NULL
 	//bool covSaturated=false;                       // coverage is set to not saturated
 
+	double nm=(double)brec.tag_int("NM"); // read mismatch
+	float unitig_cov=0;
+	//if(isunitig) 
+	unitig_cov=brec.tag_float("YK");
+
 	bool match=false;  // true if current read matches a previous read
 	int n=readlist.Count()-1;
+
 	if(!mergeMode) while(n>-1 && readlist[n]->start==brec.start) {
-		/***  this code was here when a spliced read without an XS tag was getting discarded ***/
-		if(strand==readlist[n]->strand) match=exonmatch(readlist[n]->segs,brec.exons);
+		//if(strand==readlist[n]->strand && ((unitig_cov>0) == readlist[n]->unitig)) match=exonmatch(readlist[n]->segs,brec.exons);
+		if(strand==readlist[n]->strand && (!isunitig || (unitig_cov>0) == readlist[n]->unitig)) match=exonmatch(readlist[n]->segs,brec.exons);
+		//if(strand==readlist[n]->strand) match=exonmatch(readlist[n]->segs,brec.exons);
 		if(match) break; // this way I make sure that I keep the n of the matching readlist
 		n--;
-		/*** this code was trying to assign a strand to unstranded reads -> I think I can do it better later in juncs
-		match=exonmatch(readlist[n]->segs,brec.exons);
-		if(match) {
-			if(strand!=readlist[n]->strand) {
-				if(strand=='.') strand=readlist[n]->strand;
-				else if(readlist[n]->strand=='.') readlist[n]->strand=strand;
-				else { match=false; n--; continue;}
-			}
-			break;
-		}
-		n--;
-		***/
 	}
 	else if((alndata.tinfo->cov>=0 && alndata.tinfo->cov<readthr) || (alndata.tinfo->fpkm>=0 && alndata.tinfo->fpkm<fpkm_thr) ||
 			(alndata.tinfo->tpm>=0 && alndata.tinfo->tpm < tpm_thr)) return; // do not store 'read' if it doesn't meet minimum criteria; this is mergeMode
@@ -292,24 +372,53 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	}
 
 	float rdcount=1;
-	float unitig_cov=brec.tag_float("YK");
-	if(unitig_cov) rdcount=unitig_cov;
+	if(unitig_cov) {
+		rdcount=unitig_cov;
+		if(isunitig) readlist[n]->unitig=true; // treat unitig reads differently when -U is set
+	}
 
 	if(!nomulti) rdcount/=nh;
 	readlist[n]->read_count+=rdcount; // increase single count just in case I don't see the pair
 
 	// store the mismatch count per junction so that I can eliminate it later
-	double nm=(double)brec.tag_int("NM"); // read mismatch
 	if(!nm) {
 		nm=(double)brec.tag_int("nM"); // paired mismatch : big problem with STAR alignments
 		if(brec.isPaired()) nm/=2;
 	}
+	if(brec.clipL) nm++;
+	if(brec.clipR) nm++;
 
-	if(nm/readlist[n]->len>mismatchfrac) {
+	//nm+=brec.clipL; Note: this clippings were to aggressive
+	//nm+=brec.clipR;
+
+	if(readlist[n]->juncs.Count()) {
+		bool mismatch=false;
+		if(nm/readlist[n]->len>mismatchfrac) mismatch=true;
+		else if(nm && readlist[n]->juncs.Count()) {
+			if(brec.clipL && readlist[n]->segs[0].len()<junctionsupport+brec.clipL) mismatch=true; // penalize mismatch that's too close to ss
+			else if(brec.clipR && readlist[n]->segs.Last().len()<junctionsupport+brec.clipR) mismatch=true;
+			else if(mismatch_anchor(readlist[n],brec.tag_str("MD"),currentstart,brec.get_b())) mismatch=true; // this line was not initially present in vs1 or vs3 but I noticed it doesn't do any difference in real data, so far it only helped with the SR in simulation -> I might want to take it out
+		}
+
+		for(int i=0;i<readlist[n]->juncs.Count();i++) { // if read is PacBio I might want to increase the mismatch fraction, although the nm only gets used for longintrons
+			if(mismatch || nh>2) readlist[n]->juncs[i]->nm+=rdcount;
+			if(readlist[n]->segs[i].len()>longintronanchor && readlist[n]->segs[i+1].len()>longintronanchor) readlist[n]->juncs[i]->mm+=rdcount;
+			//if(nh>2) readlist[n]->juncs[i]->mm+=rdcount; // vs3; vs2 only has nh>1
+			readlist[n]->juncs[i]->nreads+=rdcount;
+		}
+	}
+
+	//if(nm/readlist[n]->len>mismatchfrac && !unitig_cov) { // f4
+	/*if(mismatch) {
 		for(int i=0;i<readlist[n]->juncs.Count();i++) { // if read is PacBio I might want to increase the mismatch fraction, although the nm only gets used for longintrons
 			readlist[n]->juncs[i]->nm+=rdcount;
 		}
 	}
+	if(nh>1) {
+		for(int i=0;i<readlist[n]->juncs.Count();i++) { // if read is PacBio I might want to increase the mismatch fraction, although the nm only gets used for longintrons
+			readlist[n]->juncs[i]->mm+=rdcount;
+		}
+	}*/
 
 
 	/*
@@ -1020,7 +1129,10 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 					}
 				}
 
-				color=merge_read_to_group(n,np,p,readlist[n]->pair_count[p],sno,readcol,readlist,color,group,
+				float readcov=0;
+				if(!readlist[n]->unitig)
+					readcov=readlist[n]->pair_count[p];
+				color=merge_read_to_group(n,np,p,readcov,sno,readcol,readlist,color,group,
 										allcurrgroup,startgroup,readgroup,eqcol,merge,usedcol);
 
 			} // this ends if(np>-1)
@@ -1037,7 +1149,10 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 			eqcol.Add(color); // read might keep the new color so we need to add it to the eqcol
 			color++;
 		}
-		color=merge_read_to_group(n,-1,-1,single_count,readlist[n]->strand+1,readcol,readlist,color,group,
+		float readcov=0;
+		if(!readlist[n]->unitig)
+			readcov=single_count;
+		color=merge_read_to_group(n,-1,-1,readcov,readlist[n]->strand+1,readcol,readlist,color,group,
 								allcurrgroup,startgroup,readgroup,eqcol,merge,usedcol);
 
 	}
@@ -1050,7 +1165,7 @@ CGraphnode *create_graphnode(int s, int g, uint start,uint end,int nodeno,CBundl
 
 	/*
 	{ // DEBUG ONLY
-		fprintf(stderr,"create_graphnode[%d][%d]:%d-%d\n",s,g,start,end);
+		fprintf(stderr,"create_graphnode[%d][%d]:%d-%d nodeno=%d\n",s,g,start,end,nodeno);
 	}
 	*/
 
@@ -1397,32 +1512,116 @@ void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint
 }
 */
 
+float get_strand_cov(int s,uint start,uint end,uint refstart,GVec<float>* bpcov) {
+
+	/* non-cummulative bpcov
+	float cov=0;
+	for(uint i=start;i<=end;i++) {
+		cov+=bpcov[s][i];
+	}
+	cov/=(end-start+1);
+	*/
+
+	// cummulative bpcov
+	if((int)(end-refstart)>=bpcov[1].Count()) {
+		if((int)(start-refstart)>=bpcov[1].Count()) return(0);
+		end=refstart+bpcov[1].Count()-1;
+	}
+
+	float cov=bpcov[s][end-refstart];
+	if(start>refstart) cov-=bpcov[s][start-refstart-1];
+
+	return(cov);
+}
+
+
+float get_cov(int s,uint start,uint end,uint refstart,GVec<float>* bpcov) {
+
+	/* non-cummulative bpcov
+	float cov=0;
+	for(uint i=start;i<=end;i++) {
+		cov+=bpcov[1][i] - bpcov[2-s][i];
+	}
+	cov/=(end-start+1);
+	*/
+
+	// cummulative bpcov
+	if((int)(end-refstart)>=bpcov[1].Count()) {
+		if((int)(start-refstart)>=bpcov[1].Count()) return(0);
+		end=refstart+bpcov[1].Count()-1;
+	}
+
+	float cov=bpcov[1][end-refstart]-bpcov[2-s][end-refstart];
+	if(start>refstart) cov-=bpcov[1][start-refstart-1]-bpcov[2-s][start-refstart-1];
+
+	return(cov);
+}
+
+
+float get_neutralcov(uint start,uint end,uint refstart,GVec<float>* bpcov) {
+	if((int)(end-refstart)>=bpcov[1].Count()) {
+		if((int)(start-refstart)>=bpcov[1].Count()) return(0);
+		end=refstart+bpcov[1].Count()-1;
+	}
+	float cov=bpcov[1][end-refstart];
+	if(start>refstart) cov-=bpcov[1][start-1-refstart];
+	return(cov);
+}
 
 // cummulative bpcov; simple find trims that only checks for significant sudden drops in coverage
-void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint& sourcestart,float& sourcecovleft, float& sourcecovright,uint& sinkend,
-		float& sinkcovleft,float& sinkcovright){
+//void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint& sourcestart,float& sourcecovleft, float& sourcecovright,uint& sinkend, float& sinkcovleft,float& sinkcovright){
+void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint& sourcestart,float& sourceabundance,uint& sinkend,float& sinkabundance) {
 
 
 	int len=end-start+1; // length of region where I look for trims
 
 	//fprintf(stderr,"find_trimms for start=%d end=%d len=%d sno=%d\n",start,end,len,sno);
 
-	if(len<2*CHI_THR+1) return; // region should be at least twice the length of CHI_WIN (default this is 100)
-
-	int winlen=CHI_THR;
-	float localdrop=DROP/2; // check best values for drop
-	if(len>2*CHI_WIN+1) {
-		winlen=CHI_WIN;
-	}
-
 	float sourcedrop=1;
 	float sinkdrop=1;
 
+	// bigger trimming window
+	float localdrop=ERROR_PERC;
+	if(len<CHI_WIN) return;
+	else
+	  if(len<2*(CHI_WIN+CHI_THR)+1) {			
+			  for(uint i=start+longintronanchor;i<end-longintronanchor;i++) {
+				float covleft=(1+get_cov(sno,start,i-1,(uint)refstart,bpcov))/(i-start);
+				float covright=(1+get_cov(sno,i,end,(uint)refstart,bpcov))/(end-i+1);
+				if(covleft<covright) {
+					float thisdrop=covleft/covright;
+					//fprintf(stderr,"drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i);
+					if(thisdrop<localdrop && thisdrop<sourcedrop) {
+						//fprintf(stderr,"found source drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i);
+						sourcedrop=thisdrop;
+						sourcestart=i;
+						sourceabundance=(covright-covleft)/DROP;
+					}
+				}
+				else if(covright<covleft) { // possible sink trimming
+					float thisdrop=covright/covleft;
+					if(thisdrop<localdrop && thisdrop<sinkdrop) {
+						//fprintf(stderr,"found sink drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i);
+						sinkdrop=thisdrop;
+						sinkend=i-1;
+						sinkabundance=(covleft-covright)/DROP;
+					}
+				}
+			}
+			return;
+	  }
+	int winlen=CHI_WIN+CHI_THR;
+
+
+	localdrop=ERROR_PERC/DROP;
+
 	len+=start-winlen;
 
-	for(int i=start+winlen;i<len;i++) { // I ignore first base so I don't have to keep checking bpcov range
-		float covleft=bpcov[1][i-refstart]-bpcov[2-sno][i-refstart]-bpcov[1][i-winlen-refstart]+bpcov[2-sno][i-winlen-refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-		float covright=bpcov[1][i+winlen-refstart]-bpcov[2-sno][i+winlen-refstart]-bpcov[1][i-refstart]+bpcov[2-sno][i-refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
+	for(int i=start+winlen-1;i<len;i++) {
+		float covleft=get_cov(sno,i-winlen+1,i,(uint)refstart,bpcov)+1; // I add 1 bp coverage to all so I can avoid 0 coverages
+						//bpcov[1][i-refstart]-bpcov[2-sno][i-refstart]-bpcov[1][i-winlen-refstart]+bpcov[2-sno][i-winlen-refstart]+1;
+		float covright=get_cov(sno,i+1,i+winlen,(uint)refstart,bpcov)+1;
+				//bpcov[1][i+winlen-refstart]-bpcov[2-sno][i+winlen-refstart]-bpcov[1][i-refstart]+bpcov[2-sno][i-refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
 		if(covleft<covright) { // possible source trimming
 			float thisdrop=covleft/covright;
 			if(thisdrop<localdrop && thisdrop<sourcedrop) {
@@ -1431,6 +1630,9 @@ void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint
 				//maxsourceabundance=covright-covleft;
 				//sourcecovright=covright/(DROP*winlen);
 				//sourcecovleft=covleft/(DROP*winlen);
+				//sourcecovright=(covright-covleft)/winlen;
+				//sourcecovright=(covright-covleft)/(DROP*winlen);
+				sourceabundance=(covright-covleft)/(DROP*winlen);
 			}
 		}
 		else if(covright<covleft) { // possible sink trimming
@@ -1441,304 +1643,43 @@ void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint
 				//maxsinkabundance=covleft-covright;
 				//sinkcovright=covright/(DROP*winlen);
 				//sinkcovleft=covleft/(DROP*winlen);
+				//sinkcovleft=(covleft-covright)/winlen;
+				//sinkcovleft=(covleft-covright)/(DROP*winlen);
+				sinkabundance=(covleft-covright)/(DROP*winlen);
 			}
 		}
 	}
 
-	if(sourcestart && sinkend) { // if both were detected I should get restricted coverages
-		if(sourcestart<sinkend) { // source comes first
-			float covleft=bpcov[1][sourcestart-1-(uint)refstart]-bpcov[2-sno][sourcestart-1-(uint)refstart]-bpcov[1][start-(uint)refstart]+bpcov[2-sno][start-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-			float covright=bpcov[1][sinkend-(uint)refstart]-bpcov[2-sno][sinkend-(uint)refstart]-bpcov[1][sourcestart-1-(uint)refstart]+bpcov[2-sno][sourcestart-1-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-			//sourcecovleft=covleft/(DROP*(sourcestart-1-start));
-			//sourcecovright=covright/(DROP*(end-sourcestart+2));
-			sourcecovleft=covleft/(sourcestart-1-start);
-			sourcecovright=covright/(end-sourcestart+2);
-			covleft=covright;
-			covright=bpcov[1][end-(uint)refstart]-bpcov[2-sno][end-(uint)refstart]-bpcov[1][sinkend-(uint)refstart]+bpcov[2-sno][sinkend-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-			sinkcovleft=covleft/(sinkend-start);
-			sinkcovright=covright/(end-sinkend+1);
+	// make sure the drops are consistent across the whole exon
+	if(sourcestart) {
+		if(sourcestart<sinkend) {
+			float covleft=get_cov(sno,start,sourcestart-1,(uint)refstart,bpcov)/(sourcestart-start);
+			float covright=localdrop*get_cov(sno,sourcestart,sinkend,(uint)refstart,bpcov)/(sinkend-sourcestart+1);
+			if(covleft>covright) sourcestart=0;
+			covleft=get_cov(sno,sinkend+1,end,(uint)refstart,bpcov)/(end-sinkend);
+			if(covleft>covright) sinkend=0;
 		}
-		else { // sink comes first
-			float covleft=bpcov[1][sinkend-(uint)refstart]-bpcov[2-sno][sinkend-(uint)refstart]-bpcov[1][start-(uint)refstart]+bpcov[2-sno][start-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-			float covright=bpcov[1][sourcestart-1-(uint)refstart]-bpcov[2-sno][sourcestart-1-(uint)refstart]-bpcov[1][sinkend-(uint)refstart]+bpcov[2-sno][sinkend-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-			//sinkcovleft=covleft/(DROP*(sinkend-start));
-			//sinkcovright=covright/(DROP*(end-sinkend+1));
-			sinkcovleft=covleft/(sinkend-start);
-			sinkcovright=covright/(end-sinkend+1);
-			covleft=covright;
-			covright=bpcov[1][end-(uint)refstart]-bpcov[2-sno][end-(uint)refstart]-bpcov[1][sourcestart-1-(uint)refstart]+bpcov[2-sno][sourcestart-1-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-			//sourcecovleft=covleft/(DROP*(sourcestart-1-start));
-			//sourcecovright=covright/(DROP*(end-sourcestart+2));
-			sourcecovleft=covleft/(sourcestart-1-start);
-			sourcecovright=covright/(end-sourcestart+2);
+		else if(sinkend) {
+			float covleft=get_cov(sno,start,sinkend,(uint)refstart,bpcov)/(sinkend-start+1);
+			float covright=get_cov(sno,sinkend+1,sourcestart-1,(uint)refstart,bpcov)/(sourcestart-sinkend-1);
+			if(covright>covleft*localdrop) sinkend=0;
+			covleft=get_cov(sno,sourcestart,end,(uint)refstart,bpcov)/(end-sourcestart+1);
+			if(covright>covleft*localdrop) sourcestart=0;
 		}
-
-	}
-	else if(sourcestart) {
-		//fprintf(stderr,"sourcestart=%d sno=%d\n",sourcestart,sno);
-		float covleft=bpcov[1][sourcestart-1-(uint)refstart]-bpcov[2-sno][sourcestart-1-(uint)refstart]-bpcov[1][start-(uint)refstart]+bpcov[2-sno][start-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-		float covright=bpcov[1][end-(uint)refstart]-bpcov[2-sno][end-(uint)refstart]-bpcov[1][sourcestart-1-(uint)refstart]+bpcov[2-sno][sourcestart-1-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-		//sourcecovleft=covleft/(DROP*(sourcestart-1-start));
-		//sourcecovright=covright/(DROP*(end-sourcestart+2));
-		sourcecovleft=covleft/(sourcestart-1-start);
-		sourcecovright=covright/(end-sourcestart+2);
+		else {
+			float covleft=get_cov(sno,start,sourcestart-1,(uint)refstart,bpcov)/(sourcestart-start);
+			float covright=localdrop*get_cov(sno,sourcestart,end,(uint)refstart,bpcov)/(end-sourcestart+1);
+			if(covleft>covright) sourcestart=0;
+		}
 	}
 	else if(sinkend) {
-		//fprintf(stderr,"sinkend=%d sno=%d\n",sinkend,sno);
-		float covleft=bpcov[1][sinkend-(uint)refstart]-bpcov[2-sno][sinkend-(uint)refstart]-bpcov[1][start-(uint)refstart]+bpcov[2-sno][start-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-		float covright=bpcov[1][end-(uint)refstart]-bpcov[2-sno][end-(uint)refstart]-bpcov[1][sinkend-(uint)refstart]+bpcov[2-sno][sinkend-(uint)refstart]+1; // I add 1 bp coverage to all so I can avoid 0 coverages
-		//sinkcovleft=covleft/(DROP*(sinkend-start));
-		//sinkcovright=covright/(DROP*(end-sinkend+1));
-		sinkcovleft=covleft/(sinkend-start);
-		sinkcovright=covright/(end-sinkend+1);
-
+		float covright=localdrop*get_cov(sno,start,sinkend,(uint)refstart,bpcov)/(sinkend-start+1);
+		float covleft=get_cov(sno,sinkend+1,end,(uint)refstart,bpcov)/(end-sinkend);
+		if(covleft>covright) sinkend=0;
 	}
-
 }
 
 
-/*** this version of find_trims assumes that the bpcov stores bp cov in each point not the cummulative sum of bpcov
-void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint& sourcestart,float& maxsourceabundance,uint& sinkend,
-		float& maxsinkabundance, float& sourcecovleft,float& sourcecovright,float& sinkcovleft, float& sinkcovright){
-
-
-	int len=end-start+1;
-
-	//fprintf(stderr,"find_trimms for start=%d end=%d len=%d sno=%d\n",start,end,len,sno);
-
-	if(len<2*CHI_WIN) return;
-
-	int bw=3; // bandwidth to consider for changes in coverage; should always be less than chi_win
-
-	GVec<float> wincov;
-	GVec<float> upleft;
-	GVec<float> downleft;
-	GVec<int> upleftstart;
-	GVec<int> downleftstart;
-	GVec<float> currcovleft;
-
-	float cov=0;
-	int j=0;
-
-	float prevcov=0;
-	float chileft=0;
-	float chiright=0;
-
-	for(int i=0;i<bw;i++) { // store prevcov
-		upleft.Add(prevcov);
-		downleft.Add(prevcov);
-		j=0;
-		upleftstart.Add(j);
-		downleftstart.Add(j);
-
-		j=i+start-refstart;
-		cov=bpcov[1][j];
-		if(sno!=1) cov-=bpcov[2-sno][j]; // to find trims on stranded sno I have to remove reads in different strand, but apparently I don't distribute the neutral strands
-
-		wincov.Add(cov);
-		prevcov+=cov;
-		currcovleft.Add(prevcov);
-
-		if(i>len-1-CHI_WIN) chiright+=cov;
-		else if(i>len-1-2*CHI_WIN) chileft+=cov;
-
-	}
-
-	float nextcov=0;
-
-	for(int i=bw; i<2*bw; i++) { // compute nextcov
-		j=i+start-refstart;
-		cov=bpcov[1][j];
-		if(sno!=1) cov-=bpcov[2-sno][j];
-
-		nextcov+=cov;
-		wincov.Add(cov);
-		cov+=currcovleft.Last();
-		currcovleft.Add(cov);
-
-		if(i>len-1-CHI_WIN) chiright+=cov;
-		else if(i>len-1-2*CHI_WIN) chileft+=cov;
-
-	}
-
-	for(int i=2*bw; i<len; i++) { // compute left trends and store wincov
-
-		// check trends
-		float add=0;
-		if(prevcov<nextcov) { // downtrend
-			upleft.Add(add);
-			j=i-bw;
-			upleftstart.Add(j);
-			add=wincov[i-bw-1]+downleft.Last();
-			downleft.Add(add);
-			j=downleftstart.Last();
-			downleftstart.Add(j);
-		}
-		else if(prevcov>nextcov) { // uptrend
-			downleft.Add(add);
-			j=i-bw;
-			downleftstart.Add(j);
-			add=wincov[i-bw-1]+upleft.Last();
-			upleft.Add(add);
-			j=upleftstart.Last();
-			upleftstart.Add(j);
-		}
-		else { // equal
-			add=wincov[i-bw-1]+downleft.Last();
-			downleft.Add(add);
-			j=downleftstart.Last();
-			downleftstart.Add(j);
-			add=wincov[i-bw-1]+upleft.Last();
-			upleft.Add(add);
-			j=upleftstart.Last();
-			upleftstart.Add(j);
-		}
-
-		j=i+start-refstart;
-		cov=bpcov[1][j];
-		if(sno!=1) cov-=bpcov[2-sno][j];
-
-		wincov.Add(cov);
-		prevcov-=wincov[i-2*bw];
-		prevcov+=wincov[i-bw];
-		nextcov-=wincov[i-bw];
-		nextcov+=cov;
-
-		if(i>len-1-CHI_WIN) chiright+=cov;
-		else if(i>len-1-2*CHI_WIN) chileft+=cov;
-
-		cov+=currcovleft.Last();
-		currcovleft.Add(cov);
-
-	}
-
-	float upright=0;
-	float downright=0;
-	int uprightend=len-1;
-	int downrightend=len-1;
-
-	nextcov=0;
-	prevcov=0;
-	for(int i=len-1;i>=len-bw;i--) {
-		nextcov+=wincov[i];
-	}
-	for(int i=len-bw-1;i>len-2*bw-1;i--) {
-		prevcov+=wincov[i];
-	}
-
-	float opt_source=0;
-	float opt_sink=0;
-
-	float currcovright=chiright;
-
-	for(int i=len-2*CHI_WIN;i>=0;i--) {
-
-
-		if(25<(chiright-chileft)/CHI_WIN) { // possible cut to source
-			float sumleft=chileft+downleft[i];
-			float sumright=chiright+upright;
-			float muleft=sumleft/(i+CHI_WIN-downleftstart[i]);
-			float muright=sumright/(uprightend-i-CHI_WIN+1);
-
-			//fprintf(stderr,"Pos=%d chileft=%f chiright=%f muleft=%f muright=%f\n",i+CHI_WIN+start,chileft,chiright,muleft,muright);
-
-			if(muright*isofrac>muleft) {
-				//float opt_cost=muright-muleft; // b30
-				float opt_cost=(muright+1)/(muleft+1); //b31: so that I don't get into under 1 roundings
-				if(opt_cost>opt_source) {
-					//fprintf(stderr,"sourcestart=%d sumleft=%f sumright=%f lenleft=%d lenright=%d muleft=%f muright=%f opt_cost=%f\n",
-					//i+CHI_WIN+start,sumleft,sumright,CHI_WIN+i-downleftstart[i],uprightend-i-CHI_WIN+1,muleft,muright,opt_cost);
-					//maxsourceabundance=opt_cost;// b21
-				  //maxsourceabundance=2*opt_cost;// b30
-					maxsourceabundance=2*(muright-muleft);// b31
-
-				  //maxsourceabundance=(chiright-chileft)/CHI_WIN; // b22
-					opt_source=opt_cost;
-					sourcestart=i+CHI_WIN+start;
-					sourcecovleft=currcovleft[i+CHI_WIN-1];
-					sourcecovright=currcovright;
-				}
-			}
-		}
-		else if(25<(chileft-chiright)/CHI_WIN) { // possible cut to sink
-			float sumleft=chileft+upleft[i];
-			float sumright=chiright+downright;
-
-			float muleft=sumleft/(i+CHI_WIN-upleftstart[i]);
-			float muright=sumright/(downrightend-i-CHI_WIN+1);
-			//fprintf(stderr,"sinkend=%d sumleft=%f sumright=%f lenleft=%d lenright=%d muleft=%f muright=%f upleftstart=%d\n",
-			//		i+CHI_WIN-1+start,sumleft,sumright,i+CHI_WIN-upleftstart[i],downrightend-i-CHI_WIN+1,muleft,muright,upleftstart[i]);
-			if(muleft*isofrac>muright) {
-				// float opt_cost=muleft-muright; // b30
-				float opt_cost=(muleft+1)/(muright+1); // b31: so that I don't get into under 1 roundings
-
-				//fprintf(stderr,"sinkend=%d sumleft=%f sumright=%f lenleft=%d lenright=%d muleft=%f muright=%f opt_cost=%f\n",
-				//		i+CHI_WIN-1+start,sumleft,sumright,i+CHI_WIN-upleftstart[i],downrightend-i-CHI_WIN+1,muleft,muright,opt_cost);
-				if(opt_cost>opt_sink) {
-					//fprintf(stderr,"optimal\n");
-				  //maxsinkabundance=opt_cost;// b21
-				  //maxsinkabundance=2*opt_cost;// b30
-					maxsinkabundance=2*(muleft-muright);// b31
-
-				  //maxsinkabundance=(chileft-chiright)/CHI_WIN;//b22
-					opt_sink=opt_cost;
-					sinkend=i+CHI_WIN-1+start;
-					sinkcovleft=currcovleft[i+CHI_WIN-1];
-					sinkcovright=currcovright;
-				}
-			}
-		}
-
-		j=i+2*CHI_WIN-1;
-
-		//fprintf(stderr,"j=%d cov=%f prevcov=%f nextcov=%f downright=%f downrightend=%d\n",j+start,wincov[j],prevcov,nextcov,downright,downrightend+start);
-
-		if(j>len-bw) { // no need to update prevcov and next cov
-			upright+=wincov[j];
-			downright+=wincov[j];
-		}
-		else { // I have all info necessary for next time
-			if(prevcov<nextcov) { // uptrend
-				downright=0;
-				downrightend=j-1;
-				upright+=wincov[j];
-			}
-			else if(prevcov>nextcov) { // downtrend
-				upright=0;
-				uprightend=j-1;
-				downright+=wincov[j];
-			}
-			else { // equal
-				upright+=wincov[j];
-				downright+=wincov[j];
-			}
-
-			nextcov-=wincov[j+bw-1];
-			nextcov+=wincov[j-1];
-			prevcov-=wincov[j-1];
-			prevcov+=wincov[j-bw-1];
-
-			if(prevcov<0) prevcov=0;
-			if(nextcov<0) nextcov=0;
-
-		}
-
-		if(i) {
-			chiright-=wincov[j];
-			chiright+=wincov[i+CHI_WIN-1];
-			chileft-=wincov[i+CHI_WIN-1];
-			chileft+=wincov[i-1];
-
-			currcovright+=wincov[i+CHI_WIN-1];
-
-			if(chileft<0) chileft=0;
-			if(chiright<0) chiright=0;
-		}
-
-	}
-
-}
-*/
 
 CGraphnode *add_trim_to_graph(int s, int g,uint lastpos,CTrimPoint& mytrim,CGraphnode *graphnode,CGraphnode *source,CGraphnode *sink,GVec<float>& futuretr,
 		int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode) {
@@ -1800,12 +1741,16 @@ CGraphnode *source2guide(int s, int g, int refstart,uint newstart,uint newend, C
 	float rightcov=0;
 
 	if(newstart>graphnode->start) {
-		leftcov=bpcov[1][newstart-refstart-1]-bpcov[2-2*s][newstart-refstart-1];
-		if(graphnode->start>(uint)refstart) leftcov-=bpcov[1][graphnode->start-refstart-1]-bpcov[2-2*s][graphnode->start-refstart-1];
+		leftcov=get_cov(2*s,graphnode->start,newstart-1,(uint)refstart,bpcov);
+		/*leftcov=bpcov[1][newstart-refstart-1]-bpcov[2-2*s][newstart-refstart-1];
+		if(graphnode->start>(uint)refstart) leftcov-=bpcov[1][graphnode->start-refstart-1]-bpcov[2-2*s][graphnode->start-refstart-1];*/
+		leftcov/=newstart-graphnode->start;
 	}
 	if(newstart<newend) {
-		rightcov=bpcov[1][newend-refstart-1]-bpcov[2-2*s][newend-refstart-1];
-		if(newstart>(uint)refstart) rightcov-=bpcov[1][newstart-refstart-1]-bpcov[2-2*s][newstart-refstart-1];
+		rightcov=get_cov(2*s,newstart,newend,(uint)refstart,bpcov);
+		/*rightcov=bpcov[1][newend-refstart-1]-bpcov[2-2*s][newend-refstart-1];
+		if(newstart>(uint)refstart) rightcov-=bpcov[1][newstart-refstart-1]-bpcov[2-2*s][newstart-refstart-1];*/
+		rightcov/=newend-newstart+1;
 	}
 
 	float maxabund=rightcov-leftcov;
@@ -1884,19 +1829,23 @@ CGraphnode *guide2sink(int s, int g, int refstart,uint newstart,uint newend, CGr
 		GVec<float>* bpcov,GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,
 		GPVec<CGraphnode> **no2gnode, int &edgeno) {
 
-	//fprintf(stderr,"guide2sink for newstart=%d and newend=%d\n",newstart,newend);
+	//fprintf(stderr,"guide2sink for newstart=%d and newend=%d prevstart=%d\n",newstart,newend,graphnode->start);
 
 	// compute maxabund
 	float leftcov=0;
 	float rightcov=0;
 
 	if(newstart>=graphnode->start) {
-		leftcov=bpcov[1][newstart-refstart]-bpcov[2-2*s][newstart-refstart];
-		if(graphnode->start>(uint)refstart) leftcov-=bpcov[1][graphnode->start-refstart-1]-bpcov[2-2*s][graphnode->start-refstart-1];
+		leftcov=get_cov(2*s,graphnode->start,newstart,(uint)refstart,bpcov);
+		/*leftcov=bpcov[1][newstart-refstart]-bpcov[2-2*s][newstart-refstart];
+		if(graphnode->start>(uint)refstart) leftcov-=bpcov[1][graphnode->start-refstart-1]-bpcov[2-2*s][graphnode->start-refstart-1];*/
+		leftcov/=newstart-graphnode->start+1;
 	}
 	if(newstart+1<newend) {
-		rightcov=bpcov[1][newend-refstart-1]-bpcov[2-2*s][newend-refstart-1];
-		rightcov-=bpcov[1][newstart-refstart]-bpcov[2-2*s][newstart-refstart];
+		rightcov=get_cov(2*s,newstart+1,newend,(uint)refstart,bpcov);
+		/*rightcov=bpcov[1][newend-refstart-1]-bpcov[2-2*s][newend-refstart-1];
+		rightcov-=bpcov[1][newstart-refstart]-bpcov[2-2*s][newstart-refstart];*/
+		rightcov/=newend-newstart;
 	}
 
 
@@ -1915,6 +1864,7 @@ CGraphnode *guide2sink(int s, int g, int refstart,uint newstart,uint newend, CGr
 	futuretr.Add(tmp);
 	futuretr.cAdd(-1.0);
 	futuretr.Add(maxabund);
+	//fprintf(stderr,"guide2sink abundance=%f\n",maxabund);
 	tmp=prevnode->nodeid;futuretr.Add(tmp);
 	tmp=graphnode->nodeid;futuretr.Add(tmp);
 	tmp=trthr;futuretr.Add(tmp);
@@ -1975,14 +1925,14 @@ CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphno
 
 	uint sourcestart=0;
 	uint sinkend=0;
-	//float sinkabundance=0;
-	//float sourceabundance=0;
-	float sourcecovleft=0;
-	float sourcecovright=0;
-	float sinkcovleft=0;
-	float sinkcovright=0;
-	//find_trims(refstart,2*s,graphnode->start,newend,bpcov,sourcestart,sourceabundance,sinkend,sinkabundance,sourcecovleft,sourcecovright,sinkcovleft,sinkcovright);
-	find_trims(refstart,2*s,graphnode->start,newend,bpcov,sourcestart,sourcecovleft,sourcecovright,sinkend,sinkcovleft,sinkcovright);
+	float sinkabundance=0;
+	float sourceabundance=0;
+	//float sourcecovleft=0;
+	//float sourcecovright=0;
+	//float sinkcovleft=0;
+	//float sinkcovright=0;
+	//find_trims(refstart,2*s,graphnode->start,newend,bpcov,sourcestart,sourcecovleft,sourcecovright,sinkcovleft,sinkcovright);
+	find_trims(refstart,2*s,graphnode->start,newend,bpcov,sourcestart,sourceabundance,sinkend,sinkabundance);
 
 	if(sourcestart < sinkend) { // source trimming comes first
 
@@ -2001,8 +1951,8 @@ CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphno
 			float tmp=graphno-1;
 			futuretr.cAdd(0.0);
 			futuretr.Add(tmp);
-			//sourceabundance+=trthr;futuretr.Add(sourceabundance);
-			sourcecovright+=trthr;futuretr.Add(sourcecovright);
+			sourceabundance+=trthr;futuretr.Add(sourceabundance);
+			//sourcecovright+=trthr;futuretr.Add(sourcecovright);
 			// start TRY linking to end also here
 			//tmp=prevnode->nodeid;futuretr.Add(tmp);futuretr.cAdd(-1.0);tmp=sourcecovleft+trthr;futuretr.Add(tmp);sink->parent.Add(prevnode->nodeid);edgeno++;
 			// end TRY linking to end also here
@@ -2027,8 +1977,8 @@ CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphno
 		// remember to create transfrag as well -> I don't know the gno yet, so I can not create it here
 		futuretr.Add(tmp);
 		futuretr.cAdd(-1.0);
-		//sinkabundance+=trthr;futuretr.Add(sinkabundance);
-		sinkcovleft+=trthr;futuretr.Add(sinkcovleft);
+		sinkabundance+=trthr;futuretr.Add(sinkabundance);
+		//sinkcovleft+=trthr;futuretr.Add(sinkcovleft);
 		// start TRY linking to end also here
 		//tmp=graphnode->nodeid;futuretr.cAdd(0.0);futuretr.Add(tmp);tmp=sinkcovright+trthr;futuretr.Add(tmp);source->child.Add(graphnode->nodeid);edgeno++;
 		// end TRY linking to end also here
@@ -2054,8 +2004,8 @@ CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphno
 			float tmp=graphno-2;
 			futuretr.Add(tmp);
 			futuretr.cAdd(-1.0);
-			//sinkabundance+=trthr;futuretr.Add(sinkabundance);
-			sinkcovleft+=trthr;futuretr.Add(sinkcovleft);
+			sinkabundance+=trthr;futuretr.Add(sinkabundance);
+			//sinkcovleft+=trthr;futuretr.Add(sinkcovleft);
 			// start TRY linking to end also here
 			//tmp=graphnode->nodeid;futuretr.cAdd(0.0);futuretr.Add(tmp);tmp=sinkcovright+trthr;futuretr.Add(tmp);source->child.Add(graphnode->nodeid);edgeno++;
 			// end TRY linking to end also here
@@ -2081,8 +2031,8 @@ CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphno
 		float tmp=graphno-1;
 		futuretr.cAdd(0.0);
 		futuretr.Add(tmp);
-		//sourceabundance+=trthr;futuretr.Add(sourceabundance);
-		sourcecovright+=trthr;futuretr.Add(sourcecovright);
+		sourceabundance+=trthr;futuretr.Add(sourceabundance);
+		//sourcecovright+=trthr;futuretr.Add(sourcecovright);
 		// start TRY linking to end also here
 		//tmp=prevnode->nodeid;futuretr.Add(tmp);futuretr.cAdd(-1.0);tmp=sourcecovleft+trthr;futuretr.Add(tmp);sink->parent.Add(prevnode->nodeid);edgeno++;
 		// end TRY linking to end also here
@@ -2233,26 +2183,6 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 	return(children);
 }
 
-float get_cov(int s,uint start,uint end,GVec<float>* bpcov) {
-
-	float cov=0;
-
-	/* non-cummulative bpcov
-	for(uint i=start;i<=end;i++) {
-		cov+=bpcov[1][i] - bpcov[2-s][i];
-	}
-	*/
-
-	// cummulative bpcov
-	if(end>=start) {
-		cov=bpcov[1][end]-bpcov[2-s][end];
-		if(start) cov-=bpcov[1][start-1]-bpcov[2-s][start-1];
-	}
-
-
-	cov/=(end-start+1);
-	return(cov);
-}
 
 void delete_Ginterval(GInterval *interv){
 	if(interv) {
@@ -2317,147 +2247,7 @@ bool overlap_interval(uint start,uint end,GInterval *guidecov) {
 	return false;
 }
 
-/*
-int gnodeCmp(const pointer p1, const pointer p2) {
-	CGNode *a=(CGNode *)p1;
-	CGNode *b=(CGNode *)p2;
 
-	if(a->cov<b->cov) return 1; // more coverage come first
-	if(a->cov>b->cov) return -1;
-
-	if(a->leftlinks+a->rightlinks < b->leftlinks+b->rightlinks) return 1; // more links come first
-	if(a->leftlinks+a->rightlinks > b->leftlinks+b->rightlinks) return -1;
-
-
-	return 0;
-}
-
-void populate(GVec<int> &keptkid,int n,GPVec<CGraphnode>& no2gnode,GVec<CGNode> &node,GVec<int> &map,GVec<bool>& visit) {
-	CGraphnode *inode=no2gnode[n];
-	fprintf(stderr,"populate child %d with %d children\n",n,inode->child.Count());
-	for(int c=0;c<inode->child.Count();c++) if(!visit[inode->child[c]]){
-		visit[inode->child[c]]=true;
-		if(node[map[inode->child[c]]].keep) keptkid.Add(inode->child[c]);
-		else {
-			fprintf(stderr,"nodes %d-%d\n",n,inode->child[c]);
-			populate(keptkid,inode->child[c],no2gnode,node,map,visit);
-		}
-	}
-}
-
-void process_nodes(GVec<int> &gnodes,GVec<CGNode> & node){
-	for(int n=0;n<gnodes.Count();n++) {
-		int i=gnodes[n];
-		node[i-1].keep=true;
-	}
-}
-
-void keep_guide_nodes(GffObj *guide,GPVec<CGraphnode>& no2gnode,int gno,GVec<CGNode> &node) {
-
-	int i=1;
-	while(i<gno) { // should it be gno-1 here? why? I did not include sink yet!
-		if(no2gnode[i]->overlap(guide->exons[0])) { // first exon of guide overlaps node i
-			int j=i+1;
-			while(j<gno && no2gnode[j]->overlap(guide->exons[0]) && no2gnode[j]->start==no2gnode[j-1]->end+1
-					&& no2gnode[j-1]->child.Count() && no2gnode[j-1]->child[0]==j) j++;
-			if(j<gno && no2gnode[j]->overlap(guide->exons[0])) i=j-1; // I am skipping nodes that are linked by introns to the last node that is overlapped by the first exon in guide
-			else break;
-		}
-		i++;
-	}
-
-	if(i<gno) { // found start node; whould it be gno-1 here? (as it was before)
-		GVec<int> nodes; // remember nodes that are in guide (only if guide overlaps all nodes)
-		nodes.Add(i);
-		CGraphnode *inode=no2gnode[i];
-		int j=0; // guide exon I am looking at
-		int n=guide->exons.Count();
-		while(j<n) {
-			if(guide->exons[j]->end<inode->end) { // guide exon ends *before* node end
-				if(j==n-1) {
-					// process nodes here -> they need to be kept
-					process_nodes(nodes,node);
-				}
-				// else this is not a valid guide so don't do anything
-				return;
-			}
-			else if(guide->exons[j]->end==inode->end) { // guide exon ends at the same place as node
-				if(j==n-1) {
-					// process nodes here -> they need to be kept
-					process_nodes(nodes,node);
-					return;
-				}
-				j++; // go to next exon in guide
-				int k=0;
-				int nc=inode->child.Count();
-				while(k<nc && no2gnode[inode->child[k]]->start != guide->exons[j]->start) k++;
-				if(k==nc) return; // couldn't find continuation of guide
-				i=inode->child[k];
-				nodes.Add(i);
-				inode=no2gnode[i];
-			}
-			else { // I am still inside guide exon -> see if I can reach the end
-				if(i<gno && (no2gnode[i+1]->start==inode->end+1)) { // !!!  maybe here I need to consider bundledist
-					if(inode->child.Count() && inode->child[0]==i+1) {
-						i++;
-						nodes.Add(i);
-						inode=no2gnode[i];
-					}
-					else return;
-				}
-				else { // node doesn't continue
-					if(j==n-1) {
-						// process nodes here -> they need to be kept
-						process_nodes(nodes,node);
-					}
-					// else this is not a valid guide so don't do anything
-					return;
-				}
-			}
-		}
-	}
-
-}
-
-int count_kept_nodes(GVec<CGNode> &node,int gno,GPVec<CGraphnode>& no2gnode,GVec<int> map) {
-	int new_graphno=1; // need to include source
-	if(node[map[1]].keep) new_graphno++;
-	for(int n=2;n<gno;n++) { // recreate lost children links
-		if(node[map[n]].keep) {
-			bool update_count=true; // by default I update the count
-			if(!node[map[n]].future && node[map[n-1]].keep && no2gnode[n-1]->end+1==no2gnode[n]->start) { // only in the case that previous node is adjacent I can collapse nodes; never merge a future node
-				CGraphnode *inode=no2gnode[n];
-				int i=0;
-				bool cont=true;
-				while(i<inode->parent.Count()) {
-					if(inode->parent[i]==0) { cont=false;break;} // source is parent
-					if(inode->parent[i]!=n-1 && node[map[inode->parent[i]]].keep) { // child has more than one kept parent
-						cont=false;break;
-					}
-					i++;
-				}
-				if(cont) { // check children of parent
-					inode=no2gnode[n-1];
-					i=0;
-					update_count=false;
-					while(i<inode->child.Count()) {
-						if(inode->child[i]!=n && node[map[inode->child[i]]].keep) { // parent has more than one kept child
-							update_count=true;break;
-						}
-						i++;
-					}
-				}
-			}
-			if(update_count) {
-				new_graphno++;
-				node[map[n]].merge=false;
-			}
-			else node[map[n]].merge=true;
-		}
-	}
-	return(new_graphno);
-}
-*/
 
 int count_kept_nodes(GVec<CGNode> &node,int gno,GPVec<CGraphnode>& no2gnode) {
 	int new_graphno=1; // first include source and first node because this is always kept
@@ -2497,7 +2287,7 @@ int gjuncCmp(const pointer p1, const pointer p2) {
 }
 
 
-void delete_connection(GVec<CGNode> &node,int n1, int n2,  GPVec<CGraphnode>& no2gnode,int &edgeno) {
+void delete_connection(GVec<CGNode> &node,int n1, int n2,  GPVec<CGraphnode>& no2gnode,int &edgeno,int &estimate_graphno) {
 	int i=0;
 	while(i<no2gnode[n1]->child.Count()) {
 		if(no2gnode[n1]->child[i]==n2) {
@@ -2509,6 +2299,10 @@ void delete_connection(GVec<CGNode> &node,int n1, int n2,  GPVec<CGraphnode>& no
 
 	if(!no2gnode[n1]->child.Count() && !no2gnode[n1]->parent.Count()){
 		node[n1].keep=false;
+		estimate_graphno--;
+	}
+	else if(no2gnode[n1]->child.Count()==1 && no2gnode[n1]->child[0]==n1+1 && no2gnode[n1]->end==no2gnode[n1+1]->start-1) { // node n1 can be merged with next one because there is no other junction from n1
+		estimate_graphno--;
 	}
 
 	i=0;
@@ -2522,7 +2316,12 @@ void delete_connection(GVec<CGNode> &node,int n1, int n2,  GPVec<CGraphnode>& no
 
 	if(!no2gnode[n2]->child.Count() && !no2gnode[n2]->parent.Count()) {
 		node[n2].keep=false;
+		estimate_graphno--;
 	}
+	else if(no2gnode[n2]->parent.Count()==1 && no2gnode[n2]->parent[0]==n2-1 && no2gnode[n2-1]->end==no2gnode[n2]->start-1) { // node n2 can be merged with previous one because there is no other junction to n2
+		estimate_graphno--;
+	}
+
 	edgeno--;
 }
 
@@ -2531,7 +2330,7 @@ int prune_graph_nodes(int graphno,int s,int g,GVec<CGraphinfo> **bundle2graph, i
 
 	//fprintf(stderr,"start with edgeno=%d\n",edgeno);
 
-	GVec<CGJunc> kjunc; // scan all junctions and keep the ones that interest me
+	GVec<CGJunc> kjunc; // scan all junctions and keep the ones that are in the graph and I can potentially delete
 	int n=1; // first node in graph
 	for(int i=0;i<junction.Count();i++) {
 		if(junction[i]->start>no2gnode[s][g][graphno-1]->start) break; // all future junctions are out of the graph
@@ -2581,14 +2380,25 @@ int prune_graph_nodes(int graphno,int s,int g,GVec<CGraphinfo> **bundle2graph, i
 	fprintf(stderr,"there are %d junctions\n",kjunc.Count());
 	*/
 
-	// increase threshold requirements for junctions
+
 	int i=0;
+	/*** code to increase threshold requirements for junctions
 	//int new_graphno=graphno;
 	while(i<kjunc.Count() && kjunc[i].goodcov<junctionthr+1) { // require at least one more read for support
 		//fprintf(stderr,"delete connection %d-%d\n",kjunc[i].leftnode,kjunc[i].rightnode);
 		delete_connection(node,kjunc[i].leftnode,kjunc[i].rightnode,no2gnode[s][g],edgeno);
 		i++;
 	}
+	end code ***/
+
+	/*** code that estimates new graphno ***/
+	int estimate_graphno=graphno;
+	while(estimate_graphno > allowed_nodes && i<kjunc.Count()) {
+		delete_connection(node,kjunc[i].leftnode,kjunc[i].rightnode,no2gnode[s][g],edgeno,estimate_graphno);
+		i++;
+	}
+	/*** end code ***/
+
 	int new_graphno=count_kept_nodes(node,graphno,no2gnode[s][g]);
 
 	/*
@@ -3395,9 +3205,11 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    if(!end) {
 	    	while(nje<njunctions && ejunction[nje]->strand+1!=2*s) nje++; // skip all junctions that are not on the same strand
 	    	if(nje<njunctions && ejunction[nje]->end - currentstart < junctionsupport) { // there is a junction ending soon here
-	    		float covleft=bpcov[1][ejunction[nje]->end-1-refstart];
-	    		float covright=bpcov[1][2*ejunction[nje]->end - currentstart-1-refstart]-covleft;
-	    		if(currentstart>(uint)refstart) covleft-=bpcov[1][currentstart-1-refstart];
+	    		float covleft=get_neutralcov(currentstart,ejunction[nje]->end-1,(uint)refstart,bpcov);
+	    				//bpcov[1][ejunction[nje]->end-1-refstart];
+	    		float covright=get_neutralcov(ejunction[nje]->end,2*ejunction[nje]->end - currentstart-1,(uint)refstart,bpcov);
+	    				/*bpcov[1][2*ejunction[nje]->end - currentstart-1-refstart]-covleft;
+	    		if(currentstart>(uint)refstart) covleft-=bpcov[1][currentstart-1-refstart];*/
 	    		if(covleft<covright*(1-ERROR_PERC)) { // adjust start here if needed
 	    			currentstart=ejunction[nje]->end;
 	    			end=1;
@@ -3527,10 +3339,12 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    			// see if I should just skip node
 	    			if(endbundle-pos<junctionsupport) {
 	    				while(njs<njunctions && junction[njs]->strand+1 != 2*s) njs++;
-	    				if(njs>=njunctions || junction[njs]->start > endbundle) { // there are no more junctions starting within this bundle
-	    					float covleft=bpcov[1][pos-refstart];
-	    					float covright=bpcov[1][endbundle-refstart]-covleft;
-	    					covleft-=bpcov[1][2*pos-endbundle-1-refstart];
+	    				if((njs>=njunctions || junction[njs]->start > endbundle) && (nje>=njunctions || ejunction[nje]->end > endbundle)) { // there are no more junctions starting within this bundle
+	    					float covleft=get_neutralcov(2*pos-endbundle+1,pos,(uint)refstart,bpcov);
+	    							//bpcov[1][pos-refstart];
+	    					float covright=get_neutralcov(pos+1,endbundle,(uint)refstart,bpcov);
+	    							/*bpcov[1][endbundle-refstart]-covleft;
+	    					covleft-=bpcov[1][2*pos-endbundle-1-refstart];*/
 	    					if(covright<covleft*(1-ERROR_PERC))  // adjust start here if needed
 	    						completed=true;
 	    				}
@@ -3669,6 +3483,83 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    bundlenode=bundlenode->nextnode; // advance to next bundle
 	} // end while(bundlenode!=NULL)
 
+	//fprintf(stderr,"graphno=%d\n",graphno);
+
+	// add source/sink links for very high coverage drops
+	if(!mergeMode) for(int i=1;i<graphno;i++) {
+		float icov=0;
+		if(i>1 && no2gnode[s][g][i]->parent[0] && no2gnode[s][g][i-1]->end+1<no2gnode[s][g][i]->start) { // might need to be linked to source
+			icov=get_neutralcov(no2gnode[s][g][i]->start,no2gnode[s][g][i]->end,(uint)refstart,bpcov)/no2gnode[s][g][i]->len();
+			float link=100; // assume I have to link node to source
+			for(int j=0;j<no2gnode[s][g][i]->parent.Count();j++) {
+				if(no2gnode[s][g][i]->parent[j]) { // parent is not source
+					int p=no2gnode[s][g][i]->parent[j];
+					float pcov=get_neutralcov(no2gnode[s][g][p]->start,no2gnode[s][g][p]->end,(uint)refstart,bpcov)/no2gnode[s][g][p]->len();
+					if(pcov*100>icov*ERROR_PERC) {
+						link=0;
+						break;
+					}
+					else if(pcov<link) {
+						link=pcov;
+						if(!link) link=ERROR_PERC;
+					}
+				}
+				else {
+					link=0;
+					break;
+				}
+			}
+			if(link) {
+				no2gnode[s][g][i]->parent.Insert(0,source->nodeid);
+				source->child.Add(i);
+				futuretr.cAdd(0.0);
+				float tmp=i;
+				futuretr.Add(tmp);
+				tmp=(icov-link)/DROP;
+				futuretr.Add(tmp);
+				//fprintf(stderr,"Add link to source from node %d with abundance %f\n",i,tmp);
+				edgeno++;
+			}
+		}
+		if(i<graphno-1 && no2gnode[s][g][i]->child.Count() && no2gnode[s][g][i]->end+1<no2gnode[s][g][i+1]->start) { // might need to be linked to sink
+			float link=100;
+			for(int j=0;j<sink->parent.Count();j++) {
+				if(sink->parent[j]==i) {
+					link=0;
+					break;
+				}
+			}
+			if(link) {
+				if(!icov) icov=get_neutralcov(no2gnode[s][g][i]->start,no2gnode[s][g][i]->end,(uint)refstart,bpcov)/no2gnode[s][g][i]->len();
+				//fprintf(stderr,"consider inode=%d with cov=%f\n",i,icov);
+				for(int j=0;j<no2gnode[s][g][i]->child.Count();j++) {
+					int c=no2gnode[s][g][i]->child[j];
+					float ccov=get_neutralcov(no2gnode[s][g][c]->start,no2gnode[s][g][c]->end,(uint)refstart,bpcov)/no2gnode[s][g][c]->len();
+					//fprintf(stderr,"ccov[%d]=%f\n",c,ccov);
+					if(ccov*100>icov*ERROR_PERC) {
+						link=0;
+						break;
+					}
+					else if(ccov<link) {
+						link=ccov;
+						if(!link) link=ERROR_PERC;
+					}
+				}
+				if(link) {
+					sink->parent.Add(i); // prevnode is the parent of sink
+					float tmp=i;
+					futuretr.Add(tmp);
+					futuretr.cAdd(-1.0);
+					tmp=(icov-link)/DROP;
+					futuretr.Add(tmp);
+					//fprintf(stderr,"Add link to sink from node %d with abundance %f\n",i,tmp);
+					edgeno++;
+				}
+			}
+		}
+	}
+
+
 	// here I know graphno => I can see if it's too big
 	if(!mergeMode && graphno>allowed_nodes) { // TODO: define allowed_nodes as a default in stringtie.cpp that varies with the memory
 		graphno=prune_graph_nodes(graphno,s,g,bundle2graph,bnode.Count(),no2gnode,junction,edgeno,futuretr,sink);
@@ -3782,8 +3673,9 @@ void get_read_pattern(int s, float readcov,GVec<int> &rgno, float rprop,GVec<int
 	int lastngraph=-1;
 	int ncoord=readlist[n]->segs.Count();
 	int k=0; // need to keep track of coordinates already added to coverages of graphnodes
+	int kmer=KMER-1; //f1
 
-	GHash<bool> hashnode;
+	GIntHash<bool> hashnode;
 
 	for(int i=0;i<readgroup[n].Count();i++) { // how can a read be associated to multiple groups? ---> If it is spliced
 		int gr=readgroup[n][i];
@@ -3791,10 +3683,9 @@ void get_read_pattern(int s, float readcov,GVec<int> &rgno, float rprop,GVec<int
 		readgroup[n][i]=gr;
 		int bnode=group2bundle[2*s][gr]; // group was associated to bundle
 		if(bnode>-1 && bundle2graph[s][bnode].Count()) { // group has a bundle node associated with it and bundle was processed
-			GStr bh(bnode);
-			if(!hashnode[bh.chars()]) {
+			if(!hashnode[bnode]) {
 				bool found=true;
-				hashnode.Add(bh.chars(),new bool(found));
+				hashnode.Add(bnode,new bool(found));
 				int nbnode=bundle2graph[s][bnode].Count(); // number of nodes in bundle
 				int j=0;
 
@@ -3817,7 +3708,8 @@ void get_read_pattern(int s, float readcov,GVec<int> &rgno, float rprop,GVec<int
 								intersect=true;
 								//fprintf(stderr,"update cov of node %d for readcov=%g read=%d\n",node->nodeid,bp*readcov,n);
 
-								node->cov+=rprop*bp*readcov;
+								if(!readlist[n]->unitig)
+										node->cov+=rprop*bp*readcov;
 								if(readlist[n]->segs[k].end<=node->end) k++;
 								else break;
 							}
@@ -3849,7 +3741,24 @@ void get_read_pattern(int s, float readcov,GVec<int> &rgno, float rprop,GVec<int
 						if(lastngraph!=ngraph || lastgnode!=gnode) { // this is a new graph, or a new gnode
 							//fprintf(stderr,"Add node %d to graph %d on strand %d at position g=%d\n",gnode,ngraph,s,g);
 
-							rnode[g].Add(gnode);
+							bool trimu=false;
+							if(readlist[n]->unitig) { //f1
+								if(rnode[g].Count()==1) { // deal with first node trimming here
+									if(no2gnode[s][ngraph][gnode]->parent.Count()>1) { // only if this node has more than one parent I might need to trim it
+										if((int)(no2gnode[s][ngraph][rnode[g][0]]->end - readlist[n]->start) < kmer) { // I have to trim this part of the super-read because it might be wrong
+											rnode[g].Pop();
+										}
+									}
+								}
+								if(rnode[g].Count() && no2gnode[s][ngraph][rnode[g].Last()]->child.Count()>1) {
+									if((int)(readlist[n]->end-no2gnode[s][ngraph][gnode]->start) < kmer) { // super-read extends only a tiny bit into the node -> might be wrong
+										trimu=true;
+									}
+								}
+							}
+
+
+							if(!trimu) rnode[g].Add(gnode);
 						}
 
 						lastgnode=gnode;
@@ -3898,7 +3807,8 @@ void get_read_pattern(float readcov,GBitVec& pattern0,GBitVec& pattern1,int *rgn
     							if(bp) {
     								intersect=true;
     								//fprintf(stderr,"update cov of node %d for multi=%g and readcov=%g read=%d\n",node->nodeid,multi,bp*readcov,n);
-    								node->cov+=rprop[s]*bp*readcov;
+    								if(!readlist[n]->unitig)
+    									node->cov+=rprop[s]*bp*readcov;
     								if(readlist[n]->segs[k[s]].end<=node->end) k[s]++;
     								else break;
 				  				}
@@ -4087,8 +3997,8 @@ CTransfrag *findtrf_in_treepat(int gno,GIntHash<int>& gpos,GVec<int>& node,GBitV
 }*/
 
 
-CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pattern,float abundance,GVec<int>& node,GPVec<CTransfrag> **transfrag,
-		CTreePat ***tr2no){
+CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pattern,float abundance,GVec<int>& node,
+		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no, bool is_sr=false){
 
 	/*
 	{ // DEBUG ONLY
@@ -4098,6 +4008,8 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 	}
 	*/
 
+  if(!mergeMode && node.Count()==1) return(NULL); // do the one node transfrag make any difference? CHECK IF YOU NEED TO KEEP THIS ONE
+  
 	CTransfrag *t=findtrf_in_treepat(gno,gpos,node,pattern,tr2no[s][g]);
 	if(!t) { // t is NULL
 		t=new CTransfrag(node,pattern,0);
@@ -4130,8 +4042,10 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 		}
 		tree->tr=t;
 	}
-	//fprintf(stderr,"Update transfrag with abundance=%f in graph[%d][%d]\n",abundance,s,g);
-	t->abundance+=abundance;
+
+	if(is_sr) t->srabund+=abundance;
+	else  //fprintf(stderr,"Update transfrag with abundance=%f in graph[%d][%d]\n",abundance,s,g);
+		t->abundance+=abundance;
 
 	return(t);
 }
@@ -4248,8 +4162,35 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 				rpat[rnode[r][j]]=1;
 				if(j) { // add edge pattern
 					if(no2gnode[s][rgno[r]][rnode[r][j]]->start-1==no2gnode[s][rgno[r]][rnode[r][j-1]]->end) { // continuous node
-						int *pos=gpos[s][rgno[r]][edge(rnode[r][j-1],rnode[r][j],graphno[s][rgno[r]])];
-						if(pos!=NULL) rpat[*pos]=1;
+						bool cont=true;
+						if(readlist[n]->unitig) { // see if node j-1 has sink as child, or node j has source as parent -> this means trimming was involved
+							CGraphnode *jnode=no2gnode[s][rgno[r]][rnode[r][j]];
+							for(int p=0;p<jnode->parent.Count();p++) {
+								if(!jnode->parent[p]) { cont=false; break;} // found source among parents
+							}
+							if(cont) {
+								jnode=no2gnode[s][rgno[r]][rnode[r][j-1]];
+								for(int c=0;c<jnode->child.Count();c++) {
+									if(jnode->child[c]==graphno[s][rgno[r]]-1) { cont=false; break;} // found sink among children
+								}
+							}
+							if(!cont) { // trimming was involved
+								rpat[rnode[r][j]]=0;
+								GVec<int> node;
+								for(int o=clear_rnode;o<j;o++) {
+									node.Add(rnode[r][o]);
+								}
+								//fprintf(stderr,"u1\n");
+								update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,node,transfrag,tr2no,readlist[n]->unitig);
+								rpat.reset();
+								rpat[rnode[r][j]]=1; // restart the pattern
+								clear_rnode=j;
+							}
+						}
+						if(cont) {
+							int *pos=gpos[s][rgno[r]][edge(rnode[r][j-1],rnode[r][j],graphno[s][rgno[r]])];
+							if(pos!=NULL) rpat[*pos]=1;
+						}
 					}
 					else { // non-continuous node
 						while(i<readlist[n]->juncs.Count() && readlist[n]->juncs[i]->end<no2gnode[s][rgno[r]][rnode[r][j]]->start) i++; // end of junction should be after start of node
@@ -4262,11 +4203,11 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 							else { // update abundance for what I have so far
 								rpat[rnode[r][j]]=0;
 								GVec<int> node;
-								for(int o=0;o<j;o++) {
+								for(int o=clear_rnode;o<j;o++) {
 									node.Add(rnode[r][o]);
 								}
 								//fprintf(stderr,"u1\n");
-								update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,node,transfrag,tr2no);
+								update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,node,transfrag,tr2no,readlist[n]->unitig);
 								rpat.reset();
 								rpat[rnode[r][j]]=1; // restart the pattern
 								clear_rnode=j;
@@ -4323,19 +4264,19 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 					while(i<pnode[p].Count()) { rnode[r].Add(pnode[p][i]);i++;}
 					rpat=rpat|ppat;
 					//fprintf(stderr,"u2 graph is %d\n",rgno[r]);
-					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no);
+					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,readlist[n]->unitig);
 				}
 				else { // update both patterns separately
 					//fprintf(stderr,"u3\n");
-					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no);
+					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,readlist[n]->unitig);
 					//fprintf(stderr,"u4\n");
-					update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no);
+					update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no,readlist[n]->unitig);
 				}
 				pgno[p]=-1;
 			}
 			else { // pair has no valid pattern in this graph
 				//fprintf(stderr,"u5\n");
-				update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no);
+				update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,readlist[n]->unitig);
 			}
 		}
 
@@ -4366,7 +4307,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 					}
 				}
 				//fprintf(stderr,"u6\n");
-				update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no);
+				update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no,readlist[n]->unitig);
 			}
 		delete [] rnode;
 		if(pnode) delete [] pnode;
@@ -4455,23 +4396,26 @@ void settrf_in_treepat(CTransfrag *t,int gno,GIntHash<int>& gpos,GVec<int>& node
 	tree->tr=t;
 }
 
-void eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag>& transfrag, CTreePat *tr2no,float threshold) {
+void eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag>& transfrag, CTreePat *tr2no,float threshold,GPVec<CTransfrag>& srfrag) {
 
 	for(int t=transfrag.Count()-1;t>=0;t--)
-		if(transfrag[t]->abundance<threshold && transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1) { // need to delete transfrag that doesn't come from source or ends at sink
+		if(transfrag[t]->srabund) { // this is a super-read
+			srfrag.Add(transfrag[t]);
+		}
+		else if(transfrag[t]->abundance<threshold && transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1) { // need to delete transfrag that doesn't come from source or ends at sink
 			settrf_in_treepat(NULL,gno,gpos,transfrag[t]->nodes,transfrag[t]->pattern,tr2no); // this should be eliminated if I want to store transcripts from 0 node
 			transfrag.Exchange(t,transfrag.Count()-1);
 			transfrag.Delete(transfrag.Count()-1);
 		}
 
 	while(transfrag.Count()>max_trf_number) {
+		threshold++;
 		for(int t=transfrag.Count()-1;t>=0;t--)
 			if(transfrag[t]->abundance<threshold && transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1) { // need to delete transfrag that doesn't come from source
 				settrf_in_treepat(NULL,gno,gpos,transfrag[t]->nodes,transfrag[t]->pattern,tr2no); // this should be eliminated if I want to store transcripts from 0 node
 				transfrag.Exchange(t,transfrag.Count()-1);
 				transfrag.Delete(transfrag.Count()-1);
 			}
-		threshold++;
 	}
 
 }
@@ -4636,6 +4580,268 @@ bool trf_real(int t,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag, GI
 	return false;
 }
 
+void process_srfrag(CTransfrag *u,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode) { // v5
+
+	float u_abund=0; // maximum super-read abundance that still needs to be explained
+	int nabund=u->nodes.Count()-1;
+	GVec<float> srabund(nabund);
+	GVec<bool> tosolve(nabund,true);
+	float zero=0;
+
+	for(int i=0;i<u->nodes.Count()-1;i++) { // compute abundance that needs to be explained at each node
+		int n1=u->nodes[i];
+		int n2=u->nodes[i+1];
+		float localcov=0;
+		for(int j=0;j<no2gnode[n1]->trf.Count();j++) if(transfrag[no2gnode[n1]->trf[j]]->pattern[n2])
+			localcov+=transfrag[no2gnode[n1]->trf[j]]->abundance;
+		float local_u_abund=u->srabund*localcov-u->abundance;
+		if(local_u_abund>epsilon) {
+			srabund.Add(local_u_abund);
+			if(local_u_abund>u_abund) u_abund=local_u_abund;
+		}
+		else {
+			srabund.Add(zero);
+			tosolve[i]=false;
+			nabund--;
+		}
+	}
+
+	while(nabund) {
+		float maxabund=0;
+		for(int i=0;i<srabund.Count();i++) if(tosolve[i]){
+			if(srabund[i]>maxabund) {
+				maxabund=srabund[i];
+			}
+		}
+		if(!maxabund) break; // no more transfrags that can explain nodes
+
+		// found maxabund that needs to be solved
+		int maxt=-1; // transfrag that can solve some maxabund
+		int maxn=-1;
+		for(int i=0;i<srabund.Count();i++) if(srabund[i]==maxabund && tosolve[i] ) {
+			int n=u->nodes[i];
+			for(int j=0;j<no2gnode[n]->trf.Count();j++) {
+				int t=no2gnode[n]->trf[j];
+				if(transfrag[t]!=u && maxt!=t && transfrag[t]->abundance-transfrag[t]->srabund>epsilon &&
+						((transfrag[t]->pattern & u->pattern) == transfrag[t]->pattern)) { // found transfrag that could solve some of the node
+					if(maxt<0 || transfrag[t]->nodes.Count()>transfrag[maxt]->nodes.Count()) {
+						maxt=t;
+						maxn=i;
+					}
+				}
+			}
+		}
+		if(maxt<0) { // there are no transfrags starting at maxabund nodes that can explain the srabundance
+			for(int i=0;i<srabund.Count();i++) if(srabund[i]==maxabund) tosolve[i]=false;
+		}
+		else { // I can solve some srabundance
+			if(transfrag[maxt]->abundance-transfrag[maxt]->srabund<maxabund) maxabund=transfrag[maxt]->abundance-transfrag[maxt]->srabund;
+			transfrag[maxt]->abundance-=maxabund;
+			int i=maxn;
+			while(u->nodes[i]!=transfrag[maxt]->nodes[0]) i--; // i should never be <0 here because the first node in maxt is in u
+			while(u->nodes[i]!=transfrag[maxt]->nodes.Last()) {
+				srabund[i]-=maxabund;
+				if(srabund[i]<epsilon) {
+					nabund--;
+					tosolve[i]=false;
+					if(!nabund) break;
+				}
+				i++;
+			}
+		}
+	}
+
+	u->abundance+=u_abund;
+
+}
+
+/*
+void process_srfrag(CTransfrag *u,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode) { // v2
+
+	if(u->srabund>u->abundance) { // I need to explain more of the super-read abundance
+
+		float u_abund=u->srabund-u->abundance;
+		if(u_abund>epsilon) {
+
+			int nabund=u->nodes.Count()-1;
+			GVec<float> srabund(nabund,u_abund);
+			GVec<bool> tosolve(nabund,true);
+			float maxtoexplain=u_abund; // how much abundance is left to explain
+
+			while(nabund) {
+				float maxabund=0;
+				for(int i=0;i<srabund.Count();i++) if(tosolve[i]){
+					if(srabund[i]==maxtoexplain) {
+						maxabund=maxtoexplain;
+						break;
+					}
+					if(srabund[i]>maxabund) {
+						maxabund=srabund[i];
+					}
+				}
+				if(!maxabund) break; // no more transfrags that can explain nodes
+				maxtoexplain=maxabund;
+
+				// found maxabund that needs to be solved
+				int maxt=-1; // transfrag that can solve some maxabund
+				int maxn=-1;
+				for(int i=0;i<srabund.Count();i++) if(srabund[i]==maxabund && tosolve[i] ) {
+					int n=u->nodes[i];
+					for(int j=0;j<no2gnode[n]->trf.Count();j++) {
+						int t=no2gnode[n]->trf[j];
+						if(transfrag[t]!=u && transfrag[t]->nodes[0]==n && transfrag[t]->abundance-transfrag[t]->srabund>epsilon &&
+								((transfrag[t]->pattern & u->pattern) == transfrag[t]->pattern)) { // found transfrag that could solve some of the node
+							if(maxt<0 || transfrag[t]->nodes.Count()>transfrag[maxt]->nodes.Count()) {
+								maxt=t;
+								maxn=i;
+							}
+						}
+					}
+				}
+				if(maxt<0) { // there are no transfrags starting at maxabund nodes that can explain the srabundance
+					for(int i=0;i<srabund.Count();i++) if(srabund[i]==maxabund) tosolve[i]=false;
+				}
+				else { // I can solve some srabundance
+					if(transfrag[maxt]->abundance-transfrag[maxt]->srabund<maxabund) maxabund=transfrag[maxt]->abundance-transfrag[maxt]->srabund;
+					transfrag[maxt]->abundance-=maxabund;
+					int i=maxn;
+					while(u->nodes[i]!=transfrag[maxt]->nodes.Last()) {
+						srabund[i]-=maxabund;
+						if(srabund[i]<epsilon) {
+							nabund--;
+							tosolve[i]=false;
+							if(!nabund) break;
+						}
+						i++;
+					}
+				}
+			}
+		}
+		u->abundance=u->srabund;
+	}
+}
+
+void process_srfrag(CTransfrag *u,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode) { // v3
+
+	if(u->srabund>u->abundance) { // I need to explain more of the super-read abundance
+
+		float u_abund=u->srabund-u->abundance;
+		if(u_abund>epsilon) {
+
+			int nabund=u->nodes.Count()-1;
+			GVec<float> srabund(nabund,u_abund);
+			GVec<bool> tosolve(nabund,true);
+			float maxtoexplain=u_abund; // how much abundance is left to explain
+
+			while(nabund) {
+				float maxabund=0;
+				for(int i=0;i<srabund.Count();i++) if(tosolve[i]){
+					if(srabund[i]==maxtoexplain) {
+						maxabund=maxtoexplain;
+						break;
+					}
+					if(srabund[i]>maxabund) {
+						maxabund=srabund[i];
+					}
+				}
+				if(!maxabund) break; // no more transfrags that can explain nodes
+				maxtoexplain=maxabund;
+
+				// found maxabund that needs to be solved
+				int maxt=-1; // transfrag that can solve some maxabund
+				int maxn=-1;
+				for(int i=0;i<srabund.Count();i++) if(srabund[i]==maxabund && tosolve[i] ) {
+					int n=u->nodes[i];
+					for(int j=0;j<no2gnode[n]->trf.Count();j++) {
+						int t=no2gnode[n]->trf[j];
+						if(transfrag[t]!=u && t!=maxt && transfrag[t]->abundance-transfrag[t]->srabund>epsilon &&
+								((transfrag[t]->pattern & u->pattern) == transfrag[t]->pattern)) { // found transfrag that could solve some of the node
+							if(maxt<0 || transfrag[t]->nodes.Count()>transfrag[maxt]->nodes.Count()) {
+								maxt=t;
+								maxn=i;
+							}
+						}
+					}
+				}
+				if(maxt<0) { // there are no transfrags going through maxabund nodes that can explain the srabundance
+					for(int i=0;i<srabund.Count();i++) if(srabund[i]==maxabund) tosolve[i]=false;
+				}
+				else { // I can solve some srabundance
+					if(transfrag[maxt]->abundance-transfrag[maxt]->srabund<maxabund) maxabund=transfrag[maxt]->abundance-transfrag[maxt]->srabund;
+					transfrag[maxt]->abundance-=maxabund;
+					int i=maxn;
+					while(u->nodes[i]!=transfrag[maxt]->nodes[0]) i--; // i should never be <0 here because the first node in maxt is in u
+					while(u->nodes[i]!=transfrag[maxt]->nodes.Last()) {
+						srabund[i]-=maxabund;
+						if(srabund[i]<epsilon) {
+							nabund--;
+							tosolve[i]=false;
+							if(!nabund) break;
+						}
+						i++;
+					}
+				}
+			}
+		}
+		u->abundance=u->srabund;
+	}
+}
+
+void process_srfrag(CTransfrag *u,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode) { // v4
+
+	if(u->srabund>u->abundance) { // I need to explain more of the super-read abundance
+
+		float u_abund=u->srabund-u->abundance;
+		if(u_abund>epsilon) {
+
+			GPVec<CTransfrag> seltrfrag(false);
+			for(int i=0;i<u->nodes.Count()-1;i++) {
+				int n=u->nodes[i];
+				for(int j=0;j<no2gnode[n]->trf.Count();j++) {
+					int t=no2gnode[n]->trf[j];
+					if(transfrag[t]!=u && transfrag[t]->nodes[0]==n && transfrag[t]->abundance-transfrag[t]->srabund>epsilon &&
+							((transfrag[t]->pattern & u->pattern) == transfrag[t]->pattern)) {
+						seltrfrag.Add(transfrag[t]);
+					}
+				}
+			}
+
+			if(seltrfrag.Count()) {
+				int nabund=u->nodes.Count()-1;
+				GVec<float> srabund(nabund,u_abund);
+
+				seltrfrag.Sort(trCmp);
+				for(int i=0;i<seltrfrag.Count();i++) {
+					float maxabund=seltrfrag[i]->abundance-seltrfrag[i]->srabund;
+					int p=0;
+					while(u->nodes[p]!=seltrfrag[i]->nodes[0]) p++;
+					int j=p;
+					while(u->nodes[j]!=seltrfrag[i]->nodes.Last()) {
+						if(srabund[p]<maxabund) maxabund=srabund[p];
+						j++;
+					}
+					j=p;
+					if(maxabund) {
+						seltrfrag[i]->abundance-=maxabund;
+						while(u->nodes[j]!=seltrfrag[i]->nodes.Last()) {
+							srabund[p]-=maxabund;
+							if(srabund[p]<epsilon) {
+								nabund--;
+								if(!nabund) break;
+							}
+							j++;
+						}
+					}
+					if(!nabund) break;
+				}
+			}
+			u->abundance=u->srabund;
+		}
+
+	}
+
+}*/
+
 void process_transfrags(int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,CTreePat *tr2no,
 		GBitVec& compatible,GIntHash<int> &gpos,GVec<CGuide>& guidetrf) {
 
@@ -4644,19 +4850,22 @@ void process_transfrags(int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTr
 		printTime(stderr);
 		fprintf(stderr,"There are %d transfrags before clean up:\n",transfrag.Count());
 		for(int i=0;i<transfrag.Count();i++) {
-			fprintf(stderr,"transfrag[%d]:",i);
+			fprintf(stderr,"transfrag[%d](%f,%f):",i,transfrag[i]->abundance,transfrag[i]->srabund);
 			for(int j=0;j<transfrag[i]->nodes.Count();j++) fprintf(stderr," %d",transfrag[i]->nodes[j]);
 			fprintf(stderr,"\n");
 		}
 	}
 	*/
 
+
+	GPVec<CTransfrag> srfrag(false);
+
 	// eliminate transfrags below threshold (they represent noise) if they don't come from source
-	eliminate_transfrags_under_thr(gno,gpos,transfrag,tr2no,trthr);
+	eliminate_transfrags_under_thr(gno,gpos,transfrag,tr2no,trthr,srfrag);
 
 	/*
 	{ // DEBUG ONLY
-		printTime(stderr);
+		//printTime(stderr);
 		fprintf(stderr,"There are %d transfrags after clean up:\n",transfrag.Count());
 		for(int i=0;i<transfrag.Count();i++) {
 			fprintf(stderr,"transfrag[%d]:",i);
@@ -4664,7 +4873,7 @@ void process_transfrags(int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTr
 			fprintf(stderr,"\n");
 		}
 	}
-    */
+	*/
 
 	// add all guide patterns to the set of transfrags so that I can have a "backbone" for each guide
 	// I need this because there might be an uncompatible transfrag connecting the nodes in the guide
@@ -4824,6 +5033,14 @@ void process_transfrags(int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTr
 			} // end for(int t2=t1+1;t2<transfrag.Count();t2++)
 		} // and if(!fast)
 	} // end for(int t1=0;t1<transfrag.Count();t1++)
+
+	if(srfrag.Count()) {
+		srfrag.Sort(trCmp); // always start with largest super-read to solve
+		for(int u=0;u<srfrag.Count();u++) process_srfrag(srfrag[u],transfrag,no2gnode);
+	}
+
+
+
 
 	// set source-to-child transfrag abundances: optional in order not to keep these abundances too low:
 	// update the abundances of the transfrags coming in from source and going to a node that doesn't have other parents than source
@@ -7196,7 +7413,6 @@ bool can_be_removed_fwd_all(float abundance,int firstnode,GVec<int>& path,GVec<f
 
 bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,
 		GVec<float>& nodecov,int gno,GIntHash<int>& gpos){
-
 	// find all parents -> if parent is source then go back
 	CGraphnode *inode=no2gnode[i];
 
@@ -7230,10 +7446,9 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 				maxchild=inode->child[c];
 			}
 		*/
-		//if(sensitivitylevel && inode->child[c]==i+1 && i<gno-2 && inode->end+1==no2gnode[i+1]->start && cnode->len()
 
-		if(inode->child[c]==i+1 && i<gno-2 && inode->end+1==no2gnode[i+1]->start &&
-				nodecov[i+1]/cnode->len() <1000 && nodecov[i]*DROP>nodecov[i+1]) { // adjacent to child
+		if(inode->child[c]==i+1 && i<gno-2 && inode->end+1==cnode->start &&
+				nodecov[i+1]/cnode->len() <1000 && nodecov[i]*(DROP+ERROR_PERC)>nodecov[i+1])  { // adjacent to child
 				// cnode->len() this is redundant because i<gno-2
 				//((nodecov[i+1]/cnode->len() <1000 && nodecov[i]*DROP>nodecov[i+1]) || (cnode->len()<longintronanchor && cnode->child.Count()==1 && cnode->child[0]==gno-1 ) ))  { // adjacent to child
 			exclude=true;
@@ -7260,6 +7475,11 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 			if(childcov>maxcov) {
 				maxcov=childcov;
 				maxc=inode->child[c];
+			}
+			else if(childcov==maxcov && maxc!=-1) {
+				if(nodecov[maxc]<nodecov[inode->child[c]]) {
+					maxc=inode->child[c];
+				}
 			}
 
 			pathpat[inode->child[c]]=0;
@@ -7354,15 +7574,16 @@ bool back_to_source_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag
 	for(int p=0;p<nparents;p++) {
 		float parentcov=0;
 		CGraphnode *pnode=no2gnode[inode->parent[p]];
+
 		/*
 			if(nodecov[inode->parent[p]]>maxparentcov) {
 				maxparentcov=nodecov[inode->parent[p]];
 				maxparent=inode->parent[p];
 			}
 		*/
-		//if(sensitivitylevel && inode->parent[p]==i-1 && i>1 && inode->start==no2gnode[i-1]->end+1 && pnode->len() &&
-		if(inode->parent[p]==i-1 && i>1 && inode->start==no2gnode[i-1]->end+1 &&
-				nodecov[i-1]/pnode->len() <1000 && nodecov[i]*DROP>nodecov[i-1]) { // adjacent to parent
+
+		if(inode->parent[p]==i-1 && i>1 && inode->start==pnode->end+1 &&
+				nodecov[i-1]/pnode->len() <1000 && nodecov[i]*(DROP+ERROR_PERC)>nodecov[i-1]) { // adjacent to parent
 				// pnode->len() && this is redundant because source should always be 0
 				//((nodecov[i-1]/pnode->len() <1000 && nodecov[i]*DROP>nodecov[i-1]) || (pnode->len()<longintronanchor && pnode->parent.Count()==1 && !pnode->parent[0])))  { // adjacent to parent
 			exclude=true;
@@ -7391,6 +7612,11 @@ bool back_to_source_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag
 			if(parentcov>maxcov) {
 				maxcov=parentcov;
 				maxp=inode->parent[p];
+			}
+			else if(parentcov==maxcov && maxp!=-1) {
+				if(nodecov[maxp]<nodecov[inode->parent[p]]) {
+					maxp=inode->parent[p];
+				}
 			}
 
 			pathpat[inode->parent[p]]=0;
@@ -7485,7 +7711,6 @@ bool back_to_source_path(int i,GVec<int>& path,GBitVec& pathpat,GVec<float>& pat
 
 	// I should penalize somehow the fact that an adjacent parent has to big a drop in coverage;
 	bool exclude=false;
-	//if(sensitivitylevel && i>1 && inode->start==1+no2gnode[i-1]->end && nodecov[i]*DROP>nodecov[i-1])  { // adjacent to parent
 	if(i>1 && inode->start==1+no2gnode[i-1]->end && nodecov[i]*DROP>nodecov[i-1])  { // adjacent to parent
 		//fprintf(stderr,"node %d to adjacent parent %d has a drop in cov from %f to %f\n",i,i-1,nodecov[i],nodecov[i-1]);
 		exclude=true;
@@ -7708,7 +7933,7 @@ bool back_to_source_path(int i,GVec<int>& path,GBitVec& pathpat,GVec<float>& pat
 	pathpat[maxp]=1;
 	int *pos=gpos[edge(maxp,i,gno)];
 	if(pos) pathpat[*pos]=1;
-	else GError("Found parent-child %d-%d not linked by edge\n",maxp,i);
+	else return false; //GError("Found parent-child %d-%d not linked by edge\n",maxp,i);
 
 	if(!maxp) return(true);
 
@@ -7731,7 +7956,6 @@ bool fwd_to_sink_path(int i,GVec<int>& path,GBitVec& pathpat,GVec<float>& pathin
 
 	// I should penalize somehow the fact that an adjacent child has to big a drop in coverage;
 	bool exclude=false;
-	//if(sensitivitylevel && i<gno-2 && inode->end+1==no2gnode[i+1]->start && nodecov[i]*DROP>nodecov[i+1])  { // adjacent to parent
 	if(i<gno-2 && inode->end+1==no2gnode[i+1]->start && nodecov[i]*DROP>nodecov[i+1])  { // adjacent to parent
 		//fprintf(stderr,"node %d to adjacent child %d has a drop in cov from %f to %f\n",i,i+1,nodecov[i],nodecov[i+1]);
 		exclude=true;
@@ -7918,7 +8142,7 @@ bool fwd_to_sink_path(int i,GVec<int>& path,GBitVec& pathpat,GVec<float>& pathin
 	pathpat[maxc]=1;
 	int *pos=gpos[edge(i,maxc,gno)];
 	if(pos) pathpat[*pos]=1;
-	else GError("Found parent-child %d-%d not linked by edge\n",i,maxc);
+	else return false; //GError("Found parent-child %d-%d not linked by edge\n",i,maxc);
 
 	return fwd_to_sink_path(maxc,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno,gpos);
 }
@@ -10842,10 +11066,11 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 			float lastprop=0;
 			if(firstex) {
 				if(nodestart<t->start && bdata) {
-					float leftcov=0;
+
 					float rightcov=0;
 
 					/*** non-cummulative bpcov
+					float leftcov=0;
 					for(uint p=node->start;p<t->start;p++) {
 						int j=p-bdata->start;
 						leftcov+=bdata->bpcov[1][j]-bdata->bpcov[2-2*strand][j];
@@ -10857,10 +11082,12 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 					*/
 
 					// cummulative bpcov
-					leftcov=bdata->bpcov[1][t->start-1-refstart]-bdata->bpcov[2-2*strand][t->start-1-refstart];
-					if(node->start>refstart) leftcov-=bdata->bpcov[1][node->start-1-refstart]-bdata->bpcov[2-2*strand][node->start-1-refstart];
-					if(node->end>=t->start) rightcov=bdata->bpcov[1][node->end-refstart]-bdata->bpcov[2-2*strand][node->end-refstart] -
-							bdata->bpcov[1][t->start-1-refstart]+bdata->bpcov[2-2*strand][t->start-1-refstart];
+					float leftcov=get_cov(2*strand,node->start,t->start-1,refstart,bdata->bpcov);
+							/*bdata->bpcov[1][t->start-1-refstart]-bdata->bpcov[2-2*strand][t->start-1-refstart];
+					if(node->start>refstart) leftcov-=bdata->bpcov[1][node->start-1-refstart]-bdata->bpcov[2-2*strand][node->start-1-refstart];*/
+					if(node->end>t->start) rightcov=get_cov(2*strand,t->start,node->end,refstart,bdata->bpcov);
+							/*bdata->bpcov[1][node->end-refstart]-bdata->bpcov[2-2*strand][node->end-refstart] -
+							bdata->bpcov[1][t->start-1-refstart]+bdata->bpcov[2-2*strand][t->start-1-refstart];*/
 
 					if(leftcov) firstprop=leftcov/(leftcov+rightcov);
 				}
@@ -10871,9 +11098,9 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 				if(t->end<node->end && bdata) {
 					//usedcov*=(t->end-nodestart+1)/(nodeend-nodestart+1); // this way I am keeping coverage proportions right
 					float leftcov=0;
-					float rightcov=0;
 
 					/*** non-cummulative bpcov
+					float rightcov=0;
 					for(uint p=node->start;p<=t->end;p++) {
 						int j=p-bdata->start;
 						leftcov+=bdata->bpcov[1][j]-bdata->bpcov[2-2*strand][j];
@@ -10885,12 +11112,14 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 					*/
 
 					// cummulative bpcov
-					if(node->start<=t->end) {
-						leftcov=bdata->bpcov[1][t->end-refstart]-bdata->bpcov[2-2*strand][t->end-refstart];
-						if(node->start>refstart) leftcov-=bdata->bpcov[1][node->start-1-refstart]-bdata->bpcov[2-2*strand][node->start-1-refstart];
+					if(node->start<t->end) {
+						leftcov=get_cov(2*strand,node->start,t->end,refstart,bdata->bpcov);
+								/*bdata->bpcov[1][t->end-refstart]-bdata->bpcov[2-2*strand][t->end-refstart];
+						if(node->start>refstart) leftcov-=bdata->bpcov[1][node->start-1-refstart]-bdata->bpcov[2-2*strand][node->start-1-refstart];*/
 					}
-					rightcov=bdata->bpcov[1][node->end-refstart]-bdata->bpcov[2-2*strand][node->end-refstart] -
-							bdata->bpcov[1][t->end-refstart]+bdata->bpcov[2-2*strand][t->end-refstart];
+					float rightcov=get_cov(2*strand,t->end+1,node->end,refstart,bdata->bpcov);
+							/*bdata->bpcov[1][node->end-refstart]-bdata->bpcov[2-2*strand][node->end-refstart] -
+							bdata->bpcov[1][t->end-refstart]+bdata->bpcov[2-2*strand][t->end-refstart];*/
 
 
 					if(rightcov) lastprop=rightcov/(leftcov+rightcov);
@@ -10945,10 +11174,10 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 	}
 	if(len) cov/=len;
 
-
-	//if(t || ((!included || sensitivitylevel) && cov>=readthr && len>=mintranscriptlen)) { // store transcript here
-	if(t || (cov>=1 && len>=mintranscriptlen)) { // store transcript here; also accept some coverage fuzziness that would get eliminated later
-	// //if(id || ( cov>=readthr && len>=mintranscriptlen)) { // store transcript here
+	//if(t || (cov>=readthr && len>=mintranscriptlen)) { // store transcript here; also accept some coverage fuzziness that would get eliminated later
+	//if(t || (cov>=1 && len>=mintranscriptlen)) { // store transcript here; also accept some coverage fuzziness that would get eliminated later 
+	// sensitive mode:
+	if(t || (cov && len>=mintranscriptlen)) { // store transcript here;
 		char sign='-';
 		if(strand) { sign='+';}
 		if(first) { geneno++;}
@@ -11098,10 +11327,10 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 	 GMessage("\t\tM(s):parse_trf memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
 	 }
-	 */
+	*/
 
 	 //if(back_to_source_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno)) {
-	 if((fast && back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos)) ||
+	if((fast && back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos)) ||
 			 (!fast && back_to_source_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno,gpos))) {
 		 	 if(includesource) path.cAdd(0);
 	 		 path.Reverse(); // back to source adds the nodes at the end to avoid pushing the list all the time
@@ -11109,7 +11338,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 		 pathoutcov.Reverse();
 
 	 		 //if(fwd_to_sink_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno)) {
-	 		if((fast && fwd_to_sink_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos)) ||
+			if((fast && fwd_to_sink_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos)) ||
 	 				(!fast && fwd_to_sink_path(maxi,path,pathpat,pathincov,pathoutcov,istranscript,removable,transfrag,computed,compatible,no2gnode,nodecov,gno,gpos))) {
 	 			 pathincov.Clear();
 	 			 pathoutcov.Clear();
@@ -11365,11 +11594,12 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 
 	GPVec<GffObj>& guides = bdata->keepguides;
 
+	//fprintf(stderr,"In refguides with %d guides\n",guides.Count());
+
 	char strand='-';
 	if(s) strand='+';
 
 	// find guides' patterns
-
 	for(int g=0;g<guides.Count();g++) {
 		//fprintf(stderr,"Consider guide[%d out of %d] %s\n",g,guides.Count(),guides[g]->getID());
 		if((guides[g]->strand==strand || guides[g]->strand=='.') && ((RC_TData*)(guides[g]->uptr))->in_bundle>=2 && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
@@ -11405,10 +11635,74 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 	}
 	*/
 
-	guidetrf.Sort(guideCmp);
+	// print guide coverages
+	if(c_out) {
+		for(int g=0;g<guidetrf.Count();g++) {
+			GBitVec guidepattern;
+			float guideabundance=0;
+			for(int t=0;t<transfrag.Count();t++) { // check compatibility with guides
+				int tstart=0;
+				GBitVec trpattern(transfrag[t]->pattern);
+				bool edgecompatible=true;
+				if(guidetrf[g].trf->nodes[0]>transfrag[t]->nodes[0]) { // transfrag starts before guide -> see if I can adjust trpattern to the guide limit
+					tstart=1;
+					while(tstart<transfrag[t]->nodes.Count() && transfrag[t]->nodes[tstart-1]<guidetrf[g].trf->nodes[0]) {
+						if(transfrag[t]->nodes[tstart]==transfrag[t]->nodes[tstart-1]+1 && 1+no2gnode[transfrag[t]->nodes[tstart-1]]->end==no2gnode[transfrag[t]->nodes[tstart]]->start) {
+							trpattern[transfrag[t]->nodes[tstart-1]]=0;
+							int *pos=gpos[edge(transfrag[t]->nodes[tstart-1],transfrag[t]->nodes[tstart],gno)];
+							if(pos) trpattern[*pos]=0;
+						}
+						else {
+							edgecompatible=false;
+							break;
+						}
+						tstart++;
+					}
+				}
+				int tend=transfrag[t]->nodes.Count()-1;
+				if(edgecompatible && guidetrf[g].trf->nodes.Last()<transfrag[t]->nodes.Last()) { // transfrag starts before guide -> see if I can adjust trpattern to the guide limit
+					tend--;
+					while(tend>=0 && transfrag[t]->nodes[tend+1]>guidetrf[g].trf->nodes.Last()) {
+						if(transfrag[t]->nodes[tend]==transfrag[t]->nodes[tend+1]-1 && 1+no2gnode[transfrag[t]->nodes[tend]]->end==no2gnode[transfrag[t]->nodes[tend+1]]->start) {
+							trpattern[transfrag[t]->nodes[tend+1]]=0;
+							int *pos=gpos[edge(transfrag[t]->nodes[tend],transfrag[t]->nodes[tend+1],gno)];
+							if(pos) trpattern[*pos]=0;
+						}
+						else {
+							edgecompatible=false;
+							break;
+						}
+						tend--;
+					}
+				}
 
+				if(edgecompatible && ((trpattern & guidetrf[g].trf->pattern) == trpattern)) { // transfrag is completely included in guide
+					guidepattern = guidepattern | trpattern;
+					// compute guideabundance here
+					for(int i=tstart; i<=tend;i++) guideabundance+=transfrag[t]->abundance*no2gnode[transfrag[t]->nodes[i]]->len();
+				}
+				/*if(guidepattern==guidetrf[g].trf->pattern) {
+					guides[guidetrf[g].g]->printTranscriptGff(c_out);
+					break;
+				}*/
+			}
+			if(guidepattern==guidetrf[g].trf->pattern) {
+				int len=0;
+				for(int i=0;i<guidetrf[g].trf->nodes.Count();i++) len+=no2gnode[guidetrf[g].trf->nodes[i]]->len();
+				guideabundance/=len;
+				GStr guidecov;
+				guidecov.appendfmt("%.2f",guideabundance);
+				guides[guidetrf[g].g]->addAttr("coverage",guidecov.chars());
+				guides[guidetrf[g].g]->printTranscriptGff(c_out);
+			}
+		}
+	}
+
+
+	// **** NEXT PORTION NEEDS TO BE CHECKED!!!
+
+	guidetrf.Sort(guideCmp); //longest guide comes first
 	uint refstart=(uint)bdata->start;
-
 	int g=0;
 	while(g<guidetrf.Count()) {
 		// check if guide is included in previous guide paths
@@ -11517,6 +11811,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 				trpat[nodei]=1;
 				trpat[*pos]=1;
 				CTransfrag *tr=new CTransfrag(nodes,trpat,maxabund);
+				//fprintf(stderr,"introduce node from source to %d wih abundance=%g where pos=%d\n",nodei,maxabund,*pos);
 				transfrag.Add(tr);
 
 				// add source among maxnode parents
@@ -13106,7 +13401,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 	if(eonly || guidetrf.Count()) maxi=guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata);
 
 
-	if(nodecov[maxi]>=1) {
+	if(nodecov[maxi]>=1) { // sensitive mode only; otherwise >=readthr
 
 		// process rest of the transfrags
 		if(!eonly && nodecov[maxi]>=1) {
@@ -13141,6 +13436,7 @@ void exon_covered(int ex,GffObj *guide,int &b,GPVec<CBundle>& bundle,GPVec<CBund
 	}
 }
 
+/*
 void get_partial_covered(GffObj *guide,GPVec<CBundle>& bundle,GPVec<CBundlenode>& bnode,GList<CJunction>& junction) {
 
 	int ntr=0;
@@ -13245,6 +13541,7 @@ void get_partial_covered(GffObj *guide,GPVec<CBundle>& bundle,GPVec<CBundlenode>
 	}
 
 }
+*/
 
 bool get_covered(GffObj *guide,GPVec<CBundle>& bundle,GPVec<CBundlenode>& bnode,GList<CJunction>& junction,
 		GVec<int>* bnodeguides,int g) {
@@ -13342,8 +13639,10 @@ bool get_covered(GffObj *guide,GPVec<CBundle>& bundle,GPVec<CBundlenode>& bnode,
 
 		//fprintf(stderr,"covered=%d guidelen=%d\n",covered,maxguidelen);
 
-		if(covered && maxguidelen>=(uint)mintranscriptlen) { if(c_out) guide->printTranscriptGff(c_out);}
-		else covered=false;
+		//if(covered && maxguidelen>=(uint)mintranscriptlen) { if(c_out) guide->printTranscriptGff(c_out);}
+		//else covered=false;
+		if(maxguidelen<(uint)mintranscriptlen) covered=false;
+
 	}
 
 	return(covered);
@@ -13376,6 +13675,8 @@ bool guide_exon_overlap(GPVec<GffObj>& guides,int sno,uint start,uint end) {
 }
 
 bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov) {
+
+	//fprintf(stderr,"consider junction:%d-%d:%d\n",jd.start,jd.end,jd.strand);
 
 	/*** 1. if only we do estimation and it does not match guide do not consider ***/
 	if(eonly && !jd.guide_match) { // this way I am using only reads that are compatible to annotated transcripts
@@ -13417,7 +13718,7 @@ bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov) {
 	// if(!jd.strand) return false; the strand has to be non-zero when we call good_junc -> KEEP THIS IN MIND IF WE CHANGE HOW WE USE GOOD_JUNC
 
 	// don't trust spliced reads that have a very low coverage:
-	int sno=(int)jd.strand+1;
+	//int sno=(int)jd.strand+1;
 
 	/*** non-cummulative bpcov
 	// this seems to be shifted by 1
@@ -13458,24 +13759,30 @@ bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov) {
 	int bw=3;
 	int j=jd.start-refstart;
 
-	/* strand based */
-	float leftcov=bpcov[sno][j]-bpcov[sno][j-bw];
-	if(bpcov[2-sno][j]>bpcov[2-sno][j-bw])
-		leftcov+=leftcov*(bpcov[1][j]-bpcov[2][j]-bpcov[1][j-bw]+bpcov[2][j-bw]-leftcov)/(leftcov+bpcov[2-sno][j]-bpcov[2-sno][j-bw]);
-	else leftcov=bpcov[1][j]-bpcov[1][j-bw];
+	float leftcov=0;
+	float rightcov=0;
 
-	float rightcov=bpcov[sno][j+bw]-bpcov[sno][j];
-	if(bpcov[2-sno][j+bw]>bpcov[2-sno][j])
-		rightcov+=rightcov*(bpcov[1][j+bw]-bpcov[2][j+bw]-bpcov[1][j]+bpcov[2][j]-rightcov)/(rightcov+bpcov[2-sno][j+bw]-bpcov[2-sno][j]);
-	else rightcov=bpcov[1][j+bw]-bpcov[1][j];
+	if(j+bw<bpcov[1].Count() && j>=bw) {
+		/*leftcov=bpcov[sno][j]-bpcov[sno][j-bw];
+		if(bpcov[2-sno][j]>bpcov[2-sno][j-bw])
+			leftcov+=leftcov*(bpcov[1][j]-bpcov[2-sno][j]-bpcov[1][j-bw]+bpcov[2-sno][j-bw]-leftcov)/(leftcov+bpcov[2-sno][j]-bpcov[2-sno][j-bw]);
+		else*/ leftcov=bpcov[1][j]-bpcov[1][j-bw];
 
+
+		/*rightcov=bpcov[sno][j+bw]-bpcov[sno][j];
+		if(bpcov[2-sno][j+bw]>bpcov[2-sno][j])
+			rightcov+=rightcov*(bpcov[1][j+bw]-bpcov[2-sno][j+bw]-bpcov[1][j]+bpcov[2-sno][j]-rightcov)/(rightcov+bpcov[2-sno][j+bw]-bpcov[2-sno][j]);
+		else*/ rightcov=bpcov[1][j+bw]-bpcov[1][j];
+	}
 
 	/* strand independent
 	float leftcov=bpcov[1][j]-bpcov[1][j-bw];
 	float rightcov=bpcov[1][j+bw]-bpcov[1][j];
 	 end strand independent */
 
-	if(leftcov>1/ERROR_PERC && jd.leftsupport*10/leftcov<ERROR_PERC && rightcov/leftcov>1-ERROR_PERC) { // gave some boost (*10) to junctions here assumming not all of them are captured
+	//fprintf(stderr,"j=%d leftcov=%f leftsupprt=%f rightcov=%f\n",j+refstart,leftcov,jd.leftsupport,rightcov);
+
+	if(leftcov>1/ERROR_PERC && jd.leftsupport*10<ERROR_PERC*leftcov && rightcov>leftcov*(1-ERROR_PERC)) { // gave some boost (*10) to junctions here assumming not all of them are captured
 		jd.strand=0;
 		return false;
 	}
@@ -13483,16 +13790,19 @@ bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov) {
 	j=jd.end-refstart-1;
 
 	/* strand based */
-	leftcov=bpcov[sno][j]-bpcov[sno][j-bw];
-	if(bpcov[2-sno][j]>bpcov[2-sno][j-bw])
-		leftcov+=leftcov*(bpcov[1][j]-bpcov[2][j]-bpcov[1][j-bw]+bpcov[2][j-bw]-leftcov)/(leftcov+bpcov[2-sno][j]-bpcov[2-sno][j-bw]);
-	else leftcov=bpcov[1][j]-bpcov[1][j-bw];
+	leftcov=0;
+	rightcov=0;
+	if(j+bw<bpcov[1].Count() && j>=bw) {
+		/*leftcov=bpcov[sno][j]-bpcov[sno][j-bw];
+		if(bpcov[2-sno][j]>bpcov[2-sno][j-bw])
+			leftcov+=leftcov*(bpcov[1][j]-bpcov[2-sno][j]-bpcov[1][j-bw]+bpcov[2-sno][j-bw]-leftcov)/(leftcov+bpcov[2-sno][j]-bpcov[2-sno][j-bw]);
+		else*/ leftcov=bpcov[1][j]-bpcov[1][j-bw];
 
-	rightcov=bpcov[sno][j+bw]-bpcov[sno][j];
-	if(bpcov[2-sno][j+bw]>bpcov[2-sno][j])
-		rightcov+=rightcov*(bpcov[1][j+bw]-bpcov[2][j+bw]-bpcov[1][j]+bpcov[2][j]-rightcov)/(rightcov+bpcov[2-sno][j+bw]-bpcov[2-sno][j]);
-	else rightcov=bpcov[1][j+bw]-bpcov[1][j];
-
+		/*rightcov=bpcov[sno][j+bw]-bpcov[sno][j];
+		if(bpcov[2-sno][j+bw]>bpcov[2-sno][j])
+			rightcov+=rightcov*(bpcov[1][j+bw]-bpcov[2-sno][j+bw]-bpcov[1][j]+bpcov[2-sno][j]-rightcov)/(rightcov+bpcov[2-sno][j+bw]-bpcov[2-sno][j]);
+		else*/ rightcov=bpcov[1][j+bw]-bpcov[1][j];
+	}
 
 
 	/* strand independent
@@ -13500,7 +13810,10 @@ bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov) {
 	rightcov=bpcov[1][j+bw]-bpcov[1][j];
 	end strand independent */
 
-	if(rightcov>1/ERROR_PERC && jd.rightsupport*10/rightcov<ERROR_PERC && leftcov/rightcov>1-ERROR_PERC) { // gave some boost (*10) to junctions here assumming not all of them are captured
+	//fprintf(stderr,"j=%d rightcov=%f rightsupprt=%f leftcov=%f\n",j+refstart,rightcov,jd.rightsupport,leftcov);
+
+
+	if(rightcov>1/ERROR_PERC && jd.rightsupport*10<rightcov*ERROR_PERC && leftcov>rightcov*(1-ERROR_PERC)) { // gave some boost (*10) to junctions here assumming not all of them are captured
 		jd.strand=0;
 		return false;
 	}
@@ -13530,6 +13843,9 @@ bool good_junc(CJunction& jd,int refstart, GVec<float>* bpcov) {
 		}
 	}
 	*/
+
+
+	//fprintf(stderr,"nreads=%f leftsuport=%f rightsupport=%f\n",jd.nreads,jd.leftsupport,jd.rightsupport);
 
 	/*** 6. don't keep it it's not above 1% of all junctions -> might be spliceosome error ***/
 	if(jd.nreads<0.01*jd.leftsupport || jd.nreads<0.01*jd.rightsupport) {
@@ -13767,7 +14083,7 @@ int build_graphs(BundleData* bdata) {
 	uint localdist=bundledist;
 	if(adaptive) localdist=50;
 
-	//fprintf(stderr,"build_graphs\n");
+	//fprintf(stderr,"build_graphs with %d guides\n",guides.Count());
 
 	if(guides.Count()) {
 
@@ -13853,7 +14169,7 @@ int build_graphs(BundleData* bdata) {
 	double leftsupport[2]={0,0};    // should be strand based
 	double rightsupport[2]={0,0};
 	bool higherr=false;
-	for(int i=0;i<junction.Count();i++) {
+	for(int i=0;i<junction.Count();i++) if(junction[i]->strand) {
 
 		if(!higherr && junction[i]->nm==junction[i]->nreads && !junction[i]->guide_match) higherr=true;
 
@@ -13867,12 +14183,18 @@ int build_graphs(BundleData* bdata) {
 
 			j=i+1; // check if there is the same junction further ahead first
 			while(j<junction.Count() && junction[j]->start==junction[i]->start && junction[j]->end==junction[i]->end) {
-				if(junction[i]->strand==junction[j]->strand) { // found same junction
+				/*if(junction[i]->strand==junction[j]->strand) { // found same junction
 					junction[i]->nreads+=junction[j]->nreads;
 					junction[i]->nreads_good+=junction[j]->nreads_good;
 					junction[j]->nreads=0;
 					junction[j]->nreads_good=0;
 					junction[i]->nm+=junction[j]->nm;
+				}
+				else {*/
+				if(junction[j]->strand && junction[i]->strand!=junction[j]->strand) {
+					//possible missaligned junction --> delete junction strand
+					if(junction[i]->nreads>junction[j]->nreads && junction[i]->nreads_good>junction[j]->nreads_good) junction[j]->strand=0;
+					if(junction[i]->nreads<junction[j]->nreads && junction[i]->nreads_good<junction[j]->nreads_good) junction[i]->strand=0;
 				}
 				j++;
 			}
@@ -13908,9 +14230,9 @@ int build_graphs(BundleData* bdata) {
 		int lastrightjunc=-1;
 		for(int i=0;i<junction.Count();i++) {
 
-			//fprintf(stderr,"junct:%d-%d:%d leftsupport=%f nm=%f nreads=%f\n",junction[i]->start,junction[i]->end,junction[i]->strand,junction[i]->leftsupport,junction[i]->nm,junction[i]->nreads);
+			//fprintf(stderr,"junct[%d]:%d-%d:%d leftsupport=%f nm=%f nreads=%f\n",i,junction[i]->start,junction[i]->end,junction[i]->strand,junction[i]->leftsupport,junction[i]->nm,junction[i]->nreads);
 
-			if(junction[i]->strand && junction[i]->nm && !junction[i]->guide_match && junction[i]->nm>=junction[i]->nreads-1) { // this is a bad junction -> check if it's maximal
+			if(junction[i]->strand && junction[i]->nm && !junction[i]->guide_match && junction[i]->nm>=junction[i]->nreads) { // this is a bad junction -> check if it's maximal;
 				if(junction[i]->nreads_good<1.25*junctionthr) { // threshold for bad junctions is higher; (should I also add that too short junctions not to be accepted?)
 					junction[i]->strand=0; // just delete junction if it's low count
 				}
@@ -13965,7 +14287,7 @@ int build_graphs(BundleData* bdata) {
 
 			//fprintf(stderr,"ejunct:%d-%d:%d rightsupport=%f nm=%f nreads=%f\n",ejunction[i]->start,ejunction[i]->end,ejunction[i]->strand,ejunction[i]->rightsupport,ejunction[i]->nm,ejunction[i]->nreads);
 
-			if(ejunction[i]->strand && ejunction[i]->nm && !ejunction[i]->guide_match && ejunction[i]->nm>=ejunction[i]->nreads-1) { // this is a bad junction -> check if it's maximal
+			if(ejunction[i]->strand && ejunction[i]->nm && !ejunction[i]->guide_match && ejunction[i]->nm>=ejunction[i]->nreads) { // this is a bad junction -> check if it's maximal
 				if(ejunction[i]->nreads_good<1.25*junctionthr) { // threshold for bad junctions is higher
 					ejunction[i]->strand=0;
 				}
@@ -14055,6 +14377,7 @@ int build_graphs(BundleData* bdata) {
 		}
 	}
 	*/
+
 
 	//int **readgroup = new int*[readlist.Count()];
 
@@ -14230,7 +14553,8 @@ int build_graphs(BundleData* bdata) {
 			color=add_read_to_group(n,readlist,color,group,currgroup,startgroup,readgroup,equalcolor,merge);
 
 			// count fragments
-			bdata->frag_len+=rd.len*rd.read_count; // TODO: adjust this to work with FPKM for super-reads and Pacbio
+			if(!rd.unitig)
+				bdata->frag_len+=rd.len*rd.read_count; // TODO: adjust this to work with FPKM for super-reads and Pacbio
 			double single_count=rd.read_count;
 			if(keep) for(int i=0;i<rd.pair_idx.Count();i++) {
 				// I am not counting the fragment if I saw the pair before and it wasn't deleted
@@ -14238,11 +14562,10 @@ int build_graphs(BundleData* bdata) {
 					single_count-=rd.pair_count[i];
 				}
 			}
-			if(single_count>epsilon) {
+			if(!rd.unitig && single_count>epsilon) {
 				bdata->num_fragments+=single_count; // TODO: FPKM will not work for super-reads here because I have multiple fragments in
 												    // a super-read -> I might want to re-estimate this from coverage and have some input for read length; or I might only use TPM
 			}
-
 
 			//fprintf(stderr,"now color=%d\n",color);
 		//}
@@ -14655,8 +14978,7 @@ int build_graphs(BundleData* bdata) {
 	//if(fraglen)
 	for(int b=0;b<bundle[1].Count();b++) {
 
-    	if(bundle[1][b]->cov && (bundle[1][b]->multi/bundle[1][b]->cov)<=mcov*(1-ERROR_PERC) && (guides.Count() || adaptive || bundle[1][b]->len >= mintranscriptlen)) { // there might be small transfrags that are worth showing, but here I am ignoring them
-
+	  if(bundle[1][b]->cov && (bundle[1][b]->multi/bundle[1][b]->cov)<=mcov*(1-ERROR_PERC) && (guides.Count() || adaptive || bundle[1][b]->len >= mintranscriptlen)) { // there might be small transfrags that are worth showing, but here I am ignoring them
     		// bundle might contain multiple fragments of a transcript but since we don't know the complete structure -> print only the pieces that are well represented
     		CBundlenode *currbnode=bnode[1][bundle[1][b]->startnode];
     		int t=1;
@@ -14676,6 +14998,12 @@ int build_graphs(BundleData* bdata) {
     					float gcov=(tdata->t_exons[0])->movlcount/glen;
     					// if(cov<gcov) gcov=cov; WHY DO I DO THIS?? CHECK!!!
     					CPrediction *p=new CPrediction(geneno-1, guides[g], guides[g]->start, guides[g]->end, gcov, guides[g]->strand, glen);
+    					if(c_out) {
+    						GStr guidecov;
+    						guidecov.appendfmt("%.2f",gcov);
+    						guides[g]->addAttr("coverage",guidecov.chars());
+    						guides[g]->printTranscriptGff(c_out);
+    					}
     					GSeg exon(guides[g]->start, guides[g]->end);
     					p->exons.Add(exon);
     					p->exoncov.Add(gcov);
@@ -14917,18 +15245,27 @@ int build_graphs(BundleData* bdata) {
 
     	for (int n=0;n<readlist.Count();n++) {
 
-    		float single_count=readlist[n]->read_count;
-    		for(int j=0; j<readlist[n]->pair_idx.Count();j++) {
-    			int np=readlist[n]->pair_idx[j];
-    			if(np>-1) {
-    				single_count-=readlist[n]->pair_count[j];
-    				if(n<np) {
-    					get_fragment_pattern(readlist,n,np,readlist[n]->pair_count[j],readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group);
+    		if(readlist[n]->unitig) { // super-reads are unpaired
+    			float srcov=0;
+    			for(int i=0;i<readlist[n]->segs.Count();i++)
+    				srcov+=get_neutralcov(readlist[n]->segs[i].start,readlist[n]->segs[i].end,(uint)refstart,bpcov)/readlist[n]->segs[i].len();
+    			if(srcov) get_fragment_pattern(readlist,n,-1,readlist[n]->read_count/srcov,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group);
+
+    		}
+    		else {
+    			float single_count=readlist[n]->read_count;
+    			for(int j=0; j<readlist[n]->pair_idx.Count();j++) {
+    				int np=readlist[n]->pair_idx[j];
+    				if(np>-1) {
+    					single_count-=readlist[n]->pair_count[j];
+    					if(n<np) {
+    						get_fragment_pattern(readlist,n,np,readlist[n]->pair_count[j],readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group);
+    					}
     				}
     			}
-    		}
-    		if(single_count>epsilon) {
-    			get_fragment_pattern(readlist,n,-1,single_count,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group);
+    			if(single_count>epsilon) {
+    				get_fragment_pattern(readlist,n,-1,single_count,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group);
+    			}
     		}
     	}
 
@@ -14995,7 +15332,7 @@ int build_graphs(BundleData* bdata) {
     					for(int t=0;t<transfrag[s][b].Count();t++) {
     						fprintf(stderr,"%d: ",t);
     						//printBitVec(transfrag[s][b][t]->pattern);
-    						fprintf(stderr," %f nodes=%d",transfrag[s][b][t]->abundance, transfrag[s][b][t]->nodes.Count());
+    						fprintf(stderr," %f(%f) nodes=%d",transfrag[s][b][t]->abundance,transfrag[s][b][t]->srabund, transfrag[s][b][t]->nodes.Count());
     						for(int i=0;i<transfrag[s][b][t]->nodes.Count();i++) fprintf(stderr," %d",transfrag[s][b][t]->nodes[i]);
     						if(!transfrag[s][b][t]->abundance) fprintf(stderr," *");
     						fprintf(stderr,"\n");
@@ -15812,7 +16149,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 }
 
 // compute coverages and junction support here
-void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* bpcov) {
+void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* bpcov,GList<CJunction>& junction) {
 
 	GVec<int> unstranded; // remembers unstranded reads
 
@@ -15822,12 +16159,15 @@ void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* 
 
 		if(!rd.strand && nex>1) unstranded.Add(n);
 
+		if(!rd.unitig) add_read_to_cov(readlist,n,bpcov,refstart);
+
 		GVec<uint> leftsup;
 		GVec<uint> rightsup;
 		uint maxleftsupport=0;
 		uint maxrightsupport=0;
-		int sno=(int)rd.strand+1; // 0(-),1(.),2(+)
-		//if(nex>1) fprintf(stderr,"Process spliced read[%d]: ",n);
+
+		//int sno=(int)rd.strand+1; // 0(-),1(.),2(+)
+		//if(nex>1) fprintf(stderr,"Process spliced read[%d] with sno=%d: ",n,sno);
 		for(int i=0;i<nex;i++) {
 			//if(nex>1) fprintf(stderr," %d-%d",rd.segs[i].start,rd.segs[i].end);
 			if(i) {
@@ -15835,19 +16175,26 @@ void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* 
 				if(rd.segs[nex-i].len()>maxrightsupport) maxrightsupport=rd.segs[nex-i].len();
 				leftsup.Add(maxleftsupport);
 				rightsup.Add(maxrightsupport);
-				rd.juncs[i-1]->nreads+=rd.read_count;
+				//rd.juncs[i-1]->nreads+=rd.read_count;
+				//if(rd.unitig) rd.juncs[i-1]->guide_match=true; // v7 this might be a little too much!
 			}
-			cov_edge_add(bpcov,sno,rd.segs[i].start-refstart,rd.segs[i].end+1-refstart,rd.read_count);
+			//if(!rd.unitig) cov_edge_add(bpcov,sno,rd.segs[i].start-refstart,rd.segs[i].end+1-refstart,rd.read_count);
+
 		}
 		//if(nex>1) fprintf(stderr," With anchors: ");
 		for(int i=1;i<nex;i++) {
 			//if(!rd.juncs[i-1]->strand) { rd.juncs[i-1]->strand = rd.strand; }
 			uint anchor=junctionsupport;
-			if(rd.juncs[i-1]->len()>longintron) {
-				if(rd.juncs[i-1]->len()>verylongintron) { if(anchor<verylongintronanchor) anchor=verylongintronanchor; } // I want to use a longer anchor for long introns to believe them
-				else if(anchor<longintronanchor) anchor=longintronanchor;
+			//if(rd.juncs[i-1]->len()>longintron || rd.juncs[i-1]->nreads-rd.juncs[i-1]->mm<junctionthr || rd.juncs[i-1]->nreads-rd.juncs[i-1]->nm<junctionthr) {
+			if(rd.juncs[i-1]->len()>longintron || (rd.juncs[i-1]->nreads-rd.juncs[i-1]->nm<junctionthr && !rd.juncs[i-1]->mm)) {
+				//if(rd.juncs[i-1]->len()>verylongintron) { if(anchor<verylongintronanchor) anchor=verylongintronanchor; } // I want to use a longer anchor for long introns to believe them
+				//else
+					if(anchor<longintronanchor) anchor=longintronanchor;
 
 			}
+
+			//if(rd.unitig) anchor=1; // **** if not trimming involved in super-read creation then comment this!!!
+
 			//if(leftsup[i-1]>=anchor && rightsup[nex-i-1]>=anchor) rd.juncs[i-1]->nreads_good+=rd.read_count;
 			if(leftsup[i-1]>=anchor) { // support only comes from spliced reads that are bigger than the anchor
 				rd.juncs[i-1]->leftsupport+=rd.read_count;
@@ -15859,7 +16206,7 @@ void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* 
 			else if(rightsup[nex-i-1]>=anchor) {
 				rd.juncs[i-1]->rightsupport+=rd.read_count;
 			}
-			//fprintf(stderr," %d(%d-%d)",anchor,leftsup[i-1],rightsup[nex-i-1]);
+			//fprintf(stderr," %d(%d-%d)[%f-%f][%d][%f][%f]",anchor,leftsup[i-1],rightsup[nex-i-1],rd.juncs[i-1]->leftsupport,rd.juncs[i-1]->rightsupport,rd.juncs[i-1]->strand,rd.juncs[i-1]->nm,rd.juncs[i-1]->nreads);
 		}
 		//if(nex>1) fprintf(stderr,"\n");
 	}
@@ -15870,7 +16217,7 @@ void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* 
 	// this code enssures that I can find interval coverages very fast --> should be deleted if I don't use this
 	float prev_val[3]={0,0,0};
 	float prev_sum[3]={0,0,0};
-	for(int i=0;i<bpcov->Count();i++)
+	for(int i=0;i<bpcov[1].Count();i++)
 		for(int s=0;s<3;s++) {
 			bpcov[s][i]+=prev_val[s];
 			prev_val[s]=bpcov[s][i];
@@ -15882,23 +16229,39 @@ void count_good_junctions(GList<CReadAln>& readlist, int refstart, GVec<float>* 
 
 	for(int n=0;n<unstranded.Count();n++) {
 		CReadAln & rd=*(readlist[unstranded[n]]);
-		int nex=rd.segs.Count();
-		int pos=0;
-		int neg=0;
-		for(int i=0;i<nex;i++) {
-			pos+=bpcov[2][rd.segs[i].end-refstart];
-			neg+=bpcov[0][rd.segs[i].end-refstart];
-			if(i || rd.segs[i].start>(uint)refstart) {
-				pos-=bpcov[2][rd.segs[i].start-1-refstart];
-				neg-=bpcov[0][rd.segs[i].start-1-refstart];
+		if(rd.start>=(uint)refstart && (int)(rd.end-(uint)refstart)<bpcov[1].Count()) {
+			int nex=rd.segs.Count();
+			float pos=0;
+			float neg=0;
+			for(int i=0;i<nex;i++) {
+				pos+=get_strand_cov(2,rd.segs[i].start,rd.segs[i].end,(uint)refstart,bpcov);
+				neg+=get_strand_cov(0,rd.segs[i].start,rd.segs[i].end,(uint)refstart,bpcov);
+			}
+			if(neg>pos) {rd.strand=-1;}
+			else if(pos>neg) { rd.strand=1;}
+			//fprintf(stderr,"read strand is:%d for pos=%f neg=%f\n",rd.strand,pos,neg);
+			if(rd.strand) {
+				for(int i=1;i<nex;i++)
+					if(!rd.juncs[i-1]->strand) {
+						// first check to see if the junction already exists
+						int oidx=-1;
+						CJunction *nj=NULL;
+						CJunction jn(rd.juncs[i-1]->start, rd.juncs[i-1]->end, rd.strand);
+						if (junction.Found(&jn, oidx)) {
+							nj=junction.Get(oidx);
+							//fprintf(stderr,"found strand junction at %p",nj);
+							nj->nreads+=rd.juncs[i-1]->nreads;
+							nj->nreads_good+=rd.juncs[i-1]->nreads_good;
+							nj->nm+=rd.juncs[i-1]->nm;
+							nj->leftsupport+=rd.juncs[i-1]->leftsupport;
+							nj->rightsupport+=rd.juncs[i-1]->rightsupport;
+							rd.juncs[i-1]=nj;
+						}
+						else rd.juncs[i-1]->strand = rd.strand;
+					}
 			}
 		}
-		if(neg>pos) {rd.strand=-1;}
-		else if(pos>neg) { rd.strand=1;}
-		for(int i=1;i<nex;i++)
-			if(!rd.juncs[i-1]->strand) { rd.juncs[i-1]->strand = rd.strand; }
 	}
-
 }
 
 void count_merge_junctions(GList<CReadAln>& readlist,char covflags) { // why do I need to impose any thresholds here??
@@ -15943,7 +16306,7 @@ int infer_transcripts(BundleData* bundle) {
 	else if(bundle->keepguides.Count() || !eonly) {
 		//fprintf(stderr,"Process %d reads from %lu.\n",bundle->readlist.Count(),bundle->numreads);
 
-		count_good_junctions(bundle->readlist, bundle->start, bundle->bpcov);
+		count_good_junctions(bundle->readlist, bundle->start, bundle->bpcov,bundle->junction);
 
 		geneno = build_graphs(bundle);
 	}
@@ -15978,7 +16341,6 @@ int predCmp(const pointer p1, const pointer p2) {
 
 	// same start
 
-	//if(sensitivitylevel!=1 || sensitivitylevel!=2) { // try to see if I correct this if it makes any difference (it should be && instead of || in the if)
 	if(a->exons.Count() < b->exons.Count()) return -1; // order based on number of exons
 	if(a->exons.Count() > b->exons.Count()) return 1;
 
@@ -16637,14 +16999,8 @@ uint max(uint n1,uint n2) {
 	return n1;
 }
 
-float get_neutralcov(uint start,uint end,uint refstart,GVec<float>* bpcov) {
-	if((int)(end-refstart)>=bpcov->Count()) end=bpcov->Count()-1;
-	float cov=bpcov[1][end-refstart];
-	if(start>refstart) cov-=bpcov[1][start-1-refstart];
-	return(cov);
-}
 
-bool retainedintron(GPVec<CPrediction>& pred,int n1,int n2,GVec<GBitVec>& lowintron) {
+bool retainedintron(GList<CPrediction>& pred,int n1,int n2,GVec<GBitVec>& lowintron) {
 	int j=1;
 	for(int i=1;i<pred[n1]->exons.Count();i++) {
 		if(j>pred[n2]->exons.Count()-2) return false;
@@ -16657,10 +17013,9 @@ bool retainedintron(GPVec<CPrediction>& pred,int n1,int n2,GVec<GBitVec>& lowint
 }
 
 
-bool included_pred(GPVec<CPrediction>& pred,int n1,int n2,uint refstart=0,GVec<float>* bpcov = NULL) { // check if the small prediction is included in the larger prediction
+bool included_pred(GList<CPrediction>& pred,int n1,int n2,uint refstart=0,GVec<float>* bpcov = NULL) { // check if the small prediction is included in the larger prediction
 
 	if(pred[n1]->start > pred[n2]->end || pred[n2]->start>pred[n1]->end) return false;
-
 
 	int big=n1;
 	int small=n2;
@@ -16683,50 +17038,56 @@ bool included_pred(GPVec<CPrediction>& pred,int n1,int n2,uint refstart=0,GVec<f
 			if(pred[small]->exons[0].end<pred[big]->exons[bex].start) return false; // no overlap
 			// now: pred[small]->exons[0].end>=pred[big]->exons[bex].start
 			int sex=0;
-			bool check=false;
-			if(pred[big]->exons[bex].start-longintronanchor<pred[small]->start) check=true; // I could increase distance here
-			if(!check) {
-				uint smallstart=pred[small]->start;
-				if(bex && pred[big]->exons[bex-1].end>smallstart) smallstart=pred[big]->exons[bex-1].end;
 
-				float smallextracov=get_neutralcov(smallstart,pred[big]->exons[bex].start-1,refstart,bpcov)/(pred[big]->exons[bex].start-smallstart);
-				if(smallextracov<singlethr ||
-						smallextracov<ERROR_PERC*get_neutralcov(pred[big]->exons[bex].start,pred[big]->exons[bex].end,refstart,bpcov)/pred[big]->exons[bex].len())
-					check=true;
+			//if(pred[small]->exons.Count()>1) while(bex<pred[big]->exons.Count() && pred[big]->exons[bex].end<pred[small]->exons[0].end) bex++;
+			//if(bex==pred[big]->exons.Count()) return false;
 
-				if(!check && get_neutralcov(pred[big]->exons[bex].end-longintronanchor,pred[big]->exons[bex].end-1,refstart,bpcov)<
-						ERROR_PERC*get_neutralcov(pred[big]->exons[bex].start,pred[big]->exons[bex].start+longintronanchor,refstart,bpcov)) { // significant drop
-					if(pred[small]->exons.Count()>1) check=true;
-					else if((int)(pred[big]->exons[bex].start-pred[small]->start-longintronanchor)<mintranscriptlen) check=true;
-				}
-			}
+			while(sex<pred[small]->exons.Count() && bex<pred[big]->exons.Count()) {
+				if(sex==pred[small]->exons.Count()-1) { // I am at end of small pred
 
-			if(check) while(sex<pred[small]->exons.Count() && bex<pred[big]->exons.Count()) {
-				if(sex==pred[small]->exons.Count()-1) { // I am at the end of small pred
+					if(bex==pred[big]->exons.Count()-1) return true; // same intron structure and there is overlap; if small pred is single exon then I didn't check if it extends past the end of bex which is problematic since above I do
 
-					if(pred[small]->end<pred[big]->exons[bex].end+longintronanchor) return true; // small prediction is included; could increase distance here
+					if(sex && pred[small]->exons[sex].end>pred[big]->exons[bex+1].start) return false;
 
-					uint smallend=pred[small]->end;
-					if(bex<pred[big]->exons.Count()-1 && pred[big]->exons[bex+1].start < smallend) smallend=pred[big]->exons[bex+1].start;
-
-					float smallextracov=get_neutralcov(pred[big]->exons[bex].end+1,smallend,refstart,bpcov)/(smallend-pred[big]->exons[bex].end);
-					if(smallextracov<singlethr ||
-							smallextracov<ERROR_PERC*get_neutralcov(pred[big]->exons[bex].start,pred[big]->exons[bex].end,refstart,bpcov)/pred[big]->exons[bex].len())
-						return true;
-
-					if(get_neutralcov(pred[big]->exons[bex].end+1,pred[big]->exons[bex].end+longintronanchor,refstart,bpcov)<
-							ERROR_PERC*get_neutralcov(pred[big]->exons[bex].end-longintronanchor+1,pred[big]->exons[bex].end,refstart,bpcov)) { // significant drop
-						if(pred[small]->exons.Count()>1) return true;
-						// deal with single exon here
-						if((int)(pred[small]->end-pred[big]->exons[bex].end-longintronanchor)<mintranscriptlen) return true;
+					//if(sex && pred[small]->exons[sex].end>pred[big]->exons[bex].end+longintronanchor) { // small prediction extends well into intron of big prediction
+					if(sex && pred[small]->exons[sex].end>pred[big]->exons[bex].end+2*longintronanchor) { // small prediction extends well into intron of big prediction
+						uint endin=pred[small]->exons[sex].end > pred[big]->exons[bex+1].start ? pred[big]->exons[bex+1].start : pred[small]->exons[sex].end;
+						float covintron=get_neutralcov(pred[big]->exons[bex].end+1,endin,refstart,bpcov)/(endin-pred[big]->exons[bex].end);
+						if(covintron>singlethr) {
+							uint startex=pred[small]->exons[sex].start > pred[big]->exons[bex].start ? pred[small]->exons[sex].start : pred[big]->exons[bex].start;
+							float covexon=get_neutralcov(startex,pred[big]->exons[bex].end,refstart,bpcov)/(pred[big]->exons[bex].end-startex+1);
+							if(covintron > ERROR_PERC*covexon) { // return false
+								float exondrop=get_neutralcov(pred[big]->exons[bex].end-longintronanchor+1,pred[big]->exons[bex].end,refstart,bpcov);
+								float introndrop=get_neutralcov(pred[big]->exons[bex].end+1,pred[big]->exons[bex].end+longintronanchor,refstart,bpcov);
+								if(introndrop>ERROR_PERC*exondrop)
+									return false;
+							}
+						}
 					}
 
-					return false;
+					return true;
 				}
 
 				// sex is not last exon in small prediction but overlaps bex
 				if(bex==pred[big]->exons.Count()-1) return false; // small pred extends past big pred
 				if(pred[small]->exons[sex].end != pred[big]->exons[bex].end) return false;
+
+				//if(!sex && bex && pred[small]->exons[sex].start<pred[big]->exons[bex].start-longintronanchor) {  // first exon of small prediction extends within intron of big prediction
+				if(!sex && bex && pred[small]->exons[sex].start<pred[big]->exons[bex].start-2*longintronanchor) {  // first exon of small prediction extends within intron of big prediction
+					uint startin=pred[small]->exons[sex].start > pred[big]->exons[bex-1].end ? pred[small]->exons[sex].start : pred[big]->exons[bex-1].end;
+					float covintron=get_neutralcov(startin,pred[big]->exons[bex].start-1,refstart,bpcov)/(pred[big]->exons[bex].start-startin);
+					if(covintron>singlethr) {
+						uint endex=pred[small]->exons[sex].end > pred[big]->exons[bex].end ? pred[big]->exons[bex].end : pred[small]->exons[sex].end;
+						float covexon=get_neutralcov(pred[big]->exons[bex].start,endex,refstart,bpcov)/(endex-pred[big]->exons[bex].start+1);
+						if(covintron > ERROR_PERC*covexon) { // return false
+							float introndrop=get_neutralcov(pred[big]->exons[bex].start-longintronanchor,pred[big]->exons[bex].start-1,refstart,bpcov);
+							float exondrop=get_neutralcov(pred[big]->exons[bex].start,pred[big]->exons[bex].start+longintronanchor-1,refstart,bpcov);
+							if(introndrop>ERROR_PERC*exondrop)
+								return false;
+						}
+					}
+				}
+
 
 				bex++;
 				sex++;
@@ -16739,7 +17100,7 @@ bool included_pred(GPVec<CPrediction>& pred,int n1,int n2,uint refstart=0,GVec<f
 	return false;
 }
 
-void update_cov(GPVec<CPrediction>& pred,int big,int small,float frac=1) { // small gets included into big
+void update_cov(GList<CPrediction>& pred,int big,int small,float frac=1) { // small gets included into big
 
 	if(pred[big]->strand=='.') pred[big]->strand=pred[small]->strand;
 
@@ -16839,7 +17200,7 @@ void merge_exons(CGene& gene,GVec<GSeg>& exons) {
 
 /* *** this is the printing function used in version 1.2.3
 // default printing function for sensitivitylevel=1: all the others are deprecated for now
-int print_cluster_prev(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcripts, int geneno,GStr& refname,
+int print_cluster_prev(GList<CPrediction>& pred,GVec<int>& genes,GVec<int>& transcripts, int geneno,GStr& refname,
 		GVec<CGene>& refgene, GHash<int>& hashgene, GVec<CGene>& predgene, int startgno) {
 
 	// sort predictions from the most abundant to the least:
@@ -17073,45 +17434,44 @@ int print_cluster_prev(GPVec<CPrediction>& pred,GVec<int>& genes,GVec<int>& tran
 */
 
 
-void update_overlap(GPVec<CPrediction>& pred,int p,int e,GVec<CExon>& node,GVec<bool>& overlap) {
+void update_overlap(GList<CPrediction>& pred,int p,int e,GVec<CExon>& node,GVec<bool>& overlap) {
 
 	int n=pred.Count();
-	for(int i=0;i<node.Count();i++) {
-		if(!overlap[n*node[i].predno+p]) { // there is no overlap detected yet
+	for(int i=0;i<node.Count();i++) if(!overlap[n*node[i].predno+p]) { // there is no overlap detected yet
 
-			// exon e in prediction p overlaps exon ei in prediction pi
-			int pi=node[i].predno;
-			int ei=node[i].exonno;
+		// exon e in prediction p overlaps exon ei in prediction pi
+		int pi=node[i].predno;
+		int ei=node[i].exonno;
 
-			overlap[n*pi+p]=true;
+		overlap[n*pi+p]=true;
 
-			// overlap is not significant in the following cases
-			if(!e && pred[p]->exons[0].end>=pred[pi]->end) { // I am at the beginning of prediction p
-				int len=pred[pi]->end-pred[p]->start+1;
-				if(len<ERROR_PERC*pred[p]->tlen) overlap[n*pi+p]=false; // prediction p overlaps prediction pi by a considerable amount
-			}
-
-			if(overlap[n*pi+p] && !ei && pred[pi]->exons[0].end>=pred[p]->end) { // I am at the beginning of prediction pi
-				int len=pred[p]->end-pred[pi]->start+1;
-				if(len<ERROR_PERC*pred[pi]->tlen) overlap[n*pi+p]=false; // prediction pi overlaps prediction p by a considerable amount
-			}
-
-			if(overlap[n*pi+p] && e==pred[p]->exons.Count()-1 && pred[p]->exons[e].start<=pred[pi]->start) { // I am at the end of prediction p
-				int len=pred[p]->end-pred[pi]->start+1;
-				if(len<ERROR_PERC*pred[p]->tlen) overlap[n*pi+p]=false; // prediction p overlaps prediction pi by a considerable amount
-			}
-
-			if(overlap[n*pi+p] && ei==pred[pi]->exons.Count()-1 && pred[pi]->exons[ei].start<=pred[p]->start) { // I am at the end of prediction pi
-				int len=pred[pi]->end-pred[p]->start+1;
-				if(len<ERROR_PERC*pred[pi]->tlen) overlap[n*pi+p]=false; // prediction pi overlaps prediction p by a considerable amount
-			}
-
-			//if(overlap[n*pi+p]) fprintf(stderr,"    overlap set\n");
+		// overlap is not significant in the following cases
+		if(!e && pred[p]->exons[0].end>=pred[pi]->end) { // I am at the beginning of prediction p
+			int len=pred[pi]->end-pred[p]->start+1;
+			if(len<ERROR_PERC*pred[p]->tlen) overlap[n*pi+p]=false; // prediction p doesn't overlap prediction pi by a considerable amount
 		}
+
+		if(overlap[n*pi+p] && !ei && pred[pi]->exons[0].end>=pred[p]->end) { // I am at the beginning of prediction pi
+			int len=pred[p]->end-pred[pi]->start+1;
+			if(len<ERROR_PERC*pred[pi]->tlen) overlap[n*pi+p]=false; // prediction pi doesn't overlap prediction p by a considerable amount
+		}
+
+		if(overlap[n*pi+p] && e==pred[p]->exons.Count()-1 && pred[p]->exons[e].start<=pred[pi]->start) { // I am at the end of prediction p
+			int len=pred[p]->end-pred[pi]->start+1;
+			if(len<ERROR_PERC*pred[p]->tlen) overlap[n*pi+p]=false; // prediction p doesn't overlap prediction pi by a considerable amount
+		}
+
+		if(overlap[n*pi+p] && ei==pred[pi]->exons.Count()-1 && pred[pi]->exons[ei].start<=pred[p]->start) { // I am at the end of prediction pi
+			int len=pred[pi]->end-pred[p]->start+1;
+			if(len<ERROR_PERC*pred[pi]->tlen) overlap[n*pi+p]=false; // prediction pi doesn't overlap prediction p by a considerable amount
+		}
+
+		//if(overlap[n*pi+p]) fprintf(stderr,"    overlap set\n");
 	}
 }
 
-CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,float c,GPVec<CPrediction>& pred,GVec<bool>& overlap) {
+
+CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,float c,GList<CPrediction>& pred,GVec<bool>& overlap) {
 		//		GVec<float>* bpcov,uint refstart,int &nhex) {
 
 	CMaxIntv *prevmaxint=NULL;
@@ -17215,7 +17575,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 	return nextmaxint;
 }
 
-bool intronic(GPVec<CPrediction>& pred,int m,int M) {
+bool intronic(GList<CPrediction>& pred,int m,int M) {
 	int i=0;
 	while(i<pred[M]->exons.Count() && pred[m]->start>=pred[M]->exons[i].start) i++;
 	if(i==pred[M]->exons.Count() || !i) return false;
@@ -17235,15 +17595,15 @@ bool intronic(GPVec<CPrediction>& pred,int m,int M) {
 	return true;
 }
 
-bool transcript_overlap(GPVec<CPrediction>& pred,int n1,int n2) {
+bool transcript_overlap(GList<CPrediction>& pred,int n1,int n2) {
 	if(pred[n1]->end>=pred[n2]->start && pred[n2]->end>=pred[n1]->start) { // there is overlap --> check if it's substantial by looking at first/last exons as in update_overlap
-		if(pred[n1]->exons.Last().start<=pred[n2]->exons[0].start) return false;
+		if(pred[n1]->exons.Last().start<=pred[n2]->exons[0].end || pred[n2]->exons.Last().start<=pred[n1]->exons[0].end) return false;
 		return true;
 	}
 	return false;
 }
 
-int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
+int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		GVec<CGene>& refgene, GHash<int>& hashgene, GVec<CGene>& predgene, BundleData* bundleData) {
 
 	int npred=pred.Count();
@@ -17251,8 +17611,7 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 	overlap.Resize(npred*npred-npred,false);
 
 	GVec<CPred> predord;
-	/***** 3 ***** check best priority *****/
-	//CPred p(0,pred[0]->cov); // priority based on cov/bp
+	//CPred p(0,pred[0]->cov); 
 	CPred p(0,pred[0]->tlen*pred[0]->cov); // priority based on number of bases covered -> this should a give a boost to predictions that are longer
 
 	predord.Add(p);
@@ -17269,29 +17628,43 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 	CMaxIntv *maxint=new CMaxIntv(pred[0]->exons[0].start,pred[0]->exons[0].end);
 
 	if(!pred[0]->t_eq && pred[0]->exons.Count()==1 && pred[0]->strand!='.') { // neutral strand if most reads are neutral
-		float strandcov=bpcov[0][pred[0]->end-bundleData->start]+bpcov[2][pred[0]->end-bundleData->start];
-		float totalcov=bpcov[1][pred[0]->end-bundleData->start];
-		if(pred[0]->start>(uint)bundleData->start) {
-			strandcov-=bpcov[0][pred[0]->start-1-bundleData->start]+bpcov[2][pred[0]->start-1-bundleData->start];
-			totalcov-=bpcov[1][pred[0]->start-1-bundleData->start];
-			if(strandcov<ERROR_PERC*totalcov) pred[0]->strand='.';
-		}
+		int s=0;
+		if(pred[0]->strand=='+') s=2;
+		float totalcov=get_neutralcov(pred[0]->start,pred[0]->end,(uint)bundleData->start,bpcov);
+		float strandcov=totalcov-get_cov(2-s,pred[0]->start,pred[0]->end,(uint)bundleData->start,bpcov);
+		if(strandcov<ERROR_PERC*totalcov) pred[0]->strand='.';
 	}
 
 	CExon ex(0,0,pred[0]->exoncov[0]); // this keeps the exon flow based on per bp coverage
 	//CExon ex(0,0,pred[0]->exoncov[0]*pred[0]->exons[0].len()); // this keeps the exon flow based on read coverage (elen factor)
-	pred[0]->exoncov[0]=0;
+	//pred[0]->exoncov[0]=0;
 	maxint->node.Add(ex);
 	CMaxIntv *nextmaxint=maxint;
 	for(int j=1;j<pred[0]->exons.Count();j++) {
-		float introncov=(bpcov[1][pred[0]->exons[j].start-1-(uint)bundleData->start]-bpcov[1][pred[0]->exons[j-1].end-(uint)bundleData->start])/(pred[0]->exons[j].start-pred[0]->exons[j-1].end);
-		float exoncov=(get_neutralcov(pred[0]->exons[j-1].start,pred[0]->exons[j-1].end,(uint)bundleData->start,bpcov)+
-				bpcov[1][pred[0]->exons[j].end-(uint)bundleData->start]-bpcov[1][pred[0]->exons[j].start-1-(uint)bundleData->start])/(pred[0]->exons[j-1].len()+pred[0]->exons[j].len());
-		if(introncov && (introncov<singlethr || introncov<exoncov*ERROR_PERC)) intron[j-1]=1;
+		float introncov=get_neutralcov(pred[0]->exons[j-1].end+1,pred[0]->exons[j].start-1,(uint)bundleData->start,bpcov)/(pred[0]->exons[j].start-pred[0]->exons[j-1].end-1);
+		if(introncov) {
+		  if(introncov<singlethr) intron[j-1]=1;
+		  else {
+		    float exoncov=(get_neutralcov(pred[0]->exons[j-1].start,pred[0]->exons[j-1].end,(uint)bundleData->start,bpcov)+
+		    		get_neutralcov(pred[0]->exons[j].start,pred[0]->exons[j].end,(uint)bundleData->start,bpcov))/(pred[0]->exons[j-1].len()+pred[0]->exons[j].len());
+		    if(introncov<exoncov*ERROR_PERC) intron[j-1]=1;
+		    else {
+		    	// left drop
+		    	exoncov=get_neutralcov(pred[0]->exons[j-1].end-longintronanchor+1,pred[0]->exons[j-1].end,(uint)bundleData->start,bpcov);
+		    	introncov=get_neutralcov(pred[0]->exons[j-1].end+1,pred[0]->exons[j-1].end+longintronanchor,(uint)bundleData->start,bpcov);
+		    	if(introncov<exoncov*ERROR_PERC) intron[j-1]=1;
+		    	else { // right drop
+		    		introncov=get_neutralcov(pred[0]->exons[j].start-longintronanchor,pred[0]->exons[j].start-1,(uint)bundleData->start,bpcov);
+		    		exoncov=get_neutralcov(pred[0]->exons[j].start,pred[0]->exons[j].start+longintronanchor-1,(uint)bundleData->start,bpcov);
+		    		if(introncov<exoncov*ERROR_PERC) intron[j-1]=1;
+		    	}
+		    }
+		  }
+		}
 		//fprintf(stderr,"pred[%d] intron[%d] introncov=%f exoncov=%f\n",0,j-1,introncov,exoncov);
 		nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,pred[0]->exoncov[j],pred,overlap); // per bp coverage
 		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,pred[0]->exoncov[j]*pred[0]->exons[j].len(),pred,overlap); // per read coverage
-		pred[0]->exoncov[j]=0;
+		//pred[0]->exoncov[j]=0;
 	}
 
 	lowintron.Add(intron);
@@ -17300,13 +17673,11 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 	for(int n=1;n<npred;n++) {
 
 		if(!pred[n]->t_eq && pred[n]->exons.Count()==1 && pred[n]->strand!='.') { // neutral strand if most reads are neutral
-			float strandcov=bpcov[0][pred[n]->end-bundleData->start]+bpcov[2][pred[n]->end-bundleData->start];
-			float totalcov=bpcov[1][pred[n]->end-bundleData->start];
-			if(pred[n]->start>(uint)bundleData->start) {
-				strandcov-=bpcov[0][pred[n]->start-1-bundleData->start]+bpcov[2][pred[n]->start-1-bundleData->start];
-				totalcov-=bpcov[1][pred[n]->start-1-bundleData->start];
-				if(strandcov<ERROR_PERC*totalcov) pred[n]->strand='.';
-			}
+			int s=0;
+			if(pred[n]->strand=='+') s=2;
+			float totalcov=get_neutralcov(pred[n]->start,pred[n]->end,(uint)bundleData->start,bpcov);
+			float strandcov=totalcov-get_cov(2-s,pred[n]->start,pred[n]->end,(uint)bundleData->start,bpcov);
+			if(strandcov<ERROR_PERC*totalcov) pred[n]->strand='.';
 		}
 
 		color.Add(n);
@@ -17316,20 +17687,36 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 		predord.Add(p);
 		nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,pred[n]->exoncov[0],pred,overlap); // per bp coverage
 		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,pred[n]->exoncov[0]*pred[n]->exons[0].len(),pred,overlap); // read coverage
-		pred[n]->exoncov[0]=0;
+		//pred[n]->exoncov[0]=0;
 
 		intron.resize(pred[n]->exons.Count(),false);
 
 		CMaxIntv *nextintv=nextmaxint;
 		for(int j=1;j<pred[n]->exons.Count();j++) {
-			float introncov=(bpcov[1][pred[n]->exons[j].start-1-(uint)bundleData->start]-bpcov[1][pred[n]->exons[j-1].end-(uint)bundleData->start])/(pred[n]->exons[j].start-pred[n]->exons[j-1].end);
-			float exoncov=(get_neutralcov(pred[n]->exons[j-1].start,pred[n]->exons[j-1].end,(uint)bundleData->start,bpcov)+
-					bpcov[1][pred[n]->exons[j].end-(uint)bundleData->start]-bpcov[1][pred[n]->exons[j].start-1-(uint)bundleData->start])/(pred[n]->exons[j-1].len()+pred[n]->exons[j].len());
-			if(introncov && (introncov<singlethr || introncov<exoncov*ERROR_PERC)) intron[j-1]=1;
+			float introncov=get_neutralcov(pred[n]->exons[j-1].end+1,pred[n]->exons[j].start-1,(uint)bundleData->start,bpcov)/(pred[n]->exons[j].start-pred[n]->exons[j-1].end-1);
+			if(introncov) {
+				if(introncov<singlethr) intron[j-1]=1;
+				else {
+					float exoncov=(get_neutralcov(pred[n]->exons[j-1].start,pred[n]->exons[j-1].end,(uint)bundleData->start,bpcov)+
+							get_neutralcov(pred[n]->exons[j].start,pred[n]->exons[j].end,(uint)bundleData->start,bpcov))/(pred[n]->exons[j-1].len()+pred[n]->exons[j].len());
+					if(introncov<exoncov*ERROR_PERC) intron[j-1]=1;
+					else {
+						// left drop
+						exoncov=get_neutralcov(pred[n]->exons[j-1].end-longintronanchor+1,pred[n]->exons[j-1].end,(uint)bundleData->start,bpcov);
+						introncov=get_neutralcov(pred[n]->exons[j-1].end+1,pred[n]->exons[j-1].end+longintronanchor,(uint)bundleData->start,bpcov);
+						if(introncov<exoncov*ERROR_PERC) intron[j-1]=1;
+						else { // right drop
+							introncov=get_neutralcov(pred[n]->exons[j].start-longintronanchor,pred[n]->exons[j].start-1,(uint)bundleData->start,bpcov);
+							exoncov=get_neutralcov(pred[n]->exons[j].start,pred[n]->exons[j].start+longintronanchor-1,(uint)bundleData->start,bpcov);
+							if(introncov<exoncov*ERROR_PERC) intron[j-1]=1;
+						}
+					}
+				}
+			}
 			//fprintf(stderr,"pred[%d] intron[%d] introncov=%f exoncov=%f\n",n,j-1,introncov,exoncov);
 			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,pred[n]->exoncov[j],pred,overlap); // per bp coverage
 			//nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,pred[n]->exoncov[j]*pred[n]->exons[j].len(),pred,overlap); // read coverage
-			pred[n]->exoncov[j]=0;
+			//pred[n]->exoncov[j]=0;
 		}
 
 		lowintron.Add(intron);
@@ -17347,132 +17734,181 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 
 	}
 
+	GVec<int> bettercov[npred];
 
 	predord.Sort(predordCmp); // sort predictions from the most highest coverage to lowest
 	for(int i=0;i<predord.Count()-1;i++) {
 
-	    if(pred[predord[i].predno]->flag) {
-	    	int n1=predord[i].predno;
-	    	//fprintf(stderr,"first consideration of pred[%d] with cov=%f and strand=%c\n",n1,pred[n1]->cov,pred[n1]->strand);
-	    	for(int j=i+1;j<predord.Count();j++) if(pred[predord[j].predno]->flag) {
-	    		int n2=predord[j].predno; // always cov(n1)>=cov(n2)
-				//fprintf(stderr,"...vs prediction n2=%d with cov=%f and strand=%c\n",n2,pred[n2]->cov,pred[n2]->strand);
-
+		if(pred[predord[i].predno]->flag) {
+			int n1=predord[i].predno;
+			//fprintf(stderr,"first consideration of pred[%d] with cov=%f and strand=%c\n",n1,pred[n1]->cov,pred[n1]->strand);
+			for(int j=i+1;j<predord.Count();j++) if(pred[predord[j].predno]->flag) {
+				int n2=predord[j].predno; // always predord.cov(n1)>=predord.cov(n2)
 				int m = n1;
 				int M = n2;
+				//fprintf(stderr,"...vs prediction n2=%d with cov=%f and strand=%c\n",n2,pred[n2]->cov,pred[n2]->strand);
 				if(m>M) { m=n2; M=n1;}
-
-				if(pred[n1]->strand != pred[n2]->strand) {
-					if(overlap[npred*m+M] || transcript_overlap(pred,n1,n2)) {
-
-						//fprintf(stderr,"different strands\n");
-
-	    	    		bool check=false; // check if intronic overlap
-	    	    		if(pred[M]->start<=pred[m]->start && pred[m]->end<=pred[M]->end) check=true;
-	    	    		else if(pred[m]->start<=pred[M]->start && pred[M]->end<=pred[m]->end) { int tmp=M; M=m; m=tmp;check=true;}
-
-	    	    		if(check && intronic(pred,m,M)) {
-	    	    			//fprintf(stderr,"intronic\n");
-	    	    			if(pred[m]->exons.Count()==1 && pred[m]->cov<=pred[M]->cov && !pred[m]->t_eq) { // only if low single exon eliminate, otherwise keep antisense intronic overlaps
-	    	    				pred[m]->flag=false;
-	    	    				if(m==n1) {
-	    	    					//fprintf(stderr,"pred[%d] eliminated due to intronic overlap\n",n1);
-	    	    					break;
-	    	    				}
-	    	    			}
-	    	    		}
-	    	    		else { // not intronic --> inclusions or transcripts are interleaved
-
-	    	    			check=true; // check higher coverage if not inclusion elimination
-	    	    			if(m>M) { int tmp=M; M=m; m=tmp;}
-	    	    			if(overlap[npred*m+M]) { // substantial exonic region overlap
-
-	    	    				// deal with inclusions first
-
-	    	    				if(pred[m]->exons.Count()>pred[M]->exons.Count() || (pred[m]->exons.Count()==pred[M]->exons.Count() && pred[m]->cov>pred[M]->cov)) { int tmp=M; M=m; m=tmp;}
-
-	    	    				if(!pred[m]->t_eq && (pred[m]->cov<=pred[M]->cov || pred[m]->exons.Count()==1) && included_pred(pred,m,M,(uint)bundleData->start,bpcov)) { // pred m is included in pred M but on opposite strands
-
-    	    						check=false;
-	    	    					float totalcov=0;
-	    	    					if(pred[m]->exons.Count()==1) { // this is a single exon prediction and it's included in the exon of the bigger prediction so only keep it if it takes most of the expression in the area
-	    	    						float totalcov=get_neutralcov(pred[m]->start,pred[m]->end,(uint)bundleData->start,bundleData->bpcov);
-	    	    						if(totalcov/2>pred[m]->cov*pred[m]->len()) totalcov=0;
-	    	    					}
-	    	    					if(!totalcov) {
-	    	    						pred[m]->flag=false;
-	    	    						//fprintf(stderr,"pred[%d] eliminated due to inclusion overlap\n",n1);
-	    	    						if(m==n1) break;
-	    	    					}
-	    	    				}
-	    	    			}
-
-	    	    			if(check) { // see which prediction to keep - one of the predictions is probably wrong: this just eliminates the less covered one, but maybe I need to keep them?
-	    	    				if(pred[m]->cov<pred[M]->cov) {
-	    	    					pred[m]->flag=false;
-	    	    					if(m==n1) {
-	    	    						//fprintf(stderr,"pred[%d] eliminated\n",n1);
-	    	    						break;
-	    	    					}
-	    	    				}
-	    	    				else if(pred[m]->cov > pred[M]->cov) {
-	    	    					pred[M]->flag=false;
-	    	    					if(M==n1) {
-	    	    						//fprintf(stderr,"pred[%d] eliminated\n",n1);
-	    	    						break;
-	    	    					}
-	    	    				}
-	    	    			}
-	    				}
-					}
-				}
-				else { // predictions are on the same strand --> eliminate some of them maybe
-					if(overlap[npred*m+M]) { // n1 could get eliminated by some other genes for instance if it has fewer exons and it's included in a bigger one
-						//fprintf(stderr,"overlap\n");
-						if(!pred[n2]->t_eq) { // this is not a known gene -> only then I can eliminate it
-
-							if(retainedintron(pred,n1,n2,lowintron)) {
-								//fprintf(stderr,"n2=%d has low intron coverage\n",n2);
-								pred[n2]->flag=false;
-							}
-							//else if(pred[n2]->cov<isofrac*pred[n1]->cov) pred[n2]->flag=false;  // I am only considering inclusions here since this might change allocations
-							else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) {
-								pred[n2]->flag=false;
-								//fprintf(stderr,"...included elmination of n2=%d by n1=%d\n",n2,n1);
-							}
-							else if(!pred[n1]->t_eq && pred[n1]->exons.Count()<=2 && pred[n1]->cov < pred[n2]->cov+singlethr && pred[n1]->exons.Count()<pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
-								pred[n1]->flag=false;
-								//fprintf(stderr,"...included elmination of n1=%d by n2=%d\n",n1,n2);
-								break;
-							}
-
-							/* more agressive clean-up
-							if(pred[n2]->cov<isofrac*pred[n1]->cov) pred[n2]->flag=false;  // pred n1 is under the percentage of pred n2
-							else if(pred[n1]->strand != pred[n2]->strand && (pred[n1]->t_eq || pred[n2]->cov<pred[n1]->cov)) // if on different strands:
+				if(overlap[npred*m+M]) { // n1 could get eliminated by some other genes for instance if it has fewer exons and it's included in a bigger one
+				  //fprintf(stderr,"overlap\n");
+					if(!pred[n2]->t_eq) { // this is not a known gene -> only then I can eliminate it
+						if(pred[n2]->exons[0].len()<longintronanchor || pred[n2]->exons.Last().len()<longintronanchor) { // VAR8: leave this one out
 							pred[n2]->flag=false;
-							else if(!pred[n1]->t_eq && pred[n1]->exons.Count()<=2 && pred[n1]->exons.Count()<=pred[n2]->exons.Count() && included_pred(pred,n2,n1))
-							pred[n1]->flag=false;
-							else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && included_pred(pred,n1,n2)) pred[n2]->flag=false;
-							 */
 						}
-						else if(!pred[n1]->t_eq && pred[n1]->exons.Count()<=2 && pred[n1]->cov < pred[n2]->cov+singlethr && pred[n1]->exons.Count()<=pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
-							//fprintf(stderr,"...included elmination of n1=%d by n2=%d\n",n1,n2);
-							pred[n1]->flag=false;
+						else if(retainedintron(pred,n1,n2,lowintron)) {
+							//fprintf(stderr,"n2=%d has low intron coverage\n",n2);
+							pred[n2]->flag=false;
+						}
+						else if(pred[n1]->strand != pred[n2]->strand) {
+
+							//fprintf(stderr,"diff strand\n");
+							if(pred[n2]->exons.Count()==1) { // why was I restricting it to single exons?
+								//fprintf(stderr,"...strand elmination of n2=%d by n1=%d\n",n2,n1);
+								pred[n2]->flag=false;
+							}
+							else if(!pred[n1]->t_eq && pred[n1]->exons.Count()==1) {
+								if(pred[n1]->cov < pred[n2]->cov+singlethr) { pred[n1]->flag=false; break;}
+								else {
+									float totalcov=get_neutralcov(pred[n1]->start,pred[n1]->end,(uint)bundleData->start,bundleData->bpcov);
+									if(totalcov/2>pred[n1]->cov*pred[n1]->len()) if(included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)){
+										pred[n1]->flag=false; break;
+									}
+								}
+							}
+							else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) pred[n2]->flag=false;
+							else {
+	    						bool lowcov=true;
+	    						for(int e=0;e<pred[n2]->exons.Count();e++) {
+	    							float totalcov=get_neutralcov(pred[n2]->exons[e].start,pred[n2]->exons[e].end,(uint)bundleData->start,bundleData->bpcov);
+	    							if(pred[n2]->exoncov[e]*pred[n2]->exons[e].len()>totalcov/2) {
+	    								lowcov=false;
+	    								break;
+	    							}
+	    						}
+	    						if(lowcov) pred[n2]->flag=false;
+	    					}
+	    					/*else  if(transcript_overlap(pred,n1,n2)){
+	    						bool check=false; // check if intronic overlap
+	    						if(pred[M]->start<=pred[m]->start && pred[m]->end<=pred[M]->end) check=true;
+	    						else if(pred[m]->start<=pred[M]->start && pred[M]->end<=pred[m]->end) { int tmp=M; M=m; m=tmp;check=true;}
+
+	    						if(!check || !intronic(pred,m,M)) { // eliminate lower coverage prediction if not within error_perc?
+	    							//fprintf(stderr,"not intronic\n");
+	    							if(pred[m]->cov<pred[M]->cov) {
+	    								pred[m]->flag=false;
+	    								if(m==n1) {
+	    									//fprintf(stderr,"pred[%d] eliminated\n",n1);
+	    									break;
+	    								}
+	    							}
+	    							else if(pred[m]->cov > pred[M]->cov) {
+	    								pred[M]->flag=false;
+	    								if(M==n1) {
+	    									//fprintf(stderr,"pred[%d] eliminated\n",n1);
+	    									break;
+	    								}
+	    							}
+	    						}
+	    					}*/
+	    				}
+	    				//else if(pred[n2]->cov<isofrac*pred[n1]->cov) pred[n2]->flag=false;  // I am only considering inclusions here since this might change allocations
+	    				else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) {
+	    					pred[n2]->flag=false;
+	    					//fprintf(stderr,"...included elmination of n2=%d by n1=%d\n",n2,n1);
+	    				}
+	    				else if(!pred[n1]->t_eq && n1 && (pred[n1]->exons.Count()<=2 || pred[n1]->cov < pred[n2]->cov+singlethr) && pred[n1]->exons.Count()<pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
+	    					pred[n1]->flag=false;
+	    					//fprintf(stderr,"...included elmination of n1=%d by n2=%d\n",n1,n2);
+	    					break;
+	    				}
+						/*else if(!pred[n1]->t_eq && n1 && pred[n1]->exons.Count()<pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
+	    					if(pred[n1]->cov < pred[n2]->cov+singlethr) {
+	    						pred[n1]->flag=false;
+	    						fprintf(stderr,"...included elmination of n1=%d by n2=%d\n",n1,n2);
+	    						break;
+	    					}
+	    					else {
+	    						float totalcov=0;
+	    						for(int e=0;e<pred[n1]->exons.Count();e++) {
+	    							totalcov+=get_neutralcov(pred[n1]->exons[e].start,pred[n1]->exons[e].end,(uint)bundleData->start,bundleData->bpcov);
+	    						}
+	    						if(totalcov/2>pred[n1]->cov*pred[n1]->tlen) {
+
+	    							pred[n1]->flag=false;
+	    							fprintf(stderr,"...included elmination of n1=%d by n2=%d\n",n1,n2);
+	    							break;
+	    						}
+	    					}
+	    				}*/
+						// VAR11&VAR17 (also include this in VAR14): else if(pred[n1]->cov>pred[n2]->cov+singlethr){
+						// VAR15 else if(pred[n1]->cov>pred[n2]->cov){
+	    				/* more agressive clean-up
+						if(pred[n2]->cov<isofrac*pred[n1]->cov) pred[n2]->flag=false;  // pred n1 is under the percentage of pred n2
+						else if(pred[n1]->strand != pred[n2]->strand && (pred[n1]->t_eq || pred[n2]->cov<pred[n1]->cov)) // if on different strands:
+						pred[n2]->flag=false;
+						else if(!pred[n1]->t_eq && pred[n1]->exons.Count()<=2 && pred[n1]->exons.Count()<=pred[n2]->exons.Count() && included_pred(pred,n2,n1))
+						pred[n1]->flag=false;
+						else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && included_pred(pred,n1,n2)) pred[n2]->flag=false;
+	    				 */
+	    			}
+	    			else if(!pred[n1]->t_eq && n1 && (pred[n1]->exons.Count()<=2 || pred[n1]->cov < pred[n2]->cov+singlethr) && pred[n1]->exons.Count()<=pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
+	    				//fprintf(stderr,"...included elmination of n1=%d by n2=%d\n",n1,n2);
+	    				pred[n1]->flag=false;
+	    				break;
+	    			}
+	    		}
+	    		//else if(!pred[n2]->t_eq && pred[n2]->exons.Count()==1 && pred[n2]->cov<DROP*pred[n1]->cov && pred[n1]->start<pred[n2]->start && pred[n2]->end<pred[n1]->end) {
+	    		else if(!pred[n2]->t_eq && pred[n2]->exons.Count()==1 && pred[n2]->cov<pred[n1]->cov && pred[n1]->start<=pred[n2]->start && pred[n2]->end<=pred[n1]->end) {
+	    			//fprintf(stderr,"...single exon elmination of n2=%d by n1=%d\n",n2,n1);
+	    			pred[n2]->flag=false; // delete intronic prediction if single exon and at realtively low coverage
+	    		}
+	    		else if(!pred[n1]->t_eq && pred[n1]->exons.Count()==1 && pred[n1]->cov<pred[n2]->cov && pred[n2]->start<=pred[n1]->start && pred[n1]->end<=pred[n2]->end) {
+    				//fprintf(stderr,"...single exon elmination of n1=%d by n2=%d\n",n1,n2);
+    				pred[n1]->flag=false;
+    				break;
+    			}
+				else if(!pred[n2]->t_eq && transcript_overlap(pred,n1,n2)) {
+					for(int p=0;p<bettercov[n2].Count();p++) {
+						int m = n1;
+						int M = bettercov[n2][p];
+						if(m>M) { m=bettercov[n2][p]; M=n1;}
+	    				// VAR10: if(!overlap[npred*m+M] && pred[m]->strand != pred[M]->strand) {
+					// VAR13: if(pred[m]->start>pred[M]->end || pred[M]->start>pred[m]->end) {
+						if(!overlap[npred*m+M]) {
+							pred[n2]->flag=false;
+							//fprintf(stderr,"pred[%d] eliminated because of overlap to %d and %d\n",n2,m,M);
 							break;
 						}
 					}
-					//else if(!pred[n2]->t_eq && pred[n2]->exons.Count()==1 && pred[n2]->cov<DROP*pred[n1]->cov && pred[n1]->start<pred[n2]->start && pred[n2]->end<pred[n1]->end) {
-					else if(!pred[n2]->t_eq && pred[n2]->exons.Count()==1 && pred[n2]->cov<pred[n1]->cov && pred[n1]->start<=pred[n2]->start && pred[n2]->end<=pred[n1]->end) {
-						//fprintf(stderr,"...single exon elmination of n2=%d by n1=%d\n",n2,n1);
-						pred[n2]->flag=false; // delete intronic prediction if single exon and at realtively low coverage
-					}
-					else if(!pred[n1]->t_eq && pred[n1]->exons.Count()==1 && pred[n1]->cov<pred[n2]->cov && pred[n2]->start<=pred[n1]->start && pred[n1]->end<=pred[n2]->end) {
-						//fprintf(stderr,"...single exon elmination of n1=%d by n2=%d\n",n1,n2);
-						pred[n1]->flag=false;
-					}
+					bettercov[n2].Add(n1);
 				}
-				//if(!pred[n1]->flag) fprintf(stderr,"pred[%d] eliminated\n",n1);
-				//if(!pred[n2]->flag) fprintf(stderr,"pred[%d] eliminated\n",n2);
+
+	    		/*else if(transcript_overlap(pred,n1,n2)) { // transcripts do not overlap -> check if they can be eliminated;
+
+	    			bool check=false; // check if intronic overlap
+	    			if(pred[M]->start<=pred[m]->start && pred[m]->end<=pred[M]->end) check=true;
+	    			else if(pred[m]->start<=pred[M]->start && pred[M]->end<=pred[m]->end) { int tmp=M; M=m; m=tmp;check=true;}
+
+	    			if(!check || !intronic(pred,m,M)) { // eliminate lower coverage prediction if not within error_perc?
+	    				//fprintf(stderr,"not intronic\n");
+	    				if(pred[m]->cov<pred[M]->cov && pred[m]->cov<singlethr) {
+	    					pred[m]->flag=false;
+	    					if(m==n1) {
+	    						//fprintf(stderr,"pred[%d] eliminated\n",n1);
+	    						break;
+	    					}
+	    				}
+	    				else if(pred[m]->cov > pred[M]->cov && pred[M]->cov<singlethr) {
+	    					pred[M]->flag=false;
+	    					if(M==n1) {
+	    						//fprintf(stderr,"pred[%d] eliminated\n",n1);
+	    						break;
+	    					}
+	    				}
+	    			}
+
+	    		}*/
+	    		//if(!pred[n1]->flag) fprintf(stderr,"pred[%d] eliminated\n",n1);
+	    		//if(!pred[n2]->flag) fprintf(stderr,"pred[%d] eliminated\n",n2);
 	    	}
 	    }
 	}
@@ -17481,13 +17917,18 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 	bool adjust=true;
 	while(adjust) { // by here I eliminated inclusions and intronic single exons
 		adjust=false;
+
+		for(int n=0;n<npred;n++) if(pred[n]->flag)
+			for(int i=0;i<pred[n]->exons.Count();i++)
+				pred[n]->exoncov[i]=0;
+
 		nextmaxint=maxint;
 		while(nextmaxint) {
-			if((int)nextmaxint->start-bundleData->start<bpcov->Count()) {
+			if((int)nextmaxint->start-bundleData->start<bpcov[1].Count()) {
 				float covsum=0;
 				GVec<CPred> exord;
 				for(int i=0;i<nextmaxint->node.Count();i++) if(pred[nextmaxint->node[i].predno]->flag) {
-					/***** 3 ***** check best priority *****/
+				        //CPred ex(i,pred[nextmaxint->node[i].predno]->cov);
 					CPred ex(i,pred[nextmaxint->node[i].predno]->tlen*pred[nextmaxint->node[i].predno]->cov);
 					exord.Add(ex);
 
@@ -17517,7 +17958,12 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 					for(int j=1;j<exord.Count();j++) {
 						i=exord[j].predno;
 						n=nextmaxint->node[i].predno;
-						if(!pred[n]->t_eq && (pred[n]->cov<readthr || pred[n]->cov<isofrac*usedcov || (pred[n]->cov<usedcov  && pred[n]->exons.Count()==1))) {
+						if(!pred[n]->t_eq && (pred[n]->cov<1 || pred[n]->cov<isofrac*usedcov || (pred[n]->cov<1.5 && pred[n]->cov<0.015*usedcov)
+								|| (pred[n]->cov<usedcov  && pred[n]->exons.Count()==1))) {
+						//if(!pred[n]->t_eq && (pred[n]->cov<1 || pred[n]->cov<isofrac*usedcov || (pred[n]->cov<usedcov  && pred[n]->exons.Count()==1))) { //f0 f1
+						//if(!pred[n]->t_eq && (pred[n]->cov<1 || pred[n]->cov<isofrac*usedcov )) {
+						//if(!pred[n]->t_eq && (pred[n]->cov<isofrac*usedcov || (pred[n]->cov<usedcov  && pred[n]->exons.Count()==1))) { //f2
+						//if(!pred[n]->t_eq && ((pred[n]->cov<1 && !first) || pred[n]->cov<isofrac*usedcov || (pred[n]->cov<usedcov  && pred[n]->exons.Count()==1))) {
 							adjust=true;
 							pred[n]->flag=false;
 						}
@@ -17558,7 +18004,8 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 					pred[n]->exoncov[i]/=pred[n]->exons[i].len();
 				}
 				pred[n]->cov/=pred[n]->tlen;
-				if(pred[n]->cov<readthr || (pred[n]->exons.Count()==1 && pred[n]->cov<singlethr) ) {
+				if(!pred[n]->t_eq && (pred[n]->cov<1 || (pred[n]->exons.Count()==1 && pred[n]->cov<singlethr) )) {
+				//if(pred[n]->cov<readthr || (pred[n]->exons.Count()==1 && pred[n]->cov<singlethr) ) {
 					pred[n]->flag=false;
 					adjust=true;
 				}
@@ -17650,8 +18097,9 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 	genes.Resize(npred,-1);
 	GVec<int> transcripts; // for each gene remembers how many transcripts were printed
 
+	//pred.Sort();
 	for(int i=0;i<npred-1;i++) if(pred[i]->flag) {
-
+		if(!pred[i]->t_eq && pred[i]->cov<readthr) { pred[i]->flag=false; continue;}
 		//fprintf(stderr,"check pred i=%d with end=%d and next start=%d\n",i,pred[i]->end,pred[i+1]->start);
 		int ci=color[i];
 		while(ci!=color[ci]) { ci=color[ci];color[i]=ci;}
@@ -17659,7 +18107,7 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 		while(j<npred && pred[i]->end>=pred[j]->start) {
 			//fprintf(stderr,"... check pred j=%d\n",j);
 			if(pred[j]->flag && pred[i]->strand==pred[j]->strand && overlap[npred*i+j]) {
-				if(pred[j]->cov<readthr) { pred[j]->flag=false; j++; continue;}
+				if(!pred[i]->t_eq && pred[j]->cov<readthr) { pred[j]->flag=false; j++; continue;}
 				//fprintf(stderr,"pred %d overlaps pred %d\n",j,i);
 				int cj=color[j];
 				while(cj!=color[cj]) { cj=color[cj];color[j]=cj;}
@@ -17697,7 +18145,7 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 		}
 	}
 
-	for(int n=0;n<npred;n++) if(pred[n]->flag) {
+	for(int n=0;n<npred;n++) if(pred[n]->flag){ 
 
 		/*
 		{ // DEBUG ONLY
@@ -17708,6 +18156,7 @@ int print_predcluster(GPVec<CPrediction>& pred,int geneno,GStr& refname,
 			  fprintf(stderr,"\n");
 		}
 		*/
+
 
 		transcripts[genes[n]]++;
 		pred[n]->geneno=genes[n]+geneno+1;
@@ -18435,6 +18884,51 @@ int printMergeResults(BundleData* bundleData, int ngenes, int geneno, GStr& refn
 }
 */
 
+uint find_midhash(uint refstart,int start,int end,GVec<float>* bpcov) {
+
+	if(end-(int)refstart>bpcov[1].Count()) return(0);
+	uint midpoint=start+longintronanchor;
+	float mincov=bpcov[1][midpoint-(int)refstart]-bpcov[1][midpoint-1-(int)refstart];
+	end-=longintronanchor;
+	int i=midpoint+1;
+	while(i<end) {
+		float newcov=bpcov[1][i-(int)refstart]-bpcov[1][i-1-(int)refstart];
+		if(newcov<mincov) {
+			midpoint=(uint)i;
+			mincov=newcov;
+			if(!newcov) break;
+		}
+		i++;
+	}
+
+	return(midpoint);
+}
+
+/*
+uint find_midhash(uint refstart,int start,int end,GVec<float>* bpcov) {
+
+	if(end-(int)refstart>bpcov[1].Count()) return(0);
+	uint midpoint=start+longintronanchor;
+	float leftcov=get_neutralcov(start,midpoint-1,refstart,bpcov);
+	float centercov=get_neutralcov(midpoint,midpoint+longintronanchor-1,refstart,bpcov);
+	float rightcov=get_neutralcov(midpoint+longintronanchor,midpoint+2*longintronanchor-1,refstart,bpcov);
+	float maxdropcov=leftcov+rightcov-2*centercov;
+	int i=midpoint+1;
+	end-=2*longintronanchor;
+	while(i<end) {
+		leftcov=get_neutralcov(i-longintronanchor,i-1,refstart,bpcov);
+		centercov=get_neutralcov(i,i+longintronanchor-1,refstart,bpcov);
+		rightcov=get_neutralcov(i+longintronanchor,i+2*longintronanchor-1,refstart,bpcov);
+		float newcov=leftcov+rightcov-2*centercov;
+		if(newcov>maxdropcov) {
+			midpoint=(uint)i;
+			maxdropcov=newcov;
+		}
+		i++;
+	}
+	return(midpoint);
+}*/
+
 int printResults(BundleData* bundleData,int geneno, GStr& refname) {
 
 
@@ -18442,6 +18936,50 @@ int printResults(BundleData* bundleData,int geneno, GStr& refname) {
 	GList<CPrediction>& pred = bundleData->pred;
 	int npred=pred.Count();
 	pred.setSorted(predCmp);
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Initial set:\n");
+		for(int i=0;i<pred.Count();i++) {
+			if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand);
+			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
+			fprintf(stderr,"\n");
+		}
+		fprintf(stderr,"\n");
+	}
+	*/
+
+	bool preddel=false;
+	// some predictions are the same --> bunch them together
+/*	for(int i=0;i<npred-1;i++) {
+		int j=i+1;
+		while(j<npred && pred[j]->start<pred[i]->end) {
+			if(equal_pred(pred,i,j)) {
+				pred[j]->cov+=pred[i]->cov;
+				for(int k=0;k<pred[j]->exons.Count();k++) {
+					pred[j]->exoncov[k]+=pred[i]->exoncov[k];
+				}
+				if(pred[i]->cov>pred[j]->cov) {
+					pred[j]->start=pred[i]->start;
+					pred[j]->exons[0].start=pred[i]->exons[0].start;
+					pred[j]->end=pred[i]->end;
+					pred[j]->exons.Last().end=pred[i]->exons.Last().end;
+				}
+				CPrediction *p=pred[i];
+				pred.Forget(i);
+				delete p;
+				preddel=true;
+				break;
+			}
+			j++;
+		}
+	}
+	if(preddel) {
+		pred.Pack();
+		pred.Sort();
+		npred=pred.Count();
+	}*/
 
 	// this are needed for gene abundance estimations
 	GVec<CGene> predgene;
@@ -18453,12 +18991,15 @@ int printResults(BundleData* bundleData,int geneno, GStr& refname) {
 	GPVec<GffObj>& guides = bundleData->keepguides;
 	if(guides.Count()) {
 
+		//fprintf(stderr,"guides count=%d\n",guides.Count());
+
 		// first create reference genes
 		int gno=0;
 		for(int i=0;i<guides.Count();i++) {
 
 			if(eonly) { // if eonly I need to print all guides that were not printed yet
 				if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
+
 					fprintf(f_out,"1 %d %d %d 0.0\n",guides[i]->exons.Count()+1,guides[i]->covlen, ((RC_TData*)guides[i]->uptr)->t_id);
 					fprintf(f_out, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",refname.chars(),
 							guides[i]->getTrackName(), guides[i]->start,guides[i]->end, guides[i]->strand);
@@ -18585,119 +19126,315 @@ int printResults(BundleData* bundleData,int geneno, GStr& refname) {
 
 	}
 
+	//preddel=false;
 	/* adaptive mode: stitch together nearby single predictions if not within trimming parameters */
 	if(adaptive) { // only in adaptive mode I am storing all single transcripts
-		bool preddel=false;
+		GHash<uint> midhash;
+
+		/*
 		for(int n=0;n<npred-1;n++) {
 
+			fprintf(stderr,"check pred[%d]:%d-%d:%c with noexon=%d and cov=%f\n",n,pred[n]->start,pred[n]->end,pred[n]->strand,pred[n]->exons.Count(),pred[n]->cov);
+
 			bool ndel=false;
-			if(!pred[n]->t_eq && !pred[n+1]->t_eq && pred[n]->exons.Count()==1 && pred[n+1]->exons.Count()==1 &&
-					pred[n+1]->start>pred[n]->end && pred[n+1]->start<pred[n]->end+bundledist &&
-					(pred[n]->strand == pred[n+1]->strand || pred[n]->strand == '.' || pred[n+1]->strand == '.') &&
-					pred[n+1]->cov>isofrac*pred[n]->cov && pred[n+1]->cov>isofrac*pred[n+1]->cov) {
-				// if both are single predictions and are within bundledist on the same strand and not in reference and are not within isofrac from each other
-				pred[n+1]->start=pred[n]->start;
-				pred[n+1]->cov=(pred[n]->cov*pred[n]->tlen+pred[n+1]->cov*pred[n+1]->tlen)/(pred[n+1]->end-pred[n+1]->start+1);
-				pred[n+1]->tlen=pred[n+1]->end-pred[n+1]->start+1;
-				pred[n+1]->exoncov[0]=pred[n+1]->cov;
-				pred[n+1]->exons[0].start=pred[n+1]->start;
-				if(pred[n+1]->strand=='.') pred[n+1]->strand=pred[n]->strand;
-				ndel=true;
+			if(!pred[n]->t_eq && pred[n]->exons.Count()==1 && pred[n+1]->start>pred[n]->end) { // single exon prediction that doesn't overlap next prediction -> either stich it, keep it or delete it
+				if(!pred[n+1]->t_eq && pred[n+1]->exons.Count()==1 && pred[n+1]->start<pred[n]->end+bundledist &&
+						(pred[n]->strand == pred[n+1]->strand || pred[n]->strand == '.' || pred[n+1]->strand == '.') &&
+						pred[n+1]->cov>ERROR_PERC*pred[n]->cov && pred[n]->cov>ERROR_PERC*pred[n+1]->cov) {
+					// if both are single predictions and are within bundledist on the same strand and not in reference and are not within error_perc from each other
+
+					fprintf(stderr,"Stich predictions %d and %d with cov=%f and %f\n",n,n+1,pred[n]->cov,pred[n+1]->cov);
+
+					pred[n+1]->start=pred[n]->start;
+					pred[n+1]->cov=(pred[n]->cov*pred[n]->tlen+pred[n+1]->cov*pred[n+1]->tlen)/(pred[n+1]->end-pred[n+1]->start+1);
+					pred[n+1]->tlen=pred[n+1]->end-pred[n+1]->start+1;
+					pred[n+1]->exoncov[0]=pred[n+1]->cov;
+					pred[n+1]->exons[0].start=pred[n+1]->start;
+					if(pred[n+1]->strand=='.') pred[n+1]->strand=pred[n]->strand;
+					ndel=true;
+				}
+				else if(pred[n]->tlen<mintranscriptlen || pred[n]->cov<singlethr) {
+					ndel=true;
+				}
+				else {
+					int m=n-1;
+					while(m>=0 && pred[m]==NULL) m--;
+					if(m<0 || pred[m]->end<pred[n]->start) { // pred[n] does not overlap previous prediction --> check if I can delete it
+						if(pred[n+1]->start-pred[n]->end<bundledist) {
+							float exoncov=get_neutralcov(pred[n+1]->start,pred[n+1]->exons[0].end,(uint)bundleData->start,bundleData->bpcov)/pred[n+1]->exons[0].len();
+							fprintf(stderr,"Pred %d to be deleted because under first exoncov of pred %d\n",n,n+1);
+							if(pred[n]->cov<exoncov+singlethr) ndel=true;
+						}
+						if(!ndel && m>=0 && pred[n]->start-pred[m]->end<bundledist) {
+							float exoncov=get_neutralcov(pred[m]->exons.Last().start,pred[m]->end,(uint)bundleData->start,bundleData->bpcov)/pred[m]->exons.Last().len();
+							fprintf(stderr,"Pred %d to be deleted because under last exoncov of pred %d\n",n,m);
+							if(pred[n]->cov<exoncov+singlethr) ndel=true;
+						}
+					}
+				}
 			}
-			else if(!pred[n]->t_eq && pred[n]->exons.Count()==1 && (pred[n]->tlen<mintranscriptlen || pred[n]->cov<singlethr)) { /****** single exon different threshold ******/
-				ndel=true;
-			}
+			else if(!pred[n]->t_eq && (pred[n]->tlen<mintranscriptlen)) { ndel=true;}
 			else {
-				if(!pred[n]->t_eq && pred[n]->exons.Count()>3) { // check exon drop --> coverage drop shouldn't be so dramatic
-					for(int j=2;j<pred[n]->exons.Count()-1;j++) {
-						if(pred[n]->exoncov[j-1]<ERROR_PERC*pred[n]->exoncov[j] || pred[n]->exoncov[j]<ERROR_PERC*pred[n]->exoncov[j-1]) {
+				int m=n+1;
+				while(m<npred && pred[m]->start<pred[n]->end) {
+					if(pred[n]->strand==pred[m]->strand) {
+						if(equal_pred(pred,n,m)) {
+							if(!pred[m]->t_eq && (pred[n]->t_eq || pred[n]->cov>pred[m]->cov)) {
+								pred[m]->start=pred[n]->start;
+								pred[m]->exons[0].start=pred[n]->exons[0].start;
+								pred[m]->end=pred[n]->end;
+								pred[m]->exons.Last().end=pred[n]->exons.Last().end;
+							}
+							pred[m]->cov+=pred[n]->cov;
+							fprintf(stderr,"Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
+							for(int k=0;k<pred[m]->exons.Count();k++) {
+								pred[m]->exoncov[k]+=pred[n]->exoncov[k];
+							}
 							ndel=true;
 							break;
 						}
 					}
+					// VAR0 & also for VAR18:
+					else if(pred[n]->exons.Count()>1 && pred[m]->exons.Count()>1) { // overlap on different strands
+						if(!pred[n]->t_eq || !pred[m]->t_eq) { // at least one prediction can be modified
+							int l=0;
+							int f=0;
+							if(pred[n]->exons.Last().start<pred[m]->exons[0].end) {
+								 l=n;f=m;
+							 }
+							 else if(pred[m]->exons.Last().start<pred[n]->exons[0].end) {
+								 l=m;f=n;
+							 }
+							 if(f || l) {
+								int lastval=(int)pred[l]->exons.Last().start;
+								if(pred[l]->t_eq) lastval=pred[l]->end;
+								int firstval=(int)pred[f]->exons[0].end;
+								if(pred[f]->t_eq) firstval=pred[f]->start;
+
+								fprintf(stderr,"overalp on opposite strand within first exons:n=%d m=%d lastval=%d firstval=%d\n",n,m,lastval,firstval);
+
+								if(firstval-lastval>(int)(2*longintronanchor)) { // far apart so I can store hash
+									GStr id(lastval);
+									id+=':';
+									id+=firstval;
+									uint midpoint;
+									uint *val=midhash[id];
+									if(!val) {
+										midpoint=find_midhash((uint)bundleData->start,lastval,firstval,bundleData->bpcov);
+										midhash.Add(id.chars(),new uint(midpoint));
+									}
+									else midpoint=*val;
+									// adjust pred[l] and pred[f] here
+									if(midpoint) {
+										int prednlen=pred[l]->tlen-pred[l]->end+midpoint;
+										int predmlen=pred[f]->tlen-midpoint+pred[f]->start-1;
+
+										if(prednlen>mintranscriptlen && predmlen>mintranscriptlen) {
+
+											if(!pred[l]->t_eq && pred[l]->end>midpoint) {
+												float totalcov=get_neutralcov(pred[l]->exons.Last().start,pred[l]->end,(uint)bundleData->start,bundleData->bpcov);
+												float ratio=0;
+												float exoncov=pred[l]->exons.Last().len()*pred[l]->exoncov.Last();
+												if(totalcov) ratio=exoncov/totalcov;
+												pred[l]->cov=pred[l]->cov*pred[l]->tlen-exoncov;
+												//pred[l]->tlen-=pred[l]->end-midpoint;
+												pred[l]->tlen=prednlen;
+												pred[l]->exoncov.Last()=ratio*get_neutralcov(pred[l]->exons.Last().start,midpoint,(uint)bundleData->start,bundleData->bpcov);
+												pred[l]->cov=(pred[l]->cov+pred[l]->exoncov.Last())/pred[l]->tlen;
+												pred[l]->exons.Last().end=midpoint;
+												pred[l]->end=midpoint;
+												pred[l]->exoncov.Last()/=pred[l]->exons.Last().len();
+												preddel=true;
+												//if(pred[l]->tlen<mintranscriptlen) ndel=true;
+											}
+											if(!pred[f]->t_eq && pred[f]->start<midpoint) { // adjust pred[f] coverage
+												midpoint++;
+												float totalcov=get_neutralcov(pred[f]->start,pred[f]->exons[0].end,(uint)bundleData->start,bundleData->bpcov);
+												float ratio=0;
+												float exoncov=pred[f]->exons[0].len()*pred[f]->exoncov[0];
+												if(totalcov) ratio=exoncov/totalcov;
+												pred[f]->cov=pred[f]->cov*pred[f]->tlen-exoncov;
+												//pred[f]->tlen-=midpoint-pred[f]->start;
+												pred[f]->tlen=predmlen;
+												pred[f]->exoncov[0]=ratio*get_neutralcov(midpoint,pred[f]->exons[0].end,(uint)bundleData->start,bundleData->bpcov);
+												pred[f]->cov=(pred[f]->cov+pred[f]->exoncov[0])/pred[f]->tlen;
+												pred[f]->exons[0].start=midpoint;
+												pred[f]->start=midpoint;
+												pred[f]->exoncov[0]/=pred[f]->exons[0].len();
+												preddel=true;
+											}
+											fprintf(stderr,"midpoint=%d pred[n=%d]->cov=%f pred[m=%d]->cov=%f\n",midpoint,n,pred[l]->cov,m,pred[f]->cov);
+										}
+									}
+								}
+							 }
+						}
+					}				       
+					m++;
 				}
-				if(!ndel) { // check if I can adjust pred[n] and future antisense predictions so that they don't overlap anymore
-					int m=n+1;
-					while(m<npred && pred[m]->start<pred[n]->end) {
-						if(pred[m]->strand!=pred[n]->strand && pred[n]->exons.Last().start<pred[m]->exons[0].end) { // predictions on opposite strands and can be adjusted
-							bool checkn=true;
-							bool checkm=true;
-							if(pred[n]->t_eq) checkn=false;
-							if(pred[m]->t_eq) checkm=false;
-							if(checkn || checkm) {
-								uint endn=pred[n]->end;
-								uint startm=pred[m]->start;
-								float mincovn=0;
-								float mincovm=0;
-								uint j=endn+1;
-								uint k=startm-1;
-								if(checkn) {
-									if(pred[n]->exons.Last().start + longintronanchor< endn) endn=pred[n]->exons.Last().start;
-									if(endn < pred[m]->start) endn=pred[m]->start;
-									mincovn=get_neutralcov(endn,endn,(uint)bundleData->start,bundleData->bpcov);
+			}			
+
+			if(ndel) {
+				// now replace pred[n] with null
+				CPrediction *p=pred[n];
+				pred.Forget(n);
+				delete p;
+				preddel=true;
+			}
+		}
+		*/
+
+		for(int n=0;n<npred-1;n++) {
+		  //fprintf(stderr,"check pred[%d]:%d-%d:%c with noexon=%d and cov=%f\n",n,pred[n]->start,pred[n]->end,pred[n]->strand,pred[n]->exons.Count(),pred[n]->cov);
+			bool ndel=false;
+			if(!pred[n]->t_eq && (pred[n]->tlen<mintranscriptlen)) { ndel=true;}
+			else {
+				int m=n+1;
+				while(m<npred && pred[m]->start<=pred[n]->end) {
+					if(pred[n]->strand==pred[m]->strand) {
+						if(equal_pred(pred,n,m)) {
+							if(pred[n]->exons.Count()==1) {
+								if(pred[m]->cov>ERROR_PERC*pred[n]->cov && pred[n]->cov>ERROR_PERC*pred[n+1]->cov) { // predictions close to each other
+									pred[m]->start=pred[n]->start;
+									pred[m]->end=pred[n]->end;
+									pred[m]->cov=(pred[n]->cov*pred[n]->tlen+pred[m]->cov*pred[m]->tlen)/(pred[m]->end-pred[m]->start+1);
+									pred[m]->tlen=pred[m]->end-pred[m]->start+1;
+									pred[m]->exoncov[0]=pred[m]->cov;
+									pred[m]->exons[0].start=pred[m]->start;
+									if(pred[m]->strand=='.') pred[m]->strand=pred[n]->strand;
 								}
-								if(checkm) {
-									if(pred[m]->exons[0].end-longintronanchor>startm) startm=pred[m]->exons[0].end-longintronanchor;
-									if(pred[m]->exons[0].end > pred[n]->end) startm=pred[n]->end;
-									mincovm=bundleData->bpcov[1][startm-bundleData->start]-bundleData->bpcov[1][k-bundleData->start];
+							}
+							else {
+								if(!pred[m]->t_eq && (pred[n]->t_eq || pred[n]->cov>pred[m]->cov)) {
+									pred[m]->start=pred[n]->start;
+									pred[m]->exons[0].start=pred[n]->exons[0].start;
+									pred[m]->end=pred[n]->end;
+									pred[m]->exons.Last().end=pred[n]->exons.Last().end;
 								}
-								while(j<k) {
-									if(checkn) {
-										if(bundleData->bpcov[1][j-bundleData->start]==bundleData->bpcov[1][j-1-bundleData->start]) {
-											endn=j;
-											if(!checkm) break;
-											checkn=false;
-										}
-										if(bundleData->bpcov[1][j-bundleData->start]-bundleData->bpcov[1][j-1-bundleData->start]<mincovn) endn=j;
-										j++;
+								pred[m]->cov+=pred[n]->cov;
+								//fprintf(stderr,"Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
+								for(int k=0;k<pred[m]->exons.Count();k++) {
+									pred[m]->exoncov[k]+=pred[n]->exoncov[k];
+								}
+							}
+							ndel=true;
+							break;
+						}
+					}
+					else if(pred[n]->exons.Count()>1 && pred[m]->exons.Count()>1) { // check if overlap on different strands
+						if(!pred[n]->t_eq || !pred[m]->t_eq) { // at least one prediction can be modified
+							int l=0;
+							int f=0;
+							if(pred[n]->exons.Last().start<pred[m]->exons[0].end) {
+								l=n;f=m;
+							}
+							else if(pred[m]->exons.Last().start<pred[n]->exons[0].end) {
+								l=m;f=n;
+							}
+							if(f || l) {
+								int lastval=(int)pred[l]->exons.Last().start;
+								if(pred[l]->t_eq) lastval=pred[l]->end;
+								int firstval=(int)pred[f]->exons[0].end;
+								if(pred[f]->t_eq) firstval=pred[f]->start;
+
+								//fprintf(stderr,"overalp on opposite strand within first exons:n=%d m=%d lastval=%d firstval=%d\n",n,m,lastval,firstval);
+
+								if(firstval-lastval>(int)(2*longintronanchor)) { // far apart so I can store hash
+									GStr id(lastval);
+									id+=':';
+									id+=firstval;
+									uint midpoint;
+									uint *val=midhash[id];
+									if(!val) {
+										midpoint=find_midhash((uint)bundleData->start,lastval,firstval,bundleData->bpcov);
+										midhash.Add(id.chars(),new uint(midpoint));
 									}
-									if(checkm) {
-										if(bundleData->bpcov[1][k-bundleData->start]==bundleData->bpcov[1][k-1-bundleData->start]) {
-											startm=k;
-											if(!checkn) break;
-											checkm=false;
+									else midpoint=*val;
+									// adjust pred[l] and pred[f] here
+									if(midpoint) {
+										int prednlen=pred[l]->tlen-pred[l]->end+midpoint;
+										int predmlen=pred[f]->tlen-midpoint+pred[f]->start-1;
+
+										if(prednlen>mintranscriptlen && predmlen>mintranscriptlen) {
+
+											if(!pred[l]->t_eq && pred[l]->end>midpoint) {
+												float totalcov=get_neutralcov(pred[l]->exons.Last().start,pred[l]->end,(uint)bundleData->start,bundleData->bpcov);
+												float ratio=0;
+												float exoncov=pred[l]->exons.Last().len()*pred[l]->exoncov.Last();
+												if(totalcov) ratio=exoncov/totalcov;
+												pred[l]->cov=pred[l]->cov*pred[l]->tlen-exoncov;
+												//pred[l]->tlen-=pred[l]->end-midpoint;
+												pred[l]->tlen=prednlen;
+												pred[l]->exoncov.Last()=ratio*get_neutralcov(pred[l]->exons.Last().start,midpoint,(uint)bundleData->start,bundleData->bpcov);
+												pred[l]->cov=(pred[l]->cov+pred[l]->exoncov.Last())/pred[l]->tlen;
+												pred[l]->exons.Last().end=midpoint;
+												pred[l]->end=midpoint;
+												pred[l]->exoncov.Last()/=pred[l]->exons.Last().len();
+												preddel=true;
+												//if(pred[l]->tlen<mintranscriptlen) ndel=true;
+											}
+											if(!pred[f]->t_eq && pred[f]->start<midpoint) { // adjust pred[f] coverage
+												midpoint++;
+												float totalcov=get_neutralcov(pred[f]->start,pred[f]->exons[0].end,(uint)bundleData->start,bundleData->bpcov);
+												float ratio=0;
+												float exoncov=pred[f]->exons[0].len()*pred[f]->exoncov[0];
+												if(totalcov) ratio=exoncov/totalcov;
+												pred[f]->cov=pred[f]->cov*pred[f]->tlen-exoncov;
+												//pred[f]->tlen-=midpoint-pred[f]->start;
+												pred[f]->tlen=predmlen;
+												pred[f]->exoncov[0]=ratio*get_neutralcov(midpoint,pred[f]->exons[0].end,(uint)bundleData->start,bundleData->bpcov);
+												pred[f]->cov=(pred[f]->cov+pred[f]->exoncov[0])/pred[f]->tlen;
+												pred[f]->exons[0].start=midpoint;
+												pred[f]->start=midpoint;
+												pred[f]->exoncov[0]/=pred[f]->exons[0].len();
+												preddel=true;
+											}
+											//fprintf(stderr,"midpoint=%d pred[n=%d]->cov=%f pred[m=%d]->cov=%f\n",midpoint,n,pred[l]->cov,m,pred[f]->cov);
 										}
-										if(bundleData->bpcov[1][k-bundleData->start]-bundleData->bpcov[1][k-1-bundleData->start]<mincovm) startm=k;
-										k--;
 									}
-								}
-								if(endn!=pred[n]->end) { // adjust pred[n] coverage
-									float totalcov=get_neutralcov(pred[n]->exons.Last().start,pred[n]->end,(uint)bundleData->start,bundleData->bpcov);
-									float ratio=0;
-									float exoncov=pred[n]->exons.Last().len()*pred[n]->exoncov.Last();
-									if(totalcov) ratio=exoncov/totalcov;
-									pred[n]->cov=pred[n]->cov*pred[n]->tlen-exoncov;
-									pred[n]->tlen-=pred[n]->end-endn;
-									pred[n]->exoncov.Last()=ratio*get_neutralcov(pred[n]->exons.Last().start,endn,(uint)bundleData->start,bundleData->bpcov);
-									pred[n]->cov=(pred[n]->cov+pred[n]->exoncov.Last())/pred[n]->tlen;
-									pred[n]->exons.Last().end=endn;
-									pred[n]->end=endn;
-									pred[n]->exoncov.Last()/=pred[n]->exons.Last().len();
-									preddel=true;
-								}
-								if(startm!=pred[m]->start) { // adjust pred[m] coverage
-									float totalcov=get_neutralcov(pred[m]->start,pred[m]->exons[0].end,(uint)bundleData->start,bundleData->bpcov);
-									float ratio=0;
-									float exoncov=pred[m]->exons[0].len()*pred[m]->exoncov[0];
-									if(totalcov) ratio=exoncov/totalcov;
-									pred[m]->cov=pred[m]->cov*pred[m]->tlen-exoncov;
-									pred[m]->tlen-=startm-pred[m]->start;
-									pred[m]->exoncov[0]=ratio*get_neutralcov(startm,pred[m]->exons[0].end,(uint)bundleData->start,bundleData->bpcov);
-									pred[m]->cov=(pred[m]->cov+pred[m]->exoncov[0])/pred[m]->tlen;
-									pred[m]->exons[0].start=startm;
-									pred[m]->start=startm;
-									pred[m]->exoncov[0]/=pred[m]->exons[0].len();
-									preddel=true;
 								}
 							}
 						}
-						m++;
 					}
-					if(pred[n]->tlen<mintranscriptlen) ndel=true;
+					m++;
+				}
+				// now pred[m]->start >= pred[n]->end
+				if(m<npred && !ndel && pred[n]->exons.Count()==1 && !pred[n]->t_eq) { // pred[n] can be deleted
+					if(pred[m]->exons.Count()==1 && pred[m]->start<pred[n]->end+bundledist &&
+							(pred[n]->strand == pred[m]->strand || pred[n]->strand == '.' || pred[m]->strand == '.') &&
+							pred[m]->cov>ERROR_PERC*pred[n]->cov && pred[n]->cov>ERROR_PERC*pred[m]->cov && !pred[m]->t_eq) {
+						// if both are single predictions and are within bundledist on the same strand and not in reference and are not within error_perc from each other
+					  //fprintf(stderr,"Stich predictions %d and %d with cov=%f and %f\n",n,m,pred[n]->cov,pred[m]->cov);
+						pred[m]->start=pred[n]->start;
+						pred[m]->cov=(pred[n]->cov*pred[n]->tlen+pred[m]->cov*pred[m]->tlen)/(pred[m]->end-pred[m]->start+1);
+						pred[m]->tlen=pred[m]->end-pred[m]->start+1;
+						pred[m]->exoncov[0]=pred[m]->cov;
+						pred[m]->exons[0].start=pred[m]->start;
+						if(pred[m]->strand=='.') pred[m]->strand=pred[n]->strand;
+						ndel=true;
+					}
+					else if(pred[n]->cov<singlethr) { /****** single exon different threshold ******/
+						ndel=true;
+					}
+					else if(m==n+1){
+						int m=n-1;
+						while(m>=0 && pred[m]==NULL) m--;
+						if(m<0 || pred[m]->end<pred[n]->start) { // pred[n] does not overlap previous prediction --> check if I can delete it
+							if(pred[n+1]->start-pred[n]->end<bundledist) {
+								float exoncov=get_neutralcov(pred[n+1]->start,pred[n+1]->exons[0].end,(uint)bundleData->start,bundleData->bpcov)/pred[n+1]->exons[0].len();
+								//fprintf(stderr,"Pred %d to be deleted because under first exoncov of pred %d\n",n,n+1);
+								if(pred[n]->cov<exoncov+singlethr) ndel=true;
+							}
+							if(!ndel && m>=0 && pred[n]->start-pred[m]->end<bundledist) {
+								float exoncov=get_neutralcov(pred[m]->exons.Last().start,pred[m]->end,(uint)bundleData->start,bundleData->bpcov)/pred[m]->exons.Last().len();
+								//fprintf(stderr,"Pred %d to be deleted because under last exoncov of pred %d\n",n,m);
+								if(pred[n]->cov<exoncov+singlethr) ndel=true;
+							}
+						}
+					}
 				}
 			}
-
-			if(ndel) { 	/****** single exon different threshold ******/
+			if(ndel) {
 				// now replace pred[n] with null
 				CPrediction *p=pred[n];
 				pred.Forget(n);
@@ -18706,31 +19443,36 @@ int printResults(BundleData* bundleData,int geneno, GStr& refname) {
 			}
 		}
 
-		if(pred[npred-1]->tlen<mintranscriptlen || (pred[npred-1]->exons.Count()==1 && pred[npred-1]->cov<singlethr)) { 	/****** single exon different threshold ******/
-			// now replace pred[n] with null
-			CPrediction *p=pred[npred-1];
-			pred.Forget(npred-1);
-			delete p;
-			preddel=true;
-		}
-		else if(!pred[npred-1]->t_eq && pred[npred-1]->exons.Count()>3) { // check exon drop --> coverage drop shouldn't be so dramatic
-			for(int j=2;j<pred[npred-1]->exons.Count()-1;j++) {
-				if(pred[npred-1]->exoncov[j-1]<ERROR_PERC*pred[npred-1]->exoncov[j] || pred[npred-1]->exoncov[j]<ERROR_PERC*pred[npred-1]->exoncov[j-1]) {
-					CPrediction *p=pred[npred-1];
-					pred.Forget(npred-1);
-					delete p;
-					preddel=true;
-					break;
+		// stich last prediction
+		if(npred && !pred[npred-1]->t_eq && pred[npred-1]->exons.Count()==1) {
+			if(pred[npred-1]->tlen<mintranscriptlen || (pred[npred-1]->exons.Count()==1 && pred[npred-1]->cov<singlethr)) { 	/****** single exon different threshold ******/
+				// now replace pred[n] with null
+				CPrediction *p=pred[npred-1];
+				pred.Forget(npred-1);
+				delete p;
+				preddel=true;
+			}
+			else if(npred>1) {
+				int m=npred-2;
+				while(m>=0 && pred[m]==NULL) m--;
+				if(m>=0 && pred[m]->end<pred[npred-1]->start && pred[npred-1]->start-pred[m]->end<bundledist) {
+					float exoncov=get_neutralcov(pred[m]->exons.Last().start,pred[m]->end,(uint)bundleData->start,bundleData->bpcov)/pred[m]->exons.Last().len();
+					if(pred[npred-1]->cov<exoncov) {
+						CPrediction *p=pred[npred-1];
+						pred.Forget(npred-1);
+						delete p;
+						preddel=true;
+					}
 				}
 			}
 		}
-
 		if(preddel) {
 			pred.Pack();
 			pred.Sort();
 			npred=pred.Count();
 		}
 	}
+
 
 
 	/*
@@ -18742,7 +19484,7 @@ int printResults(BundleData* bundleData,int geneno, GStr& refname) {
     		fprintf(stderr,"\n");
     	}
     }
-    */
+	*/
 
 	if(npred) geneno=print_predcluster(pred,geneno,refname,refgene,hashgene,predgene,bundleData);
 
@@ -18894,10 +19636,14 @@ int printResults(BundleData* bundleData,int geneno, GStr& refname) {
 	}
 
 
+	/*** I might resque this if I want to write a non-conflicting (among threads) version of the covered references
 	if (c_out) {
 		for (int i=0;i<bundleData->covguides.Count();i++)
 			bundleData->covguides[i]->print(c_out);
 	}
+	***/
+
+
 	//rc_write_counts(refname.chars(), *bundleData);
 	return(geneno);
 }

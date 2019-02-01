@@ -37,23 +37,24 @@
 Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
  --version : print just the version at stdout and exit\n\
- -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
+ --conservative : conservative transcriptome assembly, same as -t -c 1.5 -f 0.05\n\
  --rf assume stranded library fr-firststrand\n\
  --fr assume stranded library fr-secondstrand\n\
- -l name prefix for output transcripts (default: STRG)\n\
- -f minimum isoform fraction (default: 0.1)\n\
- -m minimum assembled transcript length (default: 200)\n\
+ -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
+ -l name prefix for output transcripts (default: STRG)\n\
+ -f minimum isoform fraction (default: 0.01)\n\
+ -m minimum assembled transcript length (default: 200)\n\
  -a minimum anchor length for junctions (default: 10)\n\
  -j minimum junction coverage (default: 1)\n\
  -t disable trimming of predicted transcripts based on coverage\n\
     (default: coverage trimming is enabled)\n\
- -c minimum reads per bp coverage to consider for transcript assembly\n\
-    (default: adapative read coverage)\n\
- -d disable adaptive read coverage mode (default: yes)\n\
+ -c minimum reads per bp coverage to consider for multi-exon transcript\n\
+    (default: 1.5)\n\
+ -s minimum reads per bp coverage to consider for single-exon transcript\n\
+     (default: 4.75)\n\
  -v verbose (log bundle processing details)\n\
  -g gap between read mappings triggering a new bundle; not adaptive mode (default: 50)\n\
- -C output a file with reference transcripts that are covered by reads\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
@@ -89,6 +90,9 @@ the following options are available:\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
 /* 
+ -C output a file with reference transcripts that are covered by reads\n\
+ -U unitigs are treated as special guides (default: no)\n\
+ -d disable adaptive read coverage mode (default: yes)\n\
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 1)\n\ \\ deprecated for now
  -O disable the coverage saturation limit and use a slower two-pass approach\n\
     to process the input alignments, collapsing redundant reads\n\
@@ -101,7 +105,7 @@ the following options are available:\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (paper uses default: 1)\n\
  -c minimum bundle reads per bp coverage to consider for assembly (paper uses default: 3)\n\
  -S more sensitive run (default: no) disabled for now \n\
- -s coverage saturation threshold; further read alignments will be\n\
+ -s coverage saturation threshold; further read alignments will be\n\ // this coverage saturation parameter is deprecated starting at version 1.0.5
     ignored in a region where a local coverage depth of <maxcov> \n\
     is reached (default: 1,000,000);\n\ \\ deprecated
  -e (mergeMode)  include estimated coverage information in the preidcted transcript\n\
@@ -123,7 +127,7 @@ GStr tmp_path;
 GStr tmpfname;
 GStr genefname;
 bool guided=false;
-bool trim=false;
+bool trim=true;
 bool fast=true;
 bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
 bool nomulti=false;
@@ -141,7 +145,7 @@ int mintranscriptlen=200; // minimum length for a transcript to be printed
 uint junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=1;     // read coverage per bundle bp to accept it; // paper uses 3
-float singlethr=3;
+float singlethr=4.75;
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
 float mcov=1; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 int allowed_nodes=1000;
@@ -157,7 +161,8 @@ bool includesource=true;
 //bool EM=false;
 //bool weight=false;
 
-float isofrac=0.1;
+float isofrac=0.01;
+bool isunitig=false;
 GStr label("STRG");
 GStr ballgown_dir;
 
@@ -260,7 +265,7 @@ int main(int argc, char* argv[]) {
  // == Process arguments.
  GArgs args(argc, argv, 
    //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;keeptmp;bam;fr;rf;merge;exclude=zZSEihvteux:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;conservative;keeptmp;bam;fr;rf;merge;exclude=zZSEihvteuUx:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -869,6 +874,18 @@ void processOptions(GArgs& args) {
 	   fprintf(stdout,"%s\n",VERSION);
 	   exit(0);
 	}
+
+	if (args.getOpt("conservative")) {
+	  isofrac=0.05;
+	  singlethr=4.75;
+	  readthr=1.5;
+	  trim=false;
+	}
+
+	if (args.getOpt('t')) {
+		trim=false;
+	}
+
 	if (args.getOpt("fr")) {
 		fr_strand=true;
 	}
@@ -889,7 +906,6 @@ void processOptions(GArgs& args) {
 	     args.printCmdLine(stderr);
 	 }
 	 //complete=!(args.getOpt('i')!=NULL);
-	 trim=!(args.getOpt('t')!=NULL);
 	 includesource=!(args.getOpt('z')!=NULL);
 	 //EM=(args.getOpt('y')!=NULL);
 	 //weight=(args.getOpt('w')!=NULL);
@@ -1004,14 +1020,10 @@ void processOptions(GArgs& args) {
 	 // coverage saturation no longer used after version 1.0.4; left here for compatibility with previous versions
 	 s=args.getOpt('s');
 	 if (!s.is_empty()) {
-		 GMessage("Coverage saturation parameter is deprecated starting at version 1.0.5");
-		 /*
-		 int r=s.asInt();
-		 if (r<2) {
-			 GMessage("Warning: invalid -s value, setting coverage saturation threshold, using default (%d)\n", maxReadCov);
+		 singlethr=(float)s.asDouble();
+		 if (readthr<0.001 && !mergeMode) {
+			 GError("Error: invalid -s value, must be >=0.001)\n");
 		 }
-		 else maxReadCov=r;
-		 */
 	 }
 
 	 if (args.getOpt('G')) {
@@ -1027,6 +1039,8 @@ void processOptions(GArgs& args) {
 	 retained_intron=(args.getOpt('i')!=NULL);
 
 	 nomulti=(args.getOpt('u')!=NULL);
+
+	 isunitig=(args.getOpt('U')!=NULL);
 
 	 eonly=(args.getOpt('e')!=NULL);
 	 if(eonly && mergeMode) {

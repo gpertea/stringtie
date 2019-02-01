@@ -10,6 +10,7 @@
 #include "GIntHash.hh"
 
 #define MAX_NODE 1000000
+#define KMER 31
 
 #define DROP 0.5
 #define ERROR_PERC 0.1
@@ -27,10 +28,11 @@ const float MIN_VAL=-100000.0;
 const int MAX_MAXCOMP=200; // is 200 too much, or should I set it up to 150?
 
 //const uint largeintron=20000; // don't trust introns longer than this unless there is higher evidence; less than 10% of all human annotated introns are longer than this
-const uint longintron=70000; // don't trust introns longer than this unless there is higher evidence; about 98% of all human annotated introns are shorter than this
-const uint verylongintron=100000; // don't trust introns longer than this unless there is higher evidence; about 99% of all human annotated introns are shorter than this
+//const uint longintron=70000; // don't trust introns longer than this unless there is higher evidence; about 98% of all human annotated introns are shorter than this
+const uint longintron=100000; // don't trust introns longer than this unless there is higher evidence; about 99% of all human annotated introns are shorter than this
 const uint longintronanchor=25; // I need a higher anchor for long introns -> use a smaller value here? i.e. 20?
-const uint verylongintronanchor=35; // I need a higher anchor for very long introns
+//const uint verylongintron=100000; // don't trust introns longer than this unless there is higher evidence; about 99% of all human annotated introns are shorter than this
+//const uint verylongintronanchor=35; // I need a higher anchor for very long introns
 
 const float mismatchfrac=0.02;
 
@@ -121,10 +123,11 @@ struct CTransfrag {
 	GBitVec pattern;
 	float abundance;
 	bool real;
+	float srabund; // keeps abundance associated to srfrag
 	GVec<CPath> path; // stores all the possible paths that leave from a node to reach next node in a transfrag, and distributes the abundance of the transfrag between all possible continuations
 	float usepath;
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false):nodes(_nodes),pattern(bit),abundance(abund),real(treal),path(),usepath(-1) {}
-	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal),path(),usepath(-1) {
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, float sr=0):nodes(_nodes),pattern(bit),abundance(abund),real(treal),srabund(sr),path(),usepath(-1) {}
+	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal),srabund(0),path(),usepath(-1) {
 	}
 };
 
@@ -303,6 +306,7 @@ struct CReadAln:public GSeg {
 	short int nh;
 	uint len;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
+	bool unitig;
 	GVec<float> pair_count;   // keeps count for all paired reads
 	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
@@ -310,13 +314,14 @@ struct CReadAln:public GSeg {
     TAlnInfo* tinfo;
 	CReadAln(char _strand=0, short int _nh=0,
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
-					strand(_strand),nh(_nh), len(0), read_count(0), pair_count(),pair_idx(),
+					strand(_strand),nh(_nh), len(0), read_count(0), unitig(false),pair_count(),pair_idx(),
 					segs(), juncs(false), tinfo(tif) { }
 	CReadAln(CReadAln &rd):GSeg(rd.start,rd.end) { // copy contructor
 		strand=rd.strand;
 		nh=rd.nh;
 		len=rd.len;
 		read_count=rd.read_count;
+		unitig=rd.unitig;
 		pair_count=rd.pair_count;
 		pair_idx=rd.pair_idx;
 		juncs=rd.juncs;
@@ -486,10 +491,11 @@ struct CJunction:public GSeg {
 	double nreads_good;
 	double leftsupport;
 	double rightsupport;
-	double nm; // number of reads with a high nm (multi-mapped or high mismatch)
+	double nm; // number of reads with a high nm (high mismatch)
+	double mm; // number of multi-mapped reads that support junction
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
 			strand(_strand), guide_match(0), nreads(0),nreads_good(0),
-			leftsupport(0),rightsupport(0),nm(0) {}
+			leftsupport(0),rightsupport(0),nm(0),mm(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;
 		if (start>b.start) return false;
@@ -517,6 +523,8 @@ struct GReadAlnData {
 	~GReadAlnData() { delete tinfo; }
 };
 
+
+/*
 struct CTCov { //covered transcript info
 	int first_cov_exon;
 	int last_cov_exon;
@@ -548,6 +556,7 @@ struct CTCov { //covered transcript info
 		}
 	}
 };
+*/
 
 // bundle data structure, holds all input data parsed from BAM file
 // - r216 regression
@@ -579,7 +588,7 @@ struct BundleData {
  GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
  GPVec<GffObj> keepguides;
- GPVec<CTCov> covguides;
+ //GPVec<CTCov> covguides;
  GList<CPrediction> pred;
  RC_BundleData* rc_data;
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
