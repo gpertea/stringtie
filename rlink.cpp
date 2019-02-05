@@ -19504,46 +19504,49 @@ int printResults(BundleData* bundleData,int geneno, GStr& refname) {
 				if(!eonly) {
 					int start=(int)refgene[i].exons[j].start-refstart;
 					int end=(int)refgene[i].exons[j].end-refstart+1;
-					if(start<0) start=0;
-					if(end>=bpcov[1].Count()) end=bpcov[1].Count()-1;
-					//fprintf(stderr,"geneid=%s ex[%d]: start=%d end=%d gene_start=%d gene_end=%d guides.count=%d refstart=%d\n",
+
+					if(start<bpcov[1].Count()) {
+						if(start<0) start=0;
+						if(end>=bpcov[1].Count()) end=bpcov[1].Count()-1;
+						//fprintf(stderr,"geneid=%s ex[%d]: start=%d end=%d gene_start=%d gene_end=%d guides.count=%d refstart=%d\n",
 						//refgene[i].geneID,j,refgene[i].exons[j].start,refgene[i].exons[j].end,refgene[i].start,refgene[i].end,guides.Count(),refstart);
 
-					/*** non-cummulativ bpcov
-					for(int k=start;k<end;k++) {
+						/*** non-cummulativ bpcov
+						for(int k=start;k<end;k++) {
+							switch(s) {
+							case 0:
+								//cov+=bpcov[1][k]-bpcov[2][k];
+								if(bpcov[2][k]) cov+=bpcov[0][k]+(bpcov[1][k]-bpcov[0][k]-bpcov[2][k])*bpcov[0][k]/(bpcov[0][k]+bpcov[2][k]);
+								else cov+=bpcov[1][k];
+								break;
+							case 1: cov+=bpcov[1][k]-bpcov[2][k]-bpcov[0][k];break;
+							case 2:
+								//cov+=bpcov[1][k]-bpcov[0][k];
+								if(bpcov[0][k]) cov+=bpcov[2][k]+(bpcov[1][k]-bpcov[0][k]-bpcov[2][k])*bpcov[2][k]/(bpcov[0][k]+bpcov[2][k]);
+								else cov+=bpcov[1][k];
+								break;
+							}
+						}
+						 */
+
+						// cummulative bpcov
+						float localcov[3]={0,0,0};
+						for(int i=0;i<3;i++) {
+							if(end) localcov[i]=bpcov[i][end-1];
+							if(start) localcov[i]-=bpcov[i][start-1];
+						}
+
 						switch(s) {
 						case 0:
-							//cov+=bpcov[1][k]-bpcov[2][k];
-							if(bpcov[2][k]) cov+=bpcov[0][k]+(bpcov[1][k]-bpcov[0][k]-bpcov[2][k])*bpcov[0][k]/(bpcov[0][k]+bpcov[2][k]);
-							else cov+=bpcov[1][k];
+							if(localcov[2]) cov+=localcov[0]+(localcov[1]-localcov[0]-localcov[2])*localcov[0]/(localcov[0]+localcov[2]);
+							else cov+=localcov[1];
 							break;
-						case 1: cov+=bpcov[1][k]-bpcov[2][k]-bpcov[0][k];break;
+						case 1: cov+=localcov[1]-localcov[2]-localcov[0];break;
 						case 2:
-							//cov+=bpcov[1][k]-bpcov[0][k];
-							if(bpcov[0][k]) cov+=bpcov[2][k]+(bpcov[1][k]-bpcov[0][k]-bpcov[2][k])*bpcov[2][k]/(bpcov[0][k]+bpcov[2][k]);
-							else cov+=bpcov[1][k];
+							if(localcov[0]) cov+=localcov[2]+(localcov[1]-localcov[0]-localcov[2])*localcov[2]/(localcov[0]+localcov[2]);
+							else cov+=localcov[1];
 							break;
 						}
-					}
-					*/
-
-					// cummulative bpcov
-					float localcov[3]={0,0,0};
-					for(int i=0;i<3;i++) {
-						if(end) localcov[i]=bpcov[i][end-1];
-						if(start) localcov[i]-=bpcov[i][start-1];
-					}
-
-					switch(s) {
-					case 0:
-						if(localcov[2]) cov+=localcov[0]+(localcov[1]-localcov[0]-localcov[2])*localcov[0]/(localcov[0]+localcov[2]);
-						else cov+=localcov[1];
-						break;
-					case 1: cov+=localcov[1]-localcov[2]-localcov[0];break;
-					case 2:
-						if(localcov[0]) cov+=localcov[2]+(localcov[1]-localcov[0]-localcov[2])*localcov[2]/(localcov[0]+localcov[2]);
-						else cov+=localcov[1];
-						break;
 					}
 				}
 			}
