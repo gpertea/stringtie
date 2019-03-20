@@ -780,19 +780,18 @@ if(!mergeMode) {
 		int nl;
 		int istr;
 		int tlen;
-		float tcov;
+		double tcov;
 		//float fpkm;
-		float calc_fpkm;
-		float calc_tpm;
+		double calc_fpkm;
+		double calc_tpm;
 		int t_id;
 		while(fgetline(linebuf,linebuflen,ftmp_in)) {
-			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
-			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
+			sscanf(linebuf,"%d %d %d %d %lf", &istr, &nl, &tlen, &t_id, &tcov);
 			//for the rare cases tcov < 0, invert it ??
 			//if (tcov<0) tcov=-tcov; //should not happen
-			if (tcov<0) tcov=0;
-			calc_fpkm=tcov*1000000000/Frag_Len;
-			calc_tpm=tcov*1000000/Cov_Sum;
+			if (tcov<0.0) tcov=0.0;
+			calc_fpkm=tcov*1000000000.0/Frag_Len;
+			calc_tpm=tcov*1000000.0/Cov_Sum;
 			if(istr) { // this is a transcript
 				if (ballgown && t_id>0) {
 					guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
