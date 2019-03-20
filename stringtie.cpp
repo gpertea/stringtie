@@ -756,7 +756,7 @@ if(!mergeMode) {
 			sscanf(linebuf,"%d %d %d %d %lf", &istr, &nl, &tlen, &t_id, &tcov);
 			//for the rare cases tcov < 0, invert it ??
 			//if (tcov<0) tcov=-tcov; //should not happen
-			if (tcov<0.0) tcov=0.0;
+			if (tcov<=0.0) tcov=0.0;
 			calc_fpkm=tcov*1000000000.0/Frag_Len;
 			calc_tpm=tcov*1000000.0/Cov_Sum;
 			if(istr) { // this is a transcript
