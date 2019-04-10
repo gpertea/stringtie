@@ -234,56 +234,17 @@ FILE* Gfopen(const char *path, char *mode) {
 bool GstrEq(const char* a, const char* b) {
 	 if (a==NULL || b==NULL) return false;
 	 return (strcmp(a,b)==0);
-	 /*
-	 register int i=0;
-	 while (a[i]==b[i]) {
-		 if (a[i]==0) return true;
-		 ++i;
-	 }
-	 return false;
-	 */
 }
 
 bool GstriEq(const char* a, const char* b) {
 	 if (a==NULL || b==NULL) return false;
 	 return (strcasecmp(a,b)==0);
-	 /*
-	 register int i=0;
-	 while (tolower((unsigned char)a[i])==tolower((unsigned char)b[i])) {
-		 if (a[i]==0) return true;
-	 }
-	 return false;
-	 */
 }
 
 int Gstricmp(const char* a, const char* b, int n) {
  if (a==NULL || b==NULL) return a==NULL ? -1 : 1;
  if (n>=0) return strncasecmp(a,b,n);
       else return strcasecmp(a,b);
-/*
- if (a==NULL || b==NULL) return a==NULL ? -1 : 1;
- register int ua, ub;
- if (n<0) {
-   while ((*a!=0) && (*b!=0)) {
-    ua=tolower((unsigned char)*a);
-    ub=tolower((unsigned char)*b);
-    a++;b++;
-    if (ua!=ub) return ua < ub ? -1 : 1;
-    }
-    return (*a == 0) ? ( (*b == 0) ? 0 : -1 ) : 1 ;
-  }
- else {
-   while (n && (*a!=0) && (*b!=0)) {
-    ua=tolower((unsigned char)*a);
-    ub=tolower((unsigned char)*b);
-    a++;b++;n--;
-    if (ua!=ub) return ua < ub ? -1 : 1;
-    }
-    //return (*a == 0) ? ( (*b == 0) ? 0 : -1 ) : 1 ;
-   if (n==0) return 0;
-   else { return (*a == 0) ? ( (*b == 0) ? 0 : -1 ) : 1 ; }
-  }
-*/
 }
 
 int strsplit(char* str, GDynArray<char*>& fields, const char* delim, int maxfields) {
@@ -669,8 +630,8 @@ char* rstrstr(const char* rstart, const char *lend, const char* substr) {
 
 //hash function used for strings in GHash
 int strhash(const char* str){
-  register int h=0;
-  register int g;
+  int h=0;
+  int g;
   while (*str) {
     h=(h<<4)+*str++;
     g=h&0xF0000000;

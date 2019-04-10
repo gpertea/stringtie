@@ -191,7 +191,6 @@ bool GstriEq(const char* a, const char* b);
 
 //basic swap template function
 template<class T> void Gswap(T& lhs, T& rhs) {
- //register T tmp=lhs;
  T tmp=lhs; //requires copy operator
  lhs=rhs;
  rhs=tmp;
