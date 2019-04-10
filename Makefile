@@ -96,7 +96,7 @@ else
   else
      #just plain debug build
      DEBUG_BUILD=1
-     CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
+     CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-ggdb -g3 -O0 -fvar-tracking-assignments -fno-omit-frame-pointer)
      ifneq (, $(findstring darwin, $(DMACH)))
         CXXFLAGS += -gdwarf-3
      endif
