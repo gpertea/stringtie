@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.10.3"
+#define GCLIB_VERSION "0.11.2"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -15,13 +15,19 @@
 #include <stdint.h>
 #include <stdarg.h>
 
-#if defined __WIN32__ || defined WIN32 || defined _WIN32 || defined _WIN32_
+#if defined __WIN32 || defined __WIN32__ || defined _WIN32 || defined _WIN32_ || defined _WINDOWS
   #ifndef __WIN32__
     #define __WIN32__
   #endif
   #include <windows.h>
   #include <direct.h>
   #include <io.h>
+  #ifndef strcasecmp
+      #define strcasecmp _stricmp
+  #endif
+  #ifndef strncasecmp
+      #define strncasecmp _strnicmp
+  #endif
   #define CHPATHSEP '\\'
   #undef off_t
   #define off_t int64_t
@@ -32,10 +38,6 @@
 		#ifdef _fseeki64
 			#define fseeko(stream, offset, origin) _fseeki64(stream, offset, origin)
 		#else
-			/*
-			#define _DEFINE_WIN32_FSEEKO
-			int fseeko(FILE *stream, off_t offset, int whence);
-			*/
 			#define fseeko fseek
 		#endif
   #endif
@@ -298,29 +300,32 @@ class GSeg {
   GSeg(uint s=0,uint e=0) {
     if (s>e) { start=e;end=s; }
         else { start=s;end=e; }
-    }
+  }
   //check for overlap with other segment
   uint len() { return end-start+1; }
   bool overlap(GSeg* d) {
      //return start<d->start ? (d->start<=end) : (start<=d->end);
      return (start<=d->end && end>=d->start);
-     }
+  }
 
   bool overlap(GSeg& d) {
      //return start<d.start ? (d.start<=end) : (start<=d.end);
      return (start<=d.end && end>=d.start);
-     }
+  }
 
   bool overlap(GSeg& d, int fuzz) {
      //return start<d.start ? (d.start<=end+fuzz) : (start<=d.end+fuzz);
      return (start<=d.end+fuzz && end+fuzz>=d.start);
-     }
+  }
+
+  bool overlap(uint x) {
+	return (start<=x && x<=end);
+  }
 
   bool overlap(uint s, uint e) {
      if (s>e) { Gswap(s,e); }
-     //return start<s ? (s<=end) : (start<=e);
      return (start<=e && end>=s);
-     }
+  }
 
   //return the length of overlap between two segments
   int overlapLen(GSeg* r) {
@@ -343,15 +348,31 @@ class GSeg {
         if (start>rend) return 0;
         return (rend<end)? rend-start+1 : end-start+1;
         }
-     }
+  }
+
+  bool contains(GSeg* s) {
+	  return (start<=s->start && end>=s->end);
+  }
+  bool contained(GSeg* s) {
+	  return (s->start<=start && s->end>=end);
+  }
 
   //fuzzy coordinate matching:
-  bool coordMatch(GSeg* s, uint fuzz=0) {
+  bool coordMatch(GSeg* s, uint fuzz=0) { //caller must check for s!=NULL
     if (fuzz==0) return (start==s->start && end==s->end);
     uint sd = (start>s->start) ? start-s->start : s->start-start;
     uint ed = (end>s->end) ? end-s->end : s->end-end;
     return (sd<=fuzz && ed<=fuzz);
-    }
+  }
+  void expand(int by) { //expand in both directions
+	  start-=by;
+	  end+=by;
+  }
+  void expandInclude(uint rstart, uint rend) { //expand to include given coordinates
+	 if (rstart>rend) { Gswap(rstart,rend); }
+	 if (rstart<start) start=rstart;
+	 if (rend>end) end=rend;
+  }
   //comparison operators required for sorting
   bool operator==(GSeg& d){
       return (start==d.start && end==d.end);
@@ -614,6 +635,7 @@ void writeFasta(FILE *fw, const char* seqid, const char* descr,
 //updates the char* pointer to be after the last digit parsed
 bool parseNumber(char* &p, double& v);
 bool parseDouble(char* &p, double& v); //just an alias for parseNumber
+bool parseFloat(char* &p, float& v);
 
 bool strToInt(char* p, int& i);
 bool strToUInt(char* p, uint& i);

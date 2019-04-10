@@ -1313,6 +1313,7 @@ bool GStr::nextToken(GStr& token) {
 
 size_t GStr::read(FILE* stream, const char* delimiter, size_t bufsize) {
 //read up to (and including) the given delimiter string
+//if delimiter is NULL or zero length, it will read the whole file
  if (readbuf==NULL) {
     GMALLOC(readbuf, bufsize);
     readbufsize=bufsize;
@@ -1330,26 +1331,29 @@ size_t GStr::read(FILE* stream, const char* delimiter, size_t bufsize) {
     }
  size_t numread;
  size_t acc_len=0; //accumulated length
- int seplen=strlen(delimiter);
+ int dlen=0;
+ if (delimiter!=NULL && delimiter[0]!=0)
+	 dlen=strlen(delimiter);
  void* p=NULL;
- //Data *data = new_data(0);
  Data* data = &null_data;
  do {
    numread=fread(readbuf, 1, bufsize, stream);
    if (numread) {
-     p=Gmemscan(readbuf, bufsize, (void*) delimiter, seplen);
+	 if (dlen>0)
+       p=Gmemscan(readbuf, bufsize, (void*) delimiter, dlen);
      if (p!=NULL) {//found the delimiter
            //position the stream after it
            int l = (char*)p-(char*)readbuf;
-           fseek(stream, l+seplen-numread, SEEK_CUR);
-           numread=l+seplen;
-           }
-        else {//not found, go back if not eof
-           if (numread==bufsize) {
-               fseek(stream, -seplen, SEEK_CUR); //check if this works!
-               numread-=seplen;
-               }
-           }
+           fseek(stream, l+dlen-numread, SEEK_CUR);
+           numread=l+dlen;
+      } else {//not found, go back if not eof
+          if (numread==bufsize) {
+              if (dlen>0) {
+                 fseek(stream, -dlen, SEEK_CUR); //check if this works!
+                 numread-=dlen;
+              }
+          }
+      }
       if (data==&null_data) {
         data=new_data(numread);
         ::memcpy(data->chars, readbuf, numread);

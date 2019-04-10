@@ -44,8 +44,8 @@ class GFaSeqGet {
   FILE* fh;
   off_t fseqstart; //file offset where the sequence actually starts
   uint seq_len; //total sequence length, if known (when created from GFastaIndex)
-  int line_len; //length of each line of text
-  int line_blen; //binary length of each line
+  uint line_len; //length of each line of text
+  uint line_blen; //binary length of each line
                  // = line_len + number of EOL character(s)
   GSubSeq* lastsub;
   void initialParse(off_t fofs=0, bool checkall=true);

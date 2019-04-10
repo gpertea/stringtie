@@ -58,7 +58,7 @@ protected:
 public:
   static void DefaultFreeProc(pointer item) {
       delete (OBJ*)item;
-      }
+  }
 public:
   GHash(GFreeProc* freeProc); // constructs of an empty hash
   GHash(bool doFree=true); // constructs of an empty hash (free the item objects)
@@ -69,7 +69,7 @@ public:
   int Count() const { return fCount; }// the total number of entries in the table.
 
   // Insert a new entry into the table given key and mark.
-  // If there is already an entry with that key, leave it unchanged,
+  // If there is already an entry with that key, leave it unchanged
   OBJ* Add(const char* ky, OBJ* ptr=NULL, bool mrk=false);
 
   //same with Add, but frees the old element if it's a replacement
@@ -690,5 +690,26 @@ template <class OBJ> GHash<OBJ>::~GHash(){
     }
   GFREE(hash);
   }
+
+class GStrSet:public GHash<int> {
+protected:
+	bool free_keys;
+public:
+	GStrSet(bool shared_keys=false):GHash<int>(false), free_keys(!shared_keys) {
+	}
+	void Add(const char* str) {
+		if (free_keys) {
+			//allocates a copy of str
+			GHash<int>::Add(str, NULL);
+		}
+		else this->shkAdd(str, NULL);
+	}
+	void add(const char* str) { this->Add(str); }
+	void push(const char* str) { this->Add(str); }
+	bool has(const char* str) {
+		return hasKey(str);
+	}
+
+};
 
 #endif

@@ -10,8 +10,8 @@ Sortable collection of pointers to objects
 
 #define GVEC_INDEX_ERR "GVec error: invalid index: %d\n"
  #if defined(NDEBUG) || defined(NODEBUG) || defined(_NDEBUG) || defined(NO_DEBUG)
- #define TEST_INDEX(x) 
-#else 
+ #define TEST_INDEX(x)
+#else
  #define TEST_INDEX(x) \
  if (x<0 || x>=fCount) GError(GVEC_INDEX_ERR, x)
 #endif
@@ -44,21 +44,9 @@ template<> struct IsPrimitiveType<unsigned long> { enum { VAL = 1 }; };
 template<> struct IsPrimitiveType<long long> { enum { VAL = 1 }; };
 template<> struct IsPrimitiveType<unsigned long long> { enum { VAL = 1 }; };
 
-/*
-template<> struct IsPrimitiveType<int64_t> { enum { VAL = 1 }; };
-template<> struct IsPrimitiveType<uint64_t> { enum { VAL = 1 }; };
-template<> struct IsPrimitiveType<int32_t> { enum { VAL = 1 }; };
-template<> struct IsPrimitiveType<uint32_t> { enum { VAL = 1 }; };
-template<> struct IsPrimitiveType<int16_t> { enum { VAL = 1 }; };
-template<> struct IsPrimitiveType<uint16_t> { enum { VAL = 1 }; };
-template<> struct IsPrimitiveType<int8_t> { enum { VAL = 1 }; };
-template<> struct IsPrimitiveType<uint8_t> { enum { VAL = 1 }; };
-*/
-
-
-template <class OBJ> int DefLTCompareProc(const pointer p1, const pointer p2) {
- const OBJ& o1 = *((OBJ*) p1);
- const OBJ& o2 = *((OBJ*) p2);
+template <class OBJ> int DefLTCompareProc(pointer p1, pointer p2) {
+ OBJ& o1 = *((OBJ*) p1);
+ OBJ& o2 = *((OBJ*) p2);
  if (o1 < o2) return -1;
    else return ((o2 < o1) ? 1 : 0 );
 }
@@ -85,7 +73,7 @@ template <class OBJ> class GVec {
     void Grow(int idx, OBJ& item); //grow and add/insert item copy
     void Reverse(); //WARNING: will break the sort order if SORTED!
     int Add(OBJ* item); // simply append to the end of fArray, reallocating as needed
-    int Add(OBJ& item) { return Add(&item); } 
+    int Add(OBJ& item) { return Add(&item); }
     int cAdd(OBJ item) { return Add(&item); } //all these will CREATE a new OBJ and COPY to it
     //                   // using OBJ copy operator=
     // -- stack/queue usage:
@@ -117,7 +105,7 @@ template <class OBJ> class GVec {
     void Delete(int index);
     void Replace(int idx, OBJ& item); //Put, use operator= to copy
     void Exchange(int idx1, int idx2);
-    void Swap(int idx1, int idx2)  { Exchange(idx1, idx2); } 
+    void Swap(int idx1, int idx2)  { Exchange(idx1, idx2); }
     int  Capacity() { return fCapacity; }
     //this will reject identical items in sorted lists only!
     void setCapacity(int NewCapacity);
@@ -151,10 +139,10 @@ template <class OBJ> class GPVec {
     void Grow();
     void Grow(int idx, OBJ* newitem);
     void qSort(int L, int R, GCompareProc* cmpFunc);
-  public:  
+  public:
     static void DefaultFreeProc(pointer item) {
       delete (OBJ*)item;
-      }
+    }
     virtual ~GPVec();
     GPVec(int init_capacity=2, bool free_elements=true); //also the default constructor
     GPVec(bool free_elements);
@@ -306,7 +294,7 @@ template <class OBJ> void GVec<OBJ>::setCapacity(int NewCapacity) {
 		//fArray=new OBJ[NewCapacity]();
 		fArray=new OBJ[NewCapacity];
         for (int i=0;i<this->fCount;i++) {
-          fArray[i] = oldArray[i]; 
+          fArray[i] = oldArray[i];
           }// we need operator= here
         //wouldn't be faster to use memcpy instead?
         //memcpy(fArray, oldArray, fCount*sizeof(OBJ));
@@ -342,7 +330,7 @@ template <class OBJ> void GVec<OBJ>::Reverse() {
      c=fArray[l];fArray[l]=fArray[r];
      fArray[r]=c;
      l++;r--;
-     }
+  }
 }
 
 template <class OBJ> void GVec<OBJ>::Grow(int idx, OBJ& item) {
@@ -351,7 +339,7 @@ template <class OBJ> void GVec<OBJ>::Grow(int idx, OBJ& item) {
  if (NewCapacity <= fCount || NewCapacity >= MAXLISTSIZE)
     GError(GVEC_CAPACITY_ERR, NewCapacity);
     //error: capacity not within range
- //if (NewCapacity!=fCapacity) { 
+ //if (NewCapacity!=fCapacity) {
  if (idx==fCount) { //append item
          //GREALLOC(fArray, NewCapacity*sizeof(OBJ));
          setCapacity(NewCapacity);
@@ -444,8 +432,8 @@ template <class OBJ> void GVec<OBJ>::Insert(int idx, OBJ* item) {
     }
  //move data around to make room for the new item
  if (idx<fCount) {
-   //copy after-idx items (shift up) 
-   if (IsPrimitiveType<OBJ>::VAL) {      
+   //copy after-idx items (shift up)
+   if (IsPrimitiveType<OBJ>::VAL) {
       memmove(&fArray[idx+1],&fArray[idx], (fCount-idx)*sizeof(OBJ));
    }
    else {
@@ -486,7 +474,7 @@ template <class OBJ> void GVec<OBJ>::Delete(int index) {
  TEST_INDEX(index);
  fCount--;
  if (IsPrimitiveType<OBJ>::VAL) {
-   if (index<fCount) 
+   if (index<fCount)
     //move higher elements if any (shift down)
       memmove(&fArray[index], &fArray[index+1], (fCount-index)*sizeof(OBJ));
    }
@@ -559,7 +547,7 @@ template <class OBJ> void GVec<OBJ>::Sort(GCompareProc* cmpFunc) {
      qSort(0, this->fCount-1, cmpFunc);
 }
 
-template <class OBJ> void GVec<OBJ>::Sort() {  
+template <class OBJ> void GVec<OBJ>::Sort() {
   GCompareProc* cmpFunc = DefLTCompareProc<OBJ>;
   Sort(cmpFunc);
 }
@@ -751,7 +739,7 @@ template <class OBJ> void GPVec<OBJ>::Grow(int idx, OBJ* newitem) {
    GFREE(fList);
    fList=newList;
    }
- fCount++; 
+ fCount++;
  fCapacity=NewCapacity;
 }
 

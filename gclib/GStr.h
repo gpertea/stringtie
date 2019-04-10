@@ -82,7 +82,7 @@ class GStr {
         GStr& cut(int index = 0, int len = -1); //delete a specified length
         GStr& remove(int from, int to) {
             return cut(from, to-from+1);
-            }
+        }
 
         //paste a string at the specified position
         GStr& paste(const GStr& s, int index = 0, int len=-1);

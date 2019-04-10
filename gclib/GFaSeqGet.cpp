@@ -93,7 +93,7 @@ void GFaSeqGet::initialParse(off_t fofs, bool checkall) {
  seqname=fseqname(); //takeover the string pointer
  if (c==EOF) GError(gfa_ERRPARSE);
  line_len=0;
- int lendlen=0;
+ uint lendlen=0;
  while ((c=getc(fh))!=EOF) {
   if (c=='\n' || c=='\r') { //end of line encountered
      if (line_len>0) { //end of the first "sequence" line
@@ -119,8 +119,8 @@ void GFaSeqGet::initialParse(off_t fofs, bool checkall) {
  if (c==EOF) return;
  // -- you don't need to check it all if you're sure it's safe
  if (checkall) { //validate the rest of the FASTA records
-   int llen=0; //last line length
-   int elen=0; //length of last line ending
+   uint llen=0; //last line length
+   uint elen=0; //length of last line ending
    bool waseol=true;
    while ((c=getc(fh))!=EOF) {
      if (c=='>' && waseol) { ungetc(c,fh); break; }
@@ -270,64 +270,87 @@ char* GFaSeqGet::copyRange(uint cstart, uint cend, bool revCmpl, bool upCase) {
 const char* GFaSeqGet::loadsubseq(uint cstart, int& clen) {
   //assumes enough lastsub->sq space allocated previously
   //only loads the requested clen chars from file, at offset &lastsub->sq[cstart-lastsub->sqstart]
-  int sofs=cstart-lastsub->sqstart;
-  int lendlen=line_blen-line_len;
-  char* seqp=lastsub->sq+sofs;
+  if (cstart>seq_len || lastsub->sqstart>cstart) {
+	   clen=0; //invalid request
+	   return NULL;
+  }
+  int eol_size=line_blen-line_len;
+  char* seqp=lastsub->sq+(int)(cstart-lastsub->sqstart); //should be positive offset?
   //find the proper file offset and read the appropriate lines
-  uint seqofs=cstart-1;
-  uint startlno = seqofs/line_len;
-  int lineofs = seqofs % line_len;
-  off_t fstart=fseqstart + (startlno*line_blen);
-  fstart+=lineofs;
-
-  fseeko(fh, fstart, SEEK_SET);
-  int toread=clen;
-  int maxlen=(seq_len>0)? seq_len-cstart+1 : MAX_FASUBSEQ ;
-  if (toread==0) toread=maxlen; //read max allowed, or to the end of file
-  int actualrlen=0;
-  int sublen=0;
+  cstart--; //seq start offset, 0-based
+  int lineofs = cstart % line_len;
+  //file offset, relative to the first letter of the sequence in the file
+  off_t f_start= ((int)(cstart/line_len))*line_blen + lineofs;
+  uint letters_toread=clen; //actual sequence letters to read
+  int maxlen=(seq_len>0)? seq_len-cstart : MAX_FASUBSEQ ;
+  if (clen==0) letters_toread=maxlen; //read max allowed, or to the end of file
+  uint c_end=cstart+letters_toread; //cstart+clen
+  off_t f_end= ((int)(c_end/line_len))*line_blen + c_end % line_len;
+  int bytes_toRead=f_end-f_start;
+  f_start+=fseqstart; // file offset from the beginning of the file
+  fseeko(fh, f_start, SEEK_SET);
+  size_t actual_read=0;
+  char* smem=NULL;
+  GMALLOC(smem, bytes_toRead);
+  actual_read=fread((void*)smem, 1, bytes_toRead, fh);
+  if (actual_read==0) {
+	  //error reading any bytes from the file, or invalid request
+	  clen=0;
+	  return (const char*)seqp;
+  }
+  uint mp=0; //current read offset in smem
+  uint sublen=0; //current sequence letter storage offset in seqp
+  //copySeqOnly(seqp, smem, actualrlen);
+  bool rdone=false;
   if (lineofs>0) { //read the partial first line
-    int reqrlen=line_len-lineofs;
-    if (reqrlen>toread) reqrlen=toread; //in case we need to read just a few chars
-    actualrlen=fread((void*)seqp, 1, reqrlen, fh);
-    if (actualrlen<reqrlen) { //eof reached prematurely
-      while (seqp[actualrlen-1]=='\n' || seqp[actualrlen-1]=='\r') actualrlen--;
-      //check for new sequences in between
-      clen=actualrlen;
-      sublen+=actualrlen;
+    uint reqrlen=line_len-lineofs;
+    if (reqrlen>letters_toread) {
+    	reqrlen=letters_toread; //in case we need to read just a few chars
+    	rdone=true;
+    }
+    if (reqrlen>actual_read) {
+    	reqrlen=actual_read; //incomplete file read?
+    	rdone=true;
+    }
+    memcpy((void*)seqp, (void*)smem, reqrlen);
+    if (rdone) { //eof reached prematurely
+      GFREE(smem);
+      clen=reqrlen;
       return (const char*)seqp;
-      }
-    toread-=reqrlen;
+    }
+    letters_toread-=reqrlen;
     sublen+=reqrlen;
-    fseeko(fh, lendlen, SEEK_CUR);
+    mp+=reqrlen+eol_size;
+    if (mp>actual_read) {
+        GFREE(smem);
+        clen=reqrlen;
+        return (const char*)seqp;
     }
+  }//loading first line
   //read the rest of the lines
-  while (toread>=line_len) {
-    char* rseqp=&(seqp[sublen]);
-    actualrlen=fread((void*)rseqp, 1, line_len, fh);
-    if (actualrlen<line_len) {
-      while (rseqp[actualrlen-1]=='\n' || rseqp[actualrlen-1]=='\r') actualrlen--;
-      sublen+=actualrlen;
-      clen=sublen;
-      return (const char*)seqp;
-      }
-    toread-=actualrlen;
-    sublen+=actualrlen;
-    fseeko(fh, lendlen, SEEK_CUR);
-    }
+  while (letters_toread>=line_len && mp+line_len<actual_read) {
+    //char* rseqp=&(seqp[sublen]);
+    memcpy((void*)(&seqp[sublen]), (void*)(&smem[mp]), line_len);
+    sublen+=line_len;
+    letters_toread-=line_len;
+    mp+=line_blen;
+  }
+  if (mp>=actual_read) {
+	GFREE(smem);
+	clen=sublen;
+	return (const char*)seqp;
+  }
   // read the last partial line, if any
-  if (toread>0) {
-    char* rseqp=&(seqp[sublen]);
-    actualrlen=fread((void*)rseqp, 1, toread, fh);
-    if (actualrlen<toread) {
-      while (rseqp[actualrlen-1]=='\n' || rseqp[actualrlen-1]=='\r')
-          actualrlen--;
-      }
-    sublen+=actualrlen;
-    }
+  if (letters_toread>0) {
+    if (mp+letters_toread>=actual_read)
+    	 letters_toread=actual_read-mp-1; //TODO - check these boundary cases
+    memcpy((void*)(&seqp[sublen]), (void*)(&smem[mp]), letters_toread);
+    sublen+=letters_toread;
+  }
   //lastsub->sqlen+=sublen;
+  GFREE(smem);
   clen=sublen;
   return (const char*)seqp;
-  }
+}
 
 

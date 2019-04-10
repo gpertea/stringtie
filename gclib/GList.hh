@@ -78,7 +78,7 @@ template <class OBJ> class GList:public GPVec<OBJ> {
   protected:
     bool fUnique;
     GCompareProc* fCompareProc; //a pointer to a Compare function
-    
+
     static int DefaultCompareProc(const pointer item1, const pointer item2) {
       //operator< MUST be defined for OBJ class!
       if (*((OBJ*)item2) < *((OBJ*)item1)) return 1;
@@ -134,7 +134,7 @@ template <class OBJ> class GList:public GPVec<OBJ> {
                //based on the Compare function
                //if not, a linear search is performed, but
                //this needs the == operator to have been defined for OBJ
-    
+
     void Put(int idx, OBJ* item, bool re_sort=false);
     bool Found(OBJ* item, int & idx); // sorted only;
                //search by content; if found, returns true and idx will be the index
@@ -145,7 +145,7 @@ template <class OBJ> class GList:public GPVec<OBJ> {
     int Remove(OBJ* item); //search for pointer, using binary search if sorted
     void Insert(int idx, OBJ* item); //unsorted only, place item at position idx
     void Move(int curidx, int newidx);
-}; //GList 
+}; //GList
 
 
 
@@ -349,7 +349,7 @@ template <class OBJ> GList<OBJ>::GList(GList<OBJ>* plist):GPVec<OBJ>(0) { //anot
  this->fList=NULL;
  if (this->fCapacity>0) {
      GMALLOC(this->fList, this->fCapacity*sizeof(OBJ*));
-     }
+ }
  fUnique=plist->fUnique;
  fCompareProc=plist->fCompareProc;
  this->fFreeProc=plist->fFreeProc;
@@ -561,14 +561,14 @@ template <class OBJ> bool GList<OBJ>::Found(OBJ* item, int& idx) {
        i = (l + h) >> 1;
        c = (*fCompareProc)(this->fList[i], item);
        if (c < 0)  l = i + 1;
-         else {
-            h = i - 1;
-            if (c == 0) {
-                 idx=i;
-                 return true;
-                }
-            }
-       } //while
+       else {
+          h = i - 1;
+          if (c == 0) {
+               idx=i;
+               return true;
+          }
+       }
+   } //while
    idx = l;
    return false;
    }
