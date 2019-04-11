@@ -8,7 +8,7 @@ INCDIRS := -I. -I${GDIR} -I${BAM}
 CXX   := $(if $(CXX),$(CXX),g++)
 
 BASEFLAGS := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
--D_LARGEFILE_SOURCE  -std=c++0x -fno-strict-aliasing -fno-exceptions -fno-rtti
+-D_LARGEFILE_SOURCE -std=c++0x -fno-strict-aliasing -fno-exceptions -fno-rtti
 #for gcc 8+ add: -Wno-class-memaccess
 GCCVER5 := $(shell expr `${CXX} -dumpversion | cut -f1 -d.` \>= 5)
 ifeq "$(GCCVER5)" "1"

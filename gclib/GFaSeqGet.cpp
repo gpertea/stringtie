@@ -342,10 +342,12 @@ const char* GFaSeqGet::loadsubseq(uint cstart, int& clen) {
   }
   // read the last partial line, if any
   if (letters_toread>0) {
-    if (mp+letters_toread>=actual_read)
-    	 letters_toread=actual_read-mp-1; //TODO - check these boundary cases
-    memcpy((void*)(&seqp[sublen]), (void*)(&smem[mp]), letters_toread);
-    sublen+=letters_toread;
+    if (mp+letters_toread>actual_read)
+    	 letters_toread=actual_read-mp;
+    if (letters_toread>0) {
+       memcpy((void*)(&seqp[sublen]), (void*)(&smem[mp]), letters_toread);
+       sublen+=letters_toread;
+    }
   }
   //lastsub->sqlen+=sublen;
   GFREE(smem);
