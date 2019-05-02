@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "1.3.5"
+#define VERSION "1.3.5b"
 
 //#define DEBUGPRINT 1
 
@@ -268,8 +268,9 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    FILE* f=fopen(guidegff.chars(),"r");
    if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
        guidegff.chars());
-   //                transcripts_only    sort gffr->gfflst by loc?
-   GffReader gffr(f,       true,                   true); //loading only recognizable transcript features
+   //                transcripts_only    sort by location?
+   GffReader gffr(f,       true,             true); //loading only recognizable transcript features
+   gffr.setRefAlphaSorted(); //alphabetical sorting of refseq IDs
    gffr.showWarnings(verbose);
    //        keepAttrs    mergeCloseExons   noExonAttrs
    gffr.readAll(false,          true,        true);
