@@ -1,5 +1,4 @@
 #include "GBase.h"
-#include <stdarg.h>
 #include <ctype.h>
 #include <errno.h>
 
@@ -234,46 +233,18 @@ FILE* Gfopen(const char *path, char *mode) {
 
 bool GstrEq(const char* a, const char* b) {
 	 if (a==NULL || b==NULL) return false;
-	 register int i=0;
-	 while (a[i]==b[i]) {
-		 if (a[i]==0) return true;
-		 ++i;
-	 }
-	 return false;
+	 return (strcmp(a,b)==0);
 }
 
 bool GstriEq(const char* a, const char* b) {
 	 if (a==NULL || b==NULL) return false;
-	 register int i=0;
-	 while (tolower((unsigned char)a[i])==tolower((unsigned char)b[i])) {
-		 if (a[i]==0) return true;
-	 }
-	 return false;
+	 return (strcasecmp(a,b)==0);
 }
 
 int Gstricmp(const char* a, const char* b, int n) {
  if (a==NULL || b==NULL) return a==NULL ? -1 : 1;
- register int ua, ub;
- if (n<0) {
-   while ((*a!=0) && (*b!=0)) {
-    ua=tolower((unsigned char)*a);
-    ub=tolower((unsigned char)*b);
-    a++;b++;
-    if (ua!=ub) return ua < ub ? -1 : 1;
-    }
-    return (*a == 0) ? ( (*b == 0) ? 0 : -1 ) : 1 ;
-  }
- else {
-   while (n && (*a!=0) && (*b!=0)) {
-    ua=tolower((unsigned char)*a);
-    ub=tolower((unsigned char)*b);
-    a++;b++;n--;
-    if (ua!=ub) return ua < ub ? -1 : 1;
-    }
-    //return (*a == 0) ? ( (*b == 0) ? 0 : -1 ) : 1 ;
-   if (n==0) return 0;
-   else { return (*a == 0) ? ( (*b == 0) ? 0 : -1 ) : 1 ; }
-  }
+ if (n>=0) return strncasecmp(a,b,n);
+      else return strcasecmp(a,b);
 }
 
 int strsplit(char* str, GDynArray<char*>& fields, const char* delim, int maxfields) {
@@ -285,10 +256,9 @@ int strsplit(char* str, GDynArray<char*>& fields, const char* delim, int maxfiel
  fields.Reset();
  while (str[i]!=0 && tidx<maxfields) {
     if (afterdelim) {
-        //fields[tidx]=str+i;
-    	fields.Add(str+i);
-        tidx++;
-        }
+       fields.Add(str+i);
+       tidx++;
+    }
     afterdelim=false;
     if (chrInStr(str[i],(char*)delim)) {
         str[i]=0;
@@ -296,9 +266,9 @@ int strsplit(char* str, GDynArray<char*>& fields, const char* delim, int maxfiel
         while (str[i]!=0 && chrInStr(str[i], (char*)delim)) i++;
         afterdelim=true;
         continue;
-        }
-    i++;
     }
+    i++;
+ }
  return tidx;
 }
 
@@ -311,10 +281,9 @@ int strsplit(char* str, GDynArray<char*>& fields, const char delim, int maxfield
   fields.Reset();
   while (str[i]!=0 && tidx<maxfields) {
      if (afterdelim) {
-         //fields[tidx]=str+i;
     	 fields.Add(str+i);
          tidx++;
-         }
+     }
      afterdelim=false;
      if (str[i]==delim) {
          str[i]=0;
@@ -322,9 +291,9 @@ int strsplit(char* str, GDynArray<char*>& fields, const char delim, int maxfield
          while (str[i]!=0 && str[i]==delim) i++;
          afterdelim=true;
          continue;
-         }
-     i++;
      }
+     i++;
+  }
   return tidx;
 }
 
@@ -337,10 +306,9 @@ int strsplit(char* str,  GDynArray<char*>& fields, int maxfields) {
   fields.Reset();
   while (str[i]!=0 && tidx<maxfields) {
      if (afterdelim) {
-         //fields[tidx]=str+i;
-    	 fields.Add(str+i);
-         tidx++;
-         }
+        fields.Add(str+i);
+        tidx++;
+     }
      afterdelim=false;
      if (str[i]==' ' || str[i]=='\t') {
          str[i]=0;
@@ -348,9 +316,9 @@ int strsplit(char* str,  GDynArray<char*>& fields, int maxfields) {
          while (str[i]!=0 && (str[i]=='\t' || str[i]==' ')) i++;
          afterdelim=true;
          continue;
-         }
-     i++;
      }
+     i++;
+  }
   return tidx;
 }
 
@@ -662,8 +630,8 @@ char* rstrstr(const char* rstart, const char *lend, const char* substr) {
 
 //hash function used for strings in GHash
 int strhash(const char* str){
-  register int h=0;
-  register int g;
+  int h=0;
+  int g;
   while (*str) {
     h=(h<<4)+*str++;
     g=h&0xF0000000;
@@ -791,44 +759,94 @@ bool parseNumber(char* &p, double& v) {
  return true;
 }
 
-
 bool parseDouble(char* &p, double& v) {
  return parseNumber(p,v);
 }
 
-bool parseInt(char* &p, int& i) {
+bool parseFloat(char* &p, float& v) {
+ double dv;
+ bool parsed=parseNumber(p,dv);
+ if (parsed) v=(float)dv;
+ return parsed;
+}
+
+bool parseInt(char* &p, int& i) { //pointer p is advanced after the number
  while (*p==' ' || *p=='\t') p++;
  char* start=p;
+ char* p0=p;
  if (*p=='-') p++;
-       else if (*p=='+') { p++;start++; }
- while ((*p>='1' && *p<='9') || *p=='0') p++;
- //now p is on a non-digit;
- if (*start=='-' && p==start+1) return false;
- char saved=*p;
- *p='\0';
- char* endptr=p;
+      else if (*p=='+') { p++;start++; }
+ char* atdigits=p;
+ while (*p>='0' && *p<='9') p++;
+ //now p should be past the digits
+ if (atdigits==p) {//no digits found!
+	 p=p0;
+	 return false;
+ }
+ char* endptr=NULL;
  long l=strtol(start,&endptr,10);
  i=(int)l;
- *p=saved;
- if (endptr!=p || i!=l) return false;
+ if (endptr!=p || endptr==start || i!=l) {
+	 p=p0;
+	 return false;
+ }
  return true;
 }
 
-bool parseUInt(char* &p, uint& i) {
+bool strToInt(char* p, int& i) {
+	 while (*p==' ' || *p=='\t') p++;
+	 char* start=p;
+	 if (*p=='-') p++;
+	      else if (*p=='+') { p++;start++; }
+	 char* atdigits=p;
+	 while (*p>='0' && *p<='9') p++;
+	 //now p should be past the digits
+	 if (atdigits==p) //no digits found!
+		 return false;
+	 char* endptr=NULL;
+	 long l=strtol(start,&endptr,10);
+	 i=(int)l;
+	 if (endptr!=p || endptr==start || i!=l)
+		 return false;
+	 return true;
+}
+
+bool strToUInt(char* p, uint& i) {
+	while (*p==' ' || *p=='\t') p++;
+	char* start=p;
+	if (*p=='-') return false;
+	else if (*p=='+') { p++;start++; }
+	while (*p>='0' && *p<='9') p++;
+	//now p is on a non-digit;
+	if (start==p) return false;
+	char* endptr=NULL;
+	unsigned long l=strtoul(start,&endptr,10);
+	i=(uint) l;
+	if (endptr!=p || endptr==start || i!=l)
+		return false;
+	return true;
+}
+
+
+bool parseUInt(char* &p, uint& i) { //pointer p is advanced after the number
  while (*p==' ' || *p=='\t') p++;
+ char* p0=p;
  char* start=p;
  if (*p=='-') return false;
        else if (*p=='+') { p++;start++; }
- while ((*p>='1' && *p<='9') || *p=='0') p++;
+ while (*p>='0' && *p<='9') p++;
  //now p is on a non-digit;
- if (*start=='-' && p==start+1) return false;
- char saved=*p;
- *p='\0';
- char* endptr=p;
+ if (start==p) {
+	 p=p0;
+	 return false;
+ }
+ char* endptr=NULL;
  unsigned long l=strtoul(start,&endptr,10);
  i=(uint) l;
- *p=saved;
- if (endptr!=p || i!=l) return false;
+ if (endptr!=p || endptr==start || i!=l) {
+	 p=p0;
+	 return false;
+ }
  return true;
 }
 

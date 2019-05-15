@@ -424,8 +424,8 @@ GStr& GStr::appendfmt(const char *fmt,...) {
   }
 
 GStr& GStr::trim(char c) {
- register int istart;
- register int iend;
+ int istart;
+ int iend;
  for (istart=0; istart<length() && my_data->chars[istart]==c;istart++) ;
  if (istart==length()) {
        make_unique(); //edit operation ahead
@@ -444,8 +444,8 @@ GStr& GStr::trim(char c) {
  }
 
 GStr& GStr::trim(const char* c) {
- register int istart;
- register int iend;
+ int istart;
+ int iend;
  for (istart=0; istart<length() && strchr(c, my_data->chars[istart])!=NULL ;istart++) ;
  if (istart==length()) {
         prep_data(0); //string was entirely trimmed
@@ -464,8 +464,7 @@ GStr& GStr::trim(const char* c) {
 
 GStr& GStr::trimR(char c) {
  //only trim the right end
- //register int istart;
- register int iend;
+ int iend;
  for (iend=length()-1; iend>=0 && my_data->chars[iend]==c;iend--) ;
  if (iend==-1) {
        make_unique();
@@ -488,7 +487,7 @@ GStr& GStr::trimR(char c) {
  }
 
 GStr& GStr::trimR(const char* c) {
- register int iend;
+ int iend;
  for (iend=length()-1; iend>=0 && strchr(c,my_data->chars[iend])!=NULL;iend--) ;
  if (iend==-1) {
        make_unique();
@@ -511,7 +510,7 @@ GStr& GStr::trimR(const char* c) {
 
 
 GStr& GStr::chomp(const char* cstr) {
- register int iend;
+ int iend;
  if (cstr==NULL || *cstr==0) return *this;
  //check if this ends with cstr
  int cend=strlen(cstr)-1;
@@ -537,7 +536,7 @@ GStr& GStr::chomp(const char* cstr) {
  }
 
 GStr& GStr::trimL(char c) {
- register int istart;
+ int istart;
  for (istart=0; istart<length() && my_data->chars[istart]==c;istart++) ;
  if (istart==length()) {
        prep_data(0); //string was entirely trimmed
@@ -554,7 +553,7 @@ GStr& GStr::trimL(char c) {
  }
 
 GStr& GStr::trimL(const char* c) {
- register int istart;
+ int istart;
  for (istart=0; istart<length() && strchr(c,my_data->chars[istart])!=NULL;istart++) ;
  if (istart==length()) {
        prep_data(0); //string was entirely trimmed
@@ -700,7 +699,7 @@ bool GStr::is_space() const {
     if (my_data == &null_data)
         return false;
 
-    for (register const char *p = my_data->chars; *p; p++)
+    for (const char *p = my_data->chars; *p; p++)
         if (!isspace(*p))
             return false;
 
@@ -1026,6 +1025,21 @@ GStr& GStr::append(const char* s) {
   my_data->chars[newlen]='\0';
   return *this;
 }
+GStr& GStr::appendQuoted(const char* s, char q, bool onlyIfSpaced) {
+	if (onlyIfSpaced) {
+		if (strpbrk(s, "\t ")==NULL)
+			return this->append(s);
+	}
+	char qend=q;
+	if (q=='[' || q=='{' || q=='<')
+		qend=q+2;
+	else if (q=='(')
+		qend=')';
+	this->append(q);
+	this->append(s);
+	this->append(qend);
+	return *this;
+}
 
 GStr& GStr::append(const char* s, int len) {
   make_unique(); //edit operation ahead
@@ -1083,7 +1097,7 @@ GStr& GStr::append(const GStr& s) {
 
 GStr& GStr::upper() {
   make_unique(); //edit operation ahead
-  for (register char *p = chrs(); *p; p++)
+  for (char *p = chrs(); *p; p++)
             *p = (char) toupper(*p);
 
     return *this;
@@ -1094,7 +1108,7 @@ GStr& GStr::upper() {
 GStr& GStr::lower() {
     make_unique();
 
-    for (register char *p = chrs(); *p; p++)
+    for (char *p = chrs(); *p; p++)
           *p = (char) tolower(*p);
 
     return *this;
@@ -1298,6 +1312,7 @@ bool GStr::nextToken(GStr& token) {
 
 size_t GStr::read(FILE* stream, const char* delimiter, size_t bufsize) {
 //read up to (and including) the given delimiter string
+//if delimiter is NULL or zero length, it will read the whole file
  if (readbuf==NULL) {
     GMALLOC(readbuf, bufsize);
     readbufsize=bufsize;
@@ -1315,26 +1330,29 @@ size_t GStr::read(FILE* stream, const char* delimiter, size_t bufsize) {
     }
  size_t numread;
  size_t acc_len=0; //accumulated length
- int seplen=strlen(delimiter);
+ int dlen=0;
+ if (delimiter!=NULL && delimiter[0]!=0)
+	 dlen=strlen(delimiter);
  void* p=NULL;
- //Data *data = new_data(0);
  Data* data = &null_data;
  do {
    numread=fread(readbuf, 1, bufsize, stream);
    if (numread) {
-     p=Gmemscan(readbuf, bufsize, (void*) delimiter, seplen);
+	 if (dlen>0)
+       p=Gmemscan(readbuf, bufsize, (void*) delimiter, dlen);
      if (p!=NULL) {//found the delimiter
            //position the stream after it
            int l = (char*)p-(char*)readbuf;
-           fseek(stream, l+seplen-numread, SEEK_CUR);
-           numread=l+seplen;
-           }
-        else {//not found, go back if not eof
-           if (numread==bufsize) {
-               fseek(stream, -seplen, SEEK_CUR); //check if this works!
-               numread-=seplen;
-               }
-           }
+           fseek(stream, l+dlen-numread, SEEK_CUR);
+           numread=l+dlen;
+      } else {//not found, go back if not eof
+          if (numread==bufsize) {
+              if (dlen>0) {
+                 fseek(stream, -dlen, SEEK_CUR); //check if this works!
+                 numread-=dlen;
+              }
+          }
+      }
       if (data==&null_data) {
         data=new_data(numread);
         ::memcpy(data->chars, readbuf, numread);

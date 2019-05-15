@@ -28,7 +28,7 @@ uint8_t* dupalloc_bdata(bam1_t *b, int size) {
 
 GBamRecord::GBamRecord(const char* qname, int32_t gseq_tid,
                  int pos, bool reverse, const char* qseq,
-                 const char* cigar, const char* quals):exons(1),
+                 const char* cigar, const char* quals):iflags(0), exons(1),
                 		 clipL(0), clipR(0), mapped_len(0) {
    novel=true;
    bam_header=NULL;
@@ -54,10 +54,10 @@ GBamRecord::GBamRecord(const char* qname, int32_t gseq_tid,
    if (reverse) { b->core.flag |= BAM_FREVERSE ; }
    }
 
-GBamRecord::GBamRecord(const char* qname, int32_t flags, int32_t g_tid,
+GBamRecord::GBamRecord(const char* qname, int32_t samflags, int32_t g_tid,
              int pos, int map_qual, const char* cigar, int32_t mg_tid, int mate_pos,
              int insert_size, const char* qseq, const char* quals,
-             GVec<char*>* aux_strings):exons(1)  {
+             GVec<char*>* aux_strings):iflags(0), exons(1)  {
   novel=true;
   bam_header=NULL;
   b=bam_init1();
@@ -70,7 +70,7 @@ GBamRecord::GBamRecord(const char* qname, int32_t flags, int32_t g_tid,
   set_cigar(cigar); //this will also set core.bin
   add_sequence(qseq, l_qseq);
   add_quals(quals); //quals must be given as Phred33
-  set_flags(flags);
+  set_flags(samflags);
   set_mdata(mg_tid, (int32_t)(mate_pos-1), (int32_t)insert_size);
   if (aux_strings!=NULL) {
     for (int i=0;i<aux_strings->Count();i++) {
@@ -117,9 +117,9 @@ GBamRecord::GBamRecord(const char* qname, int32_t flags, int32_t g_tid,
             if (op == 'M' || op == '=' || op == 'X') op = BAM_CMATCH;
             else if (op == 'I') op = BAM_CINS;
             else if (op == 'D') op = BAM_CDEL;
-            else if (op == 'N') op = BAM_CREF_SKIP;
-            else if (op == 'S') op = BAM_CSOFT_CLIP;
-            else if (op == 'H') op = BAM_CHARD_CLIP;
+            else if (op == 'N') op = BAM_CREF_SKIP; //has_Introns=true;
+            else if (op == 'S') op = BAM_CSOFT_CLIP; //soft_Clipped=true;
+            else if (op == 'H') op = BAM_CHARD_CLIP; //hard_Clipped=true;
             else if (op == 'P') op = BAM_CPAD;
             else GError("Error: invalid CIGAR operation (%s)\n",cigar);
             s = t + 1;
@@ -317,46 +317,52 @@ switch (cop) {
  return mbases;
 } // interpret_CIGAR(), just a reference of CIGAR operations interpretation
 
- void GBamRecord::setupCoordinates() {
-   const bam1_core_t *c = &b->core;
-   if (c->flag & BAM_FUNMAP) return; /* skip unmapped reads */
-   uint32_t *p = bam1_cigar(b);
-   //--- prevent alignment error here (reported by UB-sanitazer):
-   uint32_t *cigar= new uint32_t[c->n_cigar];
-   memcpy(cigar, p, c->n_cigar * sizeof(uint32_t));
-   //--- UBsan protection end
-   int l=0;
-   mapped_len=0;
-   clipL=0;
-   clipR=0;
-   start=c->pos+1; //genomic start coordinate, 1-based (BAM core.pos is 0-based)
-   int exstart=c->pos;
-   for (int i = 0; i < c->n_cigar; ++i) {
-        int op = cigar[i]&0xf;
-        if (op == BAM_CMATCH || op==BAM_CEQUAL ||
-            op == BAM_CDIFF || op == BAM_CDEL) {
-               l += cigar[i]>>4;
-               }
-           else if (op == BAM_CREF_SKIP) { //N
-               //intron starts
-               //exon ends here
-               GSeg exon(exstart+1,c->pos+l);
-               exons.Add(exon);
-               mapped_len+=exon.len();
-               l += cigar[i]>>4;
-               exstart=c->pos+l;
-               }
-           else if (op == BAM_CSOFT_CLIP) {
-        	   if (l) clipR=(cigar[i]>>4);
-        	     else clipL=(cigar[i]>>4);
-           }
-        }
-   GSeg exon(exstart+1,c->pos+l);
-   exons.Add(exon);
-   mapped_len+=exon.len();
-   end=c->pos+l; //genomic end coordinate
-   delete[] cigar; //UBsan protection
- }
+void GBamRecord::setupCoordinates() {
+	const bam1_core_t *c = &b->core;
+	if (c->flag & BAM_FUNMAP) return; /* skip unmapped reads */
+	uint32_t *p = bam1_cigar(b);
+	//--- prevent alignment error here (reported by UB-sanitazer):
+	uint32_t *cigar= new uint32_t[c->n_cigar];
+	memcpy(cigar, p, c->n_cigar * sizeof(uint32_t));
+	//--- UBsan protection end
+	int l=0;
+	mapped_len=0;
+	clipL=0;
+	clipR=0;
+	start=c->pos+1; //genomic start coordinate, 1-based (BAM core.pos is 0-based)
+	int exstart=c->pos;
+	for (int i = 0; i < c->n_cigar; ++i) {
+		int op = cigar[i]&0xf;
+		if (op == BAM_CMATCH || op==BAM_CEQUAL ||
+				op == BAM_CDIFF || op == BAM_CDEL) {
+			l += cigar[i]>>4;
+		}
+		else if (op == BAM_CREF_SKIP) { //N
+			//intron starts
+			//exon ends here
+			has_Introns=true;
+			GSeg exon(exstart+1,c->pos+l);
+			exons.Add(exon);
+			mapped_len+=exon.len();
+			l += cigar[i]>>4;
+			exstart=c->pos+l;
+		}
+		else if (op == BAM_CSOFT_CLIP) {
+			soft_Clipped=true;
+			if (l) clipR=(cigar[i]>>4);
+			else clipL=(cigar[i]>>4);
+		}
+		else if (op == BAM_CHARD_CLIP) {
+			hard_Clipped=true;
+		}
+	}
+	GSeg exon(exstart+1,c->pos+l);
+	exons.Add(exon);
+	mapped_len+=exon.len();
+	end=c->pos+l; //genomic end coordinate
+	delete[] cigar; //UBsan protection
+}
+
 
  uint8_t* GBamRecord::find_tag(const char tag[2]) {
    return bam_aux_get(this->b, tag);

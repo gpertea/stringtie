@@ -69,7 +69,7 @@ public:
     CELL* NextCell();
 };
 
-template <class OBJ> class GIntHash {
+template <class OBJ> class GIntHash { //OBJ requires a copy operator=
 protected:
 	struct Cell {
 		uint32 key;
@@ -88,6 +88,14 @@ public:
   	Cell* c=ghash.Insert(key);
   	c->value = val;
   	return &(c->value);
+  }
+  uint32 Count() { return ghash.Count(); }
+  OBJ Replace(uint32 key, OBJ val) {
+     //just like set() but returns a copy of the *old* value, if any
+	 Cell* c=ghash.Insert(key);
+	 OBJ oldv=c->value;
+	 c->value=val;
+	 return oldv;
   }
   void Clear() { ghash.Clear(); }
   void Compact() { ghash.Compact(); }
@@ -122,7 +130,7 @@ public:
   uint32 NextKey() {
      Cell* cell=ghash.NextCell();
      if (cell) return cell->key;
-       else return NULL;
+       else return 0;
   }
   OBJ* NextValue() {
      Cell* cell=ghash.NextCell();
@@ -153,6 +161,15 @@ public:
   	c->value = val;
   	return c->value;
   }
+  uint32 Count() { return ghash.Count(); }
+  OBJ* Replace(uint32 key, OBJ* val) {
+     //just like set() but returns a copy of the *old* value, if any
+	 Cell* c=ghash.Insert(key);
+	 OBJ* oldv=c->value;
+	 c->value=val;
+	 return oldv;
+  }
+
   void startIterate() { ghash.startIterate(); }
   void Compact() { ghash.Compact(); }
 
@@ -201,7 +218,7 @@ public:
   uint32 NextKey() {
      Cell* cell=ghash.NextCell();
      if (cell) return cell->key;
-       else return NULL;
+       else return 0;
   }
   OBJ* NextValue() {
      Cell* cell=ghash.NextCell();

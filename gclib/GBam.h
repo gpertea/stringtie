@@ -18,7 +18,16 @@ class GBamRecord: public GSeg {
    //   +seq  (4bit-encoded)
    //    +qual
    //     +aux
-   bool novel; //if true, will also free b on delete
+
+   union {
+	  uint16_t iflags;
+      struct {
+    	  bool novel         :1; //if set, the destructor must free b
+    	  bool hard_Clipped  :1;
+    	  bool soft_Clipped  :1;
+    	  bool has_Introns   :1;
+      };
+   };
    bam_header_t* bam_header;
    char tag[2];
    uint8_t abuf[512];
@@ -27,25 +36,28 @@ class GBamRecord: public GSeg {
    int clipL; //soft clipping data, as seen in the CIGAR string
    int clipR;
    int mapped_len; //sum of exon lengths
+   bool isHardClipped() { return hard_Clipped; }
+   bool isSoftClipped() { return soft_Clipped; }
+   bool hasIntrons() { return has_Introns; }
    //created from a reader:
    void bfree_on_delete(bool b_free=true) { novel=b_free; }
-   GBamRecord(bam1_t* from_b=NULL, bam_header_t* b_header=NULL, bool b_free=true):exons(1),
+   GBamRecord(bam1_t* from_b=NULL, bam_header_t* b_header=NULL, bool b_free=true):iflags(0), exons(1),
 		   clipL(0), clipR(0), mapped_len(0) {
       bam_header=NULL;
       if (from_b==NULL) {
            b=bam_init1();
            novel=true;
-           }
-        else {
+      }
+      else {
            b=from_b; //it'll take over from_b
            novel=b_free;
-           }
+      }
 
       bam_header=b_header;
       setupCoordinates();//set 1-based coordinates (start, end and exons array)
    }
 
-   GBamRecord(GBamRecord& r):GSeg(r.start, r.end), exons(r.exons),
+   GBamRecord(GBamRecord& r):GSeg(r.start, r.end), iflags(0), exons(r.exons),
 		   clipL(r.clipL), clipR(r.clipR), mapped_len(r.mapped_len) { //copy constructor
 	      //makes a new copy of the bam1_t record etc.
 	      clear();
@@ -58,6 +70,7 @@ class GBamRecord: public GSeg {
       //makes a new copy of the bam1_t record etc.
       clear();
       b=bam_dup1(r.b);
+      iflags=r.iflags;
       novel=true; //will also free b when destroyed
       start=r.start;
       end=r.end;
@@ -73,12 +86,13 @@ class GBamRecord: public GSeg {
         if (novel) {
            bam_destroy1(b);
            //novel=false;
-           }
+        }
         b=NULL;
         exons.Clear();
         mapped_len=0;
         bam_header=NULL;
-        }
+        iflags=0;
+    }
 
     ~GBamRecord() {
        clear();
@@ -97,8 +111,8 @@ class GBamRecord: public GSeg {
       b->core.isize=isize; //should be 0 if not available
     }
 
-    void set_flags(uint16_t flags) {
-      b->core.flag=flags;
+    void set_flags(uint16_t samflags) {
+      b->core.flag=samflags;
     }
 
     //creates a new record from 1-based alignment coordinate
@@ -106,7 +120,7 @@ class GBamRecord: public GSeg {
     //Warning: pos and mate_pos must be given 1-based!
     GBamRecord(const char* qname, int32_t gseq_tid,
                     int pos, bool reverse, const char* qseq, const char* cigar=NULL, const char* quals=NULL);
-    GBamRecord(const char* qname, int32_t flags, int32_t g_tid,
+    GBamRecord(const char* qname, int32_t samflags, int32_t g_tid,
              int pos, int map_qual, const char* cigar, int32_t mg_tid, int mate_pos,
              int insert_size, const char* qseq, const char* quals=NULL,
              GVec<char*>* aux_strings=NULL);
@@ -142,7 +156,7 @@ class GBamRecord: public GSeg {
       add_aux(tag,atype,len,data);
       }
  //--query methods:
- uint32_t flags() { return b->core.flag; }
+ uint32_t flags() { return b->core.flag; } //return SAM flags
  bool isUnmapped() { return ((b->core.flag & BAM_FUNMAP) != 0); }
  bool isMapped() { return ((b->core.flag & BAM_FUNMAP) == 0); }
  bool isPaired() { return ((b->core.flag & BAM_FPAIRED) != 0); }
@@ -157,7 +171,7 @@ class GBamRecord: public GSeg {
  bool revStrand() {
    //this is the raw alignment strand, NOT the transcription/splice strand
    return ((b->core.flag & BAM_FREVERSE) != 0);
-   }
+ }
  const char* refName() {
    return (bam_header!=NULL) ?
          ((b->core.tid<0) ? "*" : bam_header->target_name[b->core.tid]) : NULL;
@@ -362,7 +376,7 @@ class GBamWriter {
       return (new GBamRecord(qname, gseq_tid, pos, reverse, qseq, cigar, qual));
       }
 
-   GBamRecord* new_record(const char* qname, int32_t flags, const char* gseqname,
+   GBamRecord* new_record(const char* qname, int32_t samflags, const char* gseqname,
          int pos, int map_qual, const char* cigar, const char* mgseqname, int mate_pos,
          int insert_size, const char* qseq, const char* quals=NULL,
                           GVec<char*>* aux_strings=NULL) {
@@ -387,7 +401,7 @@ class GBamWriter {
                 }
             }
           }
-      return (new GBamRecord(qname, flags, gseq_tid, pos, map_qual, cigar,
+      return (new GBamRecord(qname, samflags, gseq_tid, pos, map_qual, cigar,
               mgseq_tid, mate_pos, insert_size, qseq, quals, aux_strings));
       }
 

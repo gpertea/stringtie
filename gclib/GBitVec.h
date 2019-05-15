@@ -335,7 +335,7 @@ public:
   bool operator==(const GBitVec &RHS) const {
     uint ThisWords = NumBitWords(size());
     uint RHSWords  = NumBitWords(RHS.size());
-    register uint i;
+    uint i;
     uint imax=GMIN(ThisWords, RHSWords);
     for (i = 0; i != imax; ++i)
       if (fBits[i] != RHS.fBits[i])
@@ -362,7 +362,7 @@ public:
   GBitVec &operator&=(const GBitVec &RHS) {
     uint ThisWords = NumBitWords(size());
     uint RHSWords  = NumBitWords(RHS.size());
-    register uint i;
+    uint i;
     uint imax=GMIN(ThisWords, RHSWords);
     for (i = 0; i != imax; ++i)
       fBits[i] &= RHS.fBits[i];

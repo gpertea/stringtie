@@ -32,7 +32,7 @@
 #define USAGE "StringTie v" VERSION " usage:\n\
  stringtie <input.bam ..> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
-  [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>] [-u]\n\
+  [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L]\n\
   [-e] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
 Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
@@ -44,17 +44,18 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.01)\n\
+ -L use long reads settings (default:false)\n\
  -m minimum assembled transcript length (default: 200)\n\
  -a minimum anchor length for junctions (default: 10)\n\
  -j minimum junction coverage (default: 1)\n\
  -t disable trimming of predicted transcripts based on coverage\n\
     (default: coverage trimming is enabled)\n\
  -c minimum reads per bp coverage to consider for multi-exon transcript\n\
-    (default: 1.5)\n\
+    (default: 1)\n\
  -s minimum reads per bp coverage to consider for single-exon transcript\n\
-     (default: 4.75)\n\
+    (default: 4.75)\n\
  -v verbose (log bundle processing details)\n\
- -g gap between read mappings triggering a new bundle; not adaptive mode (default: 50)\n\
+ -g maximum gap allowed between read mappings (default: 50)\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
@@ -91,13 +92,12 @@ the following options are available:\n\
 "
 /* 
  -C output a file with reference transcripts that are covered by reads\n\
- -U unitigs are treated as special guides (default: no)\n\
+ -U unitigs are treated as reads and not as guides \n\ \\ not used now
  -d disable adaptive read coverage mode (default: yes)\n\
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 1)\n\ \\ deprecated for now
  -O disable the coverage saturation limit and use a slower two-pass approach\n\
     to process the input alignments, collapsing redundant reads\n\
- -Z disable fast computing for transcript path (no zoom); default: yes\n\
- -i the reference annotation contains partial transcripts\n\
+  -i the reference annotation contains partial transcripts\n\
  -w weight the maximum flow algorithm towards the transcript with higher rate (abundance); default: no\n\
  -y include EM algorithm in max flow estimation; default: no\n\
  -z don't include source in the max flow algorithm\n\
@@ -128,8 +128,8 @@ GStr tmpfname;
 GStr genefname;
 bool guided=false;
 bool trim=true;
-bool fast=true;
 bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
+bool longreads=false;
 bool nomulti=false;
 bool enableNames=false;
 bool includecov=false;
@@ -147,9 +147,10 @@ int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=1;     // read coverage per bundle bp to accept it; // paper uses 3
 float singlethr=4.75;
 uint bundledist=50;  // reads at what distance should be considered part of separate bundles
+uint runoffdist=200;
 float mcov=1; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 int allowed_nodes=1000;
-bool adaptive=true; // adaptive read coverage -> depends on the overall gene coverage
+//bool adaptive=true; // adaptive read coverage -> depends on the overall gene coverage
 
 int no_xs=0; // number of records without the xs tag
 
@@ -162,7 +163,7 @@ bool includesource=true;
 //bool weight=false;
 
 float isofrac=0.01;
-bool isunitig=false;
+bool isunitig=true;
 GStr label("STRG");
 GStr ballgown_dir;
 
@@ -264,8 +265,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv, 
-   //"debug;help;fast;xhvntj:D:G:C:l:m:o:a:j:c:f:p:g:");
-   "debug;help;version;conservative;keeptmp;bam;fr;rf;merge;exclude=zZSEihvteuUx:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;conservative;keeptmp;bam;fr;rf;merge;exclude=zSEihvteuLx:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -521,7 +521,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		    }
 		 }
 
-		 if (!chr_changed && currentend>0 && pos>currentend+(int)bundledist) {
+		 if (!chr_changed && currentend>0 && pos>currentend+(int)runoffdist) {
 			 new_bundle=true;
 		 }
 	 }
@@ -780,18 +780,19 @@ if(!mergeMode) {
 		int nl;
 		int istr;
 		int tlen;
-		double tcov;
+		float tcov;
 		//float fpkm;
-		double calc_fpkm;
-		double calc_tpm;
+		float calc_fpkm;
+		float calc_tpm;
 		int t_id;
 		while(fgetline(linebuf,linebuflen,ftmp_in)) {
-			sscanf(linebuf,"%d %d %d %d %lf", &istr, &nl, &tlen, &t_id, &tcov);
+			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
+			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
 			//for the rare cases tcov < 0, invert it ??
 			//if (tcov<0) tcov=-tcov; //should not happen
-			if (tcov<0.0) tcov=0.0;
-			calc_fpkm=tcov*1000000000.0/Frag_Len;
-			calc_tpm=tcov*1000000.0/Cov_Sum;
+			if (tcov<0) tcov=0;
+			calc_fpkm=tcov*1000000000/Frag_Len;
+			calc_tpm=tcov*1000000/Cov_Sum;
 			if(istr) { // this is a transcript
 				if (ballgown && t_id>0) {
 					guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
@@ -874,6 +875,13 @@ void processOptions(GArgs& args) {
 	   exit(0);
 	}
 
+	 longreads=(args.getOpt('L')!=NULL);
+	 if(longreads) {
+		 bundledist=0;
+		 singlethr=1.5;
+	 }
+
+
 	if (args.getOpt("conservative")) {
 	  isofrac=0.05;
 	  singlethr=4.75;
@@ -897,8 +905,7 @@ void processOptions(GArgs& args) {
 	 forceBAM=(args.getOpt("bam")!=NULL); //assume the stdin stream is BAM instead of text SAM
 	 mergeMode=(args.getOpt("merge")!=NULL);
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
-	 fast=!(args.getOpt('Z')!=NULL);
-	 adaptive=!(args.getOpt('d')!=NULL);
+	 //adaptive=!(args.getOpt('d')!=NULL);
 	 verbose=(args.getOpt('v')!=NULL);
 	 if (verbose) {
 	     fprintf(stderr, "Running StringTie " VERSION ". Command line:\n");
@@ -970,10 +977,14 @@ void processOptions(GArgs& args) {
 	 }
 	 else if(mergeMode) readthr=0;
 
+
+
 	 s=args.getOpt('g');
-	 if (!s.is_empty()) { bundledist=s.asInt(); adaptive=false;}
+	 if (!s.is_empty()) {
+		 bundledist=s.asInt();
+		 if(bundledist>runoffdist) runoffdist=bundledist;
+	 }
 	 else if(mergeMode) bundledist=250; // should figure out here a reasonable parameter for merge
-	 else if(adaptive) bundledist=200; // set bundledist higher for adaptive purposes
 
 	 s=args.getOpt('F');
 	 if (!s.is_empty()) {
@@ -1033,13 +1044,15 @@ void processOptions(GArgs& args) {
 	             guidegff.chars());
 	 }
 
+
+
 	 enableNames=(args.getOpt('E')!=NULL);
 
 	 retained_intron=(args.getOpt('i')!=NULL);
 
 	 nomulti=(args.getOpt('u')!=NULL);
 
-	 isunitig=(args.getOpt('U')!=NULL);
+	 //isunitig=(args.getOpt('U')!=NULL);
 
 	 eonly=(args.getOpt('e')!=NULL);
 	 if(eonly && mergeMode) {

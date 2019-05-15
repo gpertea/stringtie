@@ -53,7 +53,7 @@ char* reverseComplement(char* seq, int slen) {
    //reverseChars(seq,len);
    int l=0;
    int r=slen-1;
-   register char c;
+   char c;
    while (l<r) {
       c=seq[l];seq[l]=seq[r];
       seq[r]=c;   //this was: Gswap(str[l],str[r]);

@@ -22,7 +22,7 @@
 #define IS_TPM_FLAG 2
 #define IS_COV_FLAG 4
 
-const double epsilon=0.00000001; //-E
+const double epsilon=0.000001; //-E
 const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
 const int MAX_MAXCOMP=200; // is 200 too much, or should I set it up to 150?
@@ -35,8 +35,8 @@ const uint longintronanchor=25; // I need a higher anchor for long introns -> us
 //const uint verylongintronanchor=35; // I need a higher anchor for very long introns
 
 const float mismatchfrac=0.02;
-
-const float highcov=20; // hight coverage (per bp) of exon
+const float lowcov=1.5;
+const float lowisofrac=0.02;
 
 const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
@@ -126,8 +126,9 @@ struct CTransfrag {
 	float srabund; // keeps abundance associated to srfrag
 	GVec<CPath> path; // stores all the possible paths that leave from a node to reach next node in a transfrag, and distributes the abundance of the transfrag between all possible continuations
 	float usepath;
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, float sr=0):nodes(_nodes),pattern(bit),abundance(abund),real(treal),srabund(sr),path(),usepath(-1) {}
-	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal),srabund(0),path(),usepath(-1) {
+	int weak; // number of weak links
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, float sr=0):nodes(_nodes),pattern(bit),abundance(abund),real(treal),srabund(sr),path(),usepath(-1),weak(-1) {}
+	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal),srabund(0),path(),usepath(-1),weak(-1) {
 	}
 };
 
@@ -186,8 +187,8 @@ struct CGroup:public GSeg {
 	float neg_prop; // proportion of negative reads assigned to group out of all positives and negatives
 	CGroup *next_gr;
 	CGroup(int rstart=0, int rend=0, int _color=-1, int _grid=0, float _cov_sum=0,
-			float _multi=0,float _neg_prop=0,CGroup *_next_gr=NULL): GSeg(rstart, rend), color(_color), grid(_grid),cov_sum(_cov_sum),
-			multi(_multi), neg_prop(_neg_prop), next_gr(_next_gr) { }
+			float _multi=0,float _neg_prop=0, CGroup *_next_gr=NULL): GSeg(rstart, rend), color(_color), grid(_grid),cov_sum(_cov_sum),
+			multi(_multi), neg_prop(_neg_prop),next_gr(_next_gr) { }
 };
 
 struct CMerge {
@@ -492,7 +493,7 @@ struct CJunction:public GSeg {
 	double leftsupport;
 	double rightsupport;
 	double nm; // number of reads with a high nm (high mismatch)
-	double mm; // number of multi-mapped reads that support junction
+	double mm; // number of reads that support a junction with both anchors bigger than longintronanchor
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
 			strand(_strand), guide_match(0), nreads(0),nreads_good(0),
 			leftsupport(0),rightsupport(0),nm(0),mm(0) {}
