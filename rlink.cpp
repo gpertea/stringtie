@@ -1497,22 +1497,24 @@ CGraphnode *source2guide(int s, int g, int refstart,uint newstart,uint newend, C
 	float maxabund=rightcov-leftcov;
 	if(maxabund<trthr) maxabund=trthr;
 
-	uint prevend=graphnode->end;
-	graphnode->end=newstart-1;
-	CGraphnode *prevnode=graphnode;
-	graphnode=create_graphnode(s,g,newstart,prevend,graphno,bundlenode,bundle2graph,no2gnode);
-	graphno++;
+	if(graphnode->start<=newstart-1) {
+		uint prevend=graphnode->end;
+		graphnode->end=newstart-1;
+		CGraphnode *prevnode=graphnode;
+		graphnode=create_graphnode(s,g,newstart,prevend,graphno,bundlenode,bundle2graph,no2gnode);
+		graphno++;
+		float tmp=prevnode->nodeid;futuretr.Add(tmp);
+		tmp=graphnode->nodeid;futuretr.Add(tmp);
+		tmp=trthr;futuretr.Add(tmp);
+		prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
+		graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
+	}
 	source->child.Add(graphnode->nodeid);  // this node is the child of source
 	graphnode->parent.Add(source->nodeid); // this node has source as parent
-	prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
-	graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
 	float tmp=graphno-1;
 	futuretr.cAdd(0.0);
 	futuretr.Add(tmp);
 	futuretr.Add(maxabund);
-	tmp=prevnode->nodeid;futuretr.Add(tmp);
-	tmp=graphnode->nodeid;futuretr.Add(tmp);
-	tmp=trthr;futuretr.Add(tmp);
 	// COUNT 1 EDGE HERE because the source to guide edge was already included in our count
 	edgeno++;
 
@@ -2402,8 +2404,8 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    					//fprintf(stderr,"guideedge val=%d endval=%d strand=%d currentstart=%d endbundle=%d\n",guideedge[nge].val,guideedge[nge].endval,guideedge[nge].strand,currentstart,endbundle);
 
-	    					uint start=guideedge[nge].val;
-	    					uint end=junction[njs]->start;
+	    					uint gstart=guideedge[nge].val;
+	    					uint gend=junction[njs]->start;
 	    					bool sourceguide=false;
 	    					if(guideedge[nge].val<guideedge[nge].endval) sourceguide=true;
 	    					nge++;
@@ -2411,10 +2413,11 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    					else if(guideedge[nge-1].endval<currentstart) continue;
 
 	    					while(nge<guideedge.Count() && guideedge[nge].strand!=s) nge++;
-	    					if(nge<guideedge.Count() && guideedge[nge].val<junction[njs]->start) end=guideedge[nge].val;
+	    					if(nge<guideedge.Count() && guideedge[nge].val<junction[njs]->start) gend=guideedge[nge].val;
 
-	    					if(sourceguide)	graphnode=source2guide(s,g,refstart,start,end,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
-	    					else graphnode=guide2sink(s,g,refstart,start,end,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+
+	    					if(sourceguide)	graphnode=source2guide(s,g,refstart,gstart,gend,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+	    					else graphnode=guide2sink(s,g,refstart,gstart,gend,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
 
 	    				}
 	    			}
@@ -2774,8 +2777,7 @@ void get_read_pattern(int s, float readcov,GVec<int> &rgno, float rprop,GVec<int
 		int bnode=group2bundle[2*s][gr]; // group was associated to bundle
 		if(bnode>-1 && bundle2graph[s][bnode].Count()) { // group has a bundle node associated with it and bundle was processed
 			if(!hashnode[bnode]) {
-				bool found=true;
-				hashnode.Add(bnode,new bool(found));
+				hashnode.Add(bnode,true);
 				int nbnode=bundle2graph[s][bnode].Count(); // number of nodes in bundle
 				int j=0;
 
@@ -8633,6 +8635,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 						CGuide newguide(trguide,g);
 						guidetrf.Add(newguide);
 					}
+					else delete trguide;
 				}
 				else {
 					//CGuide newguide(trguide,guides[g]);
@@ -13506,6 +13509,14 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			}
 		}
 	}
+
+	// clean-up maxint
+	while(maxint) {
+		nextmaxint=maxint->next;
+		delete maxint;
+		maxint=nextmaxint;
+	}
+
 
 	geneno+=transcripts.Count();
 
