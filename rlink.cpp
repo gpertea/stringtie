@@ -802,7 +802,10 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 				if(i<readlist[n]->juncs.Count()) {
 					if(!readlist[n]->juncs[i]->strand) { // check first exon
 						// see if first exon is big enough
-						if(!i || !readlist[n]->juncs[i-1]->strand) keep=false;
+						if(!i || !readlist[n]->juncs[i-1]->strand) {
+							keep=false;
+							if(!i && lastgroup) currgroup=lastgroup;
+						}
 					}
 				}
 				else if(readlist[n]->juncs.Count()){ // this is last exon
@@ -14399,4 +14402,3 @@ int printResults(BundleData* bundleData,int geneno, GStr& refname) {
 	//rc_write_counts(refname.chars(), *bundleData);
 	return(geneno);
 }
-
