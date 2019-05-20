@@ -1,9 +1,14 @@
-/*
-GThread - multi-platform thread support
-  this is heavily based on the source code of TinyThread++ 1.0 package by Marcus Geelnard
-  (with only minor modifications and namespace changes)
+#ifndef _GTHREADS_
+#define _GTHREADS_
 
-  Original Copyright notice below
+/*
+GThread - multi-platform threads utility class
+This is heavily based on the source code of TinyThread++ 1.0 package
+by Marcus Geelnard (with only minor modifications),
+so all merits for the code go to Marcus, except the bugs which
+were probably introduced by me.
+
+Original Copyright notice below
 */
 
 /*
@@ -29,9 +34,6 @@ freely, subject to the following restrictions:
     distribution.
 */
 
-
-#ifndef _GTHREADS_
-#define _GTHREADS_
 
 /// @file
 /// @mainpage TinyThread++ API Reference
@@ -166,13 +168,6 @@ freely, subject to the following restrictions:
 #if defined(__APPLE__) || (defined(__MINGW32__) && (__GNUC__ < 4))
  #define GTHREADS_NO_TLS
 #endif
-
-
-/// Main name space for TinyThread++.
-/// This namespace is more or less equivalent to the \c std namespace for the
-/// C++11 thread classes. For instance, the tthread::mutex class corresponds to
-/// the std::mutex class.
-//namespace tthread {
 
 void gthreads_errExit(int err, const char* msg=NULL);
 
@@ -813,85 +808,26 @@ public:
 #endif
 };
 
-/// Minimal implementation of the \c ratio class. This class provides enough
-/// functionality to implement some basic \c chrono classes.
-template <int64_t N, int64_t D = 1> class ratio {
-  public:
-    static double _as_double() { return double(N) / double(D); }
-};
 
-/// Minimal implementation of the \c chrono namespace.
-/// The \c chrono namespace provides types for specifying time intervals.
-namespace chrono {
-  /// Duration template class. This class provides enough functionality to
-  /// implement \c this_thread::sleep_for().
-  template <class _Rep, class _Period = ratio<1> > class duration {
-    private:
-      _Rep rep_;
-    public:
-      typedef _Rep rep;
-      typedef _Period period;
-
-      /// Construct a duration object with the given duration.
-      template <class _Rep2>
-        explicit duration(const _Rep2& r) : rep_(r) {};
-
-      /// Return the value of the duration object.
-      rep count() const
-      {
-        return rep_;
-      }
-  };
-
-  // Standard duration types.
-  typedef duration<int64_t, ratio<1, 1000000000> > nanoseconds; ///< Duration with the unit nanoseconds.
-  typedef duration<int64_t, ratio<1, 1000000> > microseconds;   ///< Duration with the unit microseconds.
-  typedef duration<int64_t, ratio<1, 1000> > milliseconds;      ///< Duration with the unit milliseconds.
-  typedef duration<int64_t> seconds;                            ///< Duration with the unit seconds.
-  typedef duration<int64_t, ratio<60> > minutes;                ///< Duration with the unit minutes.
-  typedef duration<int64_t, ratio<3600> > hours;                ///< Duration with the unit hours.
-}
-
-/// The namespace \c this_thread provides methods for dealing with the
+/// The namespace "current_thread" provides methods for dealing with the
 /// calling thread.
-namespace this_thread {
+namespace current_thread {
   /// Return the thread ID of the calling thread.
   //thread::id get_id(); //this can be slow, better not use it
 
   /// Yield execution to another thread.
   /// Offers the operating system the opportunity to schedule another thread
   /// that is ready to run on the current processor.
-  inline void yield()
-  {
-#if defined(_GTHREADS_WIN32_)
-    Sleep(0);
-#else
-    sched_yield();
-#endif
-  }
+  void yield();
 
-  /// Blocks the calling thread for a period of time.
-  /// @param[in] aTime Minimum time to put the thread to sleep.
-  /// Example usage:
-  /// @code
-  /// // Sleep for 100 milliseconds
-  /// this_thread::sleep_for(chrono::milliseconds(100));
-  /// @endcode
-  /// @note Supported duration types are: nanoseconds, microseconds,
-  /// milliseconds, seconds, minutes and hours.
-  template <class _Rep, class _Period> void sleep_for(const chrono::duration<_Rep, _Period>& aTime)
-  {
-#if defined(_GTHREADS_WIN32_)
-    Sleep(int(double(aTime.count()) * (1000.0 * _Period::_as_double()) + 0.5));
-#else
-    usleep(int(double(aTime.count()) * (1000000.0 * _Period::_as_double()) + 0.5));
-#endif
-  }
+  // Blocks the calling thread for a certain time (given in milliseconds)
+  // Example usage:
+  // // Sleep for 100 milliseconds:
+  // current_thread::sleep_for(100);
+  void sleep_for(const int32_t mstime);
 }
 
 // Define/macro cleanup
 #undef _GTHREADS_DISABLE_ASSIGNMENT
-
-
 
 #endif // _GTHREADS_

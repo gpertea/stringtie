@@ -13782,7 +13782,7 @@ uint find_midhash(int refstart,int start,int end,GVec<float>* bpcov) {
 */
 
 
-int printResults(BundleData* bundleData,int geneno, GStr& refname) {
+int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 	uint runoffdist=200;
 	if(longreads) runoffdist=0;
