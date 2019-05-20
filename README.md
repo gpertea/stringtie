@@ -1,8 +1,5 @@
 ## Obtaining and installing StringTie
 
-The current version of StringTie can also be downloaded from
-  http://ccb.jhu.edu/software/stringtie
-  
 In order to build StringTie from this GitHub repository
 the following steps can be taken:
  
@@ -30,37 +27,43 @@ by TopHat).
 The following optional parameters can be specified (use -h/--help to get the
 usage message):
 ```
- --version : print current version at stdout
- -h print this usage message
+ --version : print just the version at stdout and exit
+ --conservative : conservative transcriptome assembly, same as -t -c 1.5 -f 0.05
+ --rf assume stranded library fr-firststrand
+ --fr assume stranded library fr-secondstrand
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)
- -l name prefix for output transcripts (default: STRG)
- -f minimum isoform fraction (default: 0.1)
- -m minimum assembled transcript length to report (default 100bp)
  -o output path/file name for the assembled transcripts GTF (default: stdout)
+ -l name prefix for output transcripts (default: STRG)
+ -f minimum isoform fraction (default: 0.01)
+ -L use long reads settings (default:false)
+ -m minimum assembled transcript length (default: 200)
  -a minimum anchor length for junctions (default: 10)
  -j minimum junction coverage (default: 1)
  -t disable trimming of predicted transcripts based on coverage
     (default: coverage trimming is enabled)
- -c minimum reads per bp coverage to consider for transcript assembly (default: 2.5)
+ -c minimum reads per bp coverage to consider for multi-exon transcript
+    (default: 1)
+ -s minimum reads per bp coverage to consider for single-exon transcript
+    (default: 4.75)
  -v verbose (log bundle processing details)
- -g gap between read mappings triggering a new bundle (default: 50)
- -C output file with reference transcripts that are covered by reads
- -M fraction of bundle allowed to be covered by multi-hit reads (default:0.95)
+ -g maximum gap allowed between read mappings (default: 50)
+ -M fraction of bundle allowed to be covered by multi-hit reads (default:1)
  -p number of threads (CPUs) to use (default: 1)
- -A gene abundance estimation output file name
+ -A gene abundance estimation output file
  -B enable output of Ballgown table files which will be created in the
     same directory as the output GTF (requires -G, -o recommended)
  -b enable output of Ballgown table files but these files will be 
     created under the directory path given as <dir_path>
- -e only estimates the abundance of given reference transcripts (requires -G)
+ -e only estimate the abundance of given reference transcripts (requires -G)
  -x do not assemble any transcripts on the given reference sequence(s)
+ -u no multi-mapping correction (default: correction enabled)
+ -h print this usage message and exit
 
-Transcript merge usage mode:
-
- stringtie --merge [Options] { gtf_list | strg1.gtf ...}
+Transcript merge usage mode: 
+  stringtie --merge [Options] { gtf_list | strg1.gtf ...}
 With this option StringTie will assemble transcripts from multiple
-input files generating a unified non-redundant set of isoforms. In this
-usage mode the following options are available:
+input files generating a unified non-redundant set of isoforms. In this mode
+the following options are available:
   -G <guide_gff>   reference annotation to include in the merging (GTF/GFF3)
   -o <out_gtf>     output file name for the merged transcripts GTF
                     (default: stdout)
