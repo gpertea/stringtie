@@ -256,7 +256,7 @@ bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
 	rdlen=0;
 	parsedlen=0;
 	i=0;
-	
+
 	for (int j = 0; j < b->core.n_cigar; ++j) {
 		int op = cigar[j]&0xf;
 		if (op == BAM_CMATCH || op==BAM_CEQUAL ||
@@ -274,7 +274,7 @@ bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
 			}
 		}
 	}
-	
+
 	return false;
 }
 
@@ -282,7 +282,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread,  GReadAlnData& alndata) { // some false positives should be eliminated here in order to break the bundle
 
 	GBamRecord& brec=*(alndata.brec);			   // bam record
-	if(longreads && (brec.flags() & BAM_FSECONDARY)) return; 
+	if(longreads && (brec.flags() & BAM_FSECONDARY)) return;
 	GList<CReadAln>& readlist = bdata.readlist;    // list of reads gathered so far
 	GList<CJunction>& junction = bdata.junction;   // junctions added so far
     char strand=alndata.strand;
@@ -3104,7 +3104,7 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 	*/
 
   if(!mergeMode && node.Count()==1) return(NULL); // do the one node transfrag make any difference? CHECK IF YOU NEED TO KEEP THIS ONE
-  
+
 	CTransfrag *t=findtrf_in_treepat(gno,gpos,node,pattern,tr2no[s][g]);
 	if(!t) { // t is NULL
 		t=new CTransfrag(node,pattern,0);
@@ -4194,7 +4194,7 @@ void process_transfrags(int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTr
 	if(srfrag.Count()) {
 		srfrag.Sort(trCmp); // always start with largest super-read to solve
 		for(int u=0;u<srfrag.Count();u++) //process_srfrag(srfrag[u],transfrag,no2gnode,gno,gpos);
-		  if(!srfrag[u]->abundance) srfrag[u]->abundance=srfrag[u]->srabund*ERROR_PERC; 
+		  if(!srfrag[u]->abundance) srfrag[u]->abundance=srfrag[u]->srabund*ERROR_PERC;
 	}
 
 
@@ -8326,7 +8326,7 @@ void parse_trf_long(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGrap
 			 for(int t=0;t<no2gnode[i]->trf.Count();t++) if(transfrag[t]->weak>0 && transfrag[t]->pattern[i+1]) transfrag[t]->weak=-1;
 		 }
 	 }
-	 
+
 	 //fprintf(stderr," maxi=%d nodecov=%f\n",maxi,nodecov[maxi]);
 
 	 //if(nodecov[maxi]>=readthr && (!specific || cont)) { // if I still have nodes that are above coverage threshold
@@ -8385,7 +8385,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	if(back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos)) {
 		 	 if(includesource) path.cAdd(0);
 	 		 path.Reverse(); // back to source adds the nodes at the end to avoid pushing the list all the time
-	 		 
+
 			if(fwd_to_sink_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos)) {
 	 			 bool full=true;
 	 			 flux=push_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,gpos,full);
@@ -13089,7 +13089,9 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	}
 
 
-	GVec<int> bettercov[npred];
+	//GVec<int> bettercov[npred];
+	GVec<int> ivec;
+	GVec< GVec<int> > bettercov(npred, ivec);
 
 	predord.Sort(predordCmp); // sort predictions from the most highest coverage to lowest
 	for(int i=0;i<predord.Count()-1;i++) {
@@ -13410,7 +13412,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		}
 	}
 
-	for(int n=0;n<npred;n++) if(pred[n]->flag){ 
+	for(int n=0;n<npred;n++) if(pred[n]->flag){
 
 		/*
 		{ // DEBUG ONLY
