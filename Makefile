@@ -154,7 +154,8 @@ stringtie: ${BAM}/libbam.a $(OBJS) stringtie.o
 	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LIBS}
 	@echo
 	${DBG_WARN}
-
+test demo tests: stringtie${EXE}
+	@./run_tests.sh
 .PHONY : clean cleanall cleanAll allclean
 
 # target for removing all object files
