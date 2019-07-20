@@ -42,7 +42,9 @@ for i in ${!arrmsg[@]}; do
    echo "Error: file $fcmp does not exist! Re-download test data."
    exit 1
  fi
- echo "Test ${i}: ${arrmsg[$i]}"
+ n=$i
+ ((n++))
+ echo "Test ${n}: ${arrmsg[$i]}"
  fin=${arrins[$i]}.bam
  ../stringtie ${arrparms[$i]} -o $fout $fin
  if [ ! -f $fout ]; then

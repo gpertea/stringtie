@@ -13,10 +13,10 @@ mkdir $linpack
 cd $srcpack
 make cleanall
 make static
-cp LICENSE README stringtie ../$linpack/
+cp LICENSE README.md run_tests.sh stringtie ../$linpack/
 cd ..
 tar cvfz $linpack.tar.gz $linpack
 ls -l $linpack.tar.gz
 echo "scp $linpack.tar.gz $srcpack.tar.gz  salz:~/html/software/stringtie/dl/"
-echo "If you're on salzN machines you can also update the release# links:"
+echo "If you're on CCB servers you can also update the release# links:"
 echo "perl -i -pe 's/stringtie\-\d\.\d+\.\d+\w?\./stringtie-$ver./g' ~/html/software/stringtie/home.shtml"

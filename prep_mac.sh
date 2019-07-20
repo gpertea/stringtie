@@ -11,7 +11,7 @@ echo "-------------------"
 mkdir $macpack
 make clean
 make release
-cp -p LICENSE README stringtie $macpack/
+cp -p LICENSE README.md run_tests.sh stringtie $macpack/
 tar cvfz $macpack.tar.gz $macpack
 ls -l $macpack.tar.gz
 #echo "If you're on igmN machines you can also update the web files:"
