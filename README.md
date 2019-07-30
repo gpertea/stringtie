@@ -1,14 +1,17 @@
 ## Obtaining and installing StringTie
 
 Source and binary packages for this software, along with a small test data set 
-can be directly downloaded from the <a href="https://github.com/mpertea/stringtie2/releases">Releases</a> page for this repository. StringTie is compatible with a wide range of Linux and Apple OS systems (going as far back as RedHat Enterprise Linux 5.0 and OS X 10.7). The main program (StringTie) does not have any other library dependencies and in order to compile it from source it requires only a C++ compiler which supports the C++ 0x standard (GCC 4.5 or newer).
+can be directly downloaded from the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> page for this repository. 
+StringTie is compatible with a wide range of Linux and Apple OS systems (going as far back as RedHat Enterprise Linux 5.0 and OS X 10.7). 
+The main program (StringTie) does not have any other library dependencies and in order to compile it from source it requires only 
+a C++ compiler which supports the C++ 0x standard (GCC 4.5 or newer).
 
 ### Building the latest version from the repository 
 In order to compile the StringTie source in this GitHub repository the following steps can be taken:
  
 ```
-git clone https://github.com/mpertea/stringtie2
-cd stringtie2
+git clone https://github.com/gpertea/stringtie
+cd stringtie
 make release
 ```
 
@@ -27,7 +30,7 @@ Instead of compiling from source, some users may prefer to download an already c
 and Apple OS X, ready to run. These binary package releases are compiled on older versions of these 
 operating systems (RedHat Enterprise Linux 5.0 and OS X 10.7) in order to provide compatibility with 
 a wide range of (older) OS versions, not just the most recent versions. These precompiled packages are 
-made available on the <a href="https://github.com/mpertea/stringtie2/releases">Releases</a> page for this repository.
+made available on the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> page for this repository.
 Please note that these binary packages do not include the optional [super-reads module](#the-super-reads-module), 
 which currently can only be built on Linux machines, from the source made available in this repository.
 
@@ -60,7 +63,9 @@ cd stringtie-2.0.Linux_x86_64
 ./run_tests.sh
 ```
 
-These small test/demo data sets can also be downloaded separately as <a href="https://github.com/mpertea/stringtie2/releases/download/v2.0/test_data.tar.gz">test_data.tar.gz</a> along with the source package and pre-compiled packages on the <a href="https://github.com/mpertea/stringtie2/releases">Releases</a> page for this repository.
+These small test/demo data sets can also be downloaded separately as <a href="https://github.com/gpertea/stringtie/releases/download/v2.0/test_data.tar.gz">test_data.tar.gz</a> 
+along with the source package and pre-compiled packages on the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> 
+page of this repository.
 
 The tests can also be run manually as shown below (after changing to the _test_data_ directory, `cd test_data`):
 
@@ -85,7 +90,7 @@ stringtie -L -G human-chr19_P.gff -o long_reads_guided.out.gtf long_reads.bam
 ```
 
 The above runs should take around one second each on a regular Linux or MacOS desktop. 
-(see also <a href="https://github.com/mpertea/stringtie2/blob/master/test_data/README.md">test_data/README.md</a>).
+(see also <a href="https://github.com/gpertea/stringtie/blob/master/test_data/README.md">test_data/README.md</a>).
 
 For very large data sets one can expect up to one hour of processing time. A minimum of 8GB of RAM is recommended for running StringTie on regular size RNA-Seq samples, with 16 GB or more being strongly advised for larger data sets.
 
@@ -186,7 +191,7 @@ This optional module can be used to de-novo assemble, align and pre-process
 RNA-Seq reads, preparing them to be used as "super-reads" by Stringtie.
 
 Mode detailed information is provided in the 
-<a href="https://github.com/mpertea/stringtie2/blob/master/SuperReads_RNA/README.md">SuperReads_RNA/README.md</a>.
+<a href="https://github.com/gpertea/stringtie/blob/master/SuperReads_RNA/README.md">SuperReads_RNA/README.md</a>.
 Quick installation instructions for this module from the source available on this repository 
 (assuming the above Stringtie installation was completed):
 
@@ -197,7 +202,7 @@ Quick installation instructions for this module from the source available on thi
 
 ### Using super-reads with Stringtie
 
-After running the super-reads module (see the <a href="https://github.com/mpertea/stringtie2/blob/master/SuperReads_RNA/README.md">SuperReads_RNA</a> module documentation for usage details), there 
+After running the super-reads module (see the <a href="https://github.com/gpertea/stringtie/blob/master/SuperReads_RNA/README.md">SuperReads_RNA</a> module documentation for usage details), there 
 is a BAM file which contains sorted alignment for both short reads and super-reads, called *`sr_merge.bam`*, 
 created in the selected output directory. This file can be directly given as the main input file
 to StringTie as described in the [Running StringTie](#running-stringtie) section above.
