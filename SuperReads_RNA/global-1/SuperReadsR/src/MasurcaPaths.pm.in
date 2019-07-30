@@ -1,0 +1,24 @@
+package MasurcaPaths;
+
+use strict;
+use warnings;
+use File::Spec;
+
+our (@ISA, @EXPORT, @EXPORT_OK);
+
+BEGIN {
+  require Exporter;
+  @ISA = qw(Exporter);
+  @EXPORT_OK = qw($BINDIR $LIBDIR $PERL_EXT_LIB);
+}
+
+our ($BINDIR, $LIBDIR, $PERL_EXT_LIB);
+$BINDIR       = "@bindir@";
+$LIBDIR       = "@libdir@";
+$PERL_EXT_LIB = "@PERL_EXT_DIR@";
+
+sub rel_ext_bin {
+  return File::Spec->abs2rel($PERL_EXT_LIB, $BINDIR);
+}
+
+1;

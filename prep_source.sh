@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# this must be run into an active git repository
 ver=$(fgrep '#define VERSION ' stringtie.cpp)
 ver=${ver#*\"}
 ver=${ver%%\"*}
@@ -12,12 +13,19 @@ mkdir $pack/gclib
 cd samtools-0.1.18
 make clean
 cd ..
-libdir=stringtie-$ver/gclib/
+# getting a clean SuperReads_RNA directory
+srm=SuperReads_RNA
+if [[ -d $srm ]]; then
+  mv $srm $srm.prepping
+  git checkout -- $srm
+  mv $srm $pack/
+  mv $srm.prepping $srm
+fi
+gldir=stringtie-$ver/gclib/
 cp Makefile LICENSE README.md run_tests.sh stringtie.cpp {rlink,tablemaker,tmerge}.{h,cpp} $pack/
 cp -r samtools-0.1.18 $pack/
 /bin/rm -rf $pack/samtools-0.1.18/.svn
-cp ./gclib/{GVec,GList,GHash,GIntHash}.hh $libdir
-cp ./gclib/GBitVec.h $libdir
-cp ./gclib/{GArgs,GBam,GBase,gdna,GStr,gff,codons,GFaSeqGet,GFastaIndex,proc_mem,GThreads}.{h,cpp} $libdir
+cp ./gclib/{GVec,GList,GHash,GIntHash}.hh ./gclib/GBitVec.h $gldir
+cp ./gclib/{GArgs,GStr,GBam,GBase,gdna,codons,gff,GFaSeqGet,GFastaIndex,proc_mem,GThreads}.{h,cpp} $gldir
 tar cvfz $pack.tar.gz $pack
 ls -l $pack.tar.gz

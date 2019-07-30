@@ -1,0 +1,45 @@
+#! /bin/sh
+
+FILE="$1"
+
+check_fastq () {
+    [ $1 = "@" ] || {
+        echo >&2 "File '$FILE' is not a fastq file"
+        exit 1
+    }
+}
+
+case $(file -L -b -i "$FILE") in
+    (application/*gzip*)
+        FIRST=$(gunzip -c "$FILE" | head -c 1)
+        check_fastq $FIRST
+        exec gunzip -c "$FILE"
+        ;;
+
+    (application/*bzip2*)
+        FIRST=$(bunzip2 -c "$FILE" | head -c 1)
+        check_fastq $FIRST
+        exec bunzip2 -c "$FILE"
+        ;;
+
+    (application/x-xz*)
+        FIRST=$(unxz -c "$FILE" | head -c 1)
+        check_fastq $FIRST
+        exec unxz -c "$FILE"
+        ;;
+
+    (text/*)
+        FIRST=$(head -c 1 "$FILE")
+        check_fastq $FIRST
+        exec cat "$FILE"
+        ;;
+
+    (*)
+        echo >&2 "WARNING!!! Unknown file type for input file '$FILE', assuming type text/"
+        FIRST=$(head -c 1 "$FILE")
+        check_fastq $FIRST
+        exec cat "$FILE"
+        ;;
+esac
+
+

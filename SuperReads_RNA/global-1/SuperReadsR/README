@@ -1,0 +1,13 @@
+Installation
+============
+
+% ./configure
+% make
+% sudo make install
+
+See INSTALLATION for more details.
+
+LEGALESE
+========
+
+* GNU parallel is licensed under the GPL version 3 license.

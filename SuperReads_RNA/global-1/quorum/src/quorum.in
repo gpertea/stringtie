@@ -1,0 +1,232 @@
+#! /usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use File::Basename;
+
+my $dir = dirname(__FILE__);
+
+# Compile time settings
+my $JF_LIB_PATH     = "@JF_LIB_PATH@";
+my $CDB             = "@bindir@/quorum_create_database";
+my $EC              = "@bindir@/quorum_error_correct_reads";
+my $MERGE           = "@bindir@/merge_mate_pairs";
+my $SPLIT           = "@bindir@/split_mate_pairs";
+my $PACKAGE_VERSION = "@PACKAGE_VERSION@";
+
+# Command line switches
+my $jf_size      = "200M";
+my $prefix       = "quorum_corrected";
+my $klen         = 24;
+my $min_q_char;
+my $min_quality  = 5;
+my $nb_threads;
+my $paired_files;
+my %opts;
+my @switches = qw(min-count skip good anchor-count window error contaminant homo-trim);
+my @flags = qw(trim-contaminant no-discard);
+my ($help, $debug, $version);
+
+my $usage = <<EOS;
+$0 [options] .fastq [.fastq]+
+    
+Run the quorum error corrector on the given fastq file. If the --paired-files
+switch is given, quorum expect an even number of files on the command line,
+each pair files containing pair end reads. The output will be two files
+(<prefix>_1.fa and <prefix>_2.fa) containing error corrected pair end reads.
+
+Options:
+ -s, --size              Mer database size (default $jf_size)
+ -t, --threads           Number of threads (default number of cpus)
+ -p, --prefix            Output prefix (default $prefix)
+ -k, --kmer-len          Kmer length (default $klen)
+ -q, --min-q-char        Minimum quality char. Usually 33 or 64 (autodetect)
+ -m, --min-quality       Minimum above -q for high quality base (5)
+ -w, --window            Window size for trimming
+ -e, --error             Maximum number of errors in a window
+     --min-count         Minimum count for a k-mer to be good
+     --skip              Number of bases to skip to find anchor kmer
+     --anchor            Numer of good kmer in a row for anchor
+     --anchor-count      Minimum count for an anchor kmer
+     --contaminant       Contaminant sequences
+     --trim-contaminant  Trim sequences with contaminant mers
+ -d, --no-discard        Do not discard reads, output a single N (false)
+ -P, --paired-files      Preserve mate pairs in two files
+     --homo-trim         Trim homo-polymer on 3\' end
+     --debug             Display debugging information
+     --version           Display version
+ -h, --help              This message
+EOS
+    ; # Make emacs happy
+
+GetOptions("s|size=s"         => \$jf_size,
+           "t|threads=i"      => \$nb_threads,
+           "p|prefix=s"       => \$prefix,
+           "k|klen=i"         => \$klen,
+           "q|min-q-char=i"   => \$min_q_char,
+           "m|min-quality=i"  => \$min_quality,
+           "w|window=i"       => \$opts{"window"},
+           "e|error=i"        => \$opts{"error"},
+           "min-count=i"      => \$opts{"min-count"},
+           "skip=i"           => \$opts{"skip"},
+           "anchor=i"         => \$opts{"good"},
+           "anchor-count=i"   => \$opts{"anchor-count"},
+           "contaminant=s"    => \$opts{"contaminant"},
+           "trim-contaminant" => \$opts{"trim-contaminant"},
+           "contaminant-trim" => \$opts{"trim-contaminant"},
+           "d|no-discard"     => \$opts{"no-discard"},
+           "P|paired-files"   => \$paired_files,
+           "homo-trim=i"      => \$opts{"homo-trim"},
+           "debug"            => \$debug,
+           "version"          => \$version,
+           "h|help"           => \$help) or die $usage;
+if($help) {
+  print($usage);
+  exit(0);
+}
+if($version) {
+  print($PACKAGE_VERSION, "\n");
+  exit(0);
+}
+if($jf_size !~ /^\d+[kMGT]?$/) {
+  print STDERR "Invalid size '$jf_size'. It must be a number, maybe followed by a suffix (like k, M, G for thousand, million and billion).\n";
+  exit(1);
+}
+if(!@ARGV) {
+  print STDERR "No sequence files. See $0 --help.\n";
+  exit(1);
+}
+
+# Export LD_LIBRARY_PATH if needed
+if($JF_LIB_PATH) {
+  if($ENV{"LD_LIBRARY_PATH"}) {
+    $ENV{"LD_LIBRARY_PATH"} = $JF_LIB_PATH . ":" . $ENV{"LD_LIBRARY_PATH"};
+  } else {
+    $ENV{"LD_LIBRARY_PATH"} = $JF_LIB_PATH;
+  }
+}
+
+# Detect number of CPUs
+if(!defined($nb_threads)) {
+  if(-f "/proc/cpuinfo") {
+    $nb_threads = `grep -c '^processor' /proc/cpuinfo`;
+  } else {
+    $nb_threads = `sysctl -n hw.cpu`;
+  }
+  chomp($nb_threads) if defined($nb_threads);
+}
+defined($nb_threads) or
+    die "Can't detect the number of CPUs. Set number of threads with -t option";
+
+sub run {
+  print(STDERR "+ @_\n") if($debug);
+  my $ret = system(@_);
+  die "Failed to exec '$_[0]': $!" if $ret == -1;
+  return $ret;
+}
+
+if(!defined($min_q_char)) {
+  # Read a 1000 reads (or the entire first line and fine the smallest
+  # quality value
+  
+  open(my $io, "<", $ARGV[0]) or die "Can't open file '$ARGV[0]': $!";
+  $min_q_char = 256;
+  while(<$io>) { # Read header
+    last if($. > 4000);
+    <$io>; <$io>; # Skip sequence and qual header
+    my $qstr = <$io>; chomp($qstr); # Read quals
+    die "Invalid fastq format" if(!defined($qstr));
+    my @quals = split(//, $qstr);
+    for my $c (@quals) {
+      $min_q_char = ord($c) if ord($c) < $min_q_char;
+    }
+  }
+  # Special Illumina case where quality 0 and 1 do not appear
+  $min_q_char -= 2 if($min_q_char == 35 || $min_q_char == 66);
+  if($min_q_char != 33 && $min_q_char != 59 && $min_q_char != 64) {
+    print(STDERR "Found an unusual minimum quality char of $min_q_char (", 
+          chr($min_q_char), "). Stopping now. Use option -m to override");
+    exit(1);
+  }
+}
+
+my $db_file = $prefix . "_mer_database.jf";
+run($CDB, "-s", $jf_size, "-m", $klen, "-t", $nb_threads,
+    "-q", $min_q_char + $min_quality, "-b", 7, "-o", $db_file,
+    @ARGV) == 0 or
+    die "Creating the mer database failed. Most likely the size passed to the -s switch is too small.";
+
+my @ec_cmd = ($EC, "-t", $nb_threads);
+$opts{"no-discard"} = 1 if $paired_files;
+
+for my $s (@switches) {
+  push(@ec_cmd, "--" . $s, $opts{$s}) if defined($opts{$s});
+}
+for my $f (@flags) {
+  push(@ec_cmd, "--" . $f) if defined($opts{$f});
+}
+if(!$paired_files) {
+  run(@ec_cmd, $db_file, "-o", $prefix, @ARGV) == 0 or
+    die "Error correction failed";
+} else {
+  print(STDERR "+ $MERGE @ARGV | @ec_cmd $db_file /dev/fd/0 2> $prefix.log | $SPLIT $prefix\n") if($debug);
+
+  open(my $error_log, ">", $prefix . ".log") or
+    die "Can't open error log '$prefix.log': $!";
+
+  my ($merge_read, $merge_write);
+  die "Error creating merger pipes" if(!pipe($merge_read, $merge_write));
+  my %process;
+  my $pid_merge = fork;
+  die "Cannot fork merge process" unless defined($pid_merge);
+  if($pid_merge) {
+    $process{$pid_merge} = "merge_mate_pairs";
+  } else {
+    # Setup merge_mate_pairs process
+    close($merge_read);
+    open STDOUT, '>&', $merge_write;
+    exec($MERGE, @ARGV);
+    exit(1); # Should not be reached
+  }
+  close($merge_write);
+
+  my ($correct_read, $correct_write);
+  die "Error creating corrector pipe" if(!pipe($correct_read, $correct_write));
+  my $pid_correct = fork;
+  die "Cannot fork correct process" unless defined($pid_correct);
+  if($pid_correct) {
+    $process{$pid_correct} = "quorum_error_correct";
+  } else {
+    # Setup error correct process
+    close($correct_read);
+    open STDIN, '<&', $merge_read;
+    open STDOUT, '>&', $correct_write;
+    open STDERR, '>&', $error_log;
+    exec(@ec_cmd, $db_file, "/dev/fd/0");
+    exit(1); # Should not be reached
+  }
+  close($merge_read);
+  close($correct_write);
+  close($error_log);
+
+  my $pid_split = fork;
+  die "Cannot fork split process" unless defined($pid_split);
+  if($pid_split) {
+    $process{$pid_split} = "split_mate_pairs";
+  } else {
+    # Setup split process
+    open STDIN, '<&', $correct_read;
+    exec($SPLIT, $prefix);
+    exit(1); # Should not be reached
+  }
+  my $return = 0;
+  for(my $i = 0; $i < 3; ++$i) {
+    my $pid = wait;
+    if($? != 0) {
+      print(STDERR "An error was returned by ", $process{$pid} || "<unknown process>", ": ", $? >> 8, "\n");
+      $return =1;
+    }
+  }
+  exit($return);
+}
