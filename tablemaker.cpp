@@ -8,23 +8,6 @@ int rc_cov_inc(int i) {
   return ++i;
 }
 
-/*
-void rc_update_tdata(BundleData& bundle, GffObj& scaff,
-	                          double cov, double fpkm) {
-	if (bundle.rc_data==NULL) return;
-  RC_BundleData& rc = *(bundle.rc_data);
-  if (rc.exons.size()==0) return;
-  RC_ScaffData& q = (RC_ScaffData*)scaff.uptr;
-  set<RC_ScaffData>::iterator tdata = rc.tdata.find(q);
-  if (tdata==rc.tdata.end()) {
-	fprintf(stderr, "Error: cannot locate bundle ref. transcript %s (%s:%d-%d)!\n",
-		scaff.getID(), scaff.getGSeqName(), scaff.start, scaff.end);
-	return;
-  }
-  (*tdata).cov=cov;
-  (*tdata).fpkm=fpkm;
-}
-*/
 void BundleData::keepGuide(GffObj* t, GPVec<RC_TData>* rc_tdata,
 		 GPVec<RC_Feature>* rc_edata, GPVec<RC_Feature>* rc_idata) {
 	if (rc_data==NULL) {

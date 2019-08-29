@@ -256,7 +256,7 @@ bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
 	rdlen=0;
 	parsedlen=0;
 	i=0;
-	
+
 	for (int j = 0; j < b->core.n_cigar; ++j) {
 		int op = cigar[j]&0xf;
 		if (op == BAM_CMATCH || op==BAM_CEQUAL ||
@@ -274,7 +274,7 @@ bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
 			}
 		}
 	}
-	
+
 	return false;
 }
 
@@ -13286,7 +13286,9 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	}
 
 
-	GVec<int> bettercov[npred];
+	//GVec<int> bettercov[npred];
+	GVec<int> ivec;
+	GVec< GVec<int> > bettercov(npred, ivec);
 
 	predord.Sort(predordCmp); // sort predictions from the most highest coverage to lowest
 	for(int i=0;i<predord.Count()-1;i++) {
@@ -13607,7 +13609,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		}
 	}
 
-	for(int n=0;n<npred;n++) if(pred[n]->flag){ 
+	for(int n=0;n<npred;n++) if(pred[n]->flag){
 
 		/*
 		{ // DEBUG ONLY
@@ -13979,7 +13981,7 @@ uint find_midhash(int refstart,int start,int end,GVec<float>* bpcov) {
 */
 
 
-int printResults(BundleData* bundleData,int geneno, GStr& refname) {
+int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 	uint runoffdist=200;
 	if(longreads) runoffdist=0;

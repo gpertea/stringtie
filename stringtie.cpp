@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.01"
+#define VERSION "2.0.1"
 
 //#define DEBUGPRINT 1
 
@@ -22,11 +22,11 @@
 #define DBGPRINT4(a,b,c,d) GMessage(a,b,c,d)
 #define DBGPRINT5(a,b,c,d,e) GMessage(a,b,c,d,e)
 #else
-#define DBGPRINT(x) 
-#define DBGPRINT2(a,b) 
-#define DBGPRINT3(a,b,c) 
-#define DBGPRINT4(a,b,c,d) 
-#define DBGPRINT5(a,b,c,d,e) 
+#define DBGPRINT(x)
+#define DBGPRINT2(a,b)
+#define DBGPRINT3(a,b,c)
+#define DBGPRINT4(a,b,c,d)
+#define DBGPRINT5(a,b,c,d,e)
 #endif
 
 #define USAGE "StringTie v" VERSION " usage:\n\
@@ -251,9 +251,6 @@ bool noThreadsWaiting();
 
 void workerThread(GThreadData& td); // Thread function
 
-//check if a worker thread popped the data queue:
-bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount); 
-
 //prepare the next free bundle for loading
 int waitForData(BundleData* bundles);
 #endif
@@ -264,7 +261,7 @@ TInputFiles bamreader;
 int main(int argc, char* argv[]) {
 
  // == Process arguments.
- GArgs args(argc, argv, 
+ GArgs args(argc, argv,
    "debug;help;version;conservative;keeptmp;bam;fr;rf;merge;exclude=zSEihvteuLx:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
@@ -300,8 +297,9 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    FILE* f=fopen(guidegff.chars(),"r");
    if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
        guidegff.chars());
-   //                transcripts_only    sort gffr->gfflst by loc?
-   GffReader gffr(f,       true,                   true); //loading only recognizable transcript features
+   //                transcripts_only    sort by location?
+   GffReader gffr(f,       true,             true); //loading only recognizable transcript features
+   gffr.setRefAlphaSorted(); //alphabetical sorting of refseq IDs
    gffr.showWarnings(verbose);
    //        keepAttrs    mergeCloseExons   noExonAttrs
    gffr.readAll(false,          true,        true);
@@ -337,8 +335,8 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 	   if (skipGseq) continue;
 	   if (m->exons.Count()==0) {
 		    if (verbose)
-		    	GMessage("Warning: exonless GFF object %s found, added implicit exon %d-%d.\n",
-		    			m->getID(),m->start, m->end);
+		    	GMessage("Warning: exonless GFF %s feature with ID %s found, added implicit exon %d-%d.\n",
+		    			m->getFeatureName(), m->getID(), m->start, m->end);
 		    m->addExon(m->start, m->end); //should never happen!
 	   }
 	   //DONE: always keep a RC_TData pointer around, with additional info about guides
@@ -356,7 +354,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		 printTime(stderr);
 		 GMessage(" %d reference transcripts loaded.\n", gffr.gflst.Count());
 	 }
-	//fclose(f); GffReader will close it anyway
  }
 
 #ifdef GFF_DEBUG
@@ -398,6 +395,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 #ifndef NOTHREADS
+//model: one producer, multiple consumers
 #define DEF_TSTACK_SIZE 8388608
  int tstackSize=GThread::defaultStackSize();
  size_t defStackSize=0;
@@ -412,6 +410,8 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
+ //the consumers take (pop) bundles out of this queue for processing
+ //the producer populates this queue with bundles, built from the BAM file
 
  BundleData* bundles=new BundleData[num_cpus+1];
  //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
@@ -436,7 +436,6 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 	 bool chr_changed=false;
 	 int pos=0;
 	 const char* refseqName=NULL;
-	 //char strand=0;
 	 char xstrand=0;
 	 int nh=1;
 	 int hi=0;
@@ -554,12 +553,12 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			}
 			waitMutex.unlock();
 			haveBundles.notify_one();
-			this_thread::yield();
+			current_thread::yield();
 			queueMutex.lock();
 			while (bundleQueue.Count()==qCount) {
 				queueMutex.unlock();
 				haveBundles.notify_one();
-				this_thread::yield();
+				current_thread::yield();
 				queueMutex.lock();
 			}
 			queueMutex.unlock();
@@ -702,7 +701,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
     	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
     	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
     	 //if (!ballgown || ref_overlap)
-    	 processRead(currentstart, currentend, *bundle, hashread, alndata);
+    	   processRead(currentstart, currentend, *bundle, hashread, alndata);
 			  // *brec, strand, nh, hi);
      }
  } //for each read alignment
@@ -780,16 +779,12 @@ if(!mergeMode) {
 		int nl;
 		int istr;
 		int tlen;
-		float tcov;
-		//float fpkm;
+		float tcov; //do we need to increase precision here ? (double)
 		float calc_fpkm;
 		float calc_tpm;
 		int t_id;
 		while(fgetline(linebuf,linebuflen,ftmp_in)) {
-			//sscanf(linebuf,"%d %d %d %g %g", &nl, &tlen, &t_id, &fpkm, &tcov);
 			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
-			//for the rare cases tcov < 0, invert it ??
-			//if (tcov<0) tcov=-tcov; //should not happen
 			if (tcov<0) tcov=0;
 			calc_fpkm=tcov*1000000000/Frag_Len;
 			calc_tpm=tcov*1000000/Cov_Sum;
@@ -912,6 +907,7 @@ void processOptions(GArgs& args) {
 	     args.printCmdLine(stderr);
 	 }
 	 //complete=!(args.getOpt('i')!=NULL);
+	 // trim=!(args.getOpt('t')!=NULL);
 	 includesource=!(args.getOpt('z')!=NULL);
 	 //EM=(args.getOpt('y')!=NULL);
 	 //weight=(args.getOpt('w')!=NULL);
@@ -1043,8 +1039,6 @@ void processOptions(GArgs& args) {
 	   else GError("Error: reference annotation file (%s) not found.\n",
 	             guidegff.chars());
 	 }
-
-
 
 	 enableNames=(args.getOpt('E')!=NULL);
 
@@ -1222,11 +1216,11 @@ void noMoreBundles() {
 		  if (areThreadsWaiting) {
 		    DBGPRINT("##> NOTIFY ALL workers: no more data!\n");
 		    haveBundles.notify_all();
-		    this_thread::sleep_for(chrono::milliseconds(10));
+		    current_thread::sleep_for(10);
 		    waitMutex.lock();
 		     areThreadsWaiting=(threadsWaiting>0);
 		    waitMutex.unlock();
-		    this_thread::sleep_for(chrono::milliseconds(10));
+		    current_thread::sleep_for(10);
 		  }
 		} while (areThreadsWaiting); //paranoid check that all threads stopped waiting
 #else
@@ -1237,22 +1231,22 @@ void noMoreBundles() {
 void processBundle(BundleData* bundle) {
 	if (verbose) {
 	#ifndef NOTHREADS
-			GLockGuard<GFastMutex> lock(logMutex);
+		GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		GMessage(">bundle %s:%d-%d(%lu) (%d guides) loaded, begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
+		GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count());
-#ifdef GMEMTRACE
-		double vm,rsm;
-		get_mem_usage(vm, rsm);
-		GMessage("\t\tstart memory usage: %6.1fMB\n",rsm/1024);
-		if (rsm>maxMemRS) {
-			maxMemRS=rsm;
-			maxMemVM=vm;
-			maxMemBundle.format("%s:%d-%d(%d)", bundle->refseq.chars(), bundle->start, bundle->end, bundle->readlist.Count());
-		}
-#endif
+	#ifdef GMEMTRACE
+			double vm,rsm;
+			get_mem_usage(vm, rsm);
+			GMessage("\t\tstart memory usage: %6.1fMB\n",rsm/1024);
+			if (rsm>maxMemRS) {
+				maxMemRS=rsm;
+				maxMemVM=vm;
+				maxMemBundle.format("%s:%d-%d(%d)", bundle->refseq.chars(), bundle->start, bundle->end, bundle->readlist.Count());
+			}
+	#endif
 	}
 #ifdef B_DEBUG
 	for (int i=0;i<bundle->keepguides.Count();++i) {
@@ -1318,8 +1312,8 @@ void processBundle(BundleData* bundle) {
 	  fprintf(stderr,"Number of fragments in bundle: %g with sum %g\n",bundle->num_fragments,bundle->frag_len);
 	  */
 	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d(%d) done (%d processed potential transcripts).\n",bundle->refseq.chars(),
-	  		bundle->start, bundle->end, bundle->readlist.Count(), bundle->pred.Count());
+	  GMessage("^bundle %s:%d-%d done (%d processed potential transcripts).\n",bundle->refseq.chars(),
+	  		bundle->start, bundle->end, bundle->pred.Count());
 	#ifdef GMEMTRACE
 		    double vm,rsm;
 		    get_mem_usage(vm, rsm);
@@ -1356,7 +1350,7 @@ void workerThread(GThreadData& td) {
 		queueMutex.unlock();
 		waitMutex.unlock();
 		haveThreads.notify_one(); //in case main thread is waiting
-		this_thread::yield();
+		current_thread::yield();
 		queueMutex.lock();
 		while (bundleWork && bundleQueue->Count()==0) {
 		    haveBundles.wait(queueMutex);//unlocks queueMutex and wait until notified
@@ -1379,7 +1373,7 @@ void workerThread(GThreadData& td) {
 				dataClear.Push(readyBundle->idx);
 				dataMutex.unlock();
 				haveClear.notify_one(); //inform main thread
-				this_thread::yield();
+				current_thread::yield();
 				queueMutex.lock();
 				DBGPRINT2("---->> Thread%d locked back queueMutex\n", td.thread->get_id());
 
@@ -1388,15 +1382,6 @@ void workerThread(GThreadData& td) {
 	} //while there is reason to live
 	queueMutex.unlock();
 	DBGPRINT2("---->> Thread%d DONE.\n", td.thread->get_id());
-}
-
-bool queuePopped(GPVec<BundleData>& bundleQueue, int prevCount) {
-  int c;
-  queueMutex.lock();
-   c=bundleQueue.Count();
-  queueMutex.unlock();
-  DBGPRINT3("##> post-notification check: qlen is now %d (was %d)\n", c, prevCount);
-  return (c==0 || c<prevCount);
 }
 
 //prepare the next available bundle slot for loading
