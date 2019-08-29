@@ -312,7 +312,11 @@ struct CReadAln:public GSeg {
 	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
 	GPVec<CJunction> juncs;
-    TAlnInfo* tinfo;
+	union {
+		TAlnInfo* tinfo;
+		bool in_guide;
+	};
+
 	CReadAln(char _strand=0, short int _nh=0,
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
 					strand(_strand),nh(_nh), len(0), read_count(0), unitig(false),pair_count(),pair_idx(),
@@ -347,7 +351,7 @@ struct CReadAln:public GSeg {
 		}
 		return len;
 	}
-	~CReadAln() { delete tinfo; }
+	~CReadAln() { if(mergeMode) {delete tinfo;} }
 };
 
 struct CGraphinfo {
@@ -516,12 +520,15 @@ struct GReadAlnData {
 	int nh;
 	int hi;
 	GPVec<CJunction> juncs;
-	TAlnInfo* tinfo;
+	union {
+		TAlnInfo* tinfo;
+		bool in_guide;
+	};
 	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
 	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
 			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
 					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
-	~GReadAlnData() { delete tinfo; }
+	~GReadAlnData() { if(mergeMode) delete tinfo; }
 };
 
 

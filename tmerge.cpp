@@ -29,7 +29,6 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   fprintf(samh, "@HD\tVN:1.0\tSO:coordinate\n");
   //load GTF as sorted
   GffReader gfr(gtf.chars(), true, true); //transcript only, sorted by location
-  gfr.setRefAlphaSorted(true); //make sure refseq IDs are sorted alphabetically
   gfr.showWarnings(debugMode || verbose);
   gfr.readAll(true, true, true); //keep attributes, merge close exons, no_exon_attributes
   if (gfr.gflst.Count()==0)
