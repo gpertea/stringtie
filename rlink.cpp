@@ -8788,7 +8788,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 			CTransfrag *trguide=find_guide_pat(guides[g],no2gnode,gno,edgeno,gpos);
 			if(trguide) { // the guide can be found among the graph nodes
 				if(longreads) {
-					if(no2gnode[trguide->nodes[0]]->start-guides[g]->start<CHI_WIN+CHI_THR &&  guides[g]->end-no2gnode[trguide->nodes.Last()]->end<CHI_WIN+CHI_THR) {
+					if(abs((int)(no2gnode[trguide->nodes[0]]->start-guides[g]->start))<CHI_WIN+CHI_THR &&  abs((int)(guides[g]->end-no2gnode[trguide->nodes.Last()]->end))<CHI_WIN+CHI_THR) {
 						CGuide newguide(trguide,g);
 						guidetrf.Add(newguide);
 					}
@@ -12337,8 +12337,11 @@ void count_good_junctions(BundleData* bdata) {
 					if(jp) {
 						if(rd.segs[i].start>jp->start || rd.segs[i].end<jp->end) {
 							if(!nullj) {
-								nullj=new CJunction(0, 0, 0);
-								junction.Add(nullj);
+								if(!junction[0]->start && !junction[0]->end) nullj=junction[0];
+								else {
+									nullj=new CJunction(0, 0, 0);
+									junction.Add(nullj);
+								}
 							}
 							rd.juncs[i-1]=nullj;
 
@@ -12356,8 +12359,11 @@ void count_good_junctions(BundleData* bdata) {
 					else {
 						if(rd.segs[i-1].start>rd.juncs[i-1]->start || rd.segs[i].end<rd.juncs[i-1]->end) {
 							if(!nullj) {
-								nullj=new CJunction(0, 0, 0);
-								junction.Add(nullj);
+								if(!junction[0]->start && !junction[0]->end) nullj=junction[0];
+								else {
+									nullj=new CJunction(0, 0, 0);
+									junction.Add(nullj);
+								}
 							}
 							rd.juncs[i-1]=nullj;
 						}
