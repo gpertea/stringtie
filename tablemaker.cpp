@@ -54,6 +54,7 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
  //check this read alignment against ref exons and introns
  char strandbits=0;
  bool result=false;
+ bool is_in_guide=true; // exons and junctions are in reference transcripts but they might be in different guides
  for (int i=0;i<brec.exons.Count();i++) {
 	 if (ballgown)
 		 rc_data->updateCov(xstrand, nh, brec.exons[i].start, brec.exons[i].len());
@@ -62,6 +63,7 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 			 brec.exons[i].end, xstrand, mate_pos)) {
 		 result=true;
 		 int max_ovl=exonOverlaps[0].ovlen;
+		 if(is_in_guide && (uint)max_ovl<brec.exons[i].len()) is_in_guide=false;
 		 //alndata.g_exonovls.Add(new GVec<RC_ExonOvl>(exonOverlaps));
 			 for (int k=0;k<exonOverlaps.Count();++k) {
 				 //if (exonOverlaps[k].ovlen < 5) break; //ignore very short overlaps
@@ -88,12 +90,16 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 			 if (nh==1)  ri->ucount++;
 			 alndata.juncs.Last()->guide_match=1;
 		 }
+		 else is_in_guide=false;
 
 	 } //intron processing
  }
  if (xstrand=='.' && strandbits && strandbits<3) {
 	xstrand = (strandbits==1) ? '+' : '-';
  }
+
+ if(!mergeMode && is_in_guide) alndata.in_guide=true;
+
  return result;
 }
 
