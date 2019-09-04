@@ -12335,7 +12335,11 @@ void count_good_junctions(BundleData* bdata) {
 					sprintf(sbuf, "%p", rd.juncs[i-1]);
 					CJunction* jp=jhash[sbuf];
 					if(jp) {
-						if(rd.segs[i].start>jp->start || rd.segs[i].end<jp->end) {
+						if(rd.segs[i-1].start>jp->start || rd.segs[i].end<jp->end) {
+
+							if(rd.segs[i-1].start<=jp->start) rd.segs[i-1].end=jp->start;
+							if(rd.segs[i].end>=jp->end) rd.segs[i].start=jp->end;
+
 							if(!nullj) {
 								if(!junction[0]->start && !junction[0]->end) nullj=junction[0];
 								else {
@@ -12350,14 +12354,15 @@ void count_good_junctions(BundleData* bdata) {
 							rd.juncs[i-1]=jp;
 							if(!rd.strand) rd.strand=jp->strand;
 							//fprintf(stderr," [correct rd from %d-%d to %d-%d]",rd.segs[i-1].end,rd.segs[i].start,jp->start,jp->end);
+							if(rd.segs[i-1].start<=jp->start) rd.segs[i-1].end=jp->start;
+							if(rd.segs[i].end>=jp->end) rd.segs[i].start=jp->end;
 						}
-
-						if(rd.segs[i].start<=jp->start) rd.segs[i-1].end=jp->start;
-						if(rd.segs[i].end>=jp->end) rd.segs[i].start=jp->end;
 
 					}
 					else {
 						if(rd.segs[i-1].start>rd.juncs[i-1]->start || rd.segs[i].end<rd.juncs[i-1]->end) {
+							if(rd.segs[i-1].end!=rd.juncs[i-1]->start && rd.segs[i-1].start<=rd.juncs[i-1]->start) rd.segs[i-1].end=rd.juncs[i-1]->start;
+							if(rd.segs[i].start!=rd.juncs[i-1]->end && rd.segs[i].end>=rd.juncs[i-1]->end) rd.segs[i].start=rd.juncs[i-1]->end;
 							if(!nullj) {
 								if(!junction[0]->start && !junction[0]->end) nullj=junction[0];
 								else {
@@ -12367,10 +12372,11 @@ void count_good_junctions(BundleData* bdata) {
 							}
 							rd.juncs[i-1]=nullj;
 						}
-
-						//if(rd.segs[i-1].end!=rd.juncs[i-1]->start || rd.segs[i].start!=rd.juncs[i-1]->end) fprintf(stderr," [chg rd from %d-%d to %d-%d]",rd.segs[i-1].end,rd.segs[i].start,rd.juncs[i-1]->start,rd.juncs[i-1]->end);
-						if(rd.segs[i-1].end!=rd.juncs[i-1]->start && rd.segs[i-1].start<=rd.juncs[i-1]->start) rd.segs[i-1].end=rd.juncs[i-1]->start;
-						if(rd.segs[i].start!=rd.juncs[i-1]->end && rd.segs[i].end>=rd.juncs[i-1]->end) rd.segs[i].start=rd.juncs[i-1]->end;
+						else {
+							//if(rd.segs[i-1].end!=rd.juncs[i-1]->start || rd.segs[i].start!=rd.juncs[i-1]->end) fprintf(stderr," [chg rd from %d-%d to %d-%d]",rd.segs[i-1].end,rd.segs[i].start,rd.juncs[i-1]->start,rd.juncs[i-1]->end);
+							if(rd.segs[i-1].end!=rd.juncs[i-1]->start && rd.segs[i-1].start<=rd.juncs[i-1]->start) rd.segs[i-1].end=rd.juncs[i-1]->start;
+							if(rd.segs[i].start!=rd.juncs[i-1]->end && rd.segs[i].end>=rd.juncs[i-1]->end) rd.segs[i].start=rd.juncs[i-1]->end;
+						}
 					}
 				}
 
