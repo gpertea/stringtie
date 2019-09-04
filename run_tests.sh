@@ -13,19 +13,21 @@ function unpack_test_data() {
      echo "Error: invalid test data archive?"
      exit 1
   fi
+  /bin/rm -f test_data.tar.gz
 }
 
-if [ ! -f test_data/human-chr19_P.gff ]; then
+#if [ ! -f test_data/human-chr19_P.gff ]; then
   if [ -f test_data.tar.gz ]; then
     #extract the tarball and rename the directory
+    echo "..Using existing ./test_data.tar.gz"
     unpack_test_data
   else
     echo "..Downloading test data.."
     #use curl to fetch the tarball from a specific github release or branch
-    curl -sLJO https://github.com/gpertea/stringtie/releases/download/v2.0/test_data.tar.gz
+    curl -sLJO https://github.com/gpertea/stringtie/raw/test_data/test_data.tar.gz
     unpack_test_data
   fi
-fi
+# fi
 cd test_data
 # array element format:
 # 
