@@ -63,7 +63,7 @@ cd stringtie-2.0.Linux_x86_64
 ./run_tests.sh
 ```
 
-These small test/demo data sets can also be downloaded separately as <a href="https://github.com/gpertea/stringtie/releases/download/v2.0/test_data.tar.gz">test_data.tar.gz</a> 
+These small test/demo data sets can also be downloaded separately as <a href="https://github.com/gpertea/stringtie/raw/test_data/test_data.tar.gz">test_data.tar.gz</a> 
 along with the source package and pre-compiled packages on the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> 
 page of this repository.
 
