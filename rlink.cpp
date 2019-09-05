@@ -2588,8 +2588,10 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    				if((njs>=njunctions || junction[njs]->start > endbundle) && (nje>=njunctions || ejunction[nje]->end > endbundle)) { // there are no more junctions starting within this bundle
 	    					float covleft=get_cov(1,2*pos-endbundle+1-refstart,pos-refstart,bpcov);
 	    					float covright=get_cov(1,pos+1-refstart,endbundle-refstart,bpcov);
-	    					if(covright<covleft*(1-ERROR_PERC))  // adjust start here if needed
+	    					if(covright<covleft*(1-ERROR_PERC)) { // adjust start here if needed
 	    						completed=true;
+								edgeno++;
+							}
 	    				}
 	    			}
 
