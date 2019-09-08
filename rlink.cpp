@@ -2,7 +2,7 @@
 #include "GBitVec.h"
 #include <float.h>
 
-//#define GMEMTRACE 1  //debugging mem allocation
+//#define GMEMTRACE 1  //debugging memory allocation
 #ifdef GMEMTRACE
 #include "proc_mem.h"
 #endif
@@ -2428,6 +2428,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	//int seenjunc=0;
 
+	uint bundle_end=bnode[bundle->lastnodeid]->end;
 	while(bundlenode!=NULL) {
 
 		//fprintf(stderr,"process bundlenode %d-%d\n",bundlenode->start,bundlenode->end);
@@ -2508,13 +2509,16 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    	int minjunction = -1; // process next junction -> either a start or an ending whichever has the first position on the genome; if they have same position then process ending first
 	    	if((nje<njunctions && (ejunction[nje]->end<=endbundle)) || (njs<njunctions && (junction[njs]->start<=endbundle))) {
-	    		if(nje<njunctions) { // there are still junctions endings
-	    			if(njs<njunctions) { // there are still junctions starting
-	    				minjunction = junction[njs]->start >= ejunction[nje]->end ? 1 : 0; // one of them is clearly before the endbundle from the initial if
+	    		if(njs<njunctions && (junction[njs]->start<=endbundle) && junction[njs]->end>bundle_end) njs++;
+	    		else {
+	    			if(nje<njunctions) { // there are still junctions endings
+	    				if(njs<njunctions) { // there are still junctions starting
+	    					minjunction = junction[njs]->start >= ejunction[nje]->end ? 1 : 0; // one of them is clearly before the endbundle from the initial if
+	    				}
+	    				else minjunction = 1;
 	    			}
-	    			else minjunction = 1;
+	    			else minjunction = 0;
 	    		}
-	    		else minjunction = 0;
 	    	}
 
 	    	//fprintf(stderr,"minjunction=%d\n",minjunction);
@@ -2590,8 +2594,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    					float covright=get_cov(1,pos+1-refstart,endbundle-refstart,bpcov);
 	    					if(covright<covleft*(1-ERROR_PERC)) { // adjust start here if needed
 	    						completed=true;
-								edgeno++;
-							}
+	    					}
 	    				}
 	    			}
 
