@@ -37,13 +37,6 @@ ifneq (,$(findstring mingw,$(shell ${CXX} -dumpmachine)))
  WINDOWS=1
 endif
 
-# MinGW32 GCC 4.5 link problem fix
-#ifdef WINDOWS
-ifneq (,$(findstring 4.5.,$(shell ${CXX} -dumpversion)))
- STATIC_CLIB=1
-endif
-#endif
-
 # Misc. system commands
 ifdef WINDOWS
  RM = del /Q
@@ -61,7 +54,8 @@ endif
 # Non-windows systems need pthread
 ifndef WINDOWS
  ifndef NOTHREADS
-   LIBS += -lpthread
+   LIBS := -pthread ${LIBS}
+   BASEFLAGS += -pthread
  endif
 endif
 
@@ -112,7 +106,7 @@ ifdef RELEASE_BUILD
 endif
 
 ifdef STATIC_CLIB
- LDFLAGS += -static-libstdc++ -static-libgcc
+ LDFLAGS += -static-libgcc -static-libstdc++
 endif
 
 ifdef DEBUG_BUILD
