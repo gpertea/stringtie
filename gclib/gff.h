@@ -650,19 +650,8 @@ class GffExon : public GSeg {
 		    else { start=e; end=s; }
 
   } //constructor
-
-  GffExon& operator=(const GffExon& o) { // copy operator : shallow!
-    start=o.start;
-    end=o.end;
-    sharedAttrs=o.sharedAttrs;
-    attrs=o.attrs;
-    score=o.score;
-    exontype=o.exontype;
-    phase=o.phase;
-    uptr=o.uptr;
-    return *this;
-  }
-
+  
+  
   GffExon(const GffExon& ex):GSeg(ex.start, ex.end) { //copy constructor
       (*this)=ex; //use the default (shallow!) copy operator
       if (ex.attrs!=NULL) { //make a deep copy here
@@ -670,6 +659,10 @@ class GffExon : public GSeg {
         attrs->copyAttrs(ex.attrs);
       }
   }
+  
+  GffExon& operator=(const GffExon& o) = default; //prevent gcc 9 warnings:
+                                           //yes, I want a shallow copy here
+  
   ~GffExon() { //destructor
      if (attrs!=NULL && !sharedAttrs) delete attrs;
   }
