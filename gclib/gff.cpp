@@ -2439,6 +2439,17 @@ void GffObj::printExonList(FILE* fout) {
 	}
 }
 
+void GffObj::printCDSList(FILE* fout) {
+	//print comma delimited list of CDS intervals
+	if (!hasCDS()) return;
+	GVec<GffExon> cds;
+	this->getCDSegs(cds); //also uses/prepares the CDS phase for each CDS segment
+	for (int i=0;i<cds.Count();i++) {
+		if (i>0) fprintf(fout, ",");
+		fprintf(fout, "%d-%d", cds[i].start, cds[i].end);
+	}
+}
+
 void BED_addAttribute(FILE* fout, int& acc, const char* format,... ) {
 	++acc;
 	if (acc==1) fprintf(fout, "\t");
@@ -3216,6 +3227,7 @@ void GffObj::getCDSegs(GVec<GffExon>& cds) {
        cds.Add(cdseg);
        } //for each exon
    } // + strand
+
 }
 
 //-- transcript overlap classification functions
