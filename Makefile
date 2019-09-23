@@ -71,22 +71,30 @@ ifneq (,$(filter %release %static, $(MAKECMDGOALS)))
   CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O3)
   CXXFLAGS += -DNDEBUG $(BASEFLAGS)
 else
-  ifneq (,$(filter %memcheck %memdebug, $(MAKECMDGOALS)))
+  ifneq (,$(filter %memcheck %memdebug %tsan %tcheck %thrcheck, $(MAKECMDGOALS)))
      #use sanitizer in gcc 4.9+
-     MEMCHECK_BUILD=1
      GCCVER49 := $(shell expr `${CXX} -dumpversion | cut -f1,2 -d.` \>= 4.9)
      ifeq "$(GCCVER49)" "0"
        $(error gcc version 4.9 or greater is required for this build target)
      endif
      CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
-     CXXFLAGS += -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
+     SANLIBS :=
+     ifneq (,$(filter %tsan %tcheck %thrcheck, $(MAKECMDGOALS)))
+        # thread sanitizer only (incompatible with address sanitizer)
+        CXXFLAGS += -fno-omit-frame-pointer -fsanitize=thread -fsanitize=undefined $(BASEFLAGS)
+        SANLIBS := -ltsan
+     else
+        # address sanitizer
+        CXXFLAGS += -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
+        SANLIBS := -lasan
+     endif
      ifeq "$(GCCVER5)" "1"
        CXXFLAGS += -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=vptr
        CXXFLAGS += -fsanitize=float-cast-overflow -fsanitize=object-size
        #CXXFLAGS += -fcheck-pointer-bounds -mmpx
      endif
      CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector
-     LIBS := -lasan -lubsan -ldl $(LIBS)
+     LIBS := ${SANLIBS} -lubsan -ldl ${LIBS}
   else
      #just plain debug build
      DEBUG_BUILD=1
@@ -133,7 +141,7 @@ endif
 OBJS += rlink.o tablemaker.o tmerge.o
 
 all release static debug: stringtie${EXE}
-memcheck memdebug: stringtie${EXE}
+memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
 memuse memusage memtrace: stringtie${EXE}
 nothreads: stringtie${EXE}
 
