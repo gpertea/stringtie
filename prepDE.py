@@ -9,7 +9,7 @@ if sys.version_info < MIN_PYTHON:
     sys.exit("Python %s.%s or later is required.\n" % MIN_PYTHON)
 
 parser=OptionParser(description='Generates two CSV files containing the count matrices for genes and transcripts, using the coverage values found in the output of `stringtie -e`')
-parser.add_option('-i', '--input', '--in', default='ballgown', help="the parent directory of the sample sub-directories or a textfile listing the paths to GTF files [default: %default]")
+parser.add_option('-i', '--input', '--in', default='.', help="a folder containing all sample sub-directories, or a text file with sample ID and path to its GTF file on each line [default: %default/]")
 parser.add_option('-g', default='gene_count_matrix.csv', help="where to output the gene count matrix [default: %default")
 parser.add_option('-t', default='transcript_count_matrix.csv', help="where to output the transcript count matrix [default: %default]")
 parser.add_option('-l', '--length', default=75, type='int', help="the average read length [default: %default]")
@@ -17,6 +17,8 @@ parser.add_option('-p', '--pattern', default=".", help="a regular expression tha
 parser.add_option('-c', '--cluster', action="store_true", help="whether to cluster genes that overlap with different gene IDs, ignoring ones with geneID pattern (see below)")
 parser.add_option('-s', '--string', default="MSTRG", help="if a different prefix is used for geneIDs assigned by StringTie [default: %default]")
 parser.add_option('-k', '--key', default="prepG", help="if clustering, what prefix to use for geneIDs assigned by this script [default: %default]")
+parser.add_option('-v', action="store_true", help="enable verbose processing")
+
 parser.add_option('--legend', default="legend.csv", help="if clustering, where to output the legend file mapping transcripts to assigned geneIDs [default: %default]")
 (opts, args)=parser.parse_args()
 
@@ -27,12 +29,12 @@ if (os.path.isfile(opts.input)):
         fin = open(opts.input, 'r')
         for line in fin:
             if line[0] != '#':
-                lineLst = tuple(line.strip().split())
+                lineLst = tuple(line.strip().split(None,2))
                 if (len(lineLst) != 2):
-                    print "Error: Text file with sample ID and path invalid (%s)" % (line.strip())
+                    print "Error: line should have a sample ID and a file path:\n%s" % (line.strip())
                     exit(1)
                 if lineLst[0] in samples:
-                    print "Error: Sample ID duplicated (%s)" % (lineLst[0])
+                    print "Error: non-unique sample ID (%s)" % (lineLst[0])
                     exit(1)
                 if not os.path.isfile(lineLst[1]):
                     print "Error: GTF file not found (%s)" % (lineLst[1])
@@ -58,7 +60,7 @@ else:
 if len(samples) == 0:
   parser.print_help()
   print " "
-  print "Error: no GTF files found under ./%s !" % (opts.input)
+  print "Error: no GTF files found under base directory %s !" % (opts.input)
   sys.exit(1)
 
 RE_GENE_ID=re.compile('gene_id "([^"]+)"')
@@ -67,10 +69,19 @@ RE_TRANSCRIPT_ID=re.compile('transcript_id "([^"]+)"')
 RE_COVERAGE=re.compile('cov "([\-\+\d\.]+)"')
 RE_STRING=re.compile(re.escape(opts.string))
 
+RE_GFILE=re.compile('\-G\s*(\S+)') #assume filepath without spaces..
+
+
 #####
 ## Sort the sample names by the sample ID
 #####
+
 samples.sort()
+
+#if opts.v:
+#  print "Sample GTFs found:"
+#  for s in samples:
+#     print s[1]
 
 #####
 ## Checks whether a given row is a transcript 
@@ -81,9 +92,14 @@ def is_transcript(x):
 
 def getGeneID(s, ctg, tid):
   r=RE_GENE_ID.search(s)
-  if r: return r.group(1)
-  r=RE_GENE_NAME.search(s)
-  if r: return ctg+'|'+r.group(1)
+  #if r: return r.group(1)
+  rn=RE_GENE_NAME.search(s)
+  #if rn: return ctg+'|'+rn.group(1)
+  if r:
+    if rn: 
+      return r.group(1)+'|'+rn.group(1)
+    else:
+      return r.group(1)
   return tid
 
 def getCov(s):
@@ -136,12 +152,11 @@ for s in samples:
         ## i = numLine; v = corresponding i-th GTF row
         for i,v in enumerate(split):
             if is_transcript(v):
-                t_id=RE_TRANSCRIPT_ID.search(v[len(v)-1]).group(1)
+                t_id=RE_TRANSCRIPT_ID.search(v[8]).group(1)
                 try:
-                  g_id=getGeneID(v[len(v)-1], v[0], t_id)
+                  g_id=getGeneID(v[8], v[0], t_id)
                 except:
-                  print "Problem at line:\n:%s\n" % (v)
-                  print "i='%s', len(v)=%s" % (i, len(v));
+                  print "Problem parsing file %s at line:\n:%s\n" % (s[1], v)
                   sys.exit(1)
                 geneIDs.setdefault(t_id, g_id)
                 if not RE_STRING.match(g_id):
@@ -199,28 +214,38 @@ if opts.cluster and len(badGenes)>0:
 
 geneDict={} #key=gene/cluster, value=dictionary with key=sample, value=summed counts
 t_dict={}
+guidesFile='' # file given with -G for the 1st sample
 for q, s in enumerate(samples):
-    print q, s[0]
-
+    if opts.v:
+       print ">processing sample %s from file %s" % s
+    lno=0
     try:
         #with open(glob.iglob(os.path.join(opts.input,s,"*.gtf")).next()) as f: #grabs first .gtf file it finds inside the sample subdirectory
 #        if not gtfList:
 #            f = open(glob.iglob(os.path.join(opts.input,s[1],"*.gtf")).next())
 #        else:
         f = open(s[1])
-        
-            # s = s.split('/')[len(s.split('/')) - 1].split('.gtf')[0].split('_')[0]
-            # s = sample_IDs[q]
-
-##        split=[t[:len(t)-1]+t[len(t)-1].split(";") for t in split]
-##        split=[t[:len(t)-1] for t in split] #eliminate '\n' at end
-##        split=[[e.lstrip() for e in t] for t in split]
-        #should consider making stuff into dictionaries, maybe each split line
-
-##            transcriptList=[]
         transcript_len=0
+        
         for l in f:
-            if l.startswith("#"):
+            lno+=1
+            if l.startswith('#'):
+                if lno==1:
+                    ei=l.find('-e')
+                    if ei<0:
+                       print "Error: sample file %s was not generated with -e option!" % ( s[1] )
+                       sys.exit(1)
+                    gf=RE_GFILE.search(l)
+                    if gf:
+                       gfile=gf.group(1)
+                       if guidesFile:
+                          if gfile != guidesFile:
+                             print "Warning: sample file %s generated with a different -G file (%s) than the first sample (%s)" % ( s[1], gfile, guidesFile )
+                       else:
+                          guidesFile=gfile
+                    else:
+                       print "Error: sample %s was not processed with -G option!" % ( s[1] )
+                       sys.exit(1)
                 continue
             v=l.split('\t')
             if v[2]=="transcript":
@@ -230,9 +255,9 @@ for q, s in enumerate(samples):
                     t_dict[t_id].setdefault(s[0], int(ceil(coverage*transcript_len/read_len)))
                 t_id=RE_TRANSCRIPT_ID.search(v[len(v)-1]).group(1)
                 #g_id=RE_GENE_ID.search(v[len(v)-1]).group(1)
-                g_id=getGeneID(v[len(v)-1], v[0], t_id)
+                g_id=getGeneID(v[8], v[0], t_id)
                 #coverage=float(RE_COVERAGE.search(v[len(v)-1]).group(1))
-                coverage=getCov(v[len(v)-1])
+                coverage=getCov(v[8])
                 transcript_len=0
             if v[2]=="exon":
                 transcript_len+=int(v[4])-int(v[3])+1 #because end coordinates are inclusive in GTF
@@ -249,26 +274,35 @@ for q, s in enumerate(samples):
 
 
 ##        transcriptList.sort(key=lambda bla: bla[1]) #gene_id
-
+    
     for i,v in t_dict.iteritems():
 ##        print i,v
-        geneDict.setdefault(geneIDs[i],{}) #gene_id
-        geneDict[geneIDs[i]].setdefault(s[0],0)
-        geneDict[geneIDs[i]][s[0]]+=v[s[0]]
+       try:
+          geneDict.setdefault(geneIDs[i],{}) #gene_id
+          geneDict[geneIDs[i]].setdefault(s[0],0)
+          geneDict[geneIDs[i]][s[0]]+=v[s[0]]
+       except KeyError:
+          print "Error: could not locate transcript %s entry for sample %s" % ( i, s[0] )
+          raise
 
-
+if opts.v:
+   print "..writing %s " % ( opts.t )
 with open(opts.t, 'w') as csvfile:
-    my_writer = csv.DictWriter(csvfile, fieldnames = ["transcript_id"] + [x for x,y in samples])
-    my_writer.writerow(dict((fn,fn) for fn in my_writer.fieldnames))
-    for i in t_dict:
+   my_writer = csv.DictWriter(csvfile, fieldnames = ["transcript_id"] + [x for x,y in samples])
+   my_writer.writerow(dict((fn,fn) for fn in my_writer.fieldnames))
+   for i in t_dict:
         t_dict[i]["transcript_id"] = i
         my_writer.writerow(t_dict[i])
-
+if opts.v:
+   print "..writing %s " % ( opts.g )
 with open(opts.g, 'w') as csvfile:
-    my_writer = csv.DictWriter(csvfile, fieldnames = ["gene_id"] + [x for x,y in samples])
+   my_writer = csv.DictWriter(csvfile, fieldnames = ["gene_id"] + [x for x,y in samples])
 ##    my_writer.writerow([""]+samples)
 ##    my_writer.writerows(geneDict)
-    my_writer.writerow(dict((fn,fn) for fn in my_writer.fieldnames))
-    for i in geneDict:
+   my_writer.writerow(dict((fn,fn) for fn in my_writer.fieldnames))
+   for i in geneDict:
         geneDict[i]["gene_id"] = i #add gene_id to row
         my_writer.writerow(geneDict[i])
+if opts.v:
+   print "All done."
+
