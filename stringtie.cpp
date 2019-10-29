@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.0.3"
+#define VERSION "2.0.4"
 
 //#define DEBUGPRINT 1
 
@@ -786,8 +786,10 @@ if(!mergeMode) {
 		while(fgetline(linebuf,linebuflen,ftmp_in)) {
 			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
 			if (tcov<0) tcov=0;
-			calc_fpkm=tcov*1000000000/Frag_Len;
-			calc_tpm=tcov*1000000/Cov_Sum;
+			if (Frag_Len>0.001) calc_fpkm=tcov*1000000000/Frag_Len;
+				else calc_fpkm=0.0;
+			if (Cov_Sum>0.00001) calc_tpm=tcov*1000000/Cov_Sum;
+				else calc_tpm=0.0;
 			if(istr) { // this is a transcript
 				if (ballgown && t_id>0) {
 					guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;

@@ -13144,12 +13144,15 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	// build maxIntv
 	CMaxIntv *maxint=new CMaxIntv(pred[0]->exons[0].start,pred[0]->exons[0].end);
 
-	if(!pred[0]->t_eq && pred[0]->exons.Count()==1 && pred[0]->strand!='.') { // neutral strand if most reads are neutral
-		int s=0;
-		if(pred[0]->strand=='+') s=2;
-		float totalcov=get_cov(1,pred[0]->start-bundleData->start,pred[0]->end-bundleData->start,bpcov);
-		float strandcov=get_cov(s,pred[0]->start-bundleData->start,pred[0]->end-bundleData->start,bpcov);
-		if(strandcov<ERROR_PERC*totalcov) pred[0]->strand='.';
+	if(!pred[0]->t_eq) {
+		if(eonly) pred[0]->flag=false;
+		else if(pred[0]->exons.Count()==1 && pred[0]->strand!='.') { // neutral strand if most reads are neutral
+			int s=0;
+			if(pred[0]->strand=='+') s=2;
+			float totalcov=get_cov(1,pred[0]->start-bundleData->start,pred[0]->end-bundleData->start,bpcov);
+			float strandcov=get_cov(s,pred[0]->start-bundleData->start,pred[0]->end-bundleData->start,bpcov);
+			if(strandcov<ERROR_PERC*totalcov) pred[0]->strand='.';
+		}
 	}
 
 	CExon ex(0,0,pred[0]->cov*pred[0]->len()); // this keeps the exon flow based on per bp coverage
@@ -13205,12 +13208,15 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	nextmaxint=maxint;
 	for(int n=1;n<npred;n++) {
 
-		if(!pred[n]->t_eq && pred[n]->exons.Count()==1 && pred[n]->strand!='.') { // neutral strand if most reads are neutral
-			int s=0;
-			if(pred[n]->strand=='+') s=2;
-			float totalcov=get_cov(1,pred[n]->start-bundleData->start,pred[n]->end-bundleData->start,bpcov);
-			float strandcov=get_cov(s,pred[n]->start-bundleData->start,pred[n]->end-bundleData->start,bpcov);
-			if(strandcov<ERROR_PERC*totalcov) pred[n]->strand='.';
+		if(!pred[n]->t_eq) {
+			if(eonly) pred[n]->flag=false;
+			else if(pred[n]->exons.Count()==1 && pred[n]->strand!='.') { // neutral strand if most reads are neutral
+				int s=0;
+				if(pred[n]->strand=='+') s=2;
+				float totalcov=get_cov(1,pred[n]->start-bundleData->start,pred[n]->end-bundleData->start,bpcov);
+				float strandcov=get_cov(s,pred[n]->start-bundleData->start,pred[n]->end-bundleData->start,bpcov);
+				if(strandcov<ERROR_PERC*totalcov) pred[n]->strand='.';
+			}
 		}
 
 		color.Add(n);
