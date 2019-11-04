@@ -591,7 +591,8 @@ struct BundleData {
  double sum_cov; // sum of all transcripts coverages --> needed to compute TPMs
  char covflags;
 
- GStr refseq;
+ GStr refseq; //reference sequence name
+ char* gseq; //actual genomic sequence for the bundle
  GList<CReadAln> readlist;
  GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
@@ -603,14 +604,14 @@ struct BundleData {
 		 //covSaturated(false),
 		 numreads(0),
 		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
-		 refseq(), readlist(false,true), //bpcov(1024),
+		 refseq(), gseq(NULL), readlist(false,true), //bpcov(1024),
 		 junction(true, true, true),
 		 keepguides(false), pred(false), rc_data(NULL) {
 	 for(int i=0;i<3;i++) 	bpcov[i].setCapacity(1024);
  }
 
  void getReady(int currentstart, int currentend) {
-	 //this is only called when the bundle is valid and going to be processed
+	 //this is only called when the bundle is valid and ready to be processed
 	 start=currentstart;
 	 end=currentend;
 	 //refseq=ref;
@@ -662,6 +663,8 @@ struct BundleData {
 	sum_cov=0;
 	covflags=0;
 	delete rc_data;
+	refseq.clear();
+	GFREE(gseq);
 	rc_data=NULL;
  }
 

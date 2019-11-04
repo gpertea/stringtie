@@ -90,7 +90,7 @@ the following options are available:\n\
                    these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
-/* 
+/*
  -C output a file with reference transcripts that are covered by reads\n\
  -U unitigs are treated as reads and not as guides \n\ \\ not used now
  -d disable adaptive read coverage mode (default: yes)\n\
@@ -166,6 +166,8 @@ float isofrac=0.01;
 bool isunitig=true;
 GStr label("STRG");
 GStr ballgown_dir;
+
+GFastaDb* gfasta=NULL;
 
 GStr guidegff;
 
@@ -262,7 +264,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;conservative;keeptmp;bam;fr;rf;merge;exclude=zSEihvteuLx:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;conservative;keeptmp;refseq=;rseq=;bam;fr;rf;merge;exclude=zSEihvteuLx:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -535,6 +537,13 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			// (readthr, junctionthr, mintranscriptlen are globals)
 			bundle->getReady(currentstart, currentend);
+			if (gfasta!=NULL) { //genomic sequence data requested
+				GFaSeqGet* faseq=gfasta->fetch(bundle->refseq.chars());
+				if (faseq==NULL) {
+					GError("Error: could not retrieve sequence data for %s!\n", bundle->refseq.chars());
+				}
+				bundle->gseq=faseq->copyRange(bundle->start, bundle->end, false, true);
+			}
 #ifndef NOTHREADS
 			//push this in the bundle queue where it'll be picked up by the threads
 			DBGPRINT2("##> Locking queueMutex to push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
@@ -715,6 +724,8 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 	    GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
 	    		"Please make sure the -G annotation file uses the same naming convention for the genome sequences.\n");
  }
+
+ delete gfasta;
 
 #ifndef NOTHREADS
  for (int t=0;t<num_cpus;t++)
@@ -925,6 +936,14 @@ void processOptions(GArgs& args) {
 	 }
 	 else if(mergeMode) mintranscriptlen=50;
 
+
+
+	 s=args.getOpt("rseq");
+	 if (s.is_empty())
+		 s=args.getOpt("refseq");
+	 if (!s.is_empty()) {
+		 gfasta=new GFastaDb(s.chars());
+	 }
 
      s=args.getOpt('x');
      if (!s.is_empty()) {
