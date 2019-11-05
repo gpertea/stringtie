@@ -264,7 +264,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;conservative;keeptmp;refseq=;rseq=;bam;fr;rf;merge;exclude=zSEihvteuLx:n:j:s:D:G:C:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;conservative;keeptmp;rseq=;bam;fr;rf;merge;exclude=zEihvteuLx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -936,11 +936,16 @@ void processOptions(GArgs& args) {
 	 }
 	 else if(mergeMode) mintranscriptlen=50;
 
-
+	 /*
+	 if (args.getOpt('S')) {
+		 // sensitivitylevel=2; no longer supported from version 1.0.3
+		 sensitivitylevel=1;
+	 }
+	*/
 
 	 s=args.getOpt("rseq");
 	 if (s.is_empty())
-		 s=args.getOpt("refseq");
+		 s=args.getOpt('S');
 	 if (!s.is_empty()) {
 		 gfasta=new GFastaDb(s.chars());
 	 }
@@ -1036,13 +1041,6 @@ void processOptions(GArgs& args) {
 	 }
 
 	 tmpfname=args.getOpt('o');
-
-	 /*
-	 if (args.getOpt('S')) {
-		 // sensitivitylevel=2; no longer supported from version 1.0.3
-		 sensitivitylevel=1;
-	 }
-	*/
 
 	 // coverage saturation no longer used after version 1.0.4; left here for compatibility with previous versions
 	 s=args.getOpt('s');
