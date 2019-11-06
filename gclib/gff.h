@@ -22,7 +22,7 @@ extern int gff_fid_exon;
 extern const uint GFF_MAX_LOCUS;
 extern const uint GFF_MAX_EXON;
 extern const uint GFF_MAX_INTRON;
-
+extern const int CLASSCODE_OVL_RANK;
 //extern const uint gfo_flag_LEVEL_MSK; //hierarchical level: 0 = no parent
 //extern const byte gfo_flagShift_LEVEL;
 
@@ -650,8 +650,8 @@ class GffExon : public GSeg {
 		    else { start=e; end=s; }
 
   } //constructor
-  
-  
+
+
   GffExon(const GffExon& ex):GSeg(ex.start, ex.end) { //copy constructor
       (*this)=ex; //use the default (shallow!) copy operator
       if (ex.attrs!=NULL) { //make a deep copy here
@@ -659,10 +659,10 @@ class GffExon : public GSeg {
         attrs->copyAttrs(ex.attrs);
       }
   }
-  
+
   GffExon& operator=(const GffExon& o) = default; //prevent gcc 9 warnings:
                                            //yes, I want a shallow copy here
-  
+
   ~GffExon() { //destructor
      if (attrs!=NULL && !sharedAttrs) delete attrs;
   }
@@ -1030,6 +1030,10 @@ public:
            uint* cds_start=NULL, uint* cds_end=NULL, GMapSegments* seglst=NULL,
 		   bool cds_open=false);
     char* getUnspliced(GFaSeqGet* faseq, int* rlen, GMapSegments* seglst=NULL);
+
+    void addPadding(int padLeft, int padRight); //change exons to include this padding on the sides
+    void removePadding(int padLeft, int padRight);
+
    //bool validCDS(GFaSeqGet* faseq); //has In-Frame Stop Codon ?
    bool empty() { return (start==0); }
 };

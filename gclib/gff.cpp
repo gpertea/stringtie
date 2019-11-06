@@ -31,6 +31,7 @@ void gffnames_unref(GffNames* &n) {
   if (n->numrefs==0) { delete n; n=NULL; }
 }
 
+const int CLASSCODE_OVL_RANK = 15;
 int classcode_rank(char c) {
 	switch (c) {
 		case '=': return 0; //intron chain match or full exon chain match if strict matching is enabled
@@ -42,6 +43,7 @@ int classcode_rank(char c) {
 		case 'j': return 6; // multi-exon transfrag with at least one junction match
 		case 'e': return 12; // single exon transfrag partially overlapping an intron of reference (possible pre-mRNA fragment)
 		case 'o': return 14; // other generic exon overlap
+	//****  >15 = no-overlaps (not on the same strand) from here on *****
 		case 's': return 16; //"shadow" - an intron overlaps with a ref intron on the opposite strand (wrong strand mapping?)
 		case 'x': return 18; // generic overlap on opposite strand (usually wrong strand mapping)
 		case 'i': return 20; // intra-intron (transfrag fully contained within a reference intron)
@@ -2719,6 +2721,26 @@ char* GffObj::getUnspliced(GFaSeqGet* faseq, int* rlen, GMapSegments* seglst) {
     return unspliced;
 }
 
+ void GffObj::addPadding(int padLeft, int padRight) {
+	 this->start-=padLeft;
+	 this->end+=padRight;
+	 if (exons.Count()>0) {
+		 exons[0]->start-=padLeft;
+		 exons.Last()->end+=padRight;
+	 }
+	 covlen+=padLeft+padRight;
+ }
+
+ void GffObj::removePadding(int padLeft, int padRight) {
+	 this->start+=padLeft;
+	 this->end-=padRight;
+	 if (exons.Count()>0) {
+		 exons[0]->start+=padLeft;
+		 exons.Last()->end-=padRight;
+	 }
+	 covlen-=padLeft+padRight;
+ }
+
 char* GffObj::getSpliced(GFaSeqGet* faseq, bool CDSonly, int* rlen, uint* cds_start, uint* cds_end,
           GMapSegments* seglst, bool cds_open) {
 	//cds_open only makes sense when CDSonly is true by overriding CDS 3'end such that the end of
@@ -2740,7 +2762,8 @@ char* GffObj::getSpliced(GFaSeqGet* faseq, bool CDSonly, int* rlen, uint* cds_st
   if (gsubseq==NULL) {
         GError("Error getting subseq for %s (%d..%d)!\n", gffID, start, end);
   }
-  if (fspan<(int)(end-start+1)) { //special case: stop coordinate was extended past the gseq length, must adjust
+  if (fspan<(int)(end-start+1)) {
+	  //special case: stop coordinate was extended past the gseq length, must adjust
      int endadj=end-start+1-fspan;
      uint prevend=end;
      end-=endadj;
@@ -2755,7 +2778,7 @@ char* GffObj::getSpliced(GFaSeqGet* faseq, bool CDSonly, int* rlen, uint* cds_st
      }
   }
   char* spliced=NULL;
-  GMALLOC(spliced, covlen+1); //allocate more here
+  GMALLOC(spliced, covlen+1); //IMPORTANT: covlen must be correct here!
   uint g_start=0, g_end=0;
   int cdsadj=0;
   if (CDphase=='1' || CDphase=='2') {
