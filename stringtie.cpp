@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.0.5"
+#define VERSION "2.0.6"
 
 //#define DEBUGPRINT 1
 
@@ -580,9 +580,11 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			// ncluster++; used it for debug purposes only
 		 } //have alignments to process
 		 else { //no read alignments in this bundle?
-			bundle->Clear();
 #ifndef NOTHREADS
 			dataMutex.lock();
+#endif
+			bundle->Clear();
+#ifndef NOTHREADS
 			dataClear.Push(bundle->idx);
 			dataMutex.unlock();
 #endif
