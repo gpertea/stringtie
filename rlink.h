@@ -663,7 +663,7 @@ struct BundleData {
 	sum_cov=0;
 	covflags=0;
 	delete rc_data;
-	refseq.clear();
+	//refseq.clear();
 	GFREE(gseq);
 	rc_data=NULL;
  }

@@ -203,14 +203,14 @@ int refseqCount=0;
 
 
 #ifndef NOTHREADS
-
+//single producer, multiple consumers
+//main thread/program is always loading the producer
 GMutex dataMutex; //manage availability of data records ready to be loaded by main thread
 GVec<int> dataClear; //indexes of data bundles cleared for loading by main thread (clear data pool)
 GConditionVar haveBundles; //will notify a thread that a bundle was loaded in the ready queue
                            //(or that no more bundles are coming)
 int bundleWork=1; // bit 0 set if bundles are still being prepared (BAM file not exhausted yet)
                   // bit 1 set if there are Bundles ready in the queue
-
 
 //GFastMutex waitMutex;
 GMutex waitMutex; // controls threadsWaiting (idle threads counter)
@@ -413,7 +413,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
  //the consumers take (pop) bundles out of this queue for processing
- //the producer populates this queue with bundles, built from the BAM file
+ //the producer populates this queue with bundles built from reading the BAM input
 
  BundleData* bundles=new BundleData[num_cpus+1];
  //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
@@ -562,13 +562,17 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			}
 			waitMutex.unlock();
 			haveBundles.notify_one();
+			DBGPRINT("##> waitMutex unlocked, haveBundles notified, current thread yielding\n");
 			current_thread::yield();
 			queueMutex.lock();
+			DBGPRINT("##> queueMutex locked until bundleQueue.Count()==qCount\n");
 			while (bundleQueue.Count()==qCount) {
 				queueMutex.unlock();
+				DBGPRINT2("##> queueMutex unlocked as bundleQueue.Count()==%d\n", qCount);
 				haveBundles.notify_one();
 				current_thread::yield();
 				queueMutex.lock();
+				DBGPRINT("##> queueMutex locked again within while loop\n");
 			}
 			queueMutex.unlock();
 
@@ -582,10 +586,12 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		 else { //no read alignments in this bundle?
 #ifndef NOTHREADS
 			dataMutex.lock();
+			DBGPRINT2("##> dataMutex locked for bundle #%d clearing..\n", bundle->idx);
 #endif
 			bundle->Clear();
 #ifndef NOTHREADS
 			dataClear.Push(bundle->idx);
+			DBGPRINT2("##> dataMutex unlocking as dataClear got pushed idx #%d\n", bundle->idx);
 			dataMutex.unlock();
 #endif
 		 } //nothing to do with this bundle
@@ -1389,12 +1395,17 @@ void workerThread(GThreadData& td) {
 				//Frag_Len+=readyBundle->frag_len;
 				queueMutex.unlock();
 				processBundle(readyBundle);
-				DBGPRINT2("---->> Thread%d processed bundle, now locking back queueMutex\n", td.thread->get_id());
+				DBGPRINT3("---->> Thread%d processed bundle #%d, now locking back dataMutex and queueMutex\n",
+						td.thread->get_id(), readyBundle->idx);
 				dataMutex.lock();
 				dataClear.Push(readyBundle->idx);
+				DBGPRINT3("---->> Thread%d pushed bundle #%d into dataClear",
+										td.thread->get_id(), readyBundle->idx);
 				dataMutex.unlock();
+				DBGPRINT2("---->> Thread%d informing main thread and yielding", td.thread->get_id());
 				haveClear.notify_one(); //inform main thread
 				current_thread::yield();
+				DBGPRINT2("---->> Thread%d processed bundle, now locking back queueMutex\n", td.thread->get_id());
 				queueMutex.lock();
 				DBGPRINT2("---->> Thread%d locked back queueMutex\n", td.thread->get_id());
 
@@ -1409,13 +1420,17 @@ void workerThread(GThreadData& td) {
 int waitForData(BundleData* bundles) {
 	int bidx=-1;
 	dataMutex.lock();
+	DBGPRINT("  #waitForData: locking dataMutex");
 	while (dataClear.Count()==0) {
+		DBGPRINT("  #waitForData: dataClear.Count is 0, waiting for dataMutex");
 		haveClear.wait(dataMutex);
 	}
 	bidx=dataClear.Pop();
 	if (bidx>=0) {
 	  bundles[bidx].status=BUNDLE_STATUS_LOADING;
 	}
+
+	DBGPRINT("  #waitForData: unlocking dataMutex");
 	dataMutex.unlock();
 	return bidx;
 }
