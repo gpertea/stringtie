@@ -2,5 +2,5 @@
 
 * we should get rid of that terrible hashing hack (appending a dummy suffix, `id+=`) in `rlink.cpp` processRead(), by using a better hash function 
 
-* implement a better SPMC model with less locking -- perhaps one with a queue per consumer/worker? However, multiple small bundles should be packaged together (say 100 tiny bundles at once) and passed on to a worker thread all at once.
+* implement a better SPMC threading model with less locking -- perhaps one with a queue per consumer/worker? However, multiple small bundles should be packaged together (say 100 tiny bundles at once) and passed on to a worker thread all at once.
 
