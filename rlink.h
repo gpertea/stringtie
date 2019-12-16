@@ -574,7 +574,6 @@ struct BundleData {
  int idx; //index in the main bundles array
  int start;
  int end;
- //bool covSaturated;
  unsigned long numreads; // number of reads in bundles
  /*
  float wnumreads; // NEW: weighted numreads; a multi-mapped read mapped in 2 places will contribute only 0.5
@@ -601,7 +600,6 @@ struct BundleData {
  GList<CPrediction> pred;
  RC_BundleData* rc_data;
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
-		 //covSaturated(false),
 		 numreads(0),
 		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
 		 refseq(), gseq(NULL), readlist(false,true), //bpcov(1024),
@@ -656,14 +654,12 @@ struct BundleData {
 	start=0;
 	end=0;
 	status=BUNDLE_STATUS_CLEAR;
-	//covSaturated=false;
 	numreads=0;
 	num_fragments=0;
 	frag_len=0;
 	sum_cov=0;
 	covflags=0;
 	delete rc_data;
-	//refseq.clear();
 	GFREE(gseq);
 	rc_data=NULL;
  }
