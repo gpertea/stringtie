@@ -3015,33 +3015,36 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 			}
 		}
 
-		if(i<graphno-1 && no2gnode[s][g][i]->child.Count()) { // might need to be linked to sink
-			bool addsink=true;
-			for(int j=0;j<sink->parent.Count();j++) {
-				if(sink->parent[j]==i) {
-					addsink=false;
-					break;
+		if(i<graphno-1) {
+			if(no2gnode[s][g][i]->child.Count()) { // might need to be linked to sink
+				bool addsink=true;
+				for(int j=0;j<sink->parent.Count();j++) {
+					if(sink->parent[j]==i) {
+						addsink=false;
+						break;
+					}
+				}
+				if(addsink) {
+					if(!icov) icov=get_cov(1,no2gnode[s][g][i]->start-refstart,no2gnode[s][g][i]->end-refstart,bpcov)/no2gnode[s][g][i]->len();
+					//fprintf(stderr,"consider inode=%d with cov=%f\n",i,icov);
+					float chcov=0; // all children coverages
+					for(int j=0;j<no2gnode[s][g][i]->child.Count();j++) {
+						int c=no2gnode[s][g][i]->child[j];
+						chcov+=get_cov(1,no2gnode[s][g][c]->start-refstart,no2gnode[s][g][c]->end-refstart,bpcov)/no2gnode[s][g][c]->len();
+					}
+					if(chcov<icov*ERROR_PERC*DROP) {
+						sink->parent.Add(i); // prevnode is the parent of sink
+						float tmp=i;
+						futuretr.Add(tmp);
+						futuretr.cAdd(-1.0);
+						tmp=(icov-chcov)/DROP;
+						futuretr.Add(tmp);
+						//fprintf(stderr,"Add link to sink from node %d with abundance %f\n",i,tmp);
+						edgeno++;
+					}
 				}
 			}
-			if(addsink) {
-				if(!icov) icov=get_cov(1,no2gnode[s][g][i]->start-refstart,no2gnode[s][g][i]->end-refstart,bpcov)/no2gnode[s][g][i]->len();
-				//fprintf(stderr,"consider inode=%d with cov=%f\n",i,icov);
-				float chcov=0; // all children coverages
-				for(int j=0;j<no2gnode[s][g][i]->child.Count();j++) {
-					int c=no2gnode[s][g][i]->child[j];
-					chcov+=get_cov(1,no2gnode[s][g][c]->start-refstart,no2gnode[s][g][c]->end-refstart,bpcov)/no2gnode[s][g][c]->len();
-				}
-				if(chcov<icov*ERROR_PERC*DROP) {
-					sink->parent.Add(i); // prevnode is the parent of sink
-					float tmp=i;
-					futuretr.Add(tmp);
-					futuretr.cAdd(-1.0);
-					tmp=(icov-chcov)/DROP;
-					futuretr.Add(tmp);
-					//fprintf(stderr,"Add link to sink from node %d with abundance %f\n",i,tmp);
-					edgeno++;
-				}
-			}
+			else edgeno++; // node has no children so it might get linked to sink in traverse_dfs function
 		}
 	}
 
@@ -13104,7 +13107,7 @@ void count_good_junctions(BundleData* bdata) {
 								}
 							}
 							rd.juncs[i-1]->nreads-=rd.read_count;
-							if(rd.juncs[i-1]->nreads<ERROR_PERC) rd.juncs[i-1]->strand=0;
+							//if(rd.juncs[i-1]->nreads<ERROR_PERC) rd.juncs[i-1]->strand=0; // this approach removes a perfectly valid (guide) junction which might not be the desired effect
 							rd.juncs[i-1]=nullj;
 
 						}
@@ -13129,7 +13132,7 @@ void count_good_junctions(BundleData* bdata) {
 								}
 							}
 							rd.juncs[i-1]->nreads-=rd.read_count;
-							if(rd.juncs[i-1]->nreads<ERROR_PERC) rd.juncs[i-1]->strand=0;
+							//if(rd.juncs[i-1]->nreads<ERROR_PERC) rd.juncs[i-1]->strand=0; // this approach removes a perfectly valid (guide) junction which might not be the desired effect
 							rd.juncs[i-1]=nullj;
 						}
 						else {
