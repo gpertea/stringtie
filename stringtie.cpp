@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.0.6"
+#define VERSION "2.1.0"
 
 //#define DEBUGPRINT 1
 
@@ -130,6 +130,7 @@ bool guided=false;
 bool trim=true;
 bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
 bool longreads=false;
+bool rawreads=false;
 bool nomulti=false;
 bool enableNames=false;
 bool includecov=false;
@@ -264,7 +265,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;conservative;keeptmp;rseq=;bam;fr;rf;merge;exclude=zEihvteuLx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;conservative;keeptmp;rseq=;bam;fr;rf;merge;exclude=zEihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -891,6 +892,7 @@ void processOptions(GArgs& args) {
 	   exit(0);
 	}
 
+
 	 longreads=(args.getOpt('L')!=NULL);
 	 if(longreads) {
 		 bundledist=0;
@@ -998,6 +1000,17 @@ void processOptions(GArgs& args) {
 	 s=args.getOpt('j');
 	 if (!s.is_empty()) junctionthr=s.asInt();
 
+
+	 rawreads=(args.getOpt('R')!=NULL);
+	 if(rawreads) {
+		 if(!longreads) {
+			 if(verbose) GMessage("Enable longreads processing\n");
+			 longreads=true;
+			 bundledist=0;
+		 }
+		 readthr=0;
+	 }
+
 	 s=args.getOpt('c');
 	 if (!s.is_empty()) {
 		 readthr=(float)s.asDouble();
@@ -1006,7 +1019,6 @@ void processOptions(GArgs& args) {
 		 }
 	 }
 	 else if(mergeMode) readthr=0;
-
 
 
 	 s=args.getOpt('g');
@@ -1076,7 +1088,10 @@ void processOptions(GArgs& args) {
 	 //isunitig=(args.getOpt('U')!=NULL);
 
 	 eonly=(args.getOpt('e')!=NULL);
-	 if(eonly && mergeMode) {
+	 if(eonly && rawreads) {
+		 if(verbose) GMessage("Error: can not use -e and -R at the same time; parameter -e will be ignored\n");
+	 }
+	 else if(eonly && mergeMode) {
 		 eonly=false;
 		 includecov=true;
 	 }

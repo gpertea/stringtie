@@ -122,13 +122,16 @@ struct CTransfrag {
 	GVec<int> nodes;
 	GBitVec pattern;
 	float abundance;
-	bool real;
 	float srabund; // keeps abundance associated to srfrag
 	GVec<CPath> path; // stores all the possible paths that leave from a node to reach next node in a transfrag, and distributes the abundance of the transfrag between all possible continuations
 	float usepath;
 	int weak; // number of weak links
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, float sr=0):nodes(_nodes),pattern(bit),abundance(abund),real(treal),srabund(sr),path(),usepath(-1),weak(-1) {}
-	CTransfrag(float abund=0, bool treal=false):nodes(),pattern(),abundance(abund),real(treal),srabund(0),path(),usepath(-1),weak(-1) {
+	bool real:1;
+	bool guide:1;
+	uint longstart; // for long reads: min start of all longreads sharing transfrag
+	uint longend; // for long reads: max end of all longreads sharing transfrag
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, bool tguide=false,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longstart(false),longend(false) {}
+	CTransfrag(float abund=0, bool treal=false,bool tguide=false):nodes(),pattern(),abundance(abund),srabund(0),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longstart(false),longend(false) {
 	}
 };
 
@@ -215,6 +218,13 @@ struct CPred{
 	int predno;
 	float cov;
 	CPred(int p=0,float c=0):predno(p),cov(c) {}
+};
+
+struct CLongTrf{
+	int t;
+	float cov;
+	GVec<int> group;
+	CLongTrf(int tno=0,float c=0):t(tno),cov(c),group() {}
 };
 
 struct CPrediction:public GSeg {

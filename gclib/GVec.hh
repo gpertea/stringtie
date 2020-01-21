@@ -82,6 +82,7 @@ template <class OBJ> class GVec {
     int cPush(OBJ item) { return Add(&item); }
     OBJ Pop();// Stack use; removes and returns a copy of the last item
     OBJ Shift(); //Queue use: removes and returns a copy of the first item
+    void Shift(int idx); //Queue use: removes first idx elements from array
 
     void Add(GVec<OBJ>& list); //append copies of all items from another list
 
@@ -419,6 +420,13 @@ template <class OBJ> OBJ GVec<OBJ>::Shift() {
    memmove(&fArray[0], &fArray[1], (fCount)*sizeof(OBJ));
  //fList[fCount]=NULL; //not that it matters..
  return o;
+}
+
+template <class OBJ> void GVec<OBJ>::Shift(int idx) {
+ if (idx<=0 || fCount-idx<=0) GError("Error: invalid GVec::Shift() operation!\n");
+ fCount-=idx;
+ if (fCount>0)
+   memmove(&fArray[0], &fArray[idx], (fCount)*sizeof(OBJ));
 }
 
 template <class OBJ> void GVec<OBJ>::Insert(int idx, OBJ* item) {
