@@ -9383,7 +9383,10 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 			}
 		}
 		if(ng) {
-			for(int g=0;g<guidetrf.Count();g++) if(!covered[g]) guidetrf.Delete(g);
+			for(int g=0;g<guidetrf.Count();g++) if(!covered[g]) {
+				delete guidetrf[g].trf;
+				guidetrf.Delete(g);
+			}
 		}
 	}
 
