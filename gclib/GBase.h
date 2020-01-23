@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.11.3"
+#define GCLIB_VERSION "0.11.4"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -354,6 +354,13 @@ class GSeg {
   }
   bool contained(GSeg* s) {
 	  return (s->start<=start && s->end>=end);
+  }
+
+  bool equals(GSeg& d){
+      return (start==d.start && end==d.end);
+  }
+  bool equals(GSeg* d){
+      return (start==d->start && end==d->end);
   }
 
   //fuzzy coordinate matching:
