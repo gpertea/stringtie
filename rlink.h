@@ -502,6 +502,8 @@ struct CGraphnode:public GSeg {
 struct CJunction:public GSeg {
 	char strand; //-1,0,1
 	char guide_match; //exact match of a ref intron?
+	char consleft; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
+	char consright; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
 	double nreads;
 	double nreads_good;
 	double leftsupport;
@@ -509,7 +511,7 @@ struct CJunction:public GSeg {
 	double nm; // number of reads with a high nm (high mismatch)
 	double mm; // number of reads that support a junction with both anchors bigger than longintronanchor
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
-			strand(_strand), guide_match(0), nreads(0),nreads_good(0),
+			strand(_strand), guide_match(0), consleft(-1), consright(-1),nreads(0),nreads_good(0),
 			leftsupport(0),rightsupport(0),nm(0),mm(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;

@@ -45,6 +45,7 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.01)\n\
  -L use long reads settings (default:false)\n\
+ -R if long reads are provided, just clean and collapse the reads but do not assemble\n\
  -m minimum assembled transcript length (default: 200)\n\
  -a minimum anchor length for junctions (default: 10)\n\
  -j minimum junction coverage (default: 1)\n\
