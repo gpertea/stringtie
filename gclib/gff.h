@@ -60,7 +60,9 @@ int classcode_rank(char c); //returns priority value for class codes
 
 char getOvlCode(GffObj& m, GffObj& r, int& ovlen, bool strictMatch=false); //returns: class code
 
-bool singleExonTMatch(GffObj& m, GffObj& r, int& ovlen); //single-exon fuzzy transcript match
+char transcriptMatch(GffObj& a, GffObj& b, int& ovlen); //generic transcript match test
+// -- return '=', '~'  or 0
+char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen); //single-exon transcript match test
 
 //---
 // -- tracking exon/CDS segments from local mRNA to genome coordinates

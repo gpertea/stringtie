@@ -2124,13 +2124,16 @@ GffObj* GffObj::finalize(GffReader* gfr) {
 	if (reduceAttributes) {
 		//for each attribute of the 1st exon, if it has the
 		//same value for all other exons, move it to transcript level
-		if (reduceExonAttrs(exons) && gfr->showWarnings()) {
-			GMessage("Info: duplicate exon attributes reduced for %s\n", gffID);
-		}
+		//bool reduced=reduceExonAttrs(exons);
+		reduceExonAttrs(exons);
+		//if (gfr->showWarnings() && reduced)
+		//	GMessage("Info: duplicate exon attributes reduced for %s\n", gffID);
 		//do the same for CDS segments, if any
 		if (cdss!=NULL && cdss->Count()>0 && (*cdss)[0]->attrs!=NULL) {
-			if (reduceExonAttrs(*cdss) && gfr->showWarnings())
-				GMessage("Info: duplicate CDS attributes reduced for %s\n", gffID);
+			//reduced=
+			reduceExonAttrs(*cdss);
+			//if (gfr->showWarnings() && reduced)
+			//	GMessage("Info: duplicate CDS attributes reduced for %s\n", gffID);
 		}
 	}
 	//merge close exons if requested
@@ -3118,23 +3121,60 @@ void GffObj::getCDSegs(GVec<GffExon>& cds) {
 
 }
 
-//-- transcript overlap classification functions
+//-- transcript match/overlap classification functions
 
-bool singleExonTMatch(GffObj& m, GffObj& r, int& ovlen) {
- //if (m.exons.Count()>1 || r.exons.Count()>1..)
+
+char transcriptMatch(GffObj& a, GffObj& b, int& ovlen) {
+	//return '=' if exact exon match, '~' if intron-chain match (or 80% overlap for single-exon)
+	// or 0 otherwise
+	int imax=a.exons.Count()-1;
+	int jmax=b.exons.Count()-1;
+	ovlen=0;
+	if (imax!=jmax) return false; //different number of exons, cannot match
+	if (imax==0) //single-exon mRNAs
+	    return (singleExonTMatch(a,b,ovlen));
+	if ( a.exons[imax]->start<b.exons[0]->end ||
+		b.exons[jmax]->start<a.exons[0]->end )
+		return 0; //intron chains do not overlap at all
+	//check intron overlaps
+	ovlen=a.exons[0]->end-(GMAX(a.start,b.start))+1;
+	ovlen+=(GMIN(a.end,b.end))-a.exons.Last()->start;
+	for (int i=1;i<=imax;i++) {
+		if (i<imax) ovlen+=a.exons[i]->len();
+		if ((a.exons[i-1]->end!=b.exons[i-1]->end) ||
+			(a.exons[i]->start!=b.exons[i]->start)) {
+			return 0; //intron mismatch
+		}
+	}
+	//--- full intron chain match:
+	if (a.exons[0]->start==b.exons[0]->start &&
+		a.exons.Last()->end==b.exons.Last()->end)
+		   return '=';
+	return '~';
+}
+
+
+char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen) {
+ //return '=' if exact match, '~' if the overlap is >=80% of the longer sequence length
+ // return 0 if there is no overlap
  GSeg mseg(m.start, m.end);
  ovlen=mseg.overlapLen(r.start,r.end);
+ if (ovlen<=0) return 0;
  // fuzzy matching for single-exon transcripts:
  // matching = overlap is at least 80% of the length of the longer transcript
  // *OR* in case of reverse containment (reference contained in m)
  //   it's also considered "matching" if the overlap is at least 80% of
  //   the reference len AND at least 70% of the query len
+ if (m.start==r.start && m.end==r.end) return '=';
  if (m.covlen>r.covlen) {
-   return ( (ovlen >= m.covlen*0.8) ||
-		   (ovlen >= r.covlen*0.8 && ovlen >= m.covlen* 0.7 ));
+   if ( (ovlen >= m.covlen*0.8) ||
+		   (ovlen >= r.covlen*0.8 && ovlen >= m.covlen* 0.7 ) )
 		   //allow also some fuzzy reverse containment
- } else
-   return (ovlen >= r.covlen*0.8);
+           return '~';
+ } else {
+   if (ovlen >= r.covlen*0.8) return '~';
+ }
+ return 0;
 }
 
 //formerly in gffcompare
@@ -3148,10 +3188,10 @@ char getOvlCode(GffObj& m, GffObj& r, int& ovlen, bool strictMatch) {
 		GSeg mseg(m.start, m.end);
 		if (jmax==0) { //also single-exon ref
 			//ovlen=mseg.overlapLen(r.start,r.end);
-			if (singleExonTMatch(m, r, ovlen)) {
-				if (strictMatch) return (r.exons[0]->start==m.exons[0]->start &&
-						r.exons[0]->end==m.exons[0]->end) ? '=' : '~';
-				else return '=';
+			char eqcode=0;
+			if ((eqcode=singleExonTMatch(m, r, ovlen))>0) {
+				if (strictMatch) return eqcode;
+				            else return '=';
 			}
 			if (m.covlen<r.covlen)
 			   { if (ovlen >= m.covlen*0.8) return 'c'; } // fuzzy containment
