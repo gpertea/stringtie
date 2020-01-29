@@ -1733,7 +1733,7 @@ CGraphnode *longtrim(int s, int g, int refstart,int nodeend, int &nls, int &nle,
 	while(nls<lstart.Count() && lstart[nls].predno<(int)graphnode->start) nls++;
 	while(nle<lend.Count() && lend[nle].predno<(int)graphnode->start) nle++;
 	while((nls<lstart.Count() && lstart[nls].predno<nodeend) || (nle<lend.Count() && lend[nle].predno<nodeend)){
-		if(nle>=lend.Count() || (nls<lstart.Count() && lstart[nls].predno<lend[nle].predno)) { // start comes first
+		if(nle>=lend.Count() || (nls<lstart.Count() && lstart[nls].predno<=lend[nle].predno)) { // start comes first
 			if((startcov || lstart[nls].predno>(int)(graphnode->start+longintronanchor)) &&(endcov || lstart[nls].predno<nodeend+(int)longintronanchor)) {
 				int startpos=lstart[nls].predno-refstart;
 				float tmpcov=(get_cov(1,startpos,startpos+CHI_THR-1,bpcov)-get_cov(2-2*s,startpos,startpos+CHI_THR-1,bpcov)-
