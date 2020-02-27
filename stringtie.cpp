@@ -401,6 +401,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  int currentstart=0, currentend=0;
  int ng_start=0;
  int ng_end=-1;
+ int ptf_idx=0; //point-feature current index in the current GRefPtData.pfs[]
  int ng=0;
  GStr lastref;
  bool no_ref_used=true;
