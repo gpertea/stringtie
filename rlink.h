@@ -93,6 +93,22 @@ struct CBundlenode:public GSeg {
 			cov(_cov),bid(_bid),nextnode(_nextnode) {}
 };
 
+
+enum GSCFType {
+	GSCFT_TSS=1,
+	GSCFT_CPAS
+};
+
+struct GSCFeature { //Single-Coordinate Feature
+ GSCFType ftype;
+ uint coord;
+ GSCFeature(GSCFType ft=0, uint loc=0):ftype(ft), coord(loc) {}
+ bool operator<(const GSCFeature &o) { return coord<o.coord; }
+ bool operator==(const GSCFeature &o) { return coord==o.coord; }
+    //== should really match ftype too, but for sorting purposes we don't care
+};
+
+
 // bundle data structure, holds all data needed for
 // infering transcripts from a bundle
 enum BundleStatus {
