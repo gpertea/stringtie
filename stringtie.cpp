@@ -171,7 +171,8 @@ GStr ballgown_dir;
 
 GFastaDb* gfasta=NULL;
 
-GStr guidegff;
+GStr guidegff; // -G option
+GStr ptff; // --ptf option (point features)
 
 bool debugMode=false;
 bool verbose=false;
@@ -192,10 +193,9 @@ double Frag_Len=0;
 double Cov_Sum=0;
 //bool firstPrint=true; //just for writing the GFF header before the first transcript is printed
 
-GffNames* gseqNames=NULL; //used as a dictionary for genomic sequence names and ids
+GffNames* gseqNames=NULL; //used as a dictionary for reference sequence names and ids
 
-int refseqCount=0;
-
+int refseqCount=0; // number of reference sequences found in the guides file
 
 #ifdef GMEMTRACE
  double maxMemRS=0;
@@ -242,6 +242,9 @@ bool moreBundles(); //thread-safe retrieves NoMoreBundles
 void noMoreBundles(); //sets NoMoreBundles to true
 //--
 void processOptions(GArgs& args);
+
+int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts);
+
 char* sprintTime();
 
 void processBundle(BundleData* bundle);
@@ -266,12 +269,15 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;conservative;keeptmp;rseq=;bam;fr;rf;merge;exclude=zEihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "exclude=zEihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
+
+ GArray<GRefPtData> refpts(true, true); // sorted,unique array of refseq point-features data
 
  //table indexes for Ballgown Raw Counts data (-B/-b option)
  GPVec<RC_TData> guides_RC_tdata(true); //raw count data or other info for all guide transcripts
@@ -360,6 +366,19 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 	 }
  }
 
+ gseqNames=GffObj::names; //might have been populated already by gff data
+ gffnames_ref(gseqNames);  //initialize the names collection if not guided
+
+ // -- loading point-feature data
+ if (!ptff.is_empty()) {
+   FILE* f=fopen(ptff.chars(),"r");
+   if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
+       ptff.chars());
+   //                transcripts_only    sort by location?
+   loadPtFeatures(f, refpts); //adds to gseqNames->gseqs accordingly, populates
+ }
+
+
 #ifdef GFF_DEBUG
   for (int r=0;r<refguides.Count();++r) {
 	  GRefData& grefdata = refguides[r];
@@ -372,9 +391,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
   exit(0);
 #endif
 
- // --- here we do the input processing
- gseqNames=GffObj::names; //might have been populated already by gff data
- gffnames_ref(gseqNames);  //initialize the names collection if not guided
+ // --- input processing
 
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
@@ -538,6 +555,9 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			// (readthr, junctionthr, mintranscriptlen are globals)
+			 //TODO: add all point features between currentstart-currentend to bundle->ptfs
+
+
 			bundle->getReady(currentstart, currentend);
 			if (gfasta!=NULL) { //genomic sequence data requested
 				GFaSeqGet* faseq=gfasta->fetch(bundle->refseq.chars());
@@ -1079,6 +1099,13 @@ void processOptions(GArgs& args) {
 	   else GError("Error: reference annotation file (%s) not found.\n",
 	             guidegff.chars());
 	 }
+	 s=args.getOpt("ptf");
+	 if (!s.is_empty()) {
+	   ptff=s;
+	   if (fileExists(ptff.chars())<=1)
+		   GError("Error: point features data file (%s) not found.\n",
+	             ptff.chars());
+	 }
 
 	 enableNames=(args.getOpt('E')!=NULL);
 
@@ -1452,6 +1479,65 @@ int waitForData(BundleData* bundles) {
 }
 
 #endif
+
+void addPtFeature(const char* refname, GPtFeature* pf, GArray<GRefPtData>& refpts) {
+  //expects gseqNames to be set to GffObj::names and initialized/populated already!
+  //MUST be called AFTER the guides file has been loaded (if given)
+  int gseq_id=gseqNames->gseqs.addName(refname);
+  pf->ref_id=gseq_id;
+  int ridx=-1;
+  GRefPtData* rpd=NULL;
+  GRefPtData rd(gseq_id);
+  if (refpts.Count()==0) {
+	  ridx=refpts.Add(rd);
+  } else {
+	  ridx=refpts.IndexOf(rd);
+	  if (ridx<0)
+		  ridx=refpts.Add(rd);
+  }
+  if (ridx<0) GError("Error adding GRefPtData entry (bug!)\n");
+  rpd = & refpts.Get(ridx);
+  rpd->add(pf);
+}
+
+int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts) {
+  //expected format:
+  //<chromosome> <coordinate> <strand> <feature_type>
+  int num=0;
+  GLineReader lr(f);
+  char* line=NULL;
+  GDynArray<char*> tokens;
+  while ((line=lr.nextLine())!=NULL) {
+    strsplit(line, tokens);
+    if (tokens.Count()<4)
+    	GError("Error parsing point-feature line (not enough columns):\n%s\n",line);
+    int start;
+    if (!strToInt(tokens[1], start))
+    	GError("Error parsing point-feature line (invalid coordinate):\n%s\n",line);
+    int8_t strand=-2;
+    if (strlen(tokens[2])==1) {
+    	if (tokens[2][0]=='+')
+    		strand=1;
+    	else if (tokens[2][0]=='-')
+    		strand=-1;
+    	else if (tokens[2][0]=='.')
+    		strand=0;
+    }
+    if (strand==-2)
+    	GError("Error parsing point-feature line (invalid strand):\n%s\n",line);
+    GPFType pftype=GPFT_NONE;
+    if (strcmp(tokens[3], "TSS")==0)
+		pftype=GPFT_TSS;
+	else if (strcmp(tokens[3], "CPAS")==0)
+			pftype=GPFT_CPAS;
+    if (pftype==0)
+    	GError("Error parsing point-feature line (unrecognized type):\n%s\n",line);
+    GPtFeature* ptf=new GPtFeature(pftype, -1, strand, start);
+    addPtFeature(tokens[0], ptf, refpts);
+    num++;
+  } //while line
+  return num;
+}
 
 void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) {
 				 //write unbundled genes from this chromosome

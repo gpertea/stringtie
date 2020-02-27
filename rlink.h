@@ -49,10 +49,8 @@ extern bool debugMode;
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
   GList<GffObj> rnas; //all transcripts on this genomic seq
-  //GList<GRefLocus> loci;
   int gseq_id;
   const char* gseq_name;
-   //GList<GTData> tdata; //transcript data (uptr holder for all rnas loaded here)
   GRefData(int gid=-1):rnas(false,true,false),gseq_id(gid),gseq_name(NULL) {
     gseq_id=gid;
     if (gseq_id>=0)
@@ -94,18 +92,44 @@ struct CBundlenode:public GSeg {
 };
 
 
-enum GSCFType {
-	GSCFT_TSS=1,
-	GSCFT_CPAS
+enum GPFType {
+	GPFT_NONE=0,
+	GPFT_TSS,
+	GPFT_CPAS
+}; //on 4 bits: maximum 15 types
+
+struct GPtFeature { //point feature (single coordinate)
+ GPFType ftype : 4;
+ int ref_id: 26; //index in a reftable[] with reference names, max 67,108,863
+ int strand: 2; //-1=+, 0=unstranded, +1=-
+ uint coord;
+ GPtFeature(GPFType ft=GPFT_NONE, int rid=-1, int _strand=0, uint loc=0):ftype(ft),
+		    ref_id(rid), strand(_strand), coord(loc) {}
+ bool operator<(const GPtFeature &o) { return coord<o.coord; }
+ bool operator==(const GPtFeature &o) { return coord==o.coord; }
+    //-- should really match ftype and strand too,
+    //   but we don't care, for bundle inclusion
 };
 
-struct GSCFeature { //Single-Coordinate Feature
- GSCFType ftype;
- uint coord;
- GSCFeature(GSCFType ft=0, uint loc=0):ftype(ft), coord(loc) {}
- bool operator<(const GSCFeature &o) { return coord<o.coord; }
- bool operator==(const GSCFeature &o) { return coord==o.coord; }
-    //== should really match ftype too, but for sorting purposes we don't care
+
+struct GRefPtData {
+	  int ref_id; //same with GPtFeature::ref_id, also in GffObj::names->gseqs
+  GList<GPtFeature> pfs; //all point feature on this genomic seq, sorted
+  GRefPtData(int gid=-1):ref_id(gid), pfs(true,true,false) { }
+
+  void add(GPtFeature* t) { //adds a fully formed GPtFeature record
+     if (ref_id!=t->ref_id || ref_id<0 || t->ref_id<0)
+           GError("Error: invalid call to GRefPtData::add() - cannot add feature with ref id %d to ref data id %d!\n",
+        		   t->ref_id, ref_id);
+     pfs.Add(t);
+  }
+  //sorting by unique ref_id
+  bool operator==(GRefPtData& d){
+    return ref_id==d.ref_id;
+  }
+  bool operator<(GRefPtData& d){
+    return (ref_id<d.ref_id);
+  }
 };
 
 
@@ -602,7 +626,7 @@ struct BundleData {
  int idx; //index in the main bundles array
  int start;
  int end;
- unsigned long numreads; // number of reads in bundles
+ unsigned long numreads; // number of reads in this bundle
  /*
  float wnumreads; // NEW: weighted numreads; a multi-mapped read mapped in 2 places will contribute only 0.5
  double sumreads; // sum of all reads' lengths in bundle
@@ -624,7 +648,7 @@ struct BundleData {
  GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
  GPVec<GffObj> keepguides;
- //GPVec<CTCov> covguides;
+ GPVec<GPtFeature> ptfs; //point features for this bundle
  GList<CPrediction> pred;
  RC_BundleData* rc_data;
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
@@ -632,7 +656,7 @@ struct BundleData {
 		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
 		 refseq(), gseq(NULL), readlist(false,true), //bpcov(1024),
 		 junction(true, true, true),
-		 keepguides(false), pred(false), rc_data(NULL) {
+		 keepguides(false), ptfs(false), pred(false), rc_data(NULL) {
 	 for(int i=0;i<3;i++) 	bpcov[i].setCapacity(1024);
  }
 
