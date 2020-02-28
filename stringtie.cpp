@@ -1556,7 +1556,7 @@ int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts) {
     	GError("Error parsing point-feature line (invalid strand):\n%s\n",line);
     GPFType pftype=GPFT_NONE;
     if (strcmp(tokens[3], "TSS")==0)
-		pftype=GPFT_TSS;
+			pftype=GPFT_TSS;
 	else if (strcmp(tokens[3], "CPAS")==0)
 			pftype=GPFT_CPAS;
     if (pftype==0)

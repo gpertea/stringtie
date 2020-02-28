@@ -102,7 +102,7 @@ struct GPtFeature { //point feature (single coordinate)
  GPFType ftype : 4;
  int ref_id: 26; //index in a reftable[] with reference names, max 67,108,863
  int strand: 2; //-1=+, 0=unstranded, +1=-
- uint coord;
+ uint coord; //genomic coordinate for this feature
  GPtFeature(GPFType ft=GPFT_NONE, int rid=-1, int _strand=0, uint loc=0):ftype(ft),
 		    ref_id(rid), strand(_strand), coord(loc) {}
  bool operator<(const GPtFeature &o) { return coord<o.coord; }
@@ -695,6 +695,7 @@ struct BundleData {
 
  void Clear() {
 	keepguides.Clear();
+	ptfs.Clear();
 	pred.Clear();
 	pred.setSorted(false);
 	readlist.Clear();
