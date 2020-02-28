@@ -368,6 +368,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
  gseqNames=GffObj::names; //might have been populated already by gff data
  gffnames_ref(gseqNames);  //initialize the names collection if not guided
+ bool havePtFeatures=false;
 
  // -- loading point-feature data
  if (!ptff.is_empty()) {
@@ -375,7 +376,8 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
        ptff.chars());
    //                transcripts_only    sort by location?
-   loadPtFeatures(f, refpts); //adds to gseqNames->gseqs accordingly, populates
+   int numptf=loadPtFeatures(f, refpts); //adds to gseqNames->gseqs accordingly, populates
+   havePtFeatures=(numptf>0);
  }
 
 
@@ -396,12 +398,12 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
 
- GList<GffObj>* guides=NULL; //list of transcripts on a specific chromosome
-
+ GList<GffObj>* guides=NULL; //list of transcripts on a specific reference
+ GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
  int currentstart=0, currentend=0;
  int ng_start=0;
  int ng_end=-1;
- int ptf_idx=0; //point-feature current index in the current GRefPtData.pfs[]
+ int ptf_idx=0; //point-feature current index in the current (*refptfs)[]
  int ng=0;
  GStr lastref;
  bool no_ref_used=true;
@@ -556,9 +558,15 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			// (readthr, junctionthr, mintranscriptlen are globals)
-			 //TODO: add all point features between currentstart-currentend to bundle->ptfs
-
-
+			if (refptfs) { //point-features defined for this reference
+				while (ptf_idx<refptfs->Count() && (int)(refptfs->Get(ptf_idx)->coord)<currentstart)
+					ptf_idx++;
+				//TODO: what if a PtFeature is nearby, just outside the bundle?
+				while (ptf_idx<refptfs->Count() && (int)(refptfs->Get(ptf_idx)->coord)<=currentend) {
+					bundle->ptfs.Add(refptfs->Get(ptf_idx)); //keep this PtFeature
+					ptf_idx++;
+				}
+			}
 			bundle->getReady(currentstart, currentend);
 			if (gfasta!=NULL) { //genomic sequence data requested
 				GFaSeqGet* faseq=gfasta->fetch(bundle->refseq.chars());
@@ -628,6 +636,17 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 				 if (refguides.Count()>gseq_id && refguides[gseq_id].rnas.Count()>0) {
 					 guides=&(refguides[gseq_id].rnas);
 					 ng=guides->Count();
+				 }
+			 }
+			 if (havePtFeatures) {
+				 ptf_idx=-1;
+				 //setup refptf
+				 refptfs=NULL;
+				 GRefPtData rd(gseq_id);
+				 int ridx=refpts.IndexOf(rd);
+				 if (ridx>=0) {
+					refptfs=&(refpts[ridx].pfs);
+					ptf_idx=0;
 				 }
 			 }
 			 lastref=refseqName;
