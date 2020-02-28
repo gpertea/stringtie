@@ -113,9 +113,9 @@ struct GPtFeature { //point feature (single coordinate)
 
 
 struct GRefPtData {
-	  int ref_id; //same with GPtFeature::ref_id, also in GffObj::names->gseqs
+  int ref_id; //same with GPtFeature::ref_id, also in GffObj::names->gseqs
   GList<GPtFeature> pfs; //all point feature on this genomic seq, sorted
-  GRefPtData(int gid=-1):ref_id(gid), pfs(true,true,false) { }
+  GRefPtData(int gid=-1):ref_id(gid), pfs(true,false,false) { }
 
   void add(GPtFeature* t) { //adds a fully formed GPtFeature record
      if (ref_id!=t->ref_id || ref_id<0 || t->ref_id<0)

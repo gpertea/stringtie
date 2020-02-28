@@ -376,8 +376,9 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
        ptff.chars());
    //                transcripts_only    sort by location?
-   int numptf=loadPtFeatures(f, refpts); //adds to gseqNames->gseqs accordingly, populates
+   int numptf=loadPtFeatures(f, refpts); //adds to gseqNames->gseqs accordingly, populates refpts
    havePtFeatures=(numptf>0);
+   fclose(f);
  }
 
 
@@ -798,6 +799,13 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 #endif
  if (mergeMode && guided )
 	 writeUnbundledGuides(refguides, f_out);
+
+
+ // clear refpts data, if loaded
+  if (refpts.Count()>0)
+	  for (int i=0;i<refpts.Count();i++) {
+		  refpts[i].pfs.setFreeItem(true);
+	  }
 
  fclose(f_out);
  if (c_out && c_out!=stdout) fclose(c_out);
@@ -1512,8 +1520,9 @@ void addPtFeature(const char* refname, GPtFeature* pf, GArray<GRefPtData>& refpt
 	  ridx=refpts.Add(rd);
   } else {
 	  ridx=refpts.IndexOf(rd);
-	  if (ridx<0)
+	  if (ridx<0) {
 		  ridx=refpts.Add(rd);
+	  }
   }
   if (ridx<0) GError("Error adding GRefPtData entry (bug!)\n");
   rpd = & refpts.Get(ridx);
