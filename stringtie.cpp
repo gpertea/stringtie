@@ -32,8 +32,8 @@
 #define USAGE "StringTie v" VERSION " usage:\n\
  stringtie <input.bam ..> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
-  [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L]\n\
-  [-e] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
+  [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L] [-e]\n\
+  [--ptf <f_tab>] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
 Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
  --version : print just the version at stdout and exit\n\
@@ -41,6 +41,7 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  --rf assume stranded library fr-firststrand\n\
  --fr assume stranded library fr-secondstrand\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
+ --ptf load point-features from the given 4 column feature file <f_tab>\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.01)\n\
