@@ -194,6 +194,7 @@ class GBamRecord: public GSeg {
  int tag_int(const char tag[2]); //return numeric value of tag (for numeric types)
  float tag_float(const char tag[2]); //return float value of tag (for float types)
  char tag_char(const char tag[2]); //return char value of tag (for type 'A')
+ char tag_char1(const char tag[2]); //return char value of tag (for type 'A')
  char spliceStrand(); // '+', '-' from the XS tag, or '.' if no XS tag
 
  char* sequence(); //user should free after use

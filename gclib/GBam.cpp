@@ -374,6 +374,15 @@ void GBamRecord::setupCoordinates() {
    return 0;
   }
 
+ char GBamRecord::tag_char1(const char tag[2]) { //just the first char from Z type tags
+	uint8_t* s=bam_aux_get(this->b, tag);
+ 	int type;
+ 	type = *s++;
+ 	if (s == 0) return 0;
+ 	if (type == 'A' || type == 'Z') return *(char*)s;
+ 	else return 0;
+ }
+
  int GBamRecord::tag_int(const char tag[2]) { //get the numeric value of tag
    uint8_t *s=find_tag(tag);
    if (s) return ( bam_aux2i(s) );
@@ -393,10 +402,10 @@ void GBamRecord::setupCoordinates() {
    }
 
  char GBamRecord::spliceStrand() { // '+', '-' from the XS tag, or 0 if no XS tag
-   char c=tag_char("XS");
+   char c=tag_char1("XS");
    if (c==0) {
     //try minimap2's "ts" tag
-    char m=tag_char("ts");
+    char m=tag_char1("ts");
     if (m=='+' || m=='-') {
        if ((this->b->core.flag & BAM_FREVERSE) != 0) c=((m=='+') ? '-' : '+');
          else c=m;
