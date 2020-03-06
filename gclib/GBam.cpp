@@ -376,6 +376,7 @@ void GBamRecord::setupCoordinates() {
 
  char GBamRecord::tag_char1(const char tag[2]) { //just the first char from Z type tags
 	uint8_t* s=bam_aux_get(this->b, tag);
+	if (s==NULL) return 0;
  	int type;
  	type = *s++;
  	if (s == 0) return 0;
