@@ -172,6 +172,9 @@ int GArgs::parseArgs(bool nodigitopts) {
                    //value is the next argument
                    if (p+1<_argc && _argv[p+1][0]!=0) {
                       p++;
+					#if defined(__APPLE__) && defined(DEBUG)
+                      dbg_dequote(_argv[p]);
+   	   	   	   	   	#endif
                       args[count].value=Gstrdup(_argv[p]);
                       }
                     else {
