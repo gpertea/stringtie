@@ -1,4 +1,4 @@
-For the manual and prepackaged source and binary packages please refer to the official page of this software: <https://ccb.jhu.edu/software/stringtie>
+For StringTie's manual and prepared source and binary packages, please refer to the official website: <https://ccb.jhu.edu/software/stringtie>
 
 ## Obtaining and installing StringTie
 
