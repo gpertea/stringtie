@@ -1,7 +1,9 @@
+For the manual and prepackaged source and binary packages please refer to the official page of this software: <https://ccb.jhu.edu/software/stringtie>
+
 ## Obtaining and installing StringTie
 
 Source and binary packages for this software, along with a small test data set 
-can be directly downloaded from the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> page for this repository. 
+can be directly downloaded from the [Releases](https://github.com/gpertea/stringtie/releases) page for this repository. 
 StringTie is compatible with a wide range of Linux and Apple OS systems (going as far back as RedHat Enterprise Linux 5.0 and OS X 10.7). 
 The main program (StringTie) does not have any other library dependencies and in order to compile it from source it requires only 
 a C++ compiler which supports the C++ 0x standard (GCC 4.5 or newer).
