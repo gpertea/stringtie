@@ -481,7 +481,7 @@ template <class OBJ> int GList<OBJ>::Add(OBJ* item) {
  return result;
 }
 
-//by default, it deletes the item if it has an equal in the list!
+//by default, it deletes item if it an equal is found in the list!
 //returns the existing equal (==) object if it's in the list already
 //or returns the item itself if it's unique (and adds it)
 template <class OBJ> OBJ* GList<OBJ>::AddIfNew(OBJ* item,
@@ -490,21 +490,20 @@ template <class OBJ> OBJ* GList<OBJ>::AddIfNew(OBJ* item,
  if (Found(item, r)) {
     if (deleteIfFound && (pointer)item != (pointer)(this->fList[r])) {
        this->deallocate_item(item);
-       }
+    }
     if (fidx!=NULL) *fidx=r;
     return this->fList[r]; //found
-    }
+ }
  //not found:
  if (SORTED) {
    //Found() set result to the position where the item should be inserted:
    sortInsert(r, item);
-   }
-  else {
+ } else {
    r = this->fCount;
    if (r==this->fCapacity) GPVec<OBJ>::Grow();
    this->fList[r]=item;
    this->fCount++;
-   }
+ }
  if (fidx!=NULL) *fidx=r;
  return item;
 }

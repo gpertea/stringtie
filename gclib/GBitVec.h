@@ -153,7 +153,7 @@ public:
 
 
   void bitSizeError() {
-    GError("Error at GBitVec: unsupported BitWord size (%d)!\n", 
+    GError("Error at GBitVec: unsupported BitWord size (%d)!\n",
         sizeof(BitWord));
     }
   /// count - Returns the number of bits which are set.
@@ -277,6 +277,9 @@ public:
   }
 
   GBitVec &set(uint Idx) {
+#ifndef NDEBUG
+	  indexCheck(Idx, Size);
+#endif
     fBits[Idx / BITWORD_SIZE] |= 1L << (Idx % BITWORD_SIZE);
     return *this;
   }
@@ -287,6 +290,9 @@ public:
   }
 
   GBitVec &reset(uint Idx) {
+#ifndef NDEBUG
+	  indexCheck(Idx, Size);
+#endif
     fBits[Idx / BITWORD_SIZE] &= ~(1L << (Idx % BITWORD_SIZE));
     return *this;
   }
@@ -299,6 +305,9 @@ public:
   }
 
   GBitVec &flip(uint Idx) {
+#ifndef NDEBUG
+	  indexCheck(Idx, Size);
+#endif
     fBits[Idx / BITWORD_SIZE] ^= 1L << (Idx % BITWORD_SIZE);
     return *this;
   }
@@ -310,7 +319,7 @@ public:
 
   inline static void indexCheck(uint vIdx, uint vSize) {
     if (vIdx >= vSize)
-      GError("Error at GBitVec: index %d out of bounds (size %d)\n", 
+      GError("Error at GBitVec: index %d out of bounds (size %d)\n",
         (int)vIdx, vSize);
    }
 
@@ -439,7 +448,7 @@ private:
 
     //  Then set any stray high bits of the last used word.
     uint ExtraBits = Size % BITWORD_SIZE;
-    
+
     if (ExtraBits) {
       BitWord ExtraBitMask = ~0UL << ExtraBits;
       if (value)

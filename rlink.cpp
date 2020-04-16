@@ -289,7 +289,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	GList<CJunction>& junction = bdata.junction;   // junctions added so far
     char strand=alndata.strand;
     int nh=alndata.nh;
-    int hi=alndata.hi;
+//    int hi=alndata.hi;
 	int readstart=brec.start;
 	CReadAln* readaln=NULL;                        // readaln is initialized with NULL
 	//bool covSaturated=false;                       // coverage is set to not saturated
@@ -412,14 +412,13 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	//if (brec.isProperlyPaired()) {  //only consider mate pairing data if mates  are properly paired
 		int pairstart=brec.mate_start();
 		if (currentstart<=pairstart) { // if pairstart is in a previous bundle I don't care about it
-
 			GStr readname(brec.name());
 			GStr id(readname); // init id with readname
-			//id+=':';id+=hi; // the HI tag is not stored in all aligners, like HISAT
 
 			if(pairstart<=readstart) { // if I've seen the pair already <- I might not have seen it yet because the pair starts at the same place
-				id+='-';id+=pairstart;
-				id+=".=";id+=hi; // (!) this suffix actually speeds up the hash by improving distribution!
+				id+='-';id.append(pairstart);
+				//FIXME this suffix actually speeds up the hash by improving distribution!
+				id+=".=0";//id+=hi;
 				const int* np=hashread[id.chars()];
 				if(np) { // the pair was stored --> why wouldn't it be? : only in the case that the pair starts at the same position
 					if(readlist[*np]->nh>nh && !nomulti) rdcount=float(1)/readlist[*np]->nh;
@@ -451,8 +450,9 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 				}
 			}
 			else { // I might still see the pair in the future
-				id+='-';id+=readstart; // this is the correct way
-				id+=".=";id+=hi;
+				id+='-';id.append(readstart);  //id+=readstart; // this is the correct way
+				//FIXME
+				id+=".=0"; //id+=hi;
 				hashread.fAdd(id.chars(), new int(n));
 			}
 		}

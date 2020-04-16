@@ -399,7 +399,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
-
  GList<GffObj>* guides=NULL; //list of transcripts on a specific reference
  GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
  int currentstart=0, currentend=0;
@@ -556,7 +555,6 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 	 }
 
 	 if (new_bundle || chr_changed) {
-		 //bgeneids.Clear();
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			// (readthr, junctionthr, mintranscriptlen are globals)
@@ -769,7 +767,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 
  //cleaning up
  delete brec;
- //bamreader.bclose();
+
  bamreader.stop(); //close all BAM files
 
  if (guided && no_ref_used) {
@@ -1373,6 +1371,7 @@ void processBundle(BundleData* bundle) {
 
 	}
 #endif
+
 	infer_transcripts(bundle);
 
 	if (ballgown && bundle->rc_data) {
