@@ -414,10 +414,9 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		if (currentstart<=pairstart) { // if pairstart is in a previous bundle I don't care about it
 			GStr readname(brec.name());
 			GStr id(readname); // init id with readname
-
 			if(pairstart<=readstart) { // if I've seen the pair already <- I might not have seen it yet because the pair starts at the same place
 				id+='-';id.append(pairstart);
-				//FIXME this suffix actually speeds up the hash by improving distribution!
+				//FIXME
 				id+=".=0";//id+=hi;
 				const int* np=hashread[id.chars()];
 				if(np) { // the pair was stored --> why wouldn't it be? : only in the case that the pair starts at the same position
@@ -450,7 +449,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 				}
 			}
 			else { // I might still see the pair in the future
-				id+='-';id.append(readstart);  //id+=readstart; // this is the correct way
+				id+='-';id.append(readstart);  // this is the correct way
 				//FIXME
 				id+=".=0"; //id+=hi;
 				hashread.fAdd(id.chars(), new int(n));
