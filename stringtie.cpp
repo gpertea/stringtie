@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.2"
+#define VERSION "2.1.3"
 
 //#define DEBUGPRINT 1
 
@@ -41,7 +41,7 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  --rf assume stranded library fr-firststrand\n\
  --fr assume stranded library fr-secondstrand\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
- --ptf load point-features from the given 4 column feature file <f_tab>\n\
+ --ptf load point-features from a given 4 column feature file <f_tab>\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.01)\n\
