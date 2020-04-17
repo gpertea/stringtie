@@ -289,7 +289,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	GList<CJunction>& junction = bdata.junction;   // junctions added so far
     char strand=alndata.strand;
     int nh=alndata.nh;
-//    int hi=alndata.hi;
+    int hi=alndata.hi;
 	int readstart=brec.start;
 	CReadAln* readaln=NULL;                        // readaln is initialized with NULL
 	//bool covSaturated=false;                       // coverage is set to not saturated
@@ -424,9 +424,8 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			GStr readname(brec.name());
 			GStr id(readname); // init id with readname
 			if(pairstart<=readstart) { // if I've seen the pair already <- I might not have seen it yet because the pair starts at the same place
-				id+='-';id.append(pairstart);
-				//FIXME
-				id+=".=0";//id+=hi;
+				id+='-';id+=pairstart;
+				id+=".=";id+=hi; // (!) this suffix actually speeds up the hash by improving distribution!
 				const int* np=hashread[id.chars()];
 				if(np) { // the pair was stored --> why wouldn't it be? : only in the case that the pair starts at the same position
 					if(readlist[*np]->nh>nh && !nomulti) rdcount=float(1)/readlist[*np]->nh;
@@ -458,9 +457,8 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 				}
 			}
 			else { // I might still see the pair in the future
-				id+='-';id.append(readstart);  // this is the correct way
-				//FIXME
-				id+=".=0"; //id+=hi;
+				id+='-';id+=readstart; // this is the correct way
+				id+=".=";id+=hi;
 				hashread.fAdd(id.chars(), new int(n));
 			}
 		}
