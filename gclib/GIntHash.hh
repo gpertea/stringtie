@@ -2,15 +2,15 @@
 #define _GHASHT_HH
 #include "GBase.h"
 //----------------------------------------------
-//  Hash table templates based on Jeff Preshing's code
+//  Int Hash table templates
 // ---------------------------------------------
 //  Maps 32-bit integers to user data
 //  Uses open addressing with linear probing.
 //  In the m_cells array, key = 0 is reserved to indicate an unused cell.
 //  Actual value for key 0 (if any) is stored in m_zeroCell.
 //  The hash table automatically doubles in size when it becomes 75% full.
-//  The hash table never shrinks in size, even after Clear(),
-//  unless you explicitly call Compact().
+//  The hash table never shrinks in size
+//  unless you explicitly call Clear() or Compact().
 //----------------------------------------------
 inline uint32_t upper_power_of_two(uint32_t v) {
     v--;

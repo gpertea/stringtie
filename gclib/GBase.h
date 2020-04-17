@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.11.4"
+#define GCLIB_VERSION "0.11.7"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -289,6 +289,7 @@ int strhash(const char* str);
 //alternate hash functions:
 int fnv1a_hash(const char* cp);
 int djb_hash(const char* cp);
+int murmur3(const char *key);
 
 //---- generic base GSeg : genomic segment (interval) --
 // coordinates are considered 1-based (so 0 is invalid)
