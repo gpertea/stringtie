@@ -4975,33 +4975,31 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 				}
 				fprintf(stderr,"\n");
 
-				int j=0;
-				while(j<transfrag[keeptrf[i].t]->nodes.Count()) {
-					fprintf(stderr,"Ad5\tStringTie\texon\t%d",no2gnode[transfrag[keeptrf[i].t]->nodes[j]]->start);
-					while(j+1<transfrag[keeptrf[i].t]->nodes.Count() && no2gnode[transfrag[keeptrf[i].t]->nodes[j]]->end+1==no2gnode[transfrag[keeptrf[i].t]->nodes[j+1]]->start)
-						j++;
-					fprintf(stderr,"\t%d\t1000\t-\t.\ttranscript_id \"STRG.%d.%.1f\n",no2gnode[transfrag[keeptrf[i].t]->nodes[j]]->end,keeptrf[i].t,transfrag[keeptrf[i].t]->abundance);
-					j++;
-				}
 			}
 			fprintf(stderr,"%d trflong:",trflong.Count());
 			for(int i=0;i<trflong.Count();i++)
 				fprintf(stderr," %d",trflong[i]);
 			fprintf(stderr,"\n");
-		}*/
-
+		}
+		*/
 
 
 		// add source/sink connections
 		for(int i=1;i<gno-1;i++) {
 			//fprintf(stderr,"i=%d hassource=%d addsource=%f hassink=%d addsink=%f\n",i,hassource[i],addsource[i],hassink[i],addsink[i]);
 			if(hassource[i]<0) {
-				if(addsource[i] && no2gnode[i]->hardstart) { // node i doesn't have source as parent but it should
+				if(addsource[i] && no2gnode[i]->hardstart) {
+					/*float abund=trthr;
+					if(no2gnode[i]->hardstart) { // node i doesn't have source as parent but it should
+						abund=addsource[i];
+					}*/
+					// else I am not that confident this is a start
 					no2gnode[i]->parent.Insert(0,zero);
 					no2gnode[0]->child.Add(i);
 					GVec<int> nodes;
 					nodes.Add(source);
 					nodes.Add(i);
+					//CTransfrag *t=new CTransfrag(nodes,allpat,abund);
 					CTransfrag *t=new CTransfrag(nodes,allpat,addsource[i]);
 					t->pattern[source]=1;
 					t->pattern[i]=1;
@@ -5011,12 +5009,12 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			}
 			else {
 				if(!keepsource[i]) { // it was a mistake to link this to source --> remove
-					//fprintf(stderr,"delete abundance of trf:");
-					//for(int j=0;j<transfrag[hassource[i]]->nodes.Count();j++) fprintf(stderr," %d",transfrag[hassource[i]]->nodes[j]);fprintf(stderr,"\n");
+					/*fprintf(stderr,"delete abundance of trf:");
+					for(int j=0;j<transfrag[hassource[i]]->nodes.Count();j++) fprintf(stderr," %d",transfrag[hassource[i]]->nodes[j]);fprintf(stderr,"\n");*/
 					transfrag[hassource[i]]->abundance=0;
 				}
 				else { // this one has source and it should be kept => update trf abundance to a more realistic value
-					//fprintf(stderr,"source %d:%d abd=%f addsource=%f\n",i,no2gnode[i]->start,transfrag[hassource[i]]->abundance,addsource[i]);
+					//fprintf(stderr,"source %d:%d abund=%f addsource=%f\n",i,no2gnode[i]->start,transfrag[hassource[i]]->abundance,addsource[i]);
 					//if(guidesource[i] && transfrag[hassource[i]]->abundance<addsource[i])
 					transfrag[hassource[i]]->abundance=addsource[i];
 				}
@@ -5024,6 +5022,12 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 
 			if(hassink[i]<0) {
 				if(addsink[i] && no2gnode[i]->hardend) {
+					/*float abund=trthr;
+					if(no2gnode[i]->hardend) {
+						abund=addsink[i];
+					}*/
+					// else  not very confident about this end
+
 					no2gnode[i]->child.Add(sink);
 					no2gnode[sink]->parent.Add(i);
 					GVec<int> nodes;
@@ -5038,10 +5042,12 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			}
 			else {
 				if(!keepsink[i]) { // it was a mistake to link this to sink --> remove
+					/*fprintf(stderr,"delete abundance of trf:");
+					for(int j=0;j<transfrag[hassink[i]]->nodes.Count();j++) fprintf(stderr," %d",transfrag[hassink[i]]->nodes[j]);fprintf(stderr,"\n");*/
 					transfrag[hassink[i]]->abundance=0;
 				}
 				else {
-					//fprintf(stderr,"sink %d:%d abd=%f addsource=%f\n",i,no2gnode[i]->end,transfrag[hassink[i]]->abundance,addsink[i]);
+					//fprintf(stderr,"sink %d:%d abund=%f addsource=%f\n",i,no2gnode[i]->end,transfrag[hassink[i]]->abundance,addsink[i]);
 					//if(guidesink[i] && transfrag[hassink[i]]->abundance<addsink[i])
 					transfrag[hassink[i]]->abundance=addsink[i];
 				}
@@ -6102,7 +6108,7 @@ bool onpath_long(GBitVec& trpattern,GVec<int>& trnode,GBitVec& pathpattern,int m
 	int tn=trnode.Count();
 	while(1) {
 		while(j<tn && trnode[j]<p) {
-			if(edgep && pathpattern[*edgep]) return false; // there is an edge between prevp<trnode[j] and p>trnode[j]
+			if(!prevp || (edgep && pathpattern[*edgep]) || p==gno-1) return false; // there is an edge between prevp<trnode[j] and p>trnode[j]; when prevp==0/gno-1 I might not have an edge there
 			if(!no2gnode[trnode[j]]->childpat[p]) {
 			        //fprintf(stderr,"Node p=%d cannot be reached from node=%d\n",p,trnode[j]);
 				return false; // I can not reach p from trnode[j]
@@ -6334,6 +6340,8 @@ bool fwd_to_sink_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GBitV
 	/*
 	fprintf(stderr,"Children of node %d with maxpath=%d are:",i,maxpath);
 	for(int c=0;c<nchildren;c++) fprintf(stderr," %d",inode->child[c]);
+	fprintf(stderr," pathpat=");
+	printBitVec(pathpat);
 	fprintf(stderr,"\n");
 	*/
 
@@ -6546,6 +6554,8 @@ bool back_to_source_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GB
 	/*
 	fprintf(stderr,"Parents of node %d are:",i);
 	for(int p=0;p<nparents;p++) fprintf(stderr," %d",inode->parent[p]);
+	fprintf(stderr," pathpat=");
+	printBitVec(pathpat);
 	fprintf(stderr,"\n");
 	*/
 
@@ -7813,7 +7823,7 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 	{ // DEBUG ONLY
 		printTime(stderr);
 		fprintf(stderr,"Start max flow algorithm for path ");
-		//printBitVec(pathpat);
+		printBitVec(pathpat);
 		fprintf(stderr," :");
 		for(int i=0;i<n;i++) fprintf(stderr," %d:%d",i,path[i]);
 		fprintf(stderr,"\n");
@@ -7864,7 +7874,7 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 					istranscript[t]=1;
 					int n1=i;
 					int n2=node2path[transfrag[t]->nodes.Last()];
-					//fprintf(stderr,"t=%d n1=%d n2=%d ",t,n1,n2);
+					//fprintf(stderr,"t=%d n1=%d n2=%d(%d) ",t,n1,n2,transfrag[t]->nodes.Last());
 					if(!capacity[n1][n2]) { // haven't seen this link before
 						link[n1].Add(n2);
 						link[n2].Add(n1);
@@ -9479,10 +9489,16 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 		 pathpat=transfrag[t]->pattern;
 		 minp=transfrag[t]->nodes[0];
 		 maxp=transfrag[t]->nodes.Last();
-		 int *pos=gpos[edge(0,minp,gno)];
-		 if(pos) pathpat[*pos]=1;
-		 pos=gpos[edge(maxp,gno-1,gno)];
-		 if(pos) pathpat[*pos]=1;
+		 //if(no2gnode[transfrag[t]->nodes[0]]->hardstart) {
+			 int *pos=gpos[edge(0,minp,gno)];
+			 if(pos) pathpat[*pos]=1;
+			 //minp=0;
+		 //}
+		 //if(no2gnode[transfrag[t]->nodes.Last()]->hardend) {
+			 pos=gpos[edge(maxp,gno-1,gno)];
+			 if(pos) pathpat[*pos]=1;
+			 //maxp=gno-1;
+		 //}
 		 maxi=minp;
 		 path.Add(maxi);
 		 pathpat[maxi]=1;
@@ -9497,6 +9513,8 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 	 	 { // DEBUG ONLY
 	 	 fprintf(stderr,"\n\n***Start parse_trf with maxi=%d and transcript:",maxi);
 	 	 for(int i=0;i<transfrag[t]->nodes.Count();i++) fprintf(stderr," %d",transfrag[t]->nodes[i]);
+	 	 fprintf(stderr," pathpat=");
+	 	 printBitVec(pathpat);
 		 fprintf(stderr,"\n");
 
 #ifdef GMEMTRACE
