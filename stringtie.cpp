@@ -45,7 +45,7 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.01)\n\
- -L use long reads settings (default:false)\n\
+ -L use long reads settings, equivalent to -s 1.5 -g 0 (default:false)\n\
  -R if long reads are provided, just clean and collapse the reads but do not assemble\n\
  -m minimum assembled transcript length (default: 200)\n\
  -a minimum anchor length for junctions (default: 10)\n\
