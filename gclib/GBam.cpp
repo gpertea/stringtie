@@ -29,7 +29,7 @@ uint8_t* dupalloc_bdata(bam1_t *b, int size) {
 GBamRecord::GBamRecord(const char* qname, int32_t gseq_tid,
                  int pos, bool reverse, const char* qseq,
                  const char* cigar, const char* quals):iflags(0), exons(1),
-                		 clipL(0), clipR(0), mapped_len(0) {
+                		 clipL(0), clipR(0), mapped_len(0), uval(0) {
    novel=true;
    bam_header=NULL;
    b=bam_init1();
@@ -57,7 +57,7 @@ GBamRecord::GBamRecord(const char* qname, int32_t gseq_tid,
 GBamRecord::GBamRecord(const char* qname, int32_t samflags, int32_t g_tid,
              int pos, int map_qual, const char* cigar, int32_t mg_tid, int mate_pos,
              int insert_size, const char* qseq, const char* quals,
-             GVec<char*>* aux_strings):iflags(0), exons(1)  {
+             GVec<char*>* aux_strings):iflags(0), exons(1), uval(0)  {
   novel=true;
   bam_header=NULL;
   b=bam_init1();

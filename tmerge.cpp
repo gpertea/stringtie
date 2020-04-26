@@ -61,12 +61,12 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
 		   tag+=m.strand;
 	       brec.add_aux(tag.chars());
 	  }
-	  GStr s("ZF:i:");
-	  s+=idx;
-	  brec.add_aux(s.chars());
+	  //GStr s("ZF:i:");
+	  //s+=idx;
+	  //brec.add_aux(s.chars());
 	  char *av=m.getAttr("cov");
 	  if (av!=NULL) {
-		  s="ZS:Z:";
+		  GStr s("ZS:Z:",20);
 		  s+=av;
 		  s+='|';
 		  av=m.getAttr("FPKM");
@@ -153,7 +153,8 @@ GBamRecord* TInputFiles::next() {
     	crec=recs.Pop();//lowest coordinate
     	GBamRecord* rnext=readers[crec->fidx]->next();
     	if (rnext)
-    		recs.Add(new TInputRecord(rnext,crec->fidx));
+    		recs.Add(new TInputRecord(rnext, crec->fidx));
+    	crec->brec->uval=crec->fidx; //send file index
     	return crec->brec;
     }
     else return NULL;

@@ -530,7 +530,8 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
 		 if (mergeMode) {
-		    tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
+		    //tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
+			 tinfo=new TAlnInfo(brec->name(), brec->uval);
 		    GStr score(brec->tag_str("ZS"));
 		    if (!score.is_empty()) {
 		      GStr srest=score.split('|');
@@ -759,9 +760,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
     	 //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
     	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
     	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
-    	 //if (!ballgown || ref_overlap)
     	   processRead(currentstart, currentend, *bundle, hashread, alndata);
-			  // *brec, strand, nh, hi);
      }
  } //for each read alignment
 
