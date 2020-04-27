@@ -474,7 +474,6 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 					 brec->name(), brec->start, brec->mapped_len);
 			 continue;
 		 }
-
 		 refseqName=brec->refName();
 		 xstrand=brec->spliceStrand(); // tagged strand gets priority
 		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
@@ -519,10 +518,13 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			 if (alncounts.Count()<=gseq_id) {
 				 alncounts.Resize(gseq_id+1, 0);
 			 }
-			 else if (alncounts[gseq_id]>0) GError(ERR_BAM_SORT);
+			 else if (alncounts[gseq_id]>0)
+			           GError("%s\nAlignments (%d) already found for %s !\n",
+			             ERR_BAM_SORT, alncounts[gseq_id], refseqName);
 			 prev_pos=0;
 		 }
-		 if (pos<prev_pos) GError(ERR_BAM_SORT);
+		 if (pos<prev_pos) GError("%s\nread %s (start %d) found at position %d on %s when prev_pos=%d\n",
+		       ERR_BAM_SORT, brec->name(), brec->start,  pos, refseqName, prev_pos);
 		 prev_pos=pos;
 		 if (skipGseq) continue;
 		 alncounts[gseq_id]++;
