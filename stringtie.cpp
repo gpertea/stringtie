@@ -69,8 +69,8 @@ Options:\n\
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
  -e only estimate the abundance of given reference transcripts (requires -G)\n\
- --viral : only relevant for long reads from viral data where splice sites do\n\
-    follow consensus (default:false)\n\
+ --viral : only relevant for long reads from viral data where splice sites\n\
+    do not follow consensus (default:false)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -u no multi-mapping correction (default: correction enabled)\n\
  -h print this usage message and exit\n\
