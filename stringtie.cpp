@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.2"
+#define VERSION "2.1.3"
 
 //#define DEBUGPRINT 1
 
@@ -32,7 +32,7 @@
 #define USAGE "StringTie v" VERSION " usage:\n\
  stringtie <input.bam ..> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
   [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
-  [-C <coverage_file_name>] [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L] [-e]\n\
+  [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L] [-e] [--viral] [-E <error_margin>]\n\
   [--ptf <f_tab>] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
 Assemble RNA-Seq alignments into potential transcripts.\n\
  Options:\n\
@@ -61,11 +61,15 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
+ -E define window around possibly erroneous splice sites from long reads to\n\
+ 	look out for correct splice sites (default: 25)\n\
  -B enable output of Ballgown table files which will be created in the\n\
     same directory as the output GTF (requires -G, -o recommended)\n\
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
  -e only estimate the abundance of given reference transcripts (requires -G)\n\
+ --viral only relevant for long reads in viral data were splice sites don't\n\
+ 	follow consensus (default:false)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -u no multi-mapping correction (default: correction enabled)\n\
  -h print this usage message and exit\n\
@@ -130,6 +134,7 @@ GStr tmpfname;
 GStr genefname;
 bool guided=false;
 bool trim=true;
+bool viral=false;
 bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
 bool longreads=false;
 bool rawreads=false;
@@ -146,6 +151,7 @@ int num_cpus=1;
 int mintranscriptlen=200; // minimum length for a transcript to be printed
 //int sensitivitylevel=1;
 uint junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
+uint sserror=25; // window arround splice sites that we use to generate consensus in case of long read data
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=1;     // read coverage per bundle bp to accept it; // paper uses 3
 float singlethr=4.75;
@@ -270,8 +276,8 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
-   "exclude=zEihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:F:T:");
+   "debug;help;version;viral;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "exclude=zEihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -942,6 +948,10 @@ void processOptions(GArgs& args) {
 	}
 
 
+	if (args.getOpt("viral")) {
+		viral=true;
+	}
+
 	 longreads=(args.getOpt('L')!=NULL);
 	 if(longreads) {
 		 bundledist=0;
@@ -971,6 +981,9 @@ void processOptions(GArgs& args) {
 	 debugMode=(args.getOpt("debug")!=NULL || args.getOpt('D')!=NULL);
 	 forceBAM=(args.getOpt("bam")!=NULL); //assume the stdin stream is BAM instead of text SAM
 	 mergeMode=(args.getOpt("merge")!=NULL);
+	 if(mergeMode) {
+		 longreads=false; // these are not longreads
+	 }
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
 	 //adaptive=!(args.getOpt('d')!=NULL);
 	 verbose=(args.getOpt('v')!=NULL);
@@ -1049,6 +1062,8 @@ void processOptions(GArgs& args) {
 	 s=args.getOpt('j');
 	 if (!s.is_empty()) junctionthr=s.asInt();
 
+	 s=args.getOpt('E');
+	 if (!s.is_empty()) sserror=s.asInt();
 
 	 rawreads=(args.getOpt('R')!=NULL);
 	 if(rawreads) {
