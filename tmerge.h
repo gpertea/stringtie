@@ -5,11 +5,7 @@
 #include "rlink.h"
 extern GStr tmp_path;
 extern bool keepTempFiles;
-/*struct TInFile {
-	GStr fpath;
-	int ftype; //0=bam file, 1=GTF transfrags
-	TInFile(const char* fn=NULL,int ft=0):fpath(fn),ftype(ft) { }
-}*/
+
 struct TInputRecord {
 	GBamRecord* brec;
 	int fidx; //index in files and readers
@@ -17,7 +13,8 @@ struct TInputRecord {
 		 //decreasing location sort
 		 GBamRecord& r1=*brec;
 		 GBamRecord& r2=*(o.brec);
-		 int refcmp=strcmp(r1.refName(),r2.refName());
+		 //int refcmp=strcmp(r1.refName(),r2.refName());
+		 int refcmp=r1.refId()-r2.refId();
 		 if (refcmp==0) {
 		 //higher coords first
 			if (r1.start!=r2.start)
@@ -30,7 +27,7 @@ struct TInputRecord {
 					else return fidx>o.fidx;
 			}
 		 }
-		 else { //use lexicographic order of ref seqs
+		 else { //use header order
 			 return (refcmp>0);
 		 }
 	}
