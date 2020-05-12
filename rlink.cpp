@@ -2503,8 +2503,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag,GIntHash<int> **gpos,BundleData* bdata,
 		int &edgeno,int &lastgpos,GArray<GEdge>& guideedge, int refend=0){
 
-	GVec<float>* bpcov = bdata->bpcov; // I might want to use a different type of data for bpcov to save memory in the case of very long bundles
-	GPVec<GPtFeature>& feature = bdata->ptfs; // these are point features (confirmed starts/stops)
+	GVec<float>* bpcov = bdata ? bdata->bpcov : NULL; // I might want to use a different type of data for bpcov to save memory in the case of very long bundles
 
 	CGraphnode* source=new CGraphnode(0,0,0);
 	no2gnode[s][g].Add(source);
@@ -2592,6 +2591,9 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
     	int fs=-1; // first start feature index in lstart
     	int fe=-1; // first end feature index in lend
 	    if(longreads) {
+
+	    	GPVec<GPtFeature>& feature = bdata->ptfs; // these are point features (confirmed starts/stops)
+
 	    	if(feature.Count()) { // I already know the features
 	    		while(f<feature.Count() && feature[f]->coord<currentstart) f++;
 	    	}
@@ -6389,6 +6391,8 @@ bool fwd_to_sink_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GBitV
 	// find all parents -> if parent is source then go back
 	CGraphnode *inode=no2gnode[i];
 
+	if(i<maxpath && !inode->childpat[maxpath]) return false; // I can not reach maxpath from node
+
 	int nchildren=inode->child.Count(); // number of children
 
 	/*
@@ -6602,6 +6606,8 @@ bool back_to_source_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GB
 
 	// find all parents -> if parent is source then go back
 	CGraphnode *inode=no2gnode[i];
+
+	if(minpath<i && !inode->parentpat[minpath]) return false; // I can not reach maxpath from node
 
 	int nparents=inode->parent.Count(); // number of parents
 
@@ -7881,9 +7887,9 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 		fprintf(stderr," :");
 		for(int i=0;i<n;i++) fprintf(stderr," %d:%d",i,path[i]);
 		fprintf(stderr,"\n");
-		fprintf(stderr,"Used transcripts:");
-		for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d",i);
-		fprintf(stderr,"\n");
+		//fprintf(stderr,"Used transcripts:");
+		//for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d",i);
+		//fprintf(stderr,"\n");
 	}
 	*/
 
@@ -7920,7 +7926,7 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 								break;
 							}
 						}
-						ti++;
+						else ti++; // I can only advance path as I reach it
 						pi++;
 					}
 				}
@@ -8103,14 +8109,14 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 						int lenp=0;
 						while(ti<transfrag[t]->nodes.Count()) {
 							if(path[pi]!=transfrag[t]->nodes[ti]) { // I found a gap in transfrag => I need to check if it's not too big and can not support path
-								// node on path is coming before transfrag; otherwise I wouldn't have the match above
+								// node on path is coming before transfrag node; otherwise I wouldn't have the match above
 								lenp+=no2gnode[path[pi]]->len();
 								if(lenp>CHI_WIN) {
 									keeptr=false;
 									break;
 								}
 							}
-							ti++;
+							else ti++;
 							pi++;
 						}
 					}
@@ -9669,7 +9675,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 
 		 /*
 	 	 { // DEBUG ONLY
-	 	 fprintf(stderr,"\n\n***Start parse_trf with maxi=%d and transcript:",maxi);
+	 	 fprintf(stderr,"\n\n***Start parse_trf with maxi=%d minp=%d maxp=%d and transcript:",maxi,minp,maxp);
 	 	 for(int i=0;i<transfrag[t]->nodes.Count();i++) fprintf(stderr," %d",transfrag[t]->nodes[i]);
 	 	 fprintf(stderr," pathpat=");
 	 	 printBitVec(pathpat);
