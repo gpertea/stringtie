@@ -10,6 +10,10 @@
 #define S_ISREG(mode)  (((mode) & S_IFMT) == S_IFREG)
 #endif
 
+//#ifdef _WIN32
+// int (WINAPIV * __vsnprintf)(char *, size_t, const char*, va_list) = _vsnprintf;
+//#endif
+
 //************************* Debug helpers **************************
 // Assert failed routine
 void GAssert(const char* expression, const char* filename, unsigned int lineno){
@@ -25,7 +29,7 @@ void GAssert(const char* expression, const char* filename, unsigned int lineno){
 
 // Error routine (prints error message and exits!)
 void GError(const char* format,...){
-  #ifdef __WIN32__
+  #ifdef _WIN32
     char msg[4096];
     va_list arguments;
     va_start(arguments,format);
@@ -50,7 +54,7 @@ void GError(const char* format,...){
 
 // Warning routine (just print message without exiting)
 void GMessage(const char* format,...){
-  #ifdef __WIN32__
+  #ifdef _WIN32
     char msg[4096];
     va_list arguments;
     va_start(arguments,format);
@@ -71,7 +75,8 @@ void GMessage(const char* format,...){
 // Allocate memory
 bool GMalloc(pointer* ptr,unsigned long size){
   //GASSERT(ptr);
-  if (size!=0) *ptr=malloc(size);
+  if (size!=0)
+	  *ptr=malloc(size);
   return *ptr!=NULL;
   }
 
@@ -150,16 +155,17 @@ int Gstrcmp(const char* a, const char* b, int n) {
 
 int G_mkdir(const char* path, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) ) {
    //int perms=(S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) ) {
- #ifdef __WIN32__
-     return _mkdir(path);
+ #ifdef _WIN32
+     //return _mkdir(path);
+	 return CreateDirectoryA(path, NULL);
  #else
-     return  mkdir(path, perms);
+     return mkdir(path, perms);
  #endif
 }
 
 
 void Gmktempdir(char* templ) {
-#ifdef __WIN32__
+#ifdef _WIN32
   int blen=strlen(templ);
   if (_mktemp_s(templ, blen)!=0)
 	  GError("Error creating temp dir %s!\n", templ);
@@ -377,6 +383,7 @@ char* rstrchr(char* str, char ch) {  /* returns a pointer to the rightmost
     }
  return NULL;
 }
+
 
 
 /* DOS/UNIX safer fgets : reads a text line from a (binary) file and
@@ -637,55 +644,10 @@ int strhash(const char* str){
     g=h&0xF0000000;
     if(g) h^=g>>24;
     h&=0x0fffffff;
-  }
+    }
   GASSERT(h<=0x0fffffff);
   return h;
   }
-
-
-inline uint32_t fmix32 ( uint32_t h ) {
-  h ^= h >> 16;
-  h *= 0x85ebca6b;
-  h ^= h >> 13;
-  h *= 0xc2b2ae35;
-  h ^= h >> 16;
-  return h;
-}
-
-int murmur3(const char *key) {
-  int len=strlen(key);
-  const uint8_t * data = (const uint8_t*)key;
-  const int nblocks = len / 4;
-
-  uint32_t h1 = 5381; //seed;
-
-  const uint32_t c1 = 0xcc9e2d51;
-  const uint32_t c2 = 0x1b873593;
-
-  const uint32_t * blocks = (const uint32_t *)(data + nblocks*4);
-  for(int i = -nblocks; i; i++) {
-    uint32_t k1 = blocks[i];
-    k1 *= c1;
-    k1 = (k1 << 15) | (k1 >> (32 - 15));
-    k1 *= c2;
-    h1 ^= k1;
-    h1 = (k1 << 13) | (k1 >> (32 - 13));
-    h1 = h1*5+0xe6546b64;
-  }
-  const uint8_t * tail = (const uint8_t*)(data + nblocks*4);
-
-   uint32_t k1 = 0;
-   switch(len & 3)  {
-    case 3: k1 ^= tail[2] << 16;
-    case 2: k1 ^= tail[1] << 8;
-    case 1: k1 ^= tail[0];
-            k1 *= c1; k1 = (k1 << 15) | (k1 >> (32 - 15)); k1 *= c2; h1 ^= k1;
-   };
-
-    h1 ^= len;
-    return (fmix32(h1) & 0x7FFFFFFF);
-  }
-
 
 int djb_hash(const char* cp)
 {
@@ -762,9 +724,9 @@ int fileExists(const char* fname) {
 }
 
 int64 fileSize(const char* fpath) {
-#ifdef __WIN32__
+#ifdef _WIN32
     WIN32_FILE_ATTRIBUTE_DATA fad;
-    if (!GetFileAttributesEx(name, GetFileExInfoStandard, &fad))
+    if (!GetFileAttributesEx(fpath, GetFileExInfoStandard, &fad))
         return -1; // error condition, could call GetLastError to find out more
     LARGE_INTEGER size;
     size.HighPart = fad.nFileSizeHigh;

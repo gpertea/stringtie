@@ -1,10 +1,22 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.11.7"
+#define GCLIB_VERSION "0.11.9"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+
+#if defined(__WIN32) || defined(__WIN32__) || defined(_WIN32) || defined(_WIN64) || defined(__MINGW64__) || defined(__WINDOWS__)
+  #ifndef _WIN32
+    #define _WIN32
+  #endif
+  #ifndef _WIN64
+    #define _WIN64
+  #endif
+  #define __USE_MINGW_ANSI_STDIO 1
+  //#define __ISO_C_VISIBLE 1999
+#endif
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -15,19 +27,9 @@
 #include <stdint.h>
 #include <stdarg.h>
 
-#if defined __WIN32 || defined __WIN32__ || defined _WIN32 || defined _WIN32_ || defined _WINDOWS
-  #ifndef __WIN32__
-    #define __WIN32__
-  #endif
+#ifdef _WIN32
   #include <windows.h>
-  #include <direct.h>
   #include <io.h>
-  #ifndef strcasecmp
-      #define strcasecmp _stricmp
-  #endif
-  #ifndef strncasecmp
-      #define strncasecmp _strnicmp
-  #endif
   #define CHPATHSEP '\\'
   #undef off_t
   #define off_t int64_t
@@ -108,21 +110,32 @@ typedef uint64_t uint64;
 
 //-------------------
 
+#define GEXIT(a) { \
+fprintf(stderr, "Error: "); fprintf(stderr, a); \
+GError("Exiting from line %i in file %s\n",__LINE__,__FILE__); \
+}
+
 // Debug helpers
 #ifndef NDEBUG
  #define GASSERT(exp) ((exp)?((void)0):(void)GAssert(#exp,__FILE__,__LINE__))
+ #define GVERIFY(condition) \
+if (!(condition)) { \
+fprintf(stderr, "Assumption \"%s\"\nFailed in file %s: at line:%i\n", \
+#condition,__FILE__,__LINE__); \
+GEXIT(#condition);}
  #ifdef TRACE
-  #define GTRACE(exp)  (GMessage exp)
+  #define GTRACE(exp)  (GMessage(exp))
  #else
-  #define GTRACE(exp)  ((void)0)
+  #define GTRACE(exp)
  #endif
 #else
- #define GASSERT(exp) ((void)0)
- #define GTRACE(exp)  ((void)0)
+ #define GASSERT(exp)
+ #define GTRACE(exp)
+ #define GVERIFY(condition)
 #endif
 
-#define GERROR(exp) (GError exp)
-/**********************************  Macros  ***********************************/
+#define GERROR(exp) (GError(exp))
+
 // Abolute value
 #define GABS(val) (((val)>=0)?(val):-(val))
 
@@ -204,7 +217,6 @@ bool GCalloc(pointer* ptr, unsigned long size); // Allocate and initialize memor
 bool GRealloc(pointer* ptr,unsigned long size); // Resize memory
 void GFree(pointer* ptr); // Free memory, resets ptr to NULL
 
-
 //int saprintf(char **retp, const char *fmt, ...);
 
 void GError(const char* format,...); // Error routine (aborts program)
@@ -232,6 +244,7 @@ char* loCase(const char* str);
 // changing string in place:
 char* strlower(char * str);
 char* strupper(char * str);
+
 
 //strstr but for memory zones: scans a memory region
 //for a substring:
@@ -289,7 +302,6 @@ int strhash(const char* str);
 //alternate hash functions:
 int fnv1a_hash(const char* cp);
 int djb_hash(const char* cp);
-int murmur3(const char *key);
 
 //---- generic base GSeg : genomic segment (interval) --
 // coordinates are considered 1-based (so 0 is invalid)
@@ -437,7 +449,7 @@ template<class OBJ> class GDynArray {
     		Clear();
     		return *this;
     	}
-    	increaseCapacity(a.fCapacity); //set size
+    	growTo(a.fCapacity); //set size
         memcpy(fArray, a.fArray, sizeof(OBJ)*a.fCount);
         return *this;
     }
@@ -452,7 +464,7 @@ template<class OBJ> class GDynArray {
     	if (GDynArray_MAXCOUNT-delta<=fCapacity)
     		delta=GDynArray_MAXCOUNT-fCapacity;
     	if (delta<=1) GError("Error at GDynArray::Grow(): max capacity reached!\n");
-    	increaseCapacity(fCapacity + delta);
+    	growTo(fCapacity + delta);
     }
 #define GDynArray_ADD(item) \
     	if (fCount==MAX_UINT-1) GError("Error at GDynArray: cannot add item, maximum count reached!\n"); \
@@ -484,12 +496,27 @@ template<class OBJ> class GDynArray {
 
     uint Count() { return fCount; } // get size of array (elements)
     uint Capacity() { return fCapacity; }
-    void increaseCapacity(uint newcap) {
+    void growTo(uint newcap) {
     	if (newcap==0) { Clear(); return; }
-    	if (newcap <= fCapacity) return; //never shrinks (use Pack() for this)
+    	if (newcap <= fCapacity) return; //never shrink! (use Pack() for shrinking)
     	GREALLOC(fArray, newcap*sizeof(OBJ));
     	fCapacity=newcap;
     }
+
+    void append(OBJ* arr, uint count) {
+    	//fast adding of a series of objects
+    	growTo(fCount+count);
+    	memcpy(fArray+fCount, arr, count*sizeof(OBJ));
+    	fCount+=count;
+    }
+
+    void append(GDynArray<OBJ> arr) {
+    	//fast adding of a series of objects
+    	growTo(fCount+arr.fCount);
+    	memcpy(fArray+fCount, arr.fArray, arr.fCount*sizeof(OBJ));
+    	fCount+=arr.fCount;
+    }
+
     void Trim(int tcount=1) {
     	//simply cut (discard) the last tcount items
     	//new Count is now fCount-tcount
@@ -503,6 +530,15 @@ template<class OBJ> class GDynArray {
     	GREALLOC(fArray, newcap*sizeof(OBJ));
     	fCapacity=newcap;
     }
+
+    void zPack(OBJ z) { //shrink capacity to fCount+1 and adds a z terminator
+    	if (fCapacity-fCount<=1) { fArray[fCount]=z; return; }
+    	int newcap=fCount+1;
+    	GREALLOC(fArray, newcap*sizeof(OBJ));
+    	fCapacity=newcap;
+    	fArray[fCount]=z;
+    }
+
 
     inline void Shrink() { Pack(); }
 
@@ -528,7 +564,7 @@ template<class OBJ> class GDynArray {
 
     OBJ* operator()() { return fArray; }
 
-    //use below to prevent freeing the fArray pointer
+    //use methods below in order to prevent deallocation of fArray pointer on destruct
     //could be handy for adopting stack objects (e.g. cheap dynamic strings)
     void ForgetPtr() { byptr=true;  }
     void DetachPtr() { byptr=true;  }
@@ -548,7 +584,6 @@ int strsplit(char* str, GDynArray<char*>& fields, int maxfields=MAX_INT); //spli
 //splits a string by placing 0 where tab or space is found, setting fields[] to the beginning
 //of each field (stopping after maxfields); returns number of fields parsed
 
-//--------------------------------------------------------
 // ************** simple line reading class for text files
 //GLineReader -- text line reading/buffering class
 class GLineReader {
