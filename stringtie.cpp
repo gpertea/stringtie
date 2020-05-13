@@ -29,24 +29,25 @@
 #define DBGPRINT5(a,b,c,d,e)
 #endif
 
-#define USAGE "StringTie v" VERSION " usage:\n\
- stringtie <input.bam ..> [-G <guide_gff>] [-l <label>] [-o <out_gtf>] [-p <cpus>]\n\
-  [-v] [-a <min_anchor_len>] [-m <min_tlen>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
-  [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L] [-e] [--viral] [-E <error_margin>]\n\
-  [--ptf <f_tab>] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B | -b <dir_path>} \n\
+#define USAGE "StringTie v" VERSION " usage:\n\n\
+stringtie <in.bam ..> [-G <guide_gff>] [-l <prefix>] [-o <out.gtf>] [-p <cpus>]\n\
+ [-v] [-a <min_anchor_len>] [-m <min_len>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
+ [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L] [-e] [--viral] [-E <err_margin>]\n\
+ [--ptf <f_tab>] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B|-b <dir_path>}\n\
 Assemble RNA-Seq alignments into potential transcripts.\n\
- Options:\n\
+Options:\n\
  --version : print just the version at stdout and exit\n\
- --conservative : conservative transcriptome assembly, same as -t -c 1.5 -f 0.05\n\
- --rf assume stranded library fr-firststrand\n\
- --fr assume stranded library fr-secondstrand\n\
+ --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05\n\
+ --rf : assume stranded library fr-firststrand\n\
+ --fr : assume stranded library fr-secondstrand\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
- --ptf load point-features from a given 4 column feature file <f_tab>\n\
+ --ptf : load point-features from a given 4 column feature file <f_tab>\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.01)\n\
- -L use long reads settings (default:false)\n\
- -R if long reads are provided, just clean and collapse the reads but do not assemble\n\
+ -L long reads processing; also enforces -s 1.5 -g 0 (default:false)\n\
+ -R if long reads are provided, just clean and collapse the reads but\n\
+    do not assemble\n\
  -m minimum assembled transcript length (default: 200)\n\
  -a minimum anchor length for junctions (default: 10)\n\
  -j minimum junction coverage (default: 1)\n\
@@ -62,14 +63,14 @@ Assemble RNA-Seq alignments into potential transcripts.\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
  -E define window around possibly erroneous splice sites from long reads to\n\
- 	look out for correct splice sites (default: 25)\n\
+    look out for correct splice sites (default: 25)\n\
  -B enable output of Ballgown table files which will be created in the\n\
     same directory as the output GTF (requires -G, -o recommended)\n\
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
  -e only estimate the abundance of given reference transcripts (requires -G)\n\
- --viral only relevant for long reads in viral data were splice sites don't\n\
- 	follow consensus (default:false)\n\
+ --viral : only relevant for long reads from viral data where splice sites\n\
+    do not follow consensus (default:false)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -u no multi-mapping correction (default: correction enabled)\n\
  -h print this usage message and exit\n\
