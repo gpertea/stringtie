@@ -277,7 +277,7 @@ int main(int argc, char* argv[]) {
  // == Process arguments.
  GArgs args(argc, argv,
    "debug;help;version;viral;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
-   "exclude=zEihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
+   "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -1150,7 +1150,7 @@ void processOptions(GArgs& args) {
 	             ptff.chars());
 	 }
 
-	 enableNames=(args.getOpt('E')!=NULL);
+	 //enableNames=(args.getOpt('E')!=NULL);
 
 	 retained_intron=(args.getOpt('i')!=NULL);
 
