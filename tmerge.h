@@ -14,7 +14,7 @@ struct TInputRecord {
 		 GBamRecord& r1=*brec;
 		 GBamRecord& r2=*(o.brec);
 		 //int refcmp=strcmp(r1.refName(),r2.refName());
-		 int refcmp=r1.refId()-r2.refId();
+		 int refcmp=mergeMode ? strcmp(r1.refName(),r2.refName()) : r1.refId()-r2.refId();
 		 if (refcmp==0) {
 		 //higher coords first
 			if (r1.start!=r2.start)
