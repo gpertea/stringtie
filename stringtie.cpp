@@ -292,7 +292,7 @@ int main(int argc, char* argv[]) {
  GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
  GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
 
- GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
+ GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
 
  int bamcount=bamreader.start(); //setup and open input files
 #ifndef GFF_DEBUG
@@ -523,7 +523,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			 }
 
 			 if (alncounts.Count()<=gseq_id) {
-				 alncounts.Resize(gseq_id+1, 0);
+				 alncounts.Resize(gseq_id+1);
 			 }
 			 else if (alncounts[gseq_id]>0)
 			           GError("%s\nAlignments (%d) already found for %s !\n",

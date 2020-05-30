@@ -111,13 +111,10 @@ template <class OBJ> class GVec {
     //this will reject identical items in sorted lists only!
     void setCapacity(int NewCapacity);
     int  Count() { return fCount; }
-
     void setCount(int NewCount);         // will trim or expand the array as needed
-    void setCount(int NewCount, OBJ* v); //same as setCount() but new objects are set to v
     void setCount(int NewCount, OBJ v);
     void Resize(int NewCount) { setCount(NewCount); }
-    //void Resize(int NewCount, OBJ* v) { setCount(NewCount, v); }
-    void Resize(int NewCount, OBJ v) { setCount(NewCount, &v); }
+    void Resize(int NewCount, OBJ v) { setCount(NewCount, v); }
 
     //void Move(int curidx, int newidx);
     bool isEmpty() { return fCount==0; }
@@ -290,13 +287,15 @@ template <class OBJ> void GVec<OBJ>::setCapacity(int NewCapacity) {
    else {
       if (IsPrimitiveType<OBJ>::VAL) {
         GREALLOC(fArray, NewCapacity*sizeof(OBJ));
+        //also zero init the new items?
+        memset(fArray+fCount, 0, (NewCapacity-fCount)*sizeof(OBJ));
       } else {
         OBJ* oldArray=fArray;
 		//fArray=new OBJ[NewCapacity]();
 		fArray=new OBJ[NewCapacity];
         for (int i=0;i<this->fCount;i++) {
           fArray[i] = oldArray[i];
-          }// we need operator= here
+        }// we need operator= here
         //wouldn't be faster to use memcpy instead?
         //memcpy(fArray, oldArray, fCount*sizeof(OBJ));
         if (oldArray) delete[] oldArray;
@@ -355,16 +354,16 @@ template <class OBJ> void GVec<OBJ>::Grow(int idx, OBJ& item) {
         newList[idx]=item;
         //copy data after idx
         memmove(&newList[idx+1],&fArray[idx], (fCount-idx)*sizeof(OBJ));
-        //..shouldn't do this:
+        //..shouldn't do this (zero init new unused items in the array)
         memset(&newList[fCount+1], 0, (NewCapacity-fCount-1)*sizeof(OBJ));
         //data copied:
         GFREE(fArray);
    } else {
-        newList=new OBJ[NewCapacity]; //]()
+        newList=new OBJ[NewCapacity];
         // operator= required!
         for (int i=0;i<idx;i++) {
           newList[i]=fArray[i];
-          }
+        }
         newList[idx]=item;
         //copy data after idx
         //memmove(&newList[idx+1],&fArray[idx], (fCount-idx)*sizeof(OBJ));
@@ -499,9 +498,12 @@ template <class OBJ> void GVec<OBJ>::setCount(int NewCount) {
 	   GError(GVEC_COUNT_ERR, NewCount);
 	//if (NewCount > fCapacity) setCapacity(NewCount);
 	while(NewCount > fCapacity) Grow();
+       	if (IsPrimitiveType<OBJ>::VAL && NewCount>fCount) {
+		memset(fArray+fCount, 0, (NewCount-fCount)*sizeof(OBJ));
+	}
 	fCount = NewCount; //new items will be populated by the default object constructor(!)
 }
-
+/*
 template <class OBJ> void GVec<OBJ>::setCount(int NewCount, OBJ* v) {
 	if (NewCount<0 || NewCount > MAXLISTSIZE)
 	  GError(GVEC_COUNT_ERR, NewCount);
@@ -512,7 +514,7 @@ template <class OBJ> void GVec<OBJ>::setCount(int NewCount, OBJ* v) {
 	}
 	fCount = NewCount;
 }
-
+*/
 template <class OBJ> void GVec<OBJ>::setCount(int NewCount, OBJ v) {
 	if (NewCount<0 || NewCount > MAXLISTSIZE)
 	   GError(GVEC_COUNT_ERR, NewCount);
@@ -523,7 +525,6 @@ template <class OBJ> void GVec<OBJ>::setCount(int NewCount, OBJ v) {
 	}
 	fCount = NewCount;
 }
-
 
 template <class OBJ> void GVec<OBJ>::qSort(int l, int r, GCompareProc* cmpFunc) {
  int i, j;

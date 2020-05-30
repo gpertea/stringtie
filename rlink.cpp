@@ -3241,7 +3241,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	// finished reading bundle -> now create the parents' and children's patterns
 	GVec<bool> visit;
-	visit.Resize(graphno,false);
+	visit.Resize(graphno);
 	GBitVec parents(graphno+edgeno);
 
 	//fprintf(stderr,"traverse graph[%d][%d] now with %d nodes, %d edges and lastgpos=%d....\n",s,g,graphno,edgeno,lastgpos);//edgeno=0;
@@ -5556,7 +5556,7 @@ CPrediction* store_merge_prediction(float cov,GVec<int>& alltr,GPVec<CMTransfrag
 
 bool bfs(int n,GVec<float> *capacity,GVec<float> *flow,GVec<int> *link,GVec<int>& pred) {
 	GVec<int> color;
-	color.Resize(n+2,0);
+	color.Resize(n+2);
 	int head=0;
 	int tail=0;
 	GVec<int> q;
@@ -7650,7 +7650,7 @@ void compute_capacity_back(int firstn, CTransfrag *t,float val,GVec<float>& capa
 
 bool weight_bfs(int n,GVec<float> *capacity,GVec<float> *flow,GVec<int> *link,GVec<int>& pred) {
 	GVec<int> color;
-	color.Resize(n,0);
+	color.Resize(n);
 	int head=0;
 	int tail=0;
 	GVec<int> q;
@@ -7740,8 +7740,8 @@ float max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag>& 
 	for(int i=0;i<n;i++) {
 		node2path[path[i]]=i;
 		nodecapacity.cAdd(0.0);
-		capacity[i].Resize(n,0);
-		flow[i].Resize(n,0);
+		capacity[i].Resize(n);
+		flow[i].Resize(n);
 	}
 
 	// establish capacities in the network
@@ -7897,8 +7897,8 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 		node2path[path[i]]=i;
 		nodecapacity.cAdd(0.0);
 		noderate.cAdd(1.0); // I set up all rates to be 1 for now
-		capacity[i].Resize(n,0);
-		flow[i].Resize(n,0);
+		capacity[i].Resize(n);
+		flow[i].Resize(n);
 	}
 
 	float max_fl=0;
@@ -8062,12 +8062,12 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 	}
 	GVec<float> capacityleft;   // how many transcripts compatible to path enter node
 	GVec<float> capacityright;  // how many transcripts compatible to path exit node
-	capacityleft.Resize(n,0);
-	capacityright.Resize(n,0);
+	capacityleft.Resize(n);
+	capacityright.Resize(n);
 	GVec<float> sumleft;        // how many transcripts enter node
 	GVec<float> sumright;       // how many transcripts exit node
-	sumleft.Resize(n,0);
-	sumright.Resize(n,0);
+	sumleft.Resize(n);
+	sumright.Resize(n);
 
 	//bool full=true;
 	//if(longreads && path.Count()>3) full=false;
@@ -8362,12 +8362,12 @@ float push_guide_maxflow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTr
 	}
 	GVec<float> capacityleft;   // how many transcripts compatible to path enter node
 	GVec<float> capacityright;  // how many transcripts compatible to path exit node
-	capacityleft.Resize(n,0);
-	capacityright.Resize(n,0);
+	capacityleft.Resize(n);
+	capacityright.Resize(n);
 	GVec<float> sumleft;        // how many transcripts enter node
 	GVec<float> sumright;       // how many transcripts exit node
-	sumleft.Resize(n,0);
-	sumright.Resize(n,0);
+	sumleft.Resize(n);
+	sumright.Resize(n);
 
 	/*
 	{ // DEBUG ONLY
@@ -8609,8 +8609,8 @@ float guideflow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag>&
 	for(int i=0;i<n;i++) {
 		//fprintf(stderr,"%d ",path[i]);
 		node2path[path[i]]=i;
-		capacity[i].Resize(n,0);
-		flow[i].Resize(n,0);
+		capacity[i].Resize(n);
+		flow[i].Resize(n);
 	}
 
 	//fprintf(stderr,"n=%d ",n);
@@ -8708,12 +8708,12 @@ float guidepushflow(int g,GVec<CGuide>& guidetrf,int gno,GBitVec& istranscript,G
 
 	GVec<float> capacityleft;	// how many transcripts compatible to path enter node
 	GVec<float> capacityright;  // how many transcripts compatible to path exit node
-	capacityleft.Resize(n,0);
-	capacityright.Resize(n,0);
+	capacityleft.Resize(n);
+	capacityright.Resize(n);
 	GVec<float> sumleft;        // how many transcripts enter node
 	GVec<float> sumright;       // how many transcripts exit node
-	sumleft.Resize(n,0);
-	sumright.Resize(n,0);
+	sumleft.Resize(n);
+	sumright.Resize(n);
 
 	// compute capacities and sums for all nodes
 	for(int i=1;i<n-1;i++) {
@@ -8874,13 +8874,13 @@ float max_flow_EM(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag
 	*/
 
 	GVec<float> through; // these are the capacity of the "trough" transfrags through each node in the path
-	through.Resize(n,0);
+	through.Resize(n);
 
 	for(int i=0;i<m;i++) {
 		if(i<n) node2path[path[i]]=i;
 		if(i<n) nodecapacity.cAdd(0.0);
-		capacity[i].Resize(m,0);
-		flow[i].Resize(m,0);
+		capacity[i].Resize(m);
+		flow[i].Resize(m);
 	}
 
 	// establish capacities in the network
@@ -9034,7 +9034,7 @@ float max_flow_EM(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag
 		if(doEM)  // reset flow to 0
 			for(int i=0;i<m;i++) {
 				flow[i].Clear();
-				flow[i].Resize(m,0);
+				flow[i].Resize(m);
 			}
 
 		iterations++;
@@ -9096,8 +9096,8 @@ float weight_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTrans
 	for(int i=0;i<n;i++) {
 		node2path[path[i]]=i;
 		nodecapacity.cAdd(0.0);
-		capacity[i].Resize(n,0);
-		flow[i].Resize(n,0);
+		capacity[i].Resize(n);
+		flow[i].Resize(n);
 		rate[i].Resize(n,1);
 	}
 
@@ -14136,7 +14136,7 @@ void count_good_junctions(BundleData* bdata) {
 		gjunc.Clear();
 	}
 
-	for(int s=0;s<3;s++) bpcov[s].Resize(refend-refstart+3, 0);
+	for(int s=0;s<3;s++) bpcov[s].Resize(refend-refstart+3);
 
 	GVec<int> unstranded; // remembers unstranded reads
 
@@ -14958,7 +14958,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	int npred=pred.Count();
 	GVec<bool> overlap;
-	overlap.Resize(npred*npred-npred,false);
+	overlap.Resize(npred*npred-npred);
 
 	GVec<CPred> predord;
 	//CPred p(0,pred[0]->cov);

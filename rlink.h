@@ -659,7 +659,7 @@ struct BundleData {
 		 refseq(), gseq(NULL), readlist(false,true), //bpcov(1024),
 		 junction(true, true, true),
 		 keepguides(false), ptfs(false), pred(false), rc_data(NULL) {
-	 for(int i=0;i<3;i++) 	bpcov[i].setCapacity(1024);
+	 for(int i=0;i<3;i++) 	bpcov[i].setCapacity(4096);
  }
 
  void getReady(int currentstart, int currentend) {
