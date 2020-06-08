@@ -566,6 +566,9 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 
 	 if (new_bundle || chr_changed) {
 		 hashread.Clear();
+		 //htest only:
+		 if (bundle->readlist.Count()>0) fprintf(stdout, "HCLR\n");
+		 //htest only
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			// (readthr, junctionthr, mintranscriptlen are globals)
 			if (refptfs) { //point-features defined for this reference

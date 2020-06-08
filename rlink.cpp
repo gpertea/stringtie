@@ -456,12 +456,17 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 						readlist[n]->pair_count.Add(rdcount);
 					}
 					hashread.Remove(id.chars());
+                                       //htest only:
+                                       fprintf(stdout, "RM %s\n", id.chars());
+
 				}
 			}
 			else { // I might still see the pair in the future
 				id+='-';id+=readstart; // this is the correct way
 				id+=".=";id+=hi;
 				hashread.fAdd(id.chars(), new int(n));
+                                //htest only:
+                                fprintf(stdout, "%s\n", id.chars());
 			}
 		}
 	} //<-- if mate is mapped on the same chromosome
