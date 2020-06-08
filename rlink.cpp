@@ -46,6 +46,8 @@ extern bool retained_intron;
 extern FILE* f_out;
 extern GStr label;
 
+extern GBamWriter* bamwriter;
+
 
 CJunction* add_junction(int start, int end, GList<CJunction>& junction, char strand) {
 
@@ -296,7 +298,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	CReadAln* readaln=NULL;                        // readaln is initialized with NULL
 	//bool covSaturated=false;                       // coverage is set to not saturated
 
-
+	bamwriter->write(&brec);
 	double nm=(double)brec.tag_int("NM"); // read mismatch
 	float unitig_cov=0;
 	unitig_cov=brec.tag_float("YK");

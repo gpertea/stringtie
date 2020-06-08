@@ -194,6 +194,7 @@ bool forceBAM = false; //useful for stdin (piping alignments into StringTie)
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
+GBamWriter* bamwriter = NULL;
 
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -294,12 +295,18 @@ int main(int argc, char* argv[]) {
 
  GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
 
+
+
  int bamcount=bamreader.start(); //setup and open input files
+
 #ifndef GFF_DEBUG
  if (bamcount<1) {
 	 GError("%sError: no input files provided!\n",USAGE);
  }
 #endif
+
+ bamwriter=new GBamWriter(bamreader.readers[0]->header(), "out.bam");
+
 
 #ifdef DEBUGPRINT
   verbose=true;
@@ -777,6 +784,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  delete brec;
 
  bamreader.stop(); //close all BAM files
+ delete bamwriter;
 
  if (guided && no_ref_used) {
 	    GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
