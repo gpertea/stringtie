@@ -9891,10 +9891,11 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 					 pred[p]->exoncov[i]/=pred[p]->exons[i].len();
 				 p++;
 			 }
-			 else if(!eonly || !pred[p]->t_eq) {
+			 else if(!eonly) { // || !pred[p]->t_eq) {
 				 //fprintf(stderr,"delete prediction %d\n",p);
 				 pred.Delete(p); // I delete all predictions that have 0 coverage unless it's eonly mode
 			 }
+			 else p++;
 		 }
 	 }
 }
