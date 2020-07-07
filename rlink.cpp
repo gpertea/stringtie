@@ -9653,6 +9653,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 		 pathpat=transfrag[t]->pattern;
 		 minp=transfrag[t]->nodes[0];
 		 maxp=transfrag[t]->nodes.Last();
+		 /*
 		 //if(no2gnode[transfrag[t]->nodes[0]]->hardstart) {
 			 int *pos=gpos[edge(0,minp,gno)];
 			 if(pos) pathpat[*pos]=1;
@@ -9663,6 +9664,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 			 if(pos) pathpat[*pos]=1;
 			 //maxp=gno-1;
 		 //}
+		 */
 		 maxi=minp;
 		 path.Add(maxi);
 		 pathpat[maxi]=1;
