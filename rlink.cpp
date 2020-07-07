@@ -6159,9 +6159,25 @@ bool onpath_long(GBitVec& trpattern,GVec<int>& trnode,GBitVec& pathpattern,int m
 
 	int j=0;
 	int *edgep=NULL;
+	int tn=trnode.Count();
+	edgep=gpos[edge(0,minp,gno)];
+	if(edgep && pathpattern[*edgep]) { // minp links to source
+		if(!trnode[0] && trnode[1]!=minp) return false;
+		else { // transfrag does not link to source
+			if(trnode[0]<minp) return false;
+		}
+		edgep=NULL;
+	}
+	edgep=gpos[edge(maxp,gno-1,gno)];
+	if(edgep && pathpattern[*edgep]) { // maxp links to sink
+		if(trnode.Last()==gno-1 && trnode[tn-2]!=maxp) return false;
+		else { // transfrag does not link to sink
+			if(trnode.Last()>maxp) return false;
+		}
+		edgep=NULL;
+	}
 	int prevp=-1;
 	int p=minp;
-	int tn=trnode.Count();
 	while(1) {
 		while(j<tn && trnode[j]<p) {
 			if(!prevp || (edgep && pathpattern[*edgep]) || p==gno-1) return false; // there is an edge between prevp<trnode[j] and p>trnode[j]; when prevp==0/gno-1 I might not have an edge there
@@ -9653,7 +9669,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 		 pathpat=transfrag[t]->pattern;
 		 minp=transfrag[t]->nodes[0];
 		 maxp=transfrag[t]->nodes.Last();
-		 /*
+
 		 //if(no2gnode[transfrag[t]->nodes[0]]->hardstart) {
 			 int *pos=gpos[edge(0,minp,gno)];
 			 if(pos) pathpat[*pos]=1;
@@ -9664,7 +9680,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 			 if(pos) pathpat[*pos]=1;
 			 //maxp=gno-1;
 		 //}
-		 */
+
 		 maxi=minp;
 		 path.Add(maxi);
 		 pathpat[maxi]=1;
