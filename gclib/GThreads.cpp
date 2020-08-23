@@ -1,6 +1,6 @@
 /*
 Copyright (c) 2010 Marcus Geelnard
-(with minor modifications by Geo Pertea)
+(with minor modifications and naming changes by Geo Pertea)
 This software is provided 'as-is', without any express or implied
 warranty. In no event will the authors be held liable for any damages
 arising from the use of this software.

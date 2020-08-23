@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.11.9"
+#define GCLIB_VERSION "0.12.2"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -26,7 +26,7 @@
 #include <sys/stat.h>
 #include <stdint.h>
 #include <stdarg.h>
-
+#include <type_traits>
 #ifdef _WIN32
   #include <windows.h>
   #include <io.h>
@@ -68,13 +68,19 @@
 #define _DEBUG_ 1
 #endif
 
+typedef int64_t int64;
+typedef uint64_t uint64;
 typedef int32_t int32;
 typedef uint32_t uint32;
 typedef int16_t int16;
 typedef uint16_t uint16;
 
 typedef unsigned char uchar;
-typedef unsigned char byte;
+typedef uint8_t byte;
+typedef unsigned int uint;
+
+typedef void* pointer;
+
 
 #ifndef MAXUINT
 #define MAXUINT ((unsigned int)-1)
@@ -91,9 +97,6 @@ typedef unsigned char byte;
 #ifndef MAX_INT
 #define MAX_INT INT_MAX
 #endif
-
-typedef int64_t int64;
-typedef uint64_t uint64;
 
 /****************************************************************************/
 
@@ -155,9 +158,6 @@ GEXIT(#condition);}
 // Clamp value x to range [lo..hi]
 #define GCLAMP(lo,x,hi) ((x)<(lo)?(lo):((x)>(hi)?(hi):(x)))
 
-typedef void* pointer;
-typedef unsigned int uint;
-
 typedef int GCompareProc(const pointer item1, const pointer item2);
 typedef long GFStoreProc(const pointer item1, FILE* fstorage); //for serialization
 typedef pointer GFLoadProc(FILE* fstorage); //for deserialization
@@ -167,6 +167,7 @@ typedef void GFreeProc(pointer item); //usually just delete,
 
 #define GMALLOC(ptr,size)  if (!GMalloc((pointer*)(&ptr),size)) \
                                      GError(ERR_ALLOC)
+
 #define GCALLOC(ptr,size)  if (!GCalloc((pointer*)(&ptr),size)) \
                                      GError(ERR_ALLOC)
 #define GREALLOC(ptr,size) if (!GRealloc((pointer*)(&ptr),size)) \
@@ -209,12 +210,28 @@ template<class T> void Gswap(T& lhs, T& rhs) {
  rhs=tmp;
 }
 
+// use std::is_pointer from <type_traits> in C++11 instead
+/*
+template<typename T>
+  struct isPointer { static const bool value = false; };
+
+template<typename T>
+  struct isPointer<T*> { static const bool value = true; };
+*/
+//check if type T is resolved as a pointer to char
+template<class T>
+  struct is_char_ptr : std::integral_constant <
+      bool,
+      std::is_same<char const *, typename std::decay<T>::type>::value ||
+        std::is_same<char *, typename std::decay<T>::type>::value
+  > {};
 
 /**************** Memory management ***************************/
 
 bool GMalloc(pointer* ptr, unsigned long size); // Allocate memory
 bool GCalloc(pointer* ptr, unsigned long size); // Allocate and initialize memory
 bool GRealloc(pointer* ptr,unsigned long size); // Resize memory
+
 void GFree(pointer* ptr); // Free memory, resets ptr to NULL
 
 //int saprintf(char **retp, const char *fmt, ...);
@@ -223,6 +240,15 @@ void GError(const char* format,...); // Error routine (aborts program)
 void GMessage(const char* format,...);// Log message to stderr
 // Assert failed routine:- usually not called directly but through GASSERT
 void GAssert(const char* expression, const char* filename, unsigned int lineno);
+
+
+template<class T> T* GDupAlloc(T& data) {
+	T* tmp=NULL;
+	if (!GMalloc((pointer*) tmp, sizeof(T)))
+			GError(ERR_ALLOC);
+	memcpy((void*)tmp, (void*)&data, sizeof(T));
+	return tmp;
+}
 
 // ****************** basic string manipulation *************************
 char *Gstrdup(const char* str, int xtracap=0); //string duplication with extra capacity added

@@ -7,7 +7,12 @@
 #include "GBitVec.h"
 #include "time.h"
 #include "tablemaker.h"
-#include "GIntHash.hh"
+#include "GHashMap.hh"
+
+
+template <class V> class GIntHash:
+		public GHashMap<int, V> {
+};
 
 #define MAX_NODE 1000000
 #define KMER 31

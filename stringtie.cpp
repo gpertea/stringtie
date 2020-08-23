@@ -243,7 +243,7 @@ GFastMutex countMutex;
 
 #endif
 
-GHash<int> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
+GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
 
 bool NoMoreBundles=false;
 bool moreBundles(); //thread-safe retrieves NoMoreBundles
@@ -1029,7 +1029,7 @@ void processOptions(GArgs& args) {
     	 s.startTokenize(" ,\t");
     	 GStr chrname;
     	 while (s.nextToken(chrname)) {
-    		 excludeGseqs.Add(chrname.chars(),new int(0));
+    		 excludeGseqs.Add(chrname.chars());
     	 }
      }
 
@@ -1585,7 +1585,7 @@ int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts) {
   return num;
 }
 
-void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) {
+void writeUnbundledGenes(GHash<CGene*>& geneabs, const char* refseq, FILE* gout) {
 				 //write unbundled genes from this chromosome
 	geneabs.startIterate();
 	while (CGene* g=geneabs.NextData()) {
@@ -1604,7 +1604,7 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
  for (int g=0;g<refdata.Count();++g) {
 	 GRefData& crefd=refdata[g];
 	 if (crefd.rnas.Count()==0) continue;
-	 GHash<CGene> geneabs;
+	 GHash<CGene*> geneabs;
 	 //gene_id abundances (0), accumulating coords
 	 for (int m=0;m<crefd.rnas.Count();++m) {
 		 GffObj &t = *crefd.rnas[m];

@@ -1436,7 +1436,7 @@ GffObj* GffReader::newGffRec(GffLine* gffline, GffObj* parent, GffExon* pexon, G
 		  gffline->exontype==exgffNone && !gffline->is_gene && !gffline->is_transcript) {
 	  //unrecognized non-exon entity, should be discarded
 	  newgfo->isDiscarded(true);
-	  this->discarded_ids.Add(gffline->ID, new int(1));
+	  this->discarded_ids.Add(gffline->ID, 1);
   }
   if (replace_parent && glst) {
 	r=gfoReplace(*glst, newgfo, parent);
@@ -1479,7 +1479,7 @@ GffObj* GffReader::updateGffRec(GffObj* prevgfo, GffLine* gffline) {
 }
 
 
-bool GffReader::readExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon>* pex) {
+bool GffReader::readExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon*>* pex) {
 	//this should only be called before prevgfo->finalize()!
 	bool r=true;
 	if (gffline->strand!=prevgfo->strand) {
@@ -1511,7 +1511,7 @@ bool GffReader::readExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExo
 	return r;
 }
 
-CNonExon* GffReader::subfPoolCheck(GffLine* gffline, GHash<CNonExon>& pex, char*& subp_name) {
+CNonExon* GffReader::subfPoolCheck(GffLine* gffline, GHash<CNonExon*>& pex, char*& subp_name) {
   CNonExon* subp=NULL;
   subp_name=NULL;
   for (int i=0;i<gffline->num_parents;i++) {
@@ -1526,7 +1526,7 @@ CNonExon* GffReader::subfPoolCheck(GffLine* gffline, GHash<CNonExon>& pex, char*
   return NULL;
 }
 
-void GffReader::subfPoolAdd(GHash<CNonExon>& pex, GffObj* newgfo) {
+void GffReader::subfPoolAdd(GHash<CNonExon*>& pex, GffObj* newgfo) {
 //this might become a parent feature later
 if (newgfo->exons.Count()>0) {
    char* xbuf=gfoBuildId(gffline->ID, gffline->gseqname);
@@ -1535,7 +1535,7 @@ if (newgfo->exons.Count()>0) {
    }
 }
 
-GffObj* GffReader::promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonExon>& pex) {
+GffObj* GffReader::promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonExon*>& pex) {
   GffObj* prevp=subp->parent; //grandparent of gffline (e.g. gene)
   //if (prevp!=gflst[subp->idx])
   //  GError("Error promoting subfeature %s, gflst index mismatch?!\n", subp->gffline->ID);
@@ -1657,7 +1657,7 @@ void GffReader::readAll() {
 	}
 	else { //regular GFF/GTF or perhaps TLF?
 		//loc_debug=false;
-		GHash<CNonExon> pex; //keep track of any parented (i.e. exon-like) features that have an ID
+		GHash<CNonExon*> pex; //keep track of any parented (i.e. exon-like) features that have an ID
 		//and thus could become promoted to parent features
 		while (nextGffLine()!=NULL) {
 			GffObj* prevseen=NULL;
@@ -1969,7 +1969,7 @@ bool GffObj::processGeneSegments(GffReader* gfr) {
      4)for each GeneCDSChain, pick best _gene_segment match (if any) and transfer CDSs to it
 	*/
     GVec<int> geneSegs; //X_gene_segment features (children transcripts of this gene)
-    GHash<GeneCDSChain> cdsChainById(false); // hash of CDS chains: CDS feature grouped by ID
+    GHashMap<const char*, GeneCDSChain*> cdsChainById(false); // hash of CDS chains: CDS feature grouped by ID
     GPVec<GeneCDSChain> cdsChains; // CDS chains storage
 	if (cdss==NULL || cdss->Count()==0 || children.Count()==0)
 		return false; //we shouldn't be here
@@ -1998,7 +1998,7 @@ bool GffObj::processGeneSegments(GffReader* gfr) {
     	else { //new CDS chain:
     	     gcc=new GeneCDSChain(i, cdss->Get(i)->start, cdss->Get(i)->end);
     	     cdsChains.Add(gcc);
-    	     cdsChainById.shkAdd(id, gcc);
+    	     cdsChainById.Add(id, gcc);
     	}
     }
     for (int i=0;i<cdss->Count();i++) {

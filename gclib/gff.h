@@ -8,7 +8,8 @@
 #include "codons.h"
 #include "GFaSeqGet.h"
 #include "GList.hh"
-#include "GHash.hh"
+//#include "GHash.hh"
+#include "GHashMap.hh"
 
 #ifdef CUFFLINKS
 #include <boost/crc.hpp>  // for boost::crc_32_type
@@ -402,13 +403,13 @@ class GffNameList:public GPVec<GffNameInfo> {
   friend class GffNameInfo;
   friend class GffNames;
 protected:
-  GHash<GffNameInfo> byName;//hash with shared keys
+  GHashMap<const char*, GffNameInfo*> byName;//hash with shared keys
   int idlast; //fList index of last added/reused name
   int addStatic(const char* tname) {// fast add
      GffNameInfo* f=new GffNameInfo(tname);
      idlast=this->Add(f);
      f->idx=idlast;
-     byName.shkAdd(f->name,f);
+     byName.Add(f->name,f);
      return idlast;
      }
 public:
@@ -436,7 +437,7 @@ public:
       f=new GffNameInfo(tname);
       fidx=this->Add(f);
       f->idx=fidx;
-      byName.shkAdd(f->name,f);
+      byName.Add(f->name,f);
       }
    idlast=fidx;
    return fidx;
@@ -446,7 +447,7 @@ public:
     GffNameInfo* f=new GffNameInfo(tname);
     int fidx=this->Add(f);
     f->idx=fidx;
-    byName.shkAdd(f->name,f);
+    byName.Add(f->name,f);
     return fidx;
     }
 
@@ -1177,8 +1178,7 @@ class GffReader {
   //bool gene2exon;  // for childless genes: add an exon as the entire gene span
   GHash<int> discarded_ids; //for transcriptsOnly mode, keep track
                             // of discarded parent IDs
-  GHash< GPVec<GffObj> > phash; //transcript_id => GPVec<GffObj>(false)
-  //GHash<int> tids; //just for transcript_id uniqueness
+  GHash< GPVec<GffObj>* > phash; //transcript_id => GPVec<GffObj>(false)
   char* gfoBuildId(const char* id, const char* ctg);
   //void gfoRemove(const char* id, const char* ctg);
   GffObj* gfoAdd(GffObj* gfo);
@@ -1188,9 +1188,9 @@ class GffReader {
   bool pFind(const char* id, GPVec<GffObj>*& glst);
   GffObj* gfoFind(const char* id, GPVec<GffObj>* & glst, const char* ctg=NULL,
 	                                         char strand=0, uint start=0, uint end=0);
-  CNonExon* subfPoolCheck(GffLine* gffline, GHash<CNonExon>& pex, char*& subp_name);
-  void subfPoolAdd(GHash<CNonExon>& pex, GffObj* newgfo);
-  GffObj* promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonExon>& pex);
+  CNonExon* subfPoolCheck(GffLine* gffline, GHash<CNonExon*>& pex, char*& subp_name);
+  void subfPoolAdd(GHash<CNonExon*>& pex, GffObj* newgfo);
+  GffObj* promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonExon*>& pex);
 
 #ifdef CUFFLINKS
      boost::crc_32_type  _crc_result;
@@ -1205,7 +1205,7 @@ class GffReader {
   //GffObj* replaceGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr, int replaceidx);
   GffObj* updateGffRec(GffObj* prevgfo, GffLine* gffline);
   GffObj* updateParent(GffObj* newgfh, GffObj* parent);
-  bool readExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon>* pex=NULL);
+  bool readExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon*>* pex=NULL);
   GPVec<GSeqStat> gseqStats; //populated after finalize() with only the ref seqs in this file
   GffReader(FILE* f=NULL, bool t_only=false, bool sort=false):linebuf(NULL), fpos(0),
 		  buflen(0), flags(0), fh(f), fname(NULL), commentParser(NULL), gffline(NULL),

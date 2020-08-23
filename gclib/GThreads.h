@@ -2,16 +2,13 @@
 #define _GTHREADS_
 
 /*
-GThread - multi-platform threads utility class
-This is heavily based on the source code of TinyThread++ 1.0 package
-by Marcus Geelnard (with only minor modifications),
-so all merits for the code go to Marcus, except the bugs which
-were probably introduced by me.
+GThread - multi-platform thread management utility class
+This code is taken from the TinyThread++ 1.0 package
+by Marcus Geelnard (with only very minor alterations and 
+naming changes).
 
-Original Copyright notice below
-*/
-
-/*
+Original Copyright notice follows:
+----
 Copyright (c) 2010 Marcus Geelnard
 
 This software is provided 'as-is', without any express or implied

@@ -461,7 +461,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			else { // I might still see the pair in the future
 				id+='-';id+=readstart; // this is the correct way
 				id+=".=";id+=hi;
-				hashread.fAdd(id.chars(), new int(n));
+				hashread.Add(id.chars(), n);
 			}
 		}
 	} //<-- if mate is mapped on the same chromosome
@@ -2545,7 +2545,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	int nje=0; // index of sorted junction ends
 
 	int graphno=1; // number of nodes in graph
-	GHash<GVec<int> > ends; // keeps ids of all nodes ending at a certain position; OR ALL NODES THAT ARE LINKED BY JUNCTIONS TO A CERTAIN POSITION
+	GHash<GVec<int>* > ends; // keeps ids of all nodes ending at a certain position; OR ALL NODES THAT ARE LINKED BY JUNCTIONS TO A CERTAIN POSITION
 
 	GVec<float> futuretr;
 
@@ -3279,7 +3279,7 @@ void get_read_pattern(int s, float readcov,GVec<int> &rgno, float rprop,GVec<int
 	int k=0; // need to keep track of coordinates already added to coverages of graphnodes
 	int kmer=KMER-1; //f1
 
-	GIntHash<bool> hashnode;
+	GIntHash< bool> hashnode;
 
 	for(int i=0;i<readgroup[n].Count();i++) { // how can a read be associated to multiple groups? ---> If it is spliced
 		int gr=readgroup[n][i];
@@ -3603,7 +3603,7 @@ CTransfrag *findtrf_in_treepat(int gno,GIntHash<int>& gpos,GVec<int>& node,GBitV
 }*/
 
 
-CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pattern,float abundance,GVec<int>& node,
+CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos, GBitVec& pattern, float abundance,GVec<int>& node,
 		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no, GPVec<CGraphnode>& no2gnode,uint rstart,uint rend,bool is_sr=false){
 
 	/*
@@ -6087,7 +6087,7 @@ bool is_compatible(int t1,int t2, int n,GBitVec& compatible) {
 }
 
 GVec<int> *max_compon_size_with_penalty(int trnumber,float &maxsize,GVec<CTrInfo>& set,GBitVec& compatible,
-		GBitVec& mark,GBitVec& removable, GHash<CComponent>& computed) {
+		GBitVec& mark,GBitVec& removable, GHash<CComponent*>& computed) {
 
 	// this max_compon presumes the set is always sorted according to the set.trno
 
@@ -9017,13 +9017,13 @@ float max_flow_EM(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag
 						if(flow[n1][n2]>0) {
 							if(flow[n1][n2]<transfrag[t]->abundance) {
 								GStr tid(t);
-								tabund.Add(tid.chars(),new float(flow[n1][n2]));
+								tabund.Add(tid.chars(), flow[n1][n2]);
 								flow[n1][n2]=0;
 							}
 							else {
 								flow[n1][n2]-=transfrag[t]->abundance;
 								GStr tid(t);
-								tabund.Add(tid.chars(),new float(transfrag[t]->abundance));
+								tabund.Add(tid.chars(),transfrag[t]->abundance);
 							}
 						}
 					}
@@ -12434,9 +12434,9 @@ int build_graphs(BundleData* bdata) {
 			else if(guides.Count()){ // need to remember boundary
 				bool exist=true;
 		    	GStr bs((int)jd.start);
-		    	if(!boundaryleft[bs.chars()]) boundaryleft.Add(bs.chars(),new bool(exist));
+		    	if(!boundaryleft[bs.chars()]) boundaryleft.Add(bs.chars(),exist);
 		    	GStr be((int)jd.end);
-		    	if(!boundaryright[be.chars()]) boundaryright.Add(be.chars(),new bool(exist));
+		    	if(!boundaryright[be.chars()]) boundaryright.Add(be.chars(),exist);
 			}
 			i++;
 
@@ -13993,7 +13993,7 @@ void count_good_junctions(BundleData* bdata) {
 	int refstart=bdata->start;
 	int refend=bdata->end;
 	bool modified=false;
-	GHash<CJunction> jhash(false);
+	GHash<CJunction*> jhash(false);
 	char sbuf[20];
 
 	if(longreads && bdata->keepguides.Count()) { // there are guides to consider with longreads -> I might need to adjust the splice sites
@@ -14116,7 +14116,7 @@ void count_good_junctions(BundleData* bdata) {
 						if(equal.Count()) { // junction j is equal to other junctions
 							for(s=0;s<equal.Count();s++) {
 								sprintf(sbuf, "%p", junction[equal[s]]);
-								jhash.fAdd(sbuf,junction[j]);
+								jhash.Add(sbuf,junction[j]);
 								junction[equal[s]]->strand=0;
 								junction[equal[s]]->guide_match=false;
 							}
@@ -14142,7 +14142,7 @@ void count_good_junctions(BundleData* bdata) {
 						if(equal.Count()) { // junction j is equal to other junctions
 							for(s=0;s<equal.Count();s++) {
 								sprintf(sbuf, "%p", ejunction[equal[s]]);
-								jhash.fAdd(sbuf,ejunction[j]);
+								jhash.Add(sbuf,ejunction[j]);
 								ejunction[equal[s]]->strand=0;
 								ejunction[equal[s]]->guide_match=false;
 							}
@@ -15033,7 +15033,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			id+=pred[0]->strand;
 			id+=(int)pred[0]->exons[j].start;
 			bool *gi=guideintron[id.chars()];
-			if(!gi) guideintron.fAdd(id.chars(),new bool(exist));
+			if(!gi) guideintron.Add(id.chars(), exist);
 		}
 		float introncov=get_cov(1,pred[0]->exons[j-1].end+1-bundleData->start,pred[0]->exons[j].start-1-bundleData->start,bpcov)/(pred[0]->exons[j].start-pred[0]->exons[j-1].end-1);
 		if(introncov) {
@@ -15108,7 +15108,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				id+=pred[n]->strand;
 				id+=(int)pred[n]->exons[j].start;
 				bool *gi=guideintron[id.chars()];
-				if(!gi) guideintron.fAdd(id.chars(),new bool(exist));
+				if(!gi) guideintron.Add(id.chars(),exist);
 			}
 			float introncov=get_cov(1,pred[n]->exons[j-1].end+1-bundleData->start,pred[n]->exons[j].start-1-bundleData->start,bpcov)/(pred[n]->exons[j].start-pred[n]->exons[j-1].end-1);
 			if(introncov) {
@@ -15680,7 +15680,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			if(!gid.is_empty()) {
 				gid+=pred[n]->strand;
 				const int *ng=hashgene[gid.chars()];
-				if(ng) { // this should always be true because we parsed all predictions in printResults
+				if (ng) { // this should always be true because we parsed all predictions in printResults
 					gno=*ng;
 					refgene[gno].cov+=pred[n]->cov*pred[n]->tlen;
 					refgene[gno].covsum+=pred[n]->cov;
@@ -16259,7 +16259,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 					merge_exons(refgene[*n],guides[i]->exons);
 				}
 				else { // create gene and hash
-					hashgene.Add(gid.chars(),new int(gno));
+					hashgene.Add(gid.chars(),gno);
 					CGene g(guides[i]->start,guides[i]->end,guides[i]->strand,guides[i]->getGeneID(),guides[i]->getGeneName());
 					// now add the exons
 					for(int j=0;j<guides[i]->exons.Count();j++) {
@@ -16466,8 +16466,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 								uint *val=starthash[id];
 								if(!val) {
 									find_endpoints(bundleData->start,(uint)lastval,(uint)firstval,bundleData->bpcov,startval,endval);
-									starthash.Add(id.chars(),new uint(startval));
-									endhash.Add(id.chars(),new uint(endval));
+									starthash.Add(id.chars(),startval);
+									endhash.Add(id.chars(),endval);
 								}
 								else {
 									startval=*val;
