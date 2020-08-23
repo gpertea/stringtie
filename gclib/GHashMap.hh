@@ -9,6 +9,10 @@
 #include "khashl.hh"
 #include <type_traits>
 #include <typeinfo>
+
+#define XXH_INLINE_ALL 1
+#include "xxhash.h"
+
 //#include <type_traits> //for std::is_trivial
 
 /*
@@ -41,7 +45,7 @@ template< typename T >
   {};
 */
 
-template <typename K> struct GHashKey_Hash { //K generic (class, primitive, pointer except const char* )
+template <typename K> struct GHashKey_city32 { //K generic (class, primitive, pointer except const char* )
   //template <typename T=K> inline typename std::enable_if< std::is_trivial<T>::value, uint32_t>::type
  uint32_t operator()(const K& s) const { //only works for trivial types!
       static_assert(std::is_trivial<K>::value, "Error: cannot use this for non-trivial types!\n");
@@ -49,9 +53,37 @@ template <typename K> struct GHashKey_Hash { //K generic (class, primitive, poin
     }
 };
 
-template <> struct GHashKey_Hash<const char*> {
+template <> struct GHashKey_city32<const char*> {
    inline uint32_t operator()(const char* s) const {
       return CityHash32(s, strlen(s));
+   }
+};
+
+template <typename K> struct GHashKey_xxH32 { //K generic (class, primitive, pointer except const char* )
+  //template <typename T=K> inline typename std::enable_if< std::is_trivial<T>::value, uint32_t>::type
+ uint32_t operator()(const K& s) const { //only works for trivial types!
+      static_assert(std::is_trivial<K>::value, "Error: cannot use this for non-trivial types!\n");
+      return XXH32((const void *) &s, sizeof(K), 0);
+    }
+};
+
+template <> struct GHashKey_xxH32<const char*> {
+   inline uint32_t operator()(const char* s) const {
+      return XXH32(s, strlen(s), 0);
+   }
+};
+
+template <typename K> struct GHashKey_xxH64 { //K generic (class, primitive, pointer except const char* )
+  //template <typename T=K> inline typename std::enable_if< std::is_trivial<T>::value, uint32_t>::type
+ uint64_t operator()(const K& s) const { //only works for trivial types!
+      static_assert(std::is_trivial<K>::value, "Error: cannot use this for non-trivial types!\n");
+      return XXH64((const void *) &s, sizeof(K), 0);
+    }
+};
+
+template <> struct GHashKey_xxH64<const char*> {
+   inline uint32_t operator()(const char* s) const {
+      return XXH64(s, strlen(s), 0);
    }
 };
 
@@ -68,23 +100,23 @@ template <> struct GHashKey_Eq<const char*> {
 };
 
 //GHashSet is never making a deep copy of the char* key, it only stores the pointer
-template <typename K=const char*, class Hash=GHashKey_Hash<K>, class Eq=GHashKey_Eq<K> >
+template <typename K=const char*, class Hash=GHashKey_xxH64<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t >
   class GHashSet: public std::conditional< is_char_ptr<K>::value,
-    klib::KHashSetCached< K, Hash,  Eq >,
-	klib::KHashSet< K, Hash,  Eq > >::type  {
+    klib::KHashSetCached< K, Hash,  Eq, khInt_t >,
+	klib::KHashSet< K, Hash,  Eq, khInt_t > >::type  {
 protected:
-	uint32_t i_iter=0;
+	khInt_t i_iter=0;
 public:
-	inline int Add(const K ky) { // return -1 if the key already exists
+	inline khInt_t Add(const K ky) { // return -1 if the key already exists
 		int absent=-1;
-		uint32_t i=this->put(ky, &absent);
+		khInt_t i=this->put(ky, &absent);
 		if (absent==1) //key was actually added
 		   return i;
 		return -1;
 	}
 
-	int Remove(K ky) { //return index being removed, or -1 if no such key exists
-		  uint32_t i=this->get(ky);
+	inline khInt_t Remove(K ky) { //return index being removed, or -1 if no such key exists
+		khInt_t i=this->get(ky);
 		  if (i!=this->end()) {
 			  this->del(i);
 	    	  return i;
@@ -116,7 +148,7 @@ public:
 
 	int Find(K ky) {//return internal slot location if found,
 	                // or -1 if not found
-  	  uint32_t r=this->get(ky);
+	  khInt_t r=this->get(ky);
   	  if (r==this->end()) return -1;
   	  return (int)r;
 	}
@@ -142,12 +174,12 @@ public:
 
 //GStrSet always allocates a copy of each added string;
 // if you don't want that (keys are shared), just use GHashSet<const char*> instead
-template <class Hash=GHashKey_Hash<const char*>, class Eq=GHashKey_Eq<const char*> >
-  class GStrSet: public GHashSet<const char*, Hash, Eq> {
+template <class Hash=GHashKey_xxH64<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t>
+  class GStrSet: public GHashSet<const char*, Hash, Eq, khInt_t> {
   public:
 	inline int Add(const char* ky) { // return -1 if the key already exists
 		int absent=-1;
-		uint32_t i=this->put(ky, &absent);
+		khInt_t i=this->put(ky, &absent);
 		if (absent==1) {//key was actually added
 		   const char* s=Gstrdup(ky);
 		   this->key(i)=s; //store a copy of the key string
@@ -158,7 +190,7 @@ template <class Hash=GHashKey_Hash<const char*>, class Eq=GHashKey_Eq<const char
 	}
 
 	int Remove(const char* ky) { //return index being removed, or -1 if no such key exists
-		  uint32_t i=this->get(ky);
+		  khInt_t i=this->get(ky);
 		  if (i!=this->end()) {
 			  GFREE(this->key(i)); //free string copy
 			  this->del(i);
@@ -168,8 +200,8 @@ template <class Hash=GHashKey_Hash<const char*>, class Eq=GHashKey_Eq<const char
 	}
 
 	inline void Clear() {
-		int nb=this->n_buckets();
-		for (int i = 0; i != nb; ++i) {
+		khInt_t nb=this->n_buckets();
+		for (khInt_t i = 0; i != nb; ++i) {
 			if (!this->__kh_used(this->used, i)) continue;
 			//deallocate string copy
 			GFREE(this->key(i));
@@ -190,19 +222,19 @@ template <class Hash=GHashKey_Hash<const char*>, class Eq=GHashKey_Eq<const char
 };
 
 //generic hash map where keys and values can be of any type
-template <class K, class V, class Hash=GHashKey_Hash<K>, class Eq=GHashKey_Eq<K> >
+template <class K, class V, class Hash=GHashKey_xxH64<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t>
   class GHashMap:public std::conditional< is_char_ptr<K>::value,
-    klib::KHashMapCached< K, V, Hash,  Eq >,
-    klib::KHashMap< K, V, Hash,  Eq > >::type  {
+    klib::KHashMapCached< K, V, Hash,  Eq, khInt_t>,
+    klib::KHashMap< K, V, Hash,  Eq, khInt_t> >::type  {
 protected:
-	uint32_t i_iter=0;
+	khInt_t i_iter=0;
 	bool freeItems=false;
 public:
 	//---- these should be reimplemented for GHash
 	inline int Add(const K ky, const V val) { // if a key does not exist allocate a copy of the key
 		// return -1 if the key already exists
 		int absent=-1;
-		uint32_t i=this->put(ky, &absent);
+		khInt_t i=this->put(ky, &absent);
 		if (absent==1) { //key was actually added
 			this->value(i)=val; //value is always copied
 			return i;
@@ -212,7 +244,7 @@ public:
 	template <typename T=V> inline
 		typename std::enable_if< std::is_pointer<T>::value, int>::type
 			Remove(K ky) { //return index being removed
-		  uint32_t i=this->get(ky);
+		khInt_t i=this->get(ky);
 		  if (i!=this->end()) {
 			  if (freeItems) delete this->value(i);
 			  this->del(i);
@@ -224,7 +256,7 @@ public:
 	template <typename T=V> inline
 		typename std::enable_if< !std::is_pointer<T>::value, int>::type
 			Remove(K ky) { //return index being removed
-		  uint32_t i=this->get(ky);
+		  khInt_t i=this->get(ky);
 		  if (i!=this->end()) {
 			  this->del(i);
 	    	  return i;
@@ -240,8 +272,8 @@ public:
 			this->clear(); //does not shrink !
 			return;
 		}
-		int nb=this->n_buckets();
-		for (int i = 0; i != nb; ++i) {
+		khInt_t nb=this->n_buckets();
+		for (khInt_t i = 0; i != nb; ++i) {
 			if (!this->__kh_used(this->used, i)) continue;
 			if (freeItems) delete this->value(i);
 		}
@@ -255,8 +287,8 @@ public:
 			this->clear(); //does not shrink !
 			return;
 		}
-		int nb=this->n_buckets();
-		for (int i = 0; i != nb; ++i) {
+		khInt_t nb=this->n_buckets();
+		for (khInt_t i = 0; i != nb; ++i) {
 			if (!this->__kh_used(this->used, i)) continue;
 		}
 		this->clear();
@@ -284,7 +316,7 @@ public:
 	template <typename T=V> inline
 			typename std::enable_if< std::is_pointer<T>::value, T>::type
 	        Find(const K ky) {
-	  uint32_t r=this->get(ky);
+	  khInt_t r=this->get(ky);
 	  if (r==this->end()) return NULL;
 	  return this->value(r);
 	}
@@ -292,7 +324,7 @@ public:
 	template <typename T=V> inline
 			typename std::enable_if< !std::is_pointer<T>::value, T*>::type
 	        Find(const K ky) {
-	  uint32_t r=this->get(ky);
+	  khInt_t r=this->get(ky);
 	  if (r==this->end()) return NULL;
 	  return &(this->value(r));
 	}
@@ -301,7 +333,7 @@ public:
 	template <typename T=V> inline
 			typename std::enable_if< std::is_pointer<T>::value, T>::type
 	        operator[](const K ky) {
-	  uint32_t r=this->get(ky);
+	  khInt_t r=this->get(ky);
 	  if (r==this->end()) return NULL;
 	  return this->value(r);
 	}
@@ -309,7 +341,7 @@ public:
 	template <typename T=V> inline
 			typename std::enable_if< !std::is_pointer<T>::value, T*>::type
 	        operator[](const K ky) {
-	  uint32_t r=this->get(ky);
+	  khInt_t r=this->get(ky);
 	  if (r==this->end()) return NULL;
 	  return &(this->value(r));
 	}
@@ -327,7 +359,7 @@ public:
 	  Next (V& val) {
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
-		uint32_t nb=this->n_buckets();
+		khInt_t nb=this->n_buckets();
 		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		val=this->value(i_iter);
@@ -341,7 +373,7 @@ public:
 	  Next (V& val) {
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
-		uint32_t nb=this->n_buckets();
+		khInt_t nb=this->n_buckets();
 		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		val=this->value(i_iter);
@@ -355,7 +387,7 @@ public:
 	  NextData () {
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
-		uint32_t nb=this->n_buckets();
+		khInt_t nb=this->n_buckets();
 		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		T* val=&(this->value(i_iter));
@@ -368,7 +400,7 @@ public:
 	  NextData () {
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
-		uint32_t nb=this->n_buckets();
+		khInt_t nb=this->n_buckets();
 		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		T val=this->value(i_iter);
@@ -382,8 +414,8 @@ public:
 
 };
 
-template <class V, class Hash=GHashKey_Hash<const char*>, class Eq=GHashKey_Eq<const char*> >
-  class GHash:public GHashMap<const char*, V, Hash, Eq>  {
+template <class V, class Hash=GHashKey_xxH64<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t >
+  class GHash:public GHashMap<const char*, V, Hash, Eq, khInt_t>  {
 protected:
 
 public:
@@ -394,7 +426,7 @@ public:
 	inline int Add(const char* ky, const V val) { // if a key does not exist allocate a copy of the key
 		// return -1 if the key already exists
 		int absent=-1;
-		uint32_t i=this->put(ky, &absent);
+		khInt_t i=this->put(ky, &absent);
 		if (absent==1) { //key was actually added
 			const char* s=Gstrdup(ky);
 			this->key(i)=s; //store a copy of the key string
@@ -406,7 +438,7 @@ public:
 	template <typename T=V> inline
 		typename std::enable_if< std::is_pointer<T>::value, int>::type
 	Remove(const char* ky) { //return index being removed
-		  uint32_t i=this->get(ky);
+		  khInt_t i=this->get(ky);
 		  if (i!=this->end()) {
 			  GFREE(this->key(i)); //free string copy
 			  if (this->freeItems) delete this->value(i);
@@ -419,7 +451,7 @@ public:
 	template <typename T=V> inline
 		typename std::enable_if< !std::is_pointer<T>::value, int>::type
 	Remove(const char* ky) { //return index being removed
-		  uint32_t i=this->get(ky);
+		  khInt_t i=this->get(ky);
 		  if (i!=this->end()) {
 			  GFREE(this->key(i)); //free string copy
 	    	  this->del(i);
@@ -431,8 +463,8 @@ public:
 	template <typename T=V> inline
 		typename std::enable_if< std::is_pointer<T>::value, void>::type
 		Clear() {
-		int nb=this->n_buckets();
-		for (int i = 0; i != nb; ++i) {
+		khInt_t nb=this->n_buckets();
+		for (khInt_t i = 0; i != nb; ++i) {
 			if (!this->__kh_used(this->used, i)) continue;
 			if (this->freeItems) delete this->value(i);
 			GFREE(this->key(i));
@@ -443,8 +475,8 @@ public:
 	template <typename T=V> inline
 		typename std::enable_if< !std::is_pointer<T>::value, void>::type
 		Clear() {
-		int nb=this->n_buckets();
-		for (int i = 0; i != nb; ++i) {
+		khInt_t nb=this->n_buckets();
+		for (khInt_t i = 0; i != nb; ++i) {
 			if (!this->__kh_used(this->used, i)) continue;
 			GFREE(this->key(i));
 		}
