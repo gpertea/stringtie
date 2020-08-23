@@ -9,10 +9,8 @@
 #include "tablemaker.h"
 #include "GHashMap.hh"
 
-
-template <class V> class GIntHash:
-		public GHashMap<int, V> {
-};
+template<typename T>
+   using GIntHash = GHashMap<int, T>;
 
 #define MAX_NODE 1000000
 #define KMER 31
