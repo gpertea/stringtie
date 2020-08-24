@@ -26,6 +26,6 @@ cp Makefile LICENSE README.md run_tests.sh stringtie.cpp prepDE.py {rlink,tablem
 cp -r samtools-0.1.18 $pack/
 /bin/rm -rf $pack/samtools-0.1.18/.svn
 cp ./gclib/{GVec,GList,khashl,GHashMap}.hh ./gclib/GBitVec.h ./gclib/xxhash.h $gldir
-cp ./gclib/{GArgs,GStr,GBam,GBase,gdna,codons,gff,GFaSeqGet,GFastaIndex,proc_mem,GThreads,city}.{h,cpp} $gldir
+cp ./gclib/{GArgs,GStr,GBam,GBase,gdna,codons,gff,GFaSeqGet,GFastaIndex,proc_mem,GThreads}.{h,cpp} $gldir
 tar cvfz $pack.tar.gz $pack
 ls -l $pack.tar.gz

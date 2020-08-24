@@ -10,7 +10,7 @@
 #include "GHashMap.hh"
 
 template<typename T>
- using GIntHash = GHashMap<int, T, GHashKey_xxH32<int>, GHashKey_Eq<int>, uint32_t>;
+ using GIntHash = GHashMap<int, T, GHashKey_xxHash32<int>, GHashKey_Eq<int>, uint32_t>;
 
 #define MAX_NODE 1000000
 #define KMER 31

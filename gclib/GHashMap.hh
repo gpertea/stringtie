@@ -5,7 +5,6 @@
 #ifndef GHashMap_HH
 #define GHashMap_HH
 #include "GBase.h"
-#include "city.h"
 #include "khashl.hh"
 #include <type_traits>
 #include <typeinfo>
@@ -13,53 +12,7 @@
 #define XXH_INLINE_ALL 1
 #include "xxhash.h"
 
-//#include <type_traits> //for std::is_trivial
-
-/*
-struct cstr_eq {
-    inline bool operator()(const char* x, const char* y) const {
-      return (strcmp(x, y) == 0);
-    }
-};
-
-struct cstr_hash {
-   inline uint32_t operator()(const char* s) const {
-      return CityHash32(s, std::strlen(s));
-   }
-};
-*/
-
-#define GSTR_HASH(s) strhash(s)
-//#define GSTR_HASH(s) djb_hash(s)
-//#define GSTR_HASH(s) fnv1a_hash(s)
-//#define GSTR_HASH(s) murmur3(s)
-
-//template<typename T>
-// using T_Ptr = typename std::conditional< std::is_pointer<T>::value, T, T* >::type;
-
-/* defined it in GBase.h
-template< typename T >
- struct is_char_ptr
-  : std::enable_if< std::is_same< T, char* >::value ||
-                    std::is_same< T, const char* >::value >
-  {};
-*/
-
-template <typename K> struct GHashKey_city32 { //K generic (class, primitive, pointer except const char* )
-  //template <typename T=K> inline typename std::enable_if< std::is_trivial<T>::value, uint32_t>::type
- uint32_t operator()(const K& s) const { //only works for trivial types!
-      static_assert(std::is_trivial<K>::value, "Error: cannot use this for non-trivial types!\n");
-      return CityHash32((const char *) &s, sizeof(K));
-    }
-};
-
-template <> struct GHashKey_city32<const char*> {
-   inline uint32_t operator()(const char* s) const {
-      return CityHash32(s, strlen(s));
-   }
-};
-
-template <typename K> struct GHashKey_xxH32 { //K generic (class, primitive, pointer except const char* )
+template <typename K> struct GHashKey_xxHash32 { //K generic (class, primitive, pointer except const char* )
   //template <typename T=K> inline typename std::enable_if< std::is_trivial<T>::value, uint32_t>::type
  uint32_t operator()(const K& s) const { //only works for trivial types!
       static_assert(std::is_trivial<K>::value, "Error: cannot use this for non-trivial types!\n");
@@ -67,13 +20,13 @@ template <typename K> struct GHashKey_xxH32 { //K generic (class, primitive, poi
     }
 };
 
-template <> struct GHashKey_xxH32<const char*> {
+template <> struct GHashKey_xxHash32<const char*> {
    inline uint32_t operator()(const char* s) const {
       return XXH32(s, strlen(s), 0);
    }
 };
 
-template <typename K> struct GHashKey_xxH64 { //K generic (class, primitive, pointer except const char* )
+template <typename K> struct GHashKey_xxHash { //K generic (class, primitive, pointer except const char* )
   //template <typename T=K> inline typename std::enable_if< std::is_trivial<T>::value, uint32_t>::type
  uint64_t operator()(const K& s) const { //only works for trivial types!
       static_assert(std::is_trivial<K>::value, "Error: cannot use this for non-trivial types!\n");
@@ -81,7 +34,7 @@ template <typename K> struct GHashKey_xxH64 { //K generic (class, primitive, poi
     }
 };
 
-template <> struct GHashKey_xxH64<const char*> {
+template <> struct GHashKey_xxHash<const char*> {
    inline uint32_t operator()(const char* s) const {
       return XXH64(s, strlen(s), 0);
    }
@@ -100,7 +53,7 @@ template <> struct GHashKey_Eq<const char*> {
 };
 
 //GHashSet is never making a deep copy of the char* key, it only stores the pointer
-template <typename K=const char*, class Hash=GHashKey_xxH64<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t >
+template <typename K=const char*, class Hash=GHashKey_xxHash<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t >
   class GHashSet: public std::conditional< is_char_ptr<K>::value,
     klib::KHashSetCached< K, Hash,  Eq, khInt_t >,
 	klib::KHashSet< K, Hash,  Eq, khInt_t > >::type  {
@@ -174,7 +127,7 @@ public:
 
 //GStrSet always allocates a copy of each added string;
 // if you don't want that (keys are shared), just use GHashSet<const char*> instead
-template <class Hash=GHashKey_xxH64<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t>
+template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t>
   class GStrSet: public GHashSet<const char*, Hash, Eq, khInt_t> {
   public:
 	inline int Add(const char* ky) { // return -1 if the key already exists
@@ -222,7 +175,7 @@ template <class Hash=GHashKey_xxH64<const char*>, class Eq=GHashKey_Eq<const cha
 };
 
 //generic hash map where keys and values can be of any type
-template <class K, class V, class Hash=GHashKey_xxH64<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t>
+template <class K, class V, class Hash=GHashKey_xxHash<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t>
   class GHashMap:public std::conditional< is_char_ptr<K>::value,
     klib::KHashMapCached< K, V, Hash,  Eq, khInt_t>,
     klib::KHashMap< K, V, Hash,  Eq, khInt_t> >::type  {
@@ -414,7 +367,7 @@ public:
 
 };
 
-template <class V, class Hash=GHashKey_xxH64<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t >
+template <class V, class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t >
   class GHash:public GHashMap<const char*, V, Hash, Eq, khInt_t>  {
 protected:
 
