@@ -29,6 +29,7 @@
   #ifndef popen
    #define popen _popen
   #endif
+  /*
   #ifndef fseeko
 		#ifdef _fseeki64
 			#define fseeko(stream, offset, origin) _fseeki64(stream, offset, origin)
@@ -36,13 +37,14 @@
 			#define fseeko fseek
 		#endif
   #endif
- #ifndef ftello
-  #ifdef _ftelli64
-    #define ftello(stream) _ftelli64(stream)
-  #else
-    #define ftello ftell
-  #endif
+  #ifndef ftello
+    #ifdef _ftelli64
+      #define ftello(stream) _ftelli64(stream)
+    #else
+      #define ftello ftell
+    #endif
  #endif
+ */
  #else
   #define CHPATHSEP '/'
   #ifdef __CYGWIN__
@@ -50,14 +52,6 @@
   #endif 
   #include <unistd.h>
 #endif
-
-#ifndef fseeko
- #define fseeko fseek
-#endif
-#ifndef ftello
- #define ftello ftell
-#endif
-
 
 #ifdef DEBUG
 #undef NDEBUG
