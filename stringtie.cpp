@@ -1332,11 +1332,11 @@ void noMoreBundles() {
 		  if (areThreadsWaiting) {
 		    DBGPRINT("##> NOTIFY ALL workers: no more data!\n");
 		    haveBundles.notify_all();
-		    current_thread::sleep_for(10);
+		    current_thread::sleep_for(1);
 		    waitMutex.lock();
 		     areThreadsWaiting=(threadsWaiting>0);
 		    waitMutex.unlock();
-		    current_thread::sleep_for(10);
+		    current_thread::sleep_for(1);
 		  }
 		} while (areThreadsWaiting); //paranoid check that all threads stopped waiting
 #else

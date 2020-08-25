@@ -373,7 +373,7 @@ void GThread::detach()
 
 void GThread::wait_all() {
   while (GThread::num_running()>0)
-	current_thread::sleep_for(2);
+	current_thread::sleep_for(1);
 }
 
 
