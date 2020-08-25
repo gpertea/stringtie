@@ -38,11 +38,11 @@ ifneq (,$(findstring mingw,$(shell ${CXX} -dumpmachine)))
 endif
 
 # Misc. system commands
-ifdef WINDOWS
- RM = del /Q
-else
- RM = rm -f
-endif
+#ifdef WINDOWS ##<-- use MSYS
+# RM = del /Q
+#else
+RM = rm -f
+#endif
 
 # File endings
 ifdef WINDOWS
@@ -151,7 +151,7 @@ tmerge.o : rlink.h tmerge.h
 tablemaker.o : tablemaker.h rlink.h
 ${BAM}/libbam.a: 
 	cd ${BAM} && make lib
-stringtie: ${BAM}/libbam.a $(OBJS) stringtie.o
+stringtie${EXE}: ${BAM}/libbam.a $(OBJS) stringtie.o
 	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LIBS}
 	@echo
 	${DBG_WARN}

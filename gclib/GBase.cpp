@@ -157,7 +157,7 @@ int G_mkdir(const char* path, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH
    //int perms=(S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) ) {
  #ifdef _WIN32
      //return _mkdir(path);
-	 return CreateDirectoryA(path, NULL);
+     return !CreateDirectoryA(path, NULL);
  #else
      return mkdir(path, perms);
  #endif
@@ -167,8 +167,16 @@ int G_mkdir(const char* path, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH
 void Gmktempdir(char* templ) {
 #ifdef _WIN32
   int blen=strlen(templ);
-  if (_mktemp_s(templ, blen)!=0)
-	  GError("Error creating temp dir %s!\n", templ);
+  char* pt=templ+blen-1;
+  //on Windows this needs a plain file name template, without directory prefix
+  blen=1;
+  while (pt!=templ) {
+    if (*pt=='/' || *pt=='\\') { pt++; break;}
+    --pt; blen++;
+  }
+  if (_mktemp_s(pt, blen)!=0)
+     GError("Error creating template file name %s!\n", pt);
+  Gmkdir(templ, true);
 #else
   char* cdir=mkdtemp(templ);
   if (cdir==NULL)

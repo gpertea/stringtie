@@ -429,16 +429,18 @@ if (ballgown)
 #ifndef NOTHREADS
 //model: one producer, multiple consumers
 #define DEF_TSTACK_SIZE 8388608
+ size_t defStackSize=DEF_TSTACK_SIZE;
+#ifdef _GTHREADS_POSIX_
  int tstackSize=GThread::defaultStackSize();
- size_t defStackSize=0;
-if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
+ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  if (verbose) {
-	 if (defStackSize>0){
-		 int ssize=defStackSize;
-		 GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
-	 }
-	 else GMessage("Default stack size for threads: %d\n", tstackSize);
+   if (defStackSize>0){
+    int ssize=defStackSize;
+    GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
+   }
+   else GMessage("Default stack size for threads: %d\n", tstackSize);
  }
+#endif
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
@@ -1258,7 +1260,7 @@ void processOptions(GArgs& args) {
 	 { //prepare temp path
 		 GStr stempl(out_dir);
 		 stempl.chomp('/');
-		 stempl+="/tmp.XXXXXXXX";
+		 stempl+="/tmp_XXXXXX";
 		 char* ctempl=Gstrdup(stempl.chars());
 	     Gmktempdir(ctempl);
 	     tmp_path=ctempl;
