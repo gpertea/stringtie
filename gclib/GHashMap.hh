@@ -447,4 +447,7 @@ public:
     }
 };
 
+template<typename T>
+ using GIntHash = GHashMap<int, T, GHashKey_xxHash32<int>, GHashKey_Eq<int>, uint32_t>;
+
 #endif
