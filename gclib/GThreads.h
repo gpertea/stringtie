@@ -95,6 +95,9 @@ freely, subject to the following restrictions:
     #undef __UNDEF_LEAN_AND_MEAN
   #endif
 #else
+  #ifdef __CYGWIN__
+    #define _BSD_SOURCE
+  #endif 
   #include <pthread.h>
   #include <signal.h>
   #include <sched.h>

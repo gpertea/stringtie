@@ -446,7 +446,7 @@ void current_thread::yield() {
 // // Sleep for 100 milliseconds:
 // current_thread::sleep_for(100);
 void current_thread::sleep_for(const int mstime) {
-#if defined(_GTHREADS_WIN32_) || defined(__CYGWIN__)
+#if defined(_GTHREADS_WIN32_)
   Sleep(mstime);
 #else
   usleep((useconds_t)(mstime*1000));

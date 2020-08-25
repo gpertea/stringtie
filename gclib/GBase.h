@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.12.2"
+#define GCLIB_VERSION "0.12.3"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -17,16 +17,9 @@
   //#define __ISO_C_VISIBLE 1999
 #endif
 
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <math.h>
-#include <limits.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <stdint.h>
-#include <stdarg.h>
-#include <type_traits>
+#define XSTR(x) STR(x)
+#define STR(x) #x
+
 #ifdef _WIN32
   #include <windows.h>
   #include <io.h>
@@ -52,6 +45,9 @@
  #endif
  #else
   #define CHPATHSEP '/'
+  #ifdef __CYGWIN__
+    #define _BSD_SOURCE
+  #endif 
   #include <unistd.h>
 #endif
 
@@ -62,11 +58,24 @@
  #define ftello ftell
 #endif
 
+
 #ifdef DEBUG
 #undef NDEBUG
 #define _DEBUG 1
 #define _DEBUG_ 1
 #endif
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <math.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdint.h>
+#include <stdarg.h>
+#include <type_traits>
 
 typedef int64_t int64;
 typedef uint64_t uint64;

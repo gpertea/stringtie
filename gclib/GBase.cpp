@@ -956,6 +956,8 @@ void writeFasta(FILE *fw, const char* seqid, const char* descr,
   fflush(fw);
  }
 
+
+
 char* commaprintnum(uint64 n) {
   char retbuf[48];
   int comma = ',';
