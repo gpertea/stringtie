@@ -19,6 +19,7 @@
 extern int gff_fid_mRNA; // "mRNA" feature name
 extern int gff_fid_transcript; // *RNA, *transcript feature name
 extern int gff_fid_exon;
+extern int gff_fid_CDS;
 
 extern const uint GFF_MAX_LOCUS;
 extern const uint GFF_MAX_EXON;
@@ -59,11 +60,12 @@ class GffObj;
 //---transcript overlapping - utility functions:
 int classcode_rank(char c); //returns priority value for class codes
 
-char getOvlCode(GffObj& m, GffObj& r, int& ovlen, bool strictMatch=false); //returns: class code
+char getOvlCode(GffObj& m, GffObj& r, int& ovlen, bool stricterMatch=false, int trange=0); //returns: class code
 
-char transcriptMatch(GffObj& a, GffObj& b, int& ovlen); //generic transcript match test
+char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange=0); //generic transcript match test
 // -- return '=', '~'  or 0
-char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen); //single-exon transcript match test
+char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange=0);
+//single-exon transcript match test - returning '=', '~'  or 0
 
 //---
 // -- tracking exon/CDS segments from local mRNA to genome coordinates
@@ -472,11 +474,11 @@ class GffNames {
    GffNames():tracks(),gseqs(),attrs(), feats() {
     numrefs=0;
     //the order below is critical!
-    //has to match: gff_fid_mRNA, gff_fid_exon
+    //has to match: gff_fid_mRNA, gff_fid_exon, gff_fid_CDS
     gff_fid_mRNA = feats.addStatic("mRNA");//index 0=gff_fid_mRNA
     gff_fid_transcript=feats.addStatic("transcript");//index 1=gff_fid_transcript
-    gff_fid_exon=feats.addStatic("exon");//index 1=gff_fid_exon
-    //feats.addStatic("CDS"); //index 2=gff_fid_CDS
+    gff_fid_exon=feats.addStatic("exon");//index 2=gff_fid_exon
+    gff_fid_CDS=feats.addStatic("CDS"); //index 3=gff_fid_CDS
     }
 };
 
@@ -485,8 +487,9 @@ void gffnames_unref(GffNames* &n);
 
 enum GffPrintMode {
   pgtfAny, //print record as read, if GTF
-  pgtfExon, //print exon only features
-  pgtfCDS,  //print CDS and exon features
+  pgtfExon, //print only exon features (CDS converted to exon if exons are missing)
+  pgtfCDS,  //print only CDS features
+  pgtfBoth,  //print both CDS and exon features
   pgffAny, //print record as read (if isCDSonly() prints only CDS)
   pgffExon,
   pgffCDS,
@@ -841,8 +844,6 @@ public:
                //complete parsing: must be called in order to merge adjacent/close proximity subfeatures
    void parseAttrs(GffAttrs*& atrlist, char* info, bool isExon=false, bool CDSsrc=false);
    const char* getSubfName() { //returns the generic feature type of the entries in exons array
-     //int sid=exon_ftype_id;
-     //if (sid==gff_fid_exon && isCDS) sid=gff_fid_CDS;
      return names->feats.getName(subftype_id);
      }
    void setCDS(uint cd_start, uint cd_end, char phase=0);
