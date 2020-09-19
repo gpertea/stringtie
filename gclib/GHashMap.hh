@@ -129,6 +129,8 @@ public:
 // if you don't want that (keys are shared), just use GHashSet<const char*> instead
 template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t>
   class GStrSet: public GHashSet<const char*, Hash, Eq, khInt_t> {
+  protected:
+	const char* lastKey=NULL;
   public:
 	inline int Add(const char* ky) { // return -1 if the key already exists
 		int absent=-1;
@@ -136,16 +138,21 @@ template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const ch
 		if (absent==1) {//key was actually added
 		   const char* s=Gstrdup(ky);
 		   this->key(i)=s; //store a copy of the key string
+		   lastKey=s;
 		   return i;
 		}
 		//key was already there
 		return -1;
 	}
 
+	inline const char* getLastKey() { return lastKey; }
+
 	int Remove(const char* ky) { //return index being removed, or -1 if no such key exists
 		  khInt_t i=this->get(ky);
 		  if (i!=this->end()) {
-			  GFREE(this->key(i)); //free string copy
+			  const char* s=this->key(i);
+			  if (s==lastKey) lastKey=NULL;
+			  GFREE(s); //free string copy
 			  this->del(i);
 	    	  return i;
 		  }
@@ -159,6 +166,7 @@ template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const ch
 			//deallocate string copy
 			GFREE(this->key(i));
 		}
+		lastKey=NULL;
 		this->clear(); //does not shrink !
 	}
 
@@ -175,6 +183,7 @@ template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const ch
 };
 
 //generic hash map where keys and values can be of any type
+//Warning: keys are always copied (shared), including const char* keys -- no deep copy!
 template <class K, class V, class Hash=GHashKey_xxHash<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t>
   class GHashMap:public std::conditional< is_char_ptr<K>::value,
     klib::KHashMapCached< K, V, Hash,  Eq, khInt_t>,
@@ -370,7 +379,7 @@ public:
 template <class V, class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t >
   class GHash:public GHashMap<const char*, V, Hash, Eq, khInt_t>  {
 protected:
-
+  const char* lastKey=NULL;
 public:
 	GHash(bool doFree=true) {
 		this->freeItems=doFree;
@@ -383,17 +392,23 @@ public:
 		if (absent==1) { //key was actually added
 			const char* s=Gstrdup(ky);
 			this->key(i)=s; //store a copy of the key string
+			lastKey=s;
 			this->value(i)=val; //value is always copied
 			return i;
 		}
 		return -1;
 	}
+
+	inline const char* getLastKey() { return lastKey; }
+
 	template <typename T=V> inline
 		typename std::enable_if< std::is_pointer<T>::value, int>::type
 	Remove(const char* ky) { //return index being removed
 		  khInt_t i=this->get(ky);
 		  if (i!=this->end()) {
-			  GFREE(this->key(i)); //free string copy
+			  const char* s=this->key(i);
+			  if (s==lastKey) lastKey=NULL;
+			  GFREE(s); //free string copy
 			  if (this->freeItems) delete this->value(i);
 	    	  this->del(i);
 	    	  return i;
@@ -406,7 +421,9 @@ public:
 	Remove(const char* ky) { //return index being removed
 		  khInt_t i=this->get(ky);
 		  if (i!=this->end()) {
-			  GFREE(this->key(i)); //free string copy
+			  const char* s=this->key(i);
+			  if (s==lastKey) lastKey=NULL;
+			  GFREE(s); //free string copy
 	    	  this->del(i);
 	    	  return i;
 		  }
@@ -422,6 +439,7 @@ public:
 			if (this->freeItems) delete this->value(i);
 			GFREE(this->key(i));
 		}
+		lastKey=NULL;
 		this->clear();
 	}
 
@@ -433,6 +451,7 @@ public:
 			if (!this->__kh_used(this->used, i)) continue;
 			GFREE(this->key(i));
 		}
+		lastKey=NULL;
 		this->clear();
 	}
 

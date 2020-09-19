@@ -3415,7 +3415,7 @@ char getOvlCode(GffObj& m, GffObj& r, int& ovlen, bool stricterMatch, int trange
 		    //if (ref_intron_poking>0 && )
 		//we just need to have no intron poking going on
 		if (!intron_conflict && ref_intron_poking<4
-				&& qry_intron_poking<4) return 'm';
+						&& qry_intron_poking<4) return 'm';
 		return 'n';
 	}
 	if (junct_match) return 'j';

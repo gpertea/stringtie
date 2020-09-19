@@ -20,8 +20,7 @@ void GFastaIndex::addRecord(const char* seqname, uint seqlen, off_t foffs, int l
      else {
          farec=new GFastaRec(seqlen,foffs,llen,llen_full);
          records.Add(seqname,farec);
-         //farec->seqname=records.getLastKey();
-         farec->seqname=seqname;
+         farec->seqname=records.getLastKey();
          }
 }
 
@@ -53,7 +52,7 @@ int GFastaIndex::loadIndex(const char* finame) { //load record info from existin
          sscanf(p, "%d%ld%d%d", &len, &offset, &line_len, &line_blen);
 #else
          long long offset=-1;
-         sscanf(p, "%d%lld%d%d", &len, &offset, &line_len, &line_blen);
+         sscanf(p, "%u%lld%d%d", &len, &offset, &line_len, &line_blen);
 #endif
       if (len==0 || line_len==0 || line_blen==0 || line_blen<line_len)
           GError(ERR_FAIDXLINE,p);
