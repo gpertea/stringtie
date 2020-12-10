@@ -1,12 +1,8 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 import re, csv, sys, os, glob, warnings, itertools
 from math import ceil
 from optparse import OptionParser
 from operator import itemgetter
-
-MIN_PYTHON = (2, 7)
-if sys.version_info < MIN_PYTHON:
-    sys.exit("Python %s.%s or later is required.\n" % MIN_PYTHON)
 
 parser=OptionParser(description='Generates two CSV files containing the count matrices for genes and transcripts, using the coverage values found in the output of `stringtie -e`')
 parser.add_option('-i', '--input', '--in', default='.', help="a folder containing all sample sub-directories, or a text file with sample ID and path to its GTF file on each line [default: %default/]")
@@ -31,39 +27,39 @@ if (os.path.isfile(opts.input)):
             if line[0] != '#':
                 lineLst = tuple(line.strip().split(None,2))
                 if (len(lineLst) != 2):
-                    print "Error: line should have a sample ID and a file path:\n%s" % (line.strip())
+                    print("Error: line should have a sample ID and a file path:\n%s" % (line.strip()))
                     exit(1)
                 if lineLst[0] in samples:
-                    print "Error: non-unique sample ID (%s)" % (lineLst[0])
+                    print("Error: non-unique sample ID (%s)" % (lineLst[0]))
                     exit(1)
                 if not os.path.isfile(lineLst[1]):
-                    print "Error: GTF file not found (%s)" % (lineLst[1])
+                    print("Error: GTF file not found (%s)" % (lineLst[1]))
                     exit(1)
                 samples.append(lineLst)
     except IOError:
-        print "Error: List of .gtf files, %s, doesn't exist" % (opts.input)
+        print("Error: List of .gtf files, %s, doesn't exist" % (opts.input))
         exit(1)
 else:
     # gtfList = False
     ## Check that opts.input directory exists
     if not os.path.isdir(opts.input):
       parser.print_help()
-      print " "
-      print "Error: sub-directory '%s' not found!" % (opts.input)
+      print(" ")
+      print("Error: sub-directory '%s' not found!" % (opts.input))
       sys.exit(1)
-
     #####
     ## Collect all samples file paths and if empty print help message and quit
     #####
+    samples = []
     for i in next(os.walk(opts.input))[1]:
-      if re.search(opts.pattern,i):
+        if re.search(opts.pattern,i):
          for f in glob.iglob(os.path.join(opts.input,i,"*.gtf")):
-           samples.append((i,f)) 
+            samples.append((i,f)) 
 
 if len(samples) == 0:
   parser.print_help()
-  print " "
-  print "Error: no GTF files found under base directory %s !" % (opts.input)
+  print(" ")
+  print("Error: no GTF files found under base directory %s !" % (opts.input))
   sys.exit(1)
 
 RE_GENE_ID=re.compile('gene_id "([^"]+)"')
@@ -159,7 +155,7 @@ for s in samples:
                 try:
                   g_id=getGeneID(v[8], v[0], t_id)
                 except:
-                  print "Problem parsing file %s at line:\n:%s\n" % (s[1], v)
+                  print("Problem parsing file %s at line:\n:%s\n" % (s[1], v))
                   sys.exit(1)
                 geneIDs.setdefault(t_id, g_id)
                 if not RE_STRING.match(g_id):
@@ -197,7 +193,7 @@ if opts.cluster and len(badGenes)>0:
             clusters.append([t[2] for t in temp_cluster])
         i+=1
 
-    print len(clusters)
+    print(len(clusters))
 
     for c in clusters:
         c.sort()
@@ -220,7 +216,7 @@ t_dict={}
 guidesFile='' # file given with -G for the 1st sample
 for q, s in enumerate(samples):
     if opts.v:
-       print ">processing sample %s from file %s" % s
+       print(">processing sample %s from file %s" % s)
     lno=0
     try:
         #with open(glob.iglob(os.path.join(opts.input,s,"*.gtf")).next()) as f: #grabs first .gtf file it finds inside the sample subdirectory
@@ -236,18 +232,18 @@ for q, s in enumerate(samples):
                 if lno==1:
                     ei=l.find('-e')
                     if ei<0:
-                       print "Error: sample file %s was not generated with -e option!" % ( s[1] )
+                       print("Error: sample file %s was not generated with -e option!" % ( s[1] ))
                        sys.exit(1)
                     gf=RE_GFILE.search(l)
                     if gf:
                        gfile=gf.group(1)
                        if guidesFile:
                           if gfile != guidesFile:
-                             print "Warning: sample file %s generated with a different -G file (%s) than the first sample (%s)" % ( s[1], gfile, guidesFile )
+                             print("Warning: sample file %s generated with a different -G file (%s) than the first sample (%s)" % ( s[1], gfile, guidesFile ))
                        else:
                           guidesFile=gfile
                     else:
-                       print "Error: sample %s was not processed with -G option!" % ( s[1] )
+                       print("Error: sample %s was not processed with -G option!" % ( s[1] ))
                        sys.exit(1)
                 continue
             v=l.split('\t')
@@ -278,18 +274,18 @@ for q, s in enumerate(samples):
 
 ##        transcriptList.sort(key=lambda bla: bla[1]) #gene_id
     
-    for i,v in t_dict.iteritems():
+    for i,v in t_dict.items():
 ##        print i,v
        try:
           geneDict.setdefault(geneIDs[i],{}) #gene_id
           geneDict[geneIDs[i]].setdefault(s[0],0)
           geneDict[geneIDs[i]][s[0]]+=v[s[0]]
        except KeyError:
-          print "Error: could not locate transcript %s entry for sample %s" % ( i, s[0] )
+          print("Error: could not locate transcript %s entry for sample %s" % ( i, s[0] ))
           raise
 
 if opts.v:
-   print "..writing %s " % ( opts.t )
+   print("..writing %s " % ( opts.t ))
 with open(opts.t, 'w') as csvfile:
    my_writer = csv.DictWriter(csvfile, fieldnames = ["transcript_id"] + [x for x,y in samples])
    my_writer.writerow(dict((fn,fn) for fn in my_writer.fieldnames))
@@ -297,7 +293,7 @@ with open(opts.t, 'w') as csvfile:
         t_dict[i]["transcript_id"] = i
         my_writer.writerow(t_dict[i])
 if opts.v:
-   print "..writing %s " % ( opts.g )
+   print("..writing %s " % ( opts.g ))
 with open(opts.g, 'w') as csvfile:
    my_writer = csv.DictWriter(csvfile, fieldnames = ["gene_id"] + [x for x,y in samples])
 ##    my_writer.writerow([""]+samples)
@@ -307,5 +303,5 @@ with open(opts.g, 'w') as csvfile:
         geneDict[i]["gene_id"] = i #add gene_id to row
         my_writer.writerow(geneDict[i])
 if opts.v:
-   print "All done."
+   print("All done.")
 
