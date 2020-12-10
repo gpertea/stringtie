@@ -22,7 +22,7 @@ if [[ -d $srm ]]; then
   mv $srm.prepping $srm
 fi
 gldir=stringtie-$ver/gclib/
-cp Makefile LICENSE README.md run_tests.sh stringtie.cpp prepDE.py {rlink,tablemaker,tmerge}.{h,cpp} $pack/
+cp Makefile LICENSE README.md run_tests.sh stringtie.cpp prepDE.py prepDE.py3 {rlink,tablemaker,tmerge}.{h,cpp} $pack/
 cp -r samtools-0.1.18 $pack/
 /bin/rm -rf $pack/samtools-0.1.18/.svn
 cp ./gclib/{GVec,GList,khashl,GHashMap}.hh ./gclib/GBitVec.h ./gclib/xxhash.h $gldir
