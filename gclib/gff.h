@@ -8,8 +8,7 @@
 #include "codons.h"
 #include "GFaSeqGet.h"
 #include "GList.hh"
-//#include "GHash.hh"
-#include "GHashMap.hh"
+#include "GHash.hh"
 
 #ifdef CUFFLINKS
 #include <boost/crc.hpp>  // for boost::crc_32_type
@@ -19,7 +18,6 @@
 extern int gff_fid_mRNA; // "mRNA" feature name
 extern int gff_fid_transcript; // *RNA, *transcript feature name
 extern int gff_fid_exon;
-extern int gff_fid_CDS;
 
 extern const uint GFF_MAX_LOCUS;
 extern const uint GFF_MAX_EXON;
@@ -60,12 +58,11 @@ class GffObj;
 //---transcript overlapping - utility functions:
 int classcode_rank(char c); //returns priority value for class codes
 
-char getOvlCode(GffObj& m, GffObj& r, int& ovlen, bool stricterMatch=false, int trange=0); //returns: class code
+char getOvlCode(GffObj& m, GffObj& r, int& ovlen, bool strictMatch=false); //returns: class code
 
-char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange=0); //generic transcript match test
+char transcriptMatch(GffObj& a, GffObj& b, int& ovlen); //generic transcript match test
 // -- return '=', '~'  or 0
-char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange=0);
-//single-exon transcript match test - returning '=', '~'  or 0
+char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen); //single-exon transcript match test
 
 //---
 // -- tracking exon/CDS segments from local mRNA to genome coordinates
@@ -405,13 +402,13 @@ class GffNameList:public GPVec<GffNameInfo> {
   friend class GffNameInfo;
   friend class GffNames;
 protected:
-  GHashMap<const char*, GffNameInfo*> byName;//hash with shared keys
+  GHash<GffNameInfo> byName;//hash with shared keys
   int idlast; //fList index of last added/reused name
   int addStatic(const char* tname) {// fast add
      GffNameInfo* f=new GffNameInfo(tname);
      idlast=this->Add(f);
      f->idx=idlast;
-     byName.Add(f->name,f);
+     byName.shkAdd(f->name,f);
      return idlast;
      }
 public:
@@ -439,7 +436,7 @@ public:
       f=new GffNameInfo(tname);
       fidx=this->Add(f);
       f->idx=fidx;
-      byName.Add(f->name,f);
+      byName.shkAdd(f->name,f);
       }
    idlast=fidx;
    return fidx;
@@ -449,7 +446,7 @@ public:
     GffNameInfo* f=new GffNameInfo(tname);
     int fidx=this->Add(f);
     f->idx=fidx;
-    byName.Add(f->name,f);
+    byName.shkAdd(f->name,f);
     return fidx;
     }
 
@@ -474,11 +471,11 @@ class GffNames {
    GffNames():tracks(),gseqs(),attrs(), feats() {
     numrefs=0;
     //the order below is critical!
-    //has to match: gff_fid_mRNA, gff_fid_exon, gff_fid_CDS
+    //has to match: gff_fid_mRNA, gff_fid_exon
     gff_fid_mRNA = feats.addStatic("mRNA");//index 0=gff_fid_mRNA
     gff_fid_transcript=feats.addStatic("transcript");//index 1=gff_fid_transcript
-    gff_fid_exon=feats.addStatic("exon");//index 2=gff_fid_exon
-    gff_fid_CDS=feats.addStatic("CDS"); //index 3=gff_fid_CDS
+    gff_fid_exon=feats.addStatic("exon");//index 1=gff_fid_exon
+    //feats.addStatic("CDS"); //index 2=gff_fid_CDS
     }
 };
 
@@ -487,9 +484,8 @@ void gffnames_unref(GffNames* &n);
 
 enum GffPrintMode {
   pgtfAny, //print record as read, if GTF
-  pgtfExon, //print only exon features (CDS converted to exon if exons are missing)
-  pgtfCDS,  //print only CDS features
-  pgtfBoth,  //print both CDS and exon features
+  pgtfExon, //print exon only features
+  pgtfCDS,  //print CDS and exon features
   pgffAny, //print record as read (if isCDSonly() prints only CDS)
   pgffExon,
   pgffCDS,
@@ -844,6 +840,8 @@ public:
                //complete parsing: must be called in order to merge adjacent/close proximity subfeatures
    void parseAttrs(GffAttrs*& atrlist, char* info, bool isExon=false, bool CDSsrc=false);
    const char* getSubfName() { //returns the generic feature type of the entries in exons array
+     //int sid=exon_ftype_id;
+     //if (sid==gff_fid_exon && isCDS) sid=gff_fid_CDS;
      return names->feats.getName(subftype_id);
      }
    void setCDS(uint cd_start, uint cd_end, char phase=0);
@@ -1179,7 +1177,8 @@ class GffReader {
   //bool gene2exon;  // for childless genes: add an exon as the entire gene span
   GHash<int> discarded_ids; //for transcriptsOnly mode, keep track
                             // of discarded parent IDs
-  GHash< GPVec<GffObj>* > phash; //transcript_id => GPVec<GffObj>(false)
+  GHash< GPVec<GffObj> > phash; //transcript_id => GPVec<GffObj>(false)
+  //GHash<int> tids; //just for transcript_id uniqueness
   char* gfoBuildId(const char* id, const char* ctg);
   //void gfoRemove(const char* id, const char* ctg);
   GffObj* gfoAdd(GffObj* gfo);
@@ -1189,9 +1188,9 @@ class GffReader {
   bool pFind(const char* id, GPVec<GffObj>*& glst);
   GffObj* gfoFind(const char* id, GPVec<GffObj>* & glst, const char* ctg=NULL,
 	                                         char strand=0, uint start=0, uint end=0);
-  CNonExon* subfPoolCheck(GffLine* gffline, GHash<CNonExon*>& pex, char*& subp_name);
-  void subfPoolAdd(GHash<CNonExon*>& pex, GffObj* newgfo);
-  GffObj* promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonExon*>& pex);
+  CNonExon* subfPoolCheck(GffLine* gffline, GHash<CNonExon>& pex, char*& subp_name);
+  void subfPoolAdd(GHash<CNonExon>& pex, GffObj* newgfo);
+  GffObj* promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonExon>& pex);
 
 #ifdef CUFFLINKS
      boost::crc_32_type  _crc_result;
@@ -1206,7 +1205,7 @@ class GffReader {
   //GffObj* replaceGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr, int replaceidx);
   GffObj* updateGffRec(GffObj* prevgfo, GffLine* gffline);
   GffObj* updateParent(GffObj* newgfh, GffObj* parent);
-  bool readExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon*>* pex=NULL);
+  bool readExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon>* pex=NULL);
   GPVec<GSeqStat> gseqStats; //populated after finalize() with only the ref seqs in this file
   GffReader(FILE* f=NULL, bool t_only=false, bool sort=false):linebuf(NULL), fpos(0),
 		  buflen(0), flags(0), fh(f), fname(NULL), commentParser(NULL), gffline(NULL),

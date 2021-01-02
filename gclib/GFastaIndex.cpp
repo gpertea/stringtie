@@ -47,12 +47,12 @@ int GFastaIndex::loadIndex(const char* finame) { //load record info from existin
       p++;
       uint len=0;
       int line_len=0, line_blen=0;
-#ifdef _WIN32
+#ifdef __WIN32__
          long offset=-1;
          sscanf(p, "%d%ld%d%d", &len, &offset, &line_len, &line_blen);
 #else
          long long offset=-1;
-         sscanf(p, "%u%lld%d%d", &len, &offset, &line_len, &line_blen);
+         sscanf(p, "%d%lld%d%d", &len, &offset, &line_len, &line_blen);
 #endif
       if (len==0 || line_len==0 || line_blen==0 || line_blen<line_len)
           GError(ERR_FAIDXLINE,p);
@@ -161,10 +161,10 @@ int GFastaIndex::storeIndex(FILE* fai) {
   GFastaRec* rec=NULL;
   while ((rec=records.NextData())!=NULL) {
     reclist.Add(rec);
-  }
+    }
   //reclist has records sorted by file offset
   for (int i=0;i<reclist.Count();i++) {
-#ifdef _WIN32
+#ifdef __WIN32__
     int written=fprintf(fai, "%s\t%d\t%ld\t%d\t%d\n",
             reclist[i]->seqname,reclist[i]->seqlen,(long)reclist[i]->fpos,
               reclist[i]->line_len, reclist[i]->line_blen);

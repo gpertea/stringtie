@@ -1,6 +1,6 @@
 /*
 Copyright (c) 2010 Marcus Geelnard
-(with minor modifications and naming changes by Geo Pertea)
+(with minor modifications by Geo Pertea)
 This software is provided 'as-is', without any express or implied
 warranty. In no event will the authors be held liable for any damages
 arising from the use of this software.
@@ -373,7 +373,7 @@ void GThread::detach()
 
 void GThread::wait_all() {
   while (GThread::num_running()>0)
-	current_thread::sleep_for(1);
+	current_thread::sleep_for(2);
 }
 
 
@@ -445,7 +445,7 @@ void current_thread::yield() {
 // Example usage:
 // // Sleep for 100 milliseconds:
 // current_thread::sleep_for(100);
-void current_thread::sleep_for(const int mstime) {
+void current_thread::sleep_for(const int32_t mstime) {
 #if defined(_GTHREADS_WIN32_)
   Sleep(mstime);
 #else

@@ -157,7 +157,7 @@ int G_mkdir(const char* path, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH
    //int perms=(S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) ) {
  #ifdef _WIN32
      //return _mkdir(path);
-     return !CreateDirectoryA(path, NULL);
+	 return CreateDirectoryA(path, NULL);
  #else
      return mkdir(path, perms);
  #endif
@@ -167,16 +167,8 @@ int G_mkdir(const char* path, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH
 void Gmktempdir(char* templ) {
 #ifdef _WIN32
   int blen=strlen(templ);
-  char* pt=templ+blen-1;
-  //on Windows this needs a plain file name template, without directory prefix
-  blen=1;
-  while (pt!=templ) {
-    if (*pt=='/' || *pt=='\\') { pt++; break;}
-    --pt; blen++;
-  }
-  if (_mktemp_s(pt, blen)!=0)
-     GError("Error creating template file name %s!\n", pt);
-  Gmkdir(templ, true);
+  if (_mktemp_s(templ, blen)!=0)
+	  GError("Error creating temp dir %s!\n", templ);
 #else
   char* cdir=mkdtemp(templ);
   if (cdir==NULL)
@@ -247,40 +239,12 @@ FILE* Gfopen(const char *path, char *mode) {
 
 bool GstrEq(const char* a, const char* b) {
 	 if (a==NULL || b==NULL) return false;
-	 return (strcmp(a, b)==0);
+	 return (strcmp(a,b)==0);
 }
-
-
-#ifdef __CYGWIN__
-int strcasecmp (const char *s1, const char *s2) {
-  int d = 0;
-  for ( ; ; ) {
-     const int c1 = tolower(*s1++);
-     const int c2 = tolower(*s2++);
-     if (((d = c1 - c2) != 0) || (c2 == '\0'))
-       break;
-  }
-  return d;
-}
-
-int strncasecmp (const char *s1, const char *s2,
-                  size_t n) {
-  int d = 0;
-  for ( ; n != 0; n--) {
-     const int c1 = tolower(*s1++);
-     const int c2 = tolower(*s2++);
-     if (((d = c1 - c2) != 0) || (c2 == '\0'))
-       break;
-  }
-  return d;
-}
-
-#endif
-
 
 bool GstriEq(const char* a, const char* b) {
 	 if (a==NULL || b==NULL) return false;
-	 return (strcasecmp(a, b)==0);
+	 return (strcasecmp(a,b)==0);
 }
 
 int Gstricmp(const char* a, const char* b, int n) {
@@ -956,11 +920,9 @@ void writeFasta(FILE *fw, const char* seqid, const char* descr,
   fflush(fw);
  }
 
-
-
 char* commaprintnum(uint64 n) {
-  char retbuf[48];
   int comma = ',';
+  char retbuf[48];
   char *p = &retbuf[sizeof(retbuf)-1];
   int i = 0;
   *p = '\0';
