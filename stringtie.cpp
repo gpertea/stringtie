@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.4"
+#define VERSION "2.1.5"
 
 //#define DEBUGPRINT 1
 
@@ -34,10 +34,12 @@ stringtie <in.bam ..> [-G <guide_gff>] [-l <prefix>] [-o <out.gtf>] [-p <cpus>]\
  [-v] [-a <min_anchor_len>] [-m <min_len>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
  [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L] [-e] [--viral] [-E <err_margin>]\n\
  [--ptf <f_tab>] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B|-b <dir_path>}\n\
+ [--mix] [--conservative] [--rf] [--fr]\n\
 Assemble RNA-Seq alignments into potential transcripts.\n\
 Options:\n\
  --version : print just the version at stdout and exit\n\
  --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05\n\
+ --mix : both short and long read data alignments are provided\n\
  --rf : assume stranded library fr-firststrand\n\
  --fr : assume stranded library fr-secondstrand\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
@@ -195,6 +197,8 @@ bool forceBAM = false; //useful for stdin (piping alignments into StringTie)
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
 
+bool mixedMode = false; // both short and long read data alignments are provided
+
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
 double Frag_Len=0;
@@ -243,7 +247,7 @@ GFastMutex countMutex;
 
 #endif
 
-GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
+GHash<int> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
 
 bool NoMoreBundles=false;
 bool moreBundles(); //thread-safe retrieves NoMoreBundles
@@ -277,7 +281,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;mix;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
    "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -429,18 +433,16 @@ if (ballgown)
 #ifndef NOTHREADS
 //model: one producer, multiple consumers
 #define DEF_TSTACK_SIZE 8388608
- size_t defStackSize=DEF_TSTACK_SIZE;
-#ifdef _GTHREADS_POSIX_
  int tstackSize=GThread::defaultStackSize();
- if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
+ size_t defStackSize=0;
+if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  if (verbose) {
-   if (defStackSize>0){
-    int ssize=defStackSize;
-    GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
-   }
-   else GMessage("Default stack size for threads: %d\n", tstackSize);
+	 if (defStackSize>0){
+		 int ssize=defStackSize;
+		 GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
+	 }
+	 else GMessage("Default stack size for threads: %d\n", tstackSize);
  }
-#endif
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
@@ -960,7 +962,11 @@ void processOptions(GArgs& args) {
 		 bundledist=0;
 		 singlethr=1.5;
 	 }
-
+	 mixedMode=(args.getOpt("mix")!=NULL);
+	 if(mixedMode) {
+		 bundledist=0;
+		 //isofrac=0.02; // allow mixedMode to be more conservative
+	 }
 
 	if (args.getOpt("conservative")) {
 	  isofrac=0.05;
@@ -1031,7 +1037,7 @@ void processOptions(GArgs& args) {
     	 s.startTokenize(" ,\t");
     	 GStr chrname;
     	 while (s.nextToken(chrname)) {
-    		 excludeGseqs.Add(chrname.chars());
+    		 excludeGseqs.Add(chrname.chars(),new int(0));
     	 }
      }
 
@@ -1070,12 +1076,17 @@ void processOptions(GArgs& args) {
 
 	 rawreads=(args.getOpt('R')!=NULL);
 	 if(rawreads) {
+		 if(mixedMode) {
+			 GError("Mixed mode and rawreads options are incompatible!\n");
+		 }
+
 		 if(!longreads) {
 			 if(verbose) GMessage("Enable longreads processing\n");
 			 longreads=true;
 			 bundledist=0;
 		 }
 		 readthr=0;
+
 	 }
 
 	 s=args.getOpt('c');
@@ -1260,7 +1271,7 @@ void processOptions(GArgs& args) {
 	 { //prepare temp path
 		 GStr stempl(out_dir);
 		 stempl.chomp('/');
-		 stempl+="/tmp_XXXXXX";
+		 stempl+="/tmp.XXXXXXXX";
 		 char* ctempl=Gstrdup(stempl.chars());
 	     Gmktempdir(ctempl);
 	     tmp_path=ctempl;
@@ -1332,11 +1343,11 @@ void noMoreBundles() {
 		  if (areThreadsWaiting) {
 		    DBGPRINT("##> NOTIFY ALL workers: no more data!\n");
 		    haveBundles.notify_all();
-		    current_thread::sleep_for(1);
+		    current_thread::sleep_for(10);
 		    waitMutex.lock();
 		     areThreadsWaiting=(threadsWaiting>0);
 		    waitMutex.unlock();
-		    current_thread::sleep_for(1);
+		    current_thread::sleep_for(10);
 		  }
 		} while (areThreadsWaiting); //paranoid check that all threads stopped waiting
 #else
@@ -1587,7 +1598,7 @@ int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts) {
   return num;
 }
 
-void writeUnbundledGenes(GHash<CGene*>& geneabs, const char* refseq, FILE* gout) {
+void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) {
 				 //write unbundled genes from this chromosome
 	geneabs.startIterate();
 	while (CGene* g=geneabs.NextData()) {
@@ -1606,7 +1617,7 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
  for (int g=0;g<refdata.Count();++g) {
 	 GRefData& crefd=refdata[g];
 	 if (crefd.rnas.Count()==0) continue;
-	 GHash<CGene*> geneabs;
+	 GHash<CGene> geneabs;
 	 //gene_id abundances (0), accumulating coords
 	 for (int m=0;m<crefd.rnas.Count();++m) {
 		 GffObj &t = *crefd.rnas[m];
