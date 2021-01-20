@@ -8822,6 +8822,7 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 							//fprintf(stderr,"Update capacity of transfrag[%d] with value %f to %f\n",t,transfrag[t]->abundance, transfrag[t]->abundance-flow[n1][n2]);
 							update_capacity(0,transfrag[t],flow[n1][n2],nodecapacity,node2path);
 							//if(path[i] && transfrag[t]->nodes.Last()!=gno-1) fragno+=flow[n1][n2];
+							if(transfrag[t]->abundance<DBL_ERROR) transfrag[t]->abundance=0; // stricter threshold for long transfrags
 							flow[n1][n2]=0;
 						}
 						else {
@@ -8830,6 +8831,7 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 							//if(path[i] && transfrag[t]->nodes.Last()!=gno-1) fragno+=transfrag[t]->abundance;
 							//fprintf(stderr,"Update capacity of transfrag[%d] with value=%f to 0\n",t,transfrag[t]->abundance);
 							update_capacity(0,transfrag[t],transfrag[t]->abundance,nodecapacity,node2path);
+							if(transfrag[t]->abundance<DBL_ERROR) transfrag[t]->abundance=0; // stricter threshold for long transfrags
 						}
 					}
 				}
@@ -8840,7 +8842,7 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 			int t=no2gnode[path[i]]->trf[pos];
 			float val=sumout/noderate[i]; //no2gnode[path[i]]->rate;
 			transfrag[t]->abundance-=val;
-			if(transfrag[t]->abundance<epsilon) transfrag[t]->abundance=0;
+			if(transfrag[t]->abundance<DBL_ERROR) transfrag[t]->abundance=0;
 		}
 	}
 
@@ -11213,16 +11215,18 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 					 j++;
 				 }
 				 //GffObj *g=NULL;
-				 if(first) { geneno++; first=false;}
-				 //fprintf(stderr,"2 Store prediction %d:%d-%d  with len=%d and abundance=%f\n",pred.Count(),exons[0].start ,exons.Last().end,len,cov/len);
-				 CPrediction *p=new CPrediction(geneno, NULL,exons[0].start , exons.Last().end, cov, sign, len);
-				 p->exons=exons;
-				 p->exoncov=exoncov;
-				 p->tlen=-p->tlen; // negative transcript length signifies assembly is from a long read
-				 pred.Add(p);
+				 if(len>=mintranscriptlen) {
+				   if(first) { geneno++; first=false;}
+				   //fprintf(stderr,"2 Store prediction %d:%d-%d  with len=%d and abundance=%f\n",pred.Count(),exons[0].start ,exons.Last().end,len,cov/len);
+				   CPrediction *p=new CPrediction(geneno, NULL,exons[0].start , exons.Last().end, cov, sign, len);
+				   p->exons=exons;
+				   p->exoncov=exoncov;
+				   p->tlen=-p->tlen; // negative transcript length signifies assembly is from a long read
+				   pred.Add(p);
 
-				 CTransfrag u(path,pathpat,cov/len);
-				 keeptrf.Add(u);
+				   CTransfrag u(path,pathpat,cov/len);
+				   keeptrf.Add(u);
+				 }
 			 }
 		 }
 		 transfrag[t]->abundance=0;
@@ -14295,7 +14299,7 @@ int build_graphs(BundleData* bdata) {
 									CJunction *junc=new CJunction(newstart,newend,rd.strand);
 									junction.Add(junc);
 									ejunction.Add(junc);
-									rd.juncs.Put(i,ejunction[k]);
+									rd.juncs.Put(i,junc);
 								}
 							}
 						}

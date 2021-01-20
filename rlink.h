@@ -14,6 +14,7 @@
 
 #define DROP 0.5
 #define ERROR_PERC 0.1
+#define DBL_ERROR 0.01
 
 #define CHI_WIN 100
 #define CHI_THR 50
@@ -168,7 +169,7 @@ struct CTransfrag {
 	int weak; // number of weak links
 	bool real:1;
 	bool guide:1;
-	bool longread:1; // transfrag comes from longread only
+	bool longread:1; // there is at least a longread supporting transfrag
 	uint longstart; // for long reads: min start of all longreads sharing transfrag
 	uint longend; // for long reads: max end of all longreads sharing transfrag
 	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, bool tguide=false,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longread(false),longstart(false),longend(false) {}
@@ -464,7 +465,7 @@ struct CTreePat {
 struct CTrimPoint { // this can work as a guide keeper too, where pos is the guideidx, abundance is the flow, and start is the included status
 	uint pos;
 	float abundance;
-	bool start;
+	bool start:1;
 	CTrimPoint(uint _pos=0,float abund=0.0,bool _start=true):pos(_pos),abundance(abund),start(_start) {}
 };
 
