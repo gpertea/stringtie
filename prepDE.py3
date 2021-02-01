@@ -151,8 +151,8 @@ for s in samples:
         ## i = numLine; v = corresponding i-th GTF row
         for i,v in enumerate(split):
             if is_transcript(v):
-                t_id=RE_TRANSCRIPT_ID.search(v[8]).group(1)
                 try:
+                  t_id=RE_TRANSCRIPT_ID.search(v[8]).group(1)
                   g_id=getGeneID(v[8], v[0], t_id)
                 except:
                   print("Problem parsing file %s at line:\n:%s\n" % (s[1], v))
