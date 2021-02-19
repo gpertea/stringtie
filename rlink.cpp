@@ -9745,7 +9745,7 @@ float max_flow_EM(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag
 
 	bool doEM=true;
 	int iterations=0;
-	GHash<float> tabund;
+	GHash<float*> tabund;
 
 	GVec<float> rate;
 	rate.Resize(m,1);
@@ -9807,13 +9807,13 @@ float max_flow_EM(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag
 						if(flow[n1][n2]>0) {
 							if(flow[n1][n2]<transfrag[t]->abundance) {
 								GStr tid(t);
-								tabund.Add(tid.chars(),flow[n1][n2]);
+								tabund.Add(tid.chars(),new float(flow[n1][n2]));
 								flow[n1][n2]=0;
 							}
 							else {
 								flow[n1][n2]-=transfrag[t]->abundance;
 								GStr tid(t);
-								tabund.Add(tid.chars(),transfrag[t]->abundance);
+								tabund.Add(tid.chars(),new float(transfrag[t]->abundance));
 							}
 						}
 					}
@@ -16561,7 +16561,7 @@ int retainedintron(GList<CPrediction>& pred,int n1,int n2,GVec<GBitVec>& lowintr
 
   float frac=ERROR_PERC;
   if(mixedMode && isofrac<frac && pred[n2]->tlen<0 && pred[n2]->cov>DROP/ERROR_PERC) frac=isofrac;
-
+  
 	int j=0;
 	for(int i=1;i<pred[n1]->exons.Count();i++) {
 		if(j>pred[n2]->exons.Count()-1) return(0);
@@ -16997,7 +16997,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			GStr id((int)pred[0]->exons[j-1].end);
 			id+=pred[0]->strand;
 			id+=(int)pred[0]->exons[j].start;
-			bool* gi=guideintron[id.chars()];
+			bool *gi=guideintron[id.chars()];
 			if(!gi) guideintron.Add(id.chars(), exist);
 		}
 		float introncov=get_cov(1,pred[0]->exons[j-1].end+1-bundleData->start,pred[0]->exons[j].start-1-bundleData->start,bpcov)/(pred[0]->exons[j].start-pred[0]->exons[j-1].end-1);
@@ -17072,7 +17072,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				GStr id((int)pred[n]->exons[j-1].end);
 				id+=pred[n]->strand;
 				id+=(int)pred[n]->exons[j].start;
-				bool* gi=guideintron[id.chars()];
+				bool *gi=guideintron[id.chars()];
 				if(!gi) guideintron.Add(id.chars(),exist);
 			}
 			float introncov=get_cov(1,pred[n]->exons[j-1].end+1-bundleData->start,pred[n]->exons[j].start-1-bundleData->start,bpcov)/(pred[n]->exons[j].start-pred[n]->exons[j-1].end-1);
@@ -17132,7 +17132,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				GStr id((int)pred[n]->exons[j-1].end);
 				id+=pred[n]->strand;
 				id+=pred[n]->exons[j].start;
-				bool* gi=guideintron[id.chars()];
+				bool *gi=guideintron[id.chars()];
 				if(!gi) {
 					eliminate=false; break;
 				}
@@ -17672,7 +17672,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			if(gid.is_empty()) gid=pred[n]->t_eq->getGeneName();
 			if(!gid.is_empty()) {
 				gid+=pred[n]->strand;
-				const int* ng=hashgene[gid.chars()];
+				const int *ng=hashgene[gid.chars()];
 				if(ng) { // this should always be true because we parsed all predictions in printResults
 					gno=*ng;
 					refgene[gno].cov+=pred[n]->cov*pred[n]->tlen;
@@ -18260,7 +18260,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			if(!gid.is_empty()) {
 				gid+=guides[i]->strand;
-				const int* n=hashgene[gid.chars()];
+				const int *n=hashgene[gid.chars()];
 				if(n) { // I've seen the gene before
 					if(guides[i]->start<refgene[*n].start) refgene[*n].start=guides[i]->start;
 					if(guides[i]->end>refgene[*n].end) refgene[*n].end=guides[i]->end;
