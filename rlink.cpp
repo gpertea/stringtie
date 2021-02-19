@@ -18506,7 +18506,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							if(pred[f]->t_eq) firstval=pred[f]->start;
 
 							if(firstval-lastval>(int)(2*longintronanchor)) { // far apart so I can store hash
-								GStr id(lastval,12);
+								GStr id(lastval);
 								id+=':';
 								id+=firstval;
 								uint startval=0;
