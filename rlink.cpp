@@ -2960,19 +2960,21 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	int nje=0; // index of sorted junction ends
 
 	int graphno=1; // number of nodes in graph
-	GHash<GVec<int>* > ends; // keeps ids of all nodes ending at a certain position; OR ALL NODES THAT ARE LINKED BY JUNCTIONS TO A CERTAIN POSITION
-
+	//GHash<GVec<int>* > ends; // keeps ids of all nodes ending at a certain position; OR ALL NODES THAT ARE LINKED BY JUNCTIONS TO A CERTAIN POSITION
+    GIntHash< GVec<int>* > ends;
 	GVec<float> futuretr;
 
 	if(mergeMode) { // I have a bunch of junctions at the start for which I need to create ends
 
 		while(njs<njunctions && !junction[njs]->start ) { // remember ends here for source node
 			if((junction[njs]->strand+1) == 2*s) {
-				GStr je((int)junction[njs]->end);
-				GVec<int> *e=ends[je.chars()];
+				//GStr je((int)junction[njs]->end);
+				//GVec<int> *e=ends[je.chars()];
+				GVec<int> *e=ends[junction[njs]->end];
 				if(!e) {
 					e = new GVec<int>();
-					ends.Add(je.chars(),e);
+					//ends.Add(je.chars(),e);
+					ends.Add(junction[njs]->end, e);
 				}
 				e->cAdd(0);
 			}
@@ -3204,8 +3206,9 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    graphno++;
 
 	    if(end) { // I might have nodes finishing here; but I have a junction finishing here for sure
-	    	GStr cs((int)currentstart);
-	    	GVec<int> *e=ends[cs.chars()]; // HOW CAN I HAVE MORE THAN ONE NODE FINISHING HERE???; because this keeps all nodes that are linked by junctions here
+	    	//GStr cs((int)currentstart);
+	    	//GVec<int> *e=ends[cs.chars()]; // HOW CAN I HAVE MORE THAN ONE NODE FINISHING HERE???; because this keeps all nodes that are linked by junctions here
+	    	GVec<int> *e=ends[currentstart];
 	    	if(e) {
 	    		for(int i=0;i<e->Count();i++) {
 	    			CGraphnode *node=no2gnode[s][g][e->Get(i)];
@@ -3324,11 +3327,13 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    					edgeno++; // count edge here
 	    				}
 	    				else {
-	    					GStr je((int)junction[njs]->end);
-	    					GVec<int> *e=ends[je.chars()];
+	    					//GStr je((int)junction[njs]->end);
+	    					//GVec<int> *e=ends[je.chars()];
+	    					GVec<int> *e=ends[junction[njs]->end];
 	    					if(!e) {
 	    						e = new GVec<int>();
-	    						ends.Add(je.chars(),e);
+	    						//ends.Add(je.chars(),e);
+	    						ends.Add(junction[njs]->end, e);
 	    					}
 	    					e->Add(graphnode->nodeid);
 	    				}
@@ -3429,8 +3434,9 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    			graphnode=nextnode;
 	    		}
 
-	    		GStr spos((int)pos);
-	    		GVec<int> *e=ends[spos.chars()]; // WHY DOESN'T THIS REPEAT THE SAME THING IN CASE THE START HASN'T BEEN ADJUSTED? because nje is bigger now than the ones that end at the currentstart
+	    		//GStr spos((int)pos);
+	    		//GVec<int> *e=ends[spos.chars()]; // WHY DOESN'T THIS REPEAT THE SAME THING IN CASE THE START HASN'T BEEN ADJUSTED? because nje is bigger now than the ones that end at the currentstart
+	    		GVec<int> *e=ends[pos];
 	    		if(e) for(int i=0;i<e->Count();i++) {
 	    			CGraphnode *node=no2gnode[s][g][e->Get(i)];
 	    			node->child.Add(graphnode->nodeid);  // this node is the child of previous node
@@ -9745,7 +9751,7 @@ float max_flow_EM(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag
 
 	bool doEM=true;
 	int iterations=0;
-	GHash<float*> tabund;
+	GIntHash<float> tabund;
 
 	GVec<float> rate;
 	rate.Resize(m,1);
@@ -9806,20 +9812,20 @@ float max_flow_EM(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag
 						int n2=node2path[transfrag[t]->nodes.Last()];
 						if(flow[n1][n2]>0) {
 							if(flow[n1][n2]<transfrag[t]->abundance) {
-								GStr tid(t);
-								tabund.Add(tid.chars(),new float(flow[n1][n2]));
+								//GStr tid(t);
+								tabund.Add(t,flow[n1][n2]);
 								flow[n1][n2]=0;
 							}
 							else {
 								flow[n1][n2]-=transfrag[t]->abundance;
-								GStr tid(t);
-								tabund.Add(tid.chars(),new float(transfrag[t]->abundance));
+								//GStr tid(t);
+								tabund.Add(t,transfrag[t]->abundance);
 							}
 						}
 					}
 					else if(transfrag[t]->nodes[0]<path[i] && transfrag[t]->nodes.Last()>path[i] && transfrag[t]->pattern[path[i]]) { // through transfrag
-						GStr tid(t);
-						const float *abund=tabund[tid.chars()];
+						//GStr tid(t);
+						const float *abund=tabund[t];
 						if(abund) through[i]+= *abund;
 					}
 				}
@@ -9853,8 +9859,8 @@ float max_flow_EM(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag
 		for(int j=0;j<nt;j++) {
 			int t=no2gnode[path[i]]->trf[j];
 			if(istranscript[t] && transfrag[t]->abundance && transfrag[t]->nodes[0]==path[i]) {
-				GStr tid(t);
-				const float *abund=tabund[tid.chars()];
+				//GStr tid(t);
+				const float *abund=tabund[t];
 				if(abund) {
 					update_capacity(0,transfrag[t],*abund,nodecapacity,node2path);
 					//if(path[i] && transfrag[t]->nodes.Last()!=gno-1) fragno+=*abund;
@@ -14131,8 +14137,10 @@ int build_graphs(BundleData* bdata) {
 	//float fraglen=0;
 	//uint fragno=0;
 
-	GHash<bool> boundaryleft;
-	GHash<bool> boundaryright;
+	//GHash<bool> boundaryleft;
+	//GHash<bool> boundaryright;
+	GIntHash<bool> boundaryleft;
+	GIntHash<bool> boundaryright;
 
 	bool resort=false;
 	int njunc=junction.Count();
@@ -14329,10 +14337,10 @@ int build_graphs(BundleData* bdata) {
 
 			else if(guides.Count()){ // need to remember boundary
 				bool exist=true;
-		    	GStr bs((int)jd.start);
-		    	if(!boundaryleft[bs.chars()]) boundaryleft.Add(bs.chars(),exist);
-		    	GStr be((int)jd.end);
-		    	if(!boundaryright[be.chars()]) boundaryright.Add(be.chars(),exist);
+		    	//GStr bs((int)jd.start);
+		    	if(!boundaryleft[jd.start]) boundaryleft.Add(jd.start,exist);
+		    	//GStr be((int)jd.end);
+		    	if(!boundaryright[jd.end]) boundaryright.Add(jd.end,exist);
 			}
 			i++;
 
@@ -14431,9 +14439,9 @@ int build_graphs(BundleData* bdata) {
 
 					//fprintf(stderr,"sno=%d lastgroup->end=%d procgroup->start=%d procgroup->end=%d\n",sno,lastgroup->end,procgroup->start,procgroup->end);
 
-					GStr bstart((int)lastgroup->end);
-					GStr bend((int)procgroup->start);
-					if(!boundaryleft[bstart.chars()] && !boundaryright[bend.chars()] && (procgroup->start-lastgroup->end<=bundledist ||
+					//GStr bstart((int)lastgroup->end);
+					//GStr bend((int)procgroup->start);
+					if(!boundaryleft[lastgroup->end] && !boundaryright[procgroup->start] && (procgroup->start-lastgroup->end<=bundledist ||
 			    				(guides.Count()  && guide_exon_overlap(guides,sno,lastgroup->end,procgroup->start)))) {
 
 			    			//fprintf(stderr,"sno=%d merge groups btw %d and %d dist=%d\n",sno,lastgroup->end,procgroup->start,procgroup->start-lastgroup->end);
@@ -15944,8 +15952,9 @@ void count_good_junctions(BundleData* bdata) {
 	int refstart=bdata->start;
 	int refend=bdata->end;
 	bool modified=false;
-	GHash<CJunction*> jhash(false);
-	char sbuf[20];
+	//GHash<CJunction*> jhash(false);
+	GHashMap<CJunction*, CJunction*> jhash(false); //hash of pointers
+	//char sbuf[20];
 
 	if(longreads && bdata->keepguides.Count()) { // there are guides to consider with longreads -> I might need to adjust the splice sites
 		GPVec<GffObj>& guides = bdata->keepguides;
@@ -16050,8 +16059,8 @@ void count_good_junctions(BundleData* bdata) {
 				modified=true;
 				for(int i=0;i<smodjunc.Count();i++) {
 					int j=smodjunc[i];
-					sprintf(sbuf, "%p", junction[j]);
-					const CJunction* jp=jhash[sbuf];
+					//sprintf(sbuf, "%p", junction[j]);
+					const CJunction* jp=jhash[junction[j]];
 					if(!jp) { // did not process junction before
 						s=j-1;
 						GVec<int> equal;
@@ -16066,18 +16075,20 @@ void count_good_junctions(BundleData* bdata) {
 						}
 						if(equal.Count()) { // junction j is equal to other junctions
 							for(s=0;s<equal.Count();s++) {
-								sprintf(sbuf, "%p", junction[equal[s]]);
-								jhash.Add(sbuf,junction[j]);
-								junction[equal[s]]->strand=0;
-								junction[equal[s]]->guide_match=false;
+								//sprintf(sbuf, "%p", junction[equal[s]]);
+								//jhash.Add(sbuf,junction[j]);
+								CJunction* jct=junction[equal[s]];
+								jhash.Add(jct, junction[j]);
+								jct->strand=0;
+								jct->guide_match=false;
 							}
 						}
 					}
 				}
 				for(int i=0;i<emodjunc.Count();i++) {
 					int j=emodjunc[i];
-					sprintf(sbuf, "%p", ejunction[j]);
-					CJunction* jp=jhash[sbuf];
+					//sprintf(sbuf, "%p", ejunction[j]);
+					CJunction* jp=jhash[ejunction[j]];
 					if(!jp) { // did not process junction before
 						s=j-1;
 						GVec<int> equal;
@@ -16092,10 +16103,14 @@ void count_good_junctions(BundleData* bdata) {
 						}
 						if(equal.Count()) { // junction j is equal to other junctions
 							for(s=0;s<equal.Count();s++) {
-								sprintf(sbuf, "%p", ejunction[equal[s]]);
-								jhash.Add(sbuf,ejunction[j]);
-								ejunction[equal[s]]->strand=0;
-								ejunction[equal[s]]->guide_match=false;
+								//sprintf(sbuf, "%p", ejunction[equal[s]]);
+								//jhash.Add(sbuf,ejunction[j]);
+								//ejunction[equal[s]]->strand=0;
+								//ejunction[equal[s]]->guide_match=false;
+								CJunction* ej=ejunction[equal[s]];
+								jhash.Add(ej, ejunction[j]);
+								ej->strand=0;
+								ej->guide_match=false;
 							}
 						}
 					}
@@ -16132,8 +16147,8 @@ void count_good_junctions(BundleData* bdata) {
 				//fprintf(stderr,":%d",rd.juncs[i-1]->strand);
 
 				if(modified) { // see if read uses modified junction -> correct it
-					sprintf(sbuf, "%p", rd.juncs[i-1]);
-					CJunction* jp=jhash[sbuf];
+					//sprintf(sbuf, "%p", rd.juncs[i-1]);
+					CJunction* jp=jhash[rd.juncs[i-1]];
 					if(jp) {
 						if(rd.segs[i-1].start>jp->start || rd.segs[i].end<jp->end) {
 
@@ -16561,7 +16576,7 @@ int retainedintron(GList<CPrediction>& pred,int n1,int n2,GVec<GBitVec>& lowintr
 
   float frac=ERROR_PERC;
   if(mixedMode && isofrac<frac && pred[n2]->tlen<0 && pred[n2]->cov>DROP/ERROR_PERC) frac=isofrac;
-  
+
 	int j=0;
 	for(int i=1;i<pred[n1]->exons.Count();i++) {
 		if(j>pred[n2]->exons.Count()-1) return(0);
