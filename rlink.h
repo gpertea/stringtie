@@ -7,7 +7,7 @@
 #include "GBitVec.h"
 #include "time.h"
 #include "tablemaker.h"
-#include "GIntHash.hh"
+#include "GHashMap.hh"
 
 #define MAX_NODE 1000000
 #define KMER 31
@@ -166,7 +166,7 @@ struct CTransfrag {
 	float srabund; // keeps abundance associated to srfrag
 	GVec<CPath> path; // stores all the possible paths that leave from a node to reach next node in a transfrag, and distributes the abundance of the transfrag between all possible continuations
 	float usepath;
-	int weak; // number of weak links
+	int weak:29; // number of weak links
 	bool real:1;
 	bool guide:1;
 	bool longread:1; // there is at least a longread supporting transfrag
@@ -357,10 +357,10 @@ struct CReadAln:public GSeg {
 	// GStr name;
 	char strand; // 1, 0 (unkown), -1 (reverse)
 	short int nh;
-	uint len;
-	float read_count;       // keeps count for all reads (including paired and unpaired)
+	uint len:30;
 	bool unitig:1;			// set if read come from an unitig
 	bool longread:1;	    // set if read comes from long read data
+	float read_count;       // keeps count for all reads (including paired and unpaired)
 	GVec<float> pair_count;   // keeps count for all paired reads
 	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
@@ -372,7 +372,7 @@ struct CReadAln:public GSeg {
 
 	CReadAln(char _strand=0, short int _nh=0,
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
-					strand(_strand),nh(_nh), len(0), read_count(0), unitig(false),longread(false),pair_count(),pair_idx(),
+					strand(_strand),nh(_nh), len(0), unitig(false),longread(false), read_count(0), pair_count(),pair_idx(),
 					segs(), juncs(false), tinfo(tif) { }
 	CReadAln(CReadAln &rd):GSeg(rd.start,rd.end) { // copy contructor
 		strand=rd.strand;
@@ -464,9 +464,10 @@ struct CTreePat {
 
 struct CTrimPoint { // this can work as a guide keeper too, where pos is the guideidx, abundance is the flow, and start is the included status
 	uint pos;
-	float abundance;
 	bool start:1;
-	CTrimPoint(uint _pos=0,float abund=0.0,bool _start=true):pos(_pos),abundance(abund),start(_start) {}
+	float abundance;
+	CTrimPoint(uint _pos=0,float abund=0.0,bool _start=true):pos(_pos),
+			start(_start), abundance(abund) {}
 };
 
 struct CInterval {

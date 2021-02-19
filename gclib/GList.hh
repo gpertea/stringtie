@@ -50,6 +50,9 @@ template <class OBJ> class GArray:public GVec<OBJ> {
     int Add(OBJ* item); // specific implementation if sorted
     int Add(OBJ& item) { return Add(&item); } //both will CREATE a new OBJ and COPY to it
                        // using OBJ new operator=
+    int AddIfNew(OBJ& item, int* fidx=NULL); //requires == operator
+        //if equal item not found, item is added and return the index of it
+        //otherwise returns -1 and fidx is set to the equal item location
     int cAdd(OBJ item) { return Add(&item); }
     int cPush(OBJ item) { return Add(&item); }
     int Push(OBJ& item) { return Add(&item); }
@@ -229,14 +232,14 @@ template <class OBJ> int GArray<OBJ>::Add(OBJ* item) {
       if (fUnique) return -1; //cannot add a duplicate!
    //Found sets result to the position where the item should be!
    GVec<OBJ>::Insert(result, *item);
-   }
+ }
   else {
-   if (fUnique && Found(*item,result)) return -1; //set behaviour
+   if (fUnique && Found(*item, result)) return -1; //set behaviour
    result = this->fCount;
    if (result==this->fCapacity) GVec<OBJ>::Grow();
    this->fArray[result] = *item; //operator=, copies the item
    this->fCount++;
-   }
+ }
  return result;
 }
 
@@ -255,6 +258,29 @@ template <class OBJ> void GArray<OBJ>::Add(GArray<OBJ>& list) {
     }
 }
 
+//returns -1 if existing equal object exists, sets fidx to that equal item index
+//or returns the index where the item was added/inserted
+template <class OBJ> int GArray<OBJ>::AddIfNew(OBJ& item,
+                                     int* fidx) {
+ int rpos;
+ if (Found(item, rpos)) {
+    if (fidx) *fidx=rpos; //the position where the item should be inserted:
+    return -1; //found and not added
+ }
+ //not found, let's insert it
+ if (SORTED) {
+   //Found() set result to the position where the item should be inserted
+   GVec<OBJ>::Insert(rpos, item);
+ } else { //simply append
+	rpos = this->fCount;
+	if (rpos==this->fCapacity) GVec<OBJ>::Grow();
+	this->fArray[rpos] = item; //operator= copies the item
+	this->fCount++;
+ }
+ if (fidx!=NULL) *fidx=rpos;
+ return rpos;
+}
+
 template <class OBJ> bool GArray<OBJ>::Found(OBJ& item, int& idx) {
  //search the list by using fCompareProc (if defined)
  //or == operator for a non-sortable list
@@ -262,7 +288,7 @@ template <class OBJ> bool GArray<OBJ>::Found(OBJ& item, int& idx) {
  //set to the closest matching object!
  int i;
  idx=-1;
- if (this->fCount==0) { idx=0;return false;}
+ if (this->fCount==0) { idx=0; return false;}
  if (SORTED) { //binary search based on fCompareProc
    //do the simplest tests first:
    if ((*fCompareProc)(&(this->fArray[0]),&item)>0) {
