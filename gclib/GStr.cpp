@@ -217,8 +217,10 @@ char GStr::operator[](int idx) const {
   }
 
 GStr& GStr::operator=(const GStr& s) {
-  make_unique(); //edit operation ahead
-  replace_data(s.my_data);
+  if (s.my_data!=my_data) {
+    make_unique(); //edit operation ahead
+    replace_data(s.my_data);
+  }
   return *this;
   }
 

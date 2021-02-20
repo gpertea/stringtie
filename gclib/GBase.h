@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.12.2"
+#define GCLIB_VERSION "0.12.6"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -49,7 +49,7 @@
   #define CHPATHSEP '/'
   #ifdef __CYGWIN__
     #define _BSD_SOURCE
-  #endif 
+  #endif
   #include <unistd.h>
 #endif
 
@@ -191,6 +191,9 @@ inline int iround(double x) {
 
 int Gmkdir(const char *path, bool recursive=true, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH));
 void Gmktempdir(char* templ);
+
+
+bool haveStdInput(); //if stdin is from a pipe or redirection
 
 /****************************************************************************/
 
@@ -334,8 +337,7 @@ int djb_hash(const char* cp);
 
 //---- generic base GSeg : genomic segment (interval) --
 // coordinates are considered 1-based (so 0 is invalid)
-class GSeg {
- public:
+struct GSeg {
   uint start; //start<end always!
   uint end;
   GSeg(uint s=0,uint e=0) {
@@ -345,17 +347,14 @@ class GSeg {
   //check for overlap with other segment
   uint len() { return end-start+1; }
   bool overlap(GSeg* d) {
-     //return start<d->start ? (d->start<=end) : (start<=d->end);
      return (start<=d->end && end>=d->start);
   }
 
   bool overlap(GSeg& d) {
-     //return start<d.start ? (d.start<=end) : (start<=d.end);
      return (start<=d.end && end>=d.start);
   }
 
   bool overlap(GSeg& d, int fuzz) {
-     //return start<d.start ? (d.start<=end+fuzz) : (start<=d.end+fuzz);
      return (start<=d.end+fuzz && end+fuzz>=d.start);
   }
 
@@ -429,6 +428,21 @@ class GSeg {
      return (start==d.start)?(end<d.end):(start<d.start);
      }
 };
+
+struct GRangeParser: GSeg {
+	char* refName=NULL;
+	char strand=0;
+	void parse(char* s);
+	GRangeParser(char* s=NULL):GSeg(0, 0) {
+		if (s) parse(s);
+	}
+	~GRangeParser() {
+		GFREE(refName);
+	}
+};
+
+
+
 
 //basic dynamic array template for primitive types
 //which can only grow (reallocate) as needed

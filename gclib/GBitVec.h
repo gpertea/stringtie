@@ -115,8 +115,13 @@ public:
 
   /// GBitVec ctor - Creates a GBitVec of specified number of bits. All
   /// bits are initialized to the specified value.
-  explicit GBitVec(uint s, bool value = false) : Size(s) {
-    Capacity = NumBitWords(s);
+  explicit GBitVec(uint bitsize, bool value = false) : Size(bitsize) {
+	if (bitsize==0) {
+		Capacity=0;
+		fBits=0;
+		return;
+	}
+    Capacity = NumBitWords(bitsize);
     //fBits = (BitWord *)std::malloc(Capacity * sizeof(BitWord));
     GMALLOC(fBits, Capacity * sizeof(BitWord));
     init_words(fBits, Capacity, value);
@@ -127,6 +132,19 @@ public:
 	   unsigned long r = ((unsigned long) Capacity) * sizeof(BitWord);
 	   return r;
   }
+
+  GBitVec(const GBitVec* RHS) {
+    if (RHS==NULL) {
+      Size = 0;
+      fBits = 0;
+      Capacity = 0;
+      return;
+    }
+    Capacity = NumBitWords(RHS->size());
+    GMALLOC(fBits, Capacity * sizeof(BitWord));
+    memcpy(fBits, RHS->fBits, Capacity * sizeof(BitWord));
+  }
+
 
   /// GBitVec copy ctor.
   GBitVec(const GBitVec &RHS) : Size(RHS.size()) {
@@ -326,14 +344,18 @@ public:
   // Indexing.
   GBitRef operator[](uint Idx) {
     //assert (Idx < Size && "Out-of-bounds Bit access.");
-    indexCheck(Idx, Size);
+	#ifndef NDEBUG
+	  indexCheck(Idx, Size);
+	#endif
     return GBitRef(*this, Idx);
   }
 
   bool operator[](uint Idx) const {
+   #ifndef NDEBUG
     indexCheck(Idx, Size);
-    BitWord Mask = 1L << (Idx % BITWORD_SIZE);
-    return (fBits[Idx / BITWORD_SIZE] & Mask) != 0;
+   #endif
+   BitWord Mask = 1L << (Idx % BITWORD_SIZE);
+   return (fBits[Idx / BITWORD_SIZE] & Mask) != 0;
   }
 
   bool test(uint Idx) const {
