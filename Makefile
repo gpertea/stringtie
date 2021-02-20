@@ -28,7 +28,7 @@ LDFLAGS += -L${BAM}
 
 LIBS    := -lbam -lz
 
-ifneq (,$(findstring nothreads,$(MAKECMDGOALS)))
+ifneq (,$(filter %nothreads %prof %profile, $(MAKECMDGOALS)))
  NOTHREADS=1
 endif
 
@@ -96,14 +96,19 @@ else
      CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector
      LIBS := ${SANLIBS} -lubsan -ldl ${LIBS}
   else
-     #just plain debug build
-     DEBUG_BUILD=1
-     CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
-     #CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-ggdb -g3 -O0 -fvar-tracking-assignments -fno-omit-frame-pointer)
-     ifneq (, $(findstring darwin, $(DMACH)))
-        CXXFLAGS += -gdwarf-3
+     ifneq (,$(filter %prof %profile, $(MAKECMDGOALS)))
+     ## profiling build
+       CXXFLAGS := -DNDEBUG $(BASEFLAGS) -g -pg
+       LDFLAGS += -g -pg
+     else
+        #just plain debug build
+        DEBUG_BUILD=1
+        CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
+        ifneq (, $(findstring darwin, $(DMACH)))
+           CXXFLAGS += -gdwarf-3
+        endif
+        CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
      endif
-     CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
   endif
 endif
 
@@ -143,7 +148,7 @@ OBJS += rlink.o tablemaker.o tmerge.o
 all release static debug: stringtie${EXE}
 memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
 memuse memusage memtrace: stringtie${EXE}
-nothreads: stringtie${EXE}
+nothreads prof profile: stringtie${EXE}
 
 stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GBam.h
 rlink.o : rlink.h tablemaker.h $(GDIR)/GBam.h $(GDIR)/GBitVec.h
