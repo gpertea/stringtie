@@ -11374,7 +11374,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 }
 						 //pred[p]->tlen=abs(pred[p]->tlen);
 					 }
-					 pred.Pop();
+					 delete pred.Pop(); //prevent memory leak, popped element is otherwise "forgotten"
 				 }
 			 }
 
