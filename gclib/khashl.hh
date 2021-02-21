@@ -25,13 +25,13 @@ protected:
 	static inline khint_t __kh_h2b(uint32_t hash, khint_t bits) { return hash * 2654435769U >> (32 - bits); }
 	static inline khint_t __kh_h2b(uint64_t hash, khint_t bits) { return hash * 11400714819323198485ULL >> (64 - bits); }
 public:
-	KHashSet() : bits(0), count(0), used(0), keys(0) {};
+	KHashSet() : bits(0), count(0), used(NULL), keys(NULL) {};
 	~KHashSet() { std::free(used); std::free(keys); };
 	inline khint_t n_buckets() const { return used? khint_t(1) << bits : 0; }
 	inline khint_t end() const { return n_buckets(); }
 	inline khint_t size() const { return count; }
 	inline T &key(khint_t x) { return keys[x]; };
-	inline bool occupied(khint_t x) const { return (__kh_used(used, x) != 0); }
+	inline bool _used(khint_t i) const { return (used[i>>5] >> (i&0x1fU) & 1U); }
 	void clear(void) {
 		if (!used) return;
 		memset(used, 0, __kh_fsize(n_buckets()) * sizeof(uint32_t));

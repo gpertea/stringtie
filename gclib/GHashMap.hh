@@ -162,7 +162,7 @@ template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const ch
 	inline void Clear() {
 		khInt_t nb=this->n_buckets();
 		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
+			if (!this->_used(i)) continue;
 			//deallocate string copy
 			GFREE(this->key(i));
 		}
@@ -237,7 +237,7 @@ public:
 		}
 		khInt_t nb=this->n_buckets();
 		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
+			if (!this->_used(i)) continue;
 			if (freeItems) delete this->value(i);
 		}
 		this->clear();
@@ -354,7 +354,7 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		T val=this->value(i_iter);
 		++i_iter;
@@ -426,7 +426,7 @@ public:
 		Clear() {
 		khInt_t nb=this->n_buckets();
 		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
+			if (!this->_used(i)) continue;
 			if (this->freeItems) delete this->value(i);
 			GFREE(this->key(i));
 		}
@@ -439,7 +439,7 @@ public:
 		Clear() {
 		khInt_t nb=this->n_buckets();
 		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
+			if (! this->_used(i) ) continue;
 			GFREE(this->key(i));
 		}
 		lastKey=NULL;
