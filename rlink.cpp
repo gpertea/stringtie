@@ -47,6 +47,8 @@ extern bool retained_intron;
 extern FILE* f_out;
 extern GStr label;
 
+static GStr _id("", 256); //to prevent repeated reallocation for each parsed read
+//not thread safe -- to only be used in processRead() as long as that's the unique producer
 
 CJunction* add_junction(int start, int end, GList<CJunction>& junction, char strand) {
 
@@ -428,12 +430,13 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	//if (brec.isProperlyPaired()) {  //only consider mate pairing data if mates  are properly paired
 		int pairstart=brec.mate_start();
 		if (currentstart<=pairstart) { // if pairstart is in a previous bundle I don't care about it
-			GStr readname(brec.name());
-			GStr id(readname); // init id with readname
+			//GStr readname();
+			//GStr id(brec.name(), 16); // init id with readname
+			_id.assign(brec.name()); //assign can be forced to prevent shrinking of the string
 			if(pairstart<=readstart) { // if I've seen the pair already <- I might not have seen it yet because the pair starts at the same place
-				id+='-';id+=pairstart;
-				id+=".=";id+=hi; // (!) this suffix actually speeds up the hash by improving distribution!
-				const int* np=hashread[id.chars()];
+				_id+='-';_id+=pairstart;
+				_id+=".=";_id+=hi; // (!) this suffix actually speeds up the hash by improving distribution!
+				const int* np=hashread[_id.chars()];
 				if(np) { // the pair was stored --> why wouldn't it be? : only in the case that the pair starts at the same position
 					if(readlist[*np]->nh>nh && !nomulti) rdcount=float(1)/readlist[*np]->nh;
 					bool notfound=true;
@@ -460,13 +463,13 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 						readlist[n]->pair_idx.Add(i);
 						readlist[n]->pair_count.Add(rdcount);
 					}
-					hashread.Remove(id.chars());
+					hashread.Remove(_id.chars());
 				}
 			}
 			else { // I might still see the pair in the future
-				id+='-';id+=readstart; // this is the correct way
-				id+=".=";id+=hi;
-				hashread.Add(id.chars(), n);
+				_id+='-';_id+=readstart; // this is the correct way
+				_id+=".=";_id+=hi;
+				hashread.Add(_id.chars(), n);
 			}
 		}
 	} //<-- if mate is mapped on the same chromosome
@@ -475,7 +478,6 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 
 int get_min_start(CGroup **currgroup) {
 	int nextgr=0;
-
 	if(currgroup[0]!=NULL) {
 		if(currgroup[1]!=NULL) {
 		    if(currgroup[2]!=NULL) {
@@ -6206,7 +6208,7 @@ CPrediction* store_merge_prediction(GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVe
 	*/
 
 	GffObj *t=NULL;
-	GStr name;
+	GStr name("",128);
 
 	// first compute coverage
 	float cov=0;
@@ -6219,11 +6221,11 @@ CPrediction* store_merge_prediction(GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVe
 			int r=mgt[a]->read[j];
 			if(readlist[r]->tinfo->g == -1) {
 				int fidx=1+readlist[r]->tinfo->fileidx;
-				GStr fid(fidx);
+				//GStr fid(fidx);
 				if(!name.is_empty()) {
 					name+=", ";
 				}
-				name+=fid;
+				name+=fidx;
 				name+=':';
 				name+=readlist[r]->tinfo->name;
 			}
@@ -6286,7 +6288,7 @@ CPrediction* store_merge_prediction(float cov,GVec<int>& alltr,GPVec<CMTransfrag
 
 	GffObj *t=NULL;
 	if(g>-1) t=guides[g];
-	GStr name;
+	GStr name("", 128);
 
 	if(enableNames) for(int i=0;i<alltr.Count();i++) {
 		int a=alltr[i];
@@ -6297,8 +6299,8 @@ CPrediction* store_merge_prediction(float cov,GVec<int>& alltr,GPVec<CMTransfrag
 			}
 			if(readlist[r]->tinfo->g == -1) {
 				int fidx=1+readlist[r]->tinfo->fileidx;
-				GStr fid(fidx);
-				name+=fid;
+				//GStr fid(fidx);
+				name+=fidx;
 				name+=':';
 				name+=readlist[r]->tinfo->name;
 			}
@@ -6890,7 +6892,7 @@ GVec<int> *max_compon_size_with_penalty(int trnumber,float &maxsize,GVec<CTrInfo
 		float size=set[i].abundance-penalty;
 		float maxagreesize=0;
 		GVec<CTrInfo> agreeset;
-		GStr s;
+		GStr s("",64);
 		for(int j=i+1;j<set.Count();j++) {
 			if(compatible[comptbl_pos(set[i].trno,set[j].trno,trnumber)]) { // make sure that the transcripts in set are sorted to speed up things
 				agreeset.Add(set[j]);
@@ -17007,9 +17009,10 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	maxint->node.Add(ex);
 	CMaxIntv *nextmaxint=maxint;
 	bool exist=true;
+	GStr id("", 32);
 	for(int j=1;j<pred[0]->exons.Count();j++) {
 		if(checkincomplete && pred[0]->t_eq) {
-			GStr id((int)pred[0]->exons[j-1].end);
+			id.assign((int)pred[0]->exons[j-1].end);
 			id+=pred[0]->strand;
 			id+=(int)pred[0]->exons[j].start;
 			bool *gi=guideintron[id.chars()];
@@ -17084,7 +17087,8 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		CMaxIntv *nextintv=nextmaxint;
 		for(int j=1;j<pred[n]->exons.Count();j++) {
 			if(checkincomplete && pred[n]->t_eq) {
-				GStr id((int)pred[n]->exons[j-1].end);
+				//GStr id((int)pred[n]->exons[j-1].end);
+				id.assign((int)pred[n]->exons[j-1].end);
 				id+=pred[n]->strand;
 				id+=(int)pred[n]->exons[j].start;
 				bool *gi=guideintron[id.chars()];
@@ -17144,7 +17148,8 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			int n=incomplete[i];
 			bool eliminate=true;
 			for(int j=1;j<pred[n]->exons.Count();j++) {
-				GStr id((int)pred[n]->exons[j-1].end);
+				//GStr id((int)pred[n]->exons[j-1].end);
+				id.assign((int)pred[n]->exons[j-1].end);
 				id+=pred[n]->strand;
 				id+=pred[n]->exons[j].start;
 				bool *gi=guideintron[id.chars()];
@@ -17625,8 +17630,8 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		//fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
 		fprintf(f_out,"1 %d %d %d %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id,pred[n]->cov);
 
-		GStr geneid(label);geneid+='.';geneid+=pred[n]->geneno;
-		GStr trid(geneid); trid+='.';trid+=transcripts[genes[n]];
+		GStr geneid(label, 10);geneid+='.';geneid+=pred[n]->geneno;
+		GStr trid(geneid.chars(), 10); trid+='.';trid+=transcripts[genes[n]];
 		if(eonly && pred[n]->t_eq && pred[n]->t_eq->getGeneID()) geneid=pred[n]->t_eq->getGeneID();
 		if(eonly && pred[n]->t_eq) trid=pred[n]->t_eq->getID();
 
@@ -17842,7 +17847,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 					if(!t) geneno++;
 					t++;
 					if(pred[m]->end>currentend) currentend=pred[m]->end;
-					GStr trid;
+					GStr trid("", 64);
 					if(pred[m]->t_eq) trid=pred[m]->t_eq->getID();
 					else {
 						trid=label+'.';
@@ -18113,7 +18118,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			fprintf(f_out,"1 %d %d 0 %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen,pred[n]->cov);
 
 			GStr geneid(label);geneid+='.';geneid+=pred[n]->geneno;
-			GStr trid(geneid); trid+='.';trid+=transcripts[genes[n]];
+			GStr trid(geneid.chars()); trid+='.';trid+=transcripts[genes[n]];
 
 			fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; ",
 					refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,geneid.chars(),trid.chars());
@@ -18375,7 +18380,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	GHash<uint> endhash;
 
 	bool incomplete=false;
-
+	GStr id("", 32);
 	for(int n=0;n<npred-1;n++) {
 		//fprintf(stderr,"check pred[%d]:%d-%d:%c with noexon=%d and cov=%f\n",n,pred[n]->start,pred[n]->end,pred[n]->strand,pred[n]->exons.Count(),pred[n]->cov);
 		bool ndel=false;
@@ -18521,7 +18526,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							if(pred[f]->t_eq) firstval=pred[f]->start;
 
 							if(firstval-lastval>(int)(2*longintronanchor)) { // far apart so I can store hash
-								GStr id(lastval);
+								//GStr id(lastval);
+								id.assign(lastval);
 								id+=':';
 								id+=firstval;
 								uint startval=0;

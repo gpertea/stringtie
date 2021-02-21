@@ -78,7 +78,7 @@ public:
 	}
 
 	inline void Clear() {
-		this->clear(); //does not shrink !
+		this->clear(); //does not shrink
 	}
 
 	inline void Reset() {
@@ -173,6 +173,7 @@ template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const ch
 	inline void Reset() {
 		this->Clear();
 		GFREE(this->used); GFREE(this->keys);
+		lastKey=NULL;
 		this->bits=0; this->count=0;
 	}
 
@@ -244,17 +245,7 @@ public:
 
 	template <typename T=V> inline
 		typename std::enable_if< !std::is_pointer<T>::value, void>::type
-		Clear() {
-		if (!freeItems) {
-			this->clear(); //does not shrink !
-			return;
-		}
-		khInt_t nb=this->n_buckets();
-		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
-		}
-		this->clear();
-	}
+		Clear() { this->clear(); }
 
 	inline void Reset() {
 		this->Clear();

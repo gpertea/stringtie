@@ -32,12 +32,12 @@ GStr::Data * GStr::new_data(uint len, uint addcap) {
 GStr::Data* GStr::new_data(const char* str, uint addcap) {
 //static method to return a new Data object (allocate: length+addcap)
 //as a copy of a given string
- if (str==NULL) return &null_data;
- int len=strlen(str);
+ //if (str==NULL) return &null_data;
+ int len= (str==NULL)? 0 : strlen(str);
  if (len+addcap > 0) {
         Data* data;
         GMALLOC(data, sizeof(Data)+len+addcap);
-        strcpy(data->chars, str);
+        if (len) strcpy(data->chars, str);
         data->ref_count = 0;
         data->cap=len+addcap;
         data->length = len;
@@ -158,7 +158,7 @@ GStr::GStr(const char *s, uint addcap): my_data(&null_data) {
   my_data->ref_count = 1;
  }
 
-GStr::GStr(const int i): my_data(&null_data) {
+GStr::GStr(const int i, uint addcap): my_data(&null_data) {
  fTokenDelimiter=NULL;
  fTokenizeMode=tkCharSet;
  fLastTokenStart=0;
@@ -166,9 +166,7 @@ GStr::GStr(const int i): my_data(&null_data) {
  readbufsize=0;
  char buf[20];
  sprintf(buf,"%d",i);
- const int len = ::strlen(buf);
- prep_data(len);
- ::memcpy(chrs(), buf, len);
+ my_data=new_data(buf, addcap);
  }
 
 GStr::GStr(const double f): my_data(&null_data) {
@@ -184,7 +182,7 @@ GStr::GStr(const double f): my_data(&null_data) {
  ::memcpy(chrs(), buf, len);
  }
 
-GStr::GStr(char c, int n): my_data(&null_data) {
+GStr::GStr(const char c, int n): my_data(&null_data) {
   fTokenDelimiter=NULL;
   fTokenizeMode=tkCharSet;
   fLastTokenStart=0;
@@ -234,6 +232,29 @@ GStr& GStr::operator=(const char *s) {
   ::memcpy(my_data->chars, s, len);
   return *this;
   }
+
+GStr& GStr::assign(const char* s) {
+  make_unique(); //edit operation ahead
+  if (s==NULL) {
+    prep_data(0, my_data->cap);
+    return *this;
+  }
+  const int len = ::strlen(s);
+  prep_data(len, my_data->cap-len-2);
+  ::memcpy(my_data->chars, s, len);
+  return *this;
+}
+
+GStr& GStr::assign(const int v) {
+  make_unique(); //edit operation ahead
+  char buf[20];
+  sprintf(buf,"%d",v);
+  const int len = ::strlen(buf);
+  prep_data(len, my_data->cap-len-2);
+  ::memcpy(my_data->chars, buf, len);
+  return *this;
+}
+
 
 GStr& GStr::operator=(const double f) {
  make_unique(); //edit operation ahead
