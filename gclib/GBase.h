@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.11.9"
+#define GCLIB_VERSION "0.12.6"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -17,15 +17,8 @@
   //#define __ISO_C_VISIBLE 1999
 #endif
 
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <math.h>
-#include <limits.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <stdint.h>
-#include <stdarg.h>
+#define XSTR(x) STR(x)
+#define STR(x) #x
 
 #ifdef _WIN32
   #include <windows.h>
@@ -36,6 +29,7 @@
   #ifndef popen
    #define popen _popen
   #endif
+  /*
   #ifndef fseeko
 		#ifdef _fseeki64
 			#define fseeko(stream, offset, origin) _fseeki64(stream, offset, origin)
@@ -43,23 +37,20 @@
 			#define fseeko fseek
 		#endif
   #endif
- #ifndef ftello
-  #ifdef _ftelli64
-    #define ftello(stream) _ftelli64(stream)
-  #else
-    #define ftello ftell
-  #endif
+  #ifndef ftello
+    #ifdef _ftelli64
+      #define ftello(stream) _ftelli64(stream)
+    #else
+      #define ftello ftell
+    #endif
  #endif
+ */
  #else
   #define CHPATHSEP '/'
+  #ifdef __CYGWIN__
+    #define _BSD_SOURCE
+  #endif
   #include <unistd.h>
-#endif
-
-#ifndef fseeko
- #define fseeko fseek
-#endif
-#ifndef ftello
- #define ftello ftell
 #endif
 
 #ifdef DEBUG
@@ -68,13 +59,31 @@
 #define _DEBUG_ 1
 #endif
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <math.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdint.h>
+#include <stdarg.h>
+#include <type_traits>
+
+typedef int64_t int64;
+typedef uint64_t uint64;
 typedef int32_t int32;
 typedef uint32_t uint32;
 typedef int16_t int16;
 typedef uint16_t uint16;
 
 typedef unsigned char uchar;
-typedef unsigned char byte;
+typedef uint8_t byte;
+typedef unsigned int uint;
+
+typedef void* pointer;
+
 
 #ifndef MAXUINT
 #define MAXUINT ((unsigned int)-1)
@@ -91,9 +100,6 @@ typedef unsigned char byte;
 #ifndef MAX_INT
 #define MAX_INT INT_MAX
 #endif
-
-typedef int64_t int64;
-typedef uint64_t uint64;
 
 /****************************************************************************/
 
@@ -155,9 +161,6 @@ GEXIT(#condition);}
 // Clamp value x to range [lo..hi]
 #define GCLAMP(lo,x,hi) ((x)<(lo)?(lo):((x)>(hi)?(hi):(x)))
 
-typedef void* pointer;
-typedef unsigned int uint;
-
 typedef int GCompareProc(const pointer item1, const pointer item2);
 typedef long GFStoreProc(const pointer item1, FILE* fstorage); //for serialization
 typedef pointer GFLoadProc(FILE* fstorage); //for deserialization
@@ -167,6 +170,7 @@ typedef void GFreeProc(pointer item); //usually just delete,
 
 #define GMALLOC(ptr,size)  if (!GMalloc((pointer*)(&ptr),size)) \
                                      GError(ERR_ALLOC)
+
 #define GCALLOC(ptr,size)  if (!GCalloc((pointer*)(&ptr),size)) \
                                      GError(ERR_ALLOC)
 #define GREALLOC(ptr,size) if (!GRealloc((pointer*)(&ptr),size)) \
@@ -187,6 +191,9 @@ inline int iround(double x) {
 
 int Gmkdir(const char *path, bool recursive=true, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH));
 void Gmktempdir(char* templ);
+
+
+bool haveStdInput(); //if stdin is from a pipe or redirection
 
 /****************************************************************************/
 
@@ -209,12 +216,28 @@ template<class T> void Gswap(T& lhs, T& rhs) {
  rhs=tmp;
 }
 
+// use std::is_pointer from <type_traits> in C++11 instead
+/*
+template<typename T>
+  struct isPointer { static const bool value = false; };
+
+template<typename T>
+  struct isPointer<T*> { static const bool value = true; };
+*/
+//check if type T is resolved as a pointer to char
+template<class T>
+  struct is_char_ptr : std::integral_constant <
+      bool,
+      std::is_same<char const *, typename std::decay<T>::type>::value ||
+        std::is_same<char *, typename std::decay<T>::type>::value
+  > {};
 
 /**************** Memory management ***************************/
 
 bool GMalloc(pointer* ptr, unsigned long size); // Allocate memory
 bool GCalloc(pointer* ptr, unsigned long size); // Allocate and initialize memory
 bool GRealloc(pointer* ptr,unsigned long size); // Resize memory
+
 void GFree(pointer* ptr); // Free memory, resets ptr to NULL
 
 //int saprintf(char **retp, const char *fmt, ...);
@@ -223,6 +246,15 @@ void GError(const char* format,...); // Error routine (aborts program)
 void GMessage(const char* format,...);// Log message to stderr
 // Assert failed routine:- usually not called directly but through GASSERT
 void GAssert(const char* expression, const char* filename, unsigned int lineno);
+
+
+template<class T> T* GDupAlloc(T& data) {
+	T* tmp=NULL;
+	if (!GMalloc((pointer*) tmp, sizeof(T)))
+			GError(ERR_ALLOC);
+	memcpy((void*)tmp, (void*)&data, sizeof(T));
+	return tmp;
+}
 
 // ****************** basic string manipulation *************************
 char *Gstrdup(const char* str, int xtracap=0); //string duplication with extra capacity added
@@ -305,8 +337,7 @@ int djb_hash(const char* cp);
 
 //---- generic base GSeg : genomic segment (interval) --
 // coordinates are considered 1-based (so 0 is invalid)
-class GSeg {
- public:
+struct GSeg {
   uint start; //start<end always!
   uint end;
   GSeg(uint s=0,uint e=0) {
@@ -316,17 +347,14 @@ class GSeg {
   //check for overlap with other segment
   uint len() { return end-start+1; }
   bool overlap(GSeg* d) {
-     //return start<d->start ? (d->start<=end) : (start<=d->end);
      return (start<=d->end && end>=d->start);
   }
 
   bool overlap(GSeg& d) {
-     //return start<d.start ? (d.start<=end) : (start<=d.end);
      return (start<=d.end && end>=d.start);
   }
 
   bool overlap(GSeg& d, int fuzz) {
-     //return start<d.start ? (d.start<=end+fuzz) : (start<=d.end+fuzz);
      return (start<=d.end+fuzz && end+fuzz>=d.start);
   }
 
@@ -400,6 +428,21 @@ class GSeg {
      return (start==d.start)?(end<d.end):(start<d.start);
      }
 };
+
+struct GRangeParser: GSeg {
+	char* refName=NULL;
+	char strand=0;
+	void parse(char* s);
+	GRangeParser(char* s=NULL):GSeg(0, 0) {
+		if (s) parse(s);
+	}
+	~GRangeParser() {
+		GFREE(refName);
+	}
+};
+
+
+
 
 //basic dynamic array template for primitive types
 //which can only grow (reallocate) as needed

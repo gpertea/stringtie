@@ -7,7 +7,7 @@
 #include "GBitVec.h"
 #include "time.h"
 #include "tablemaker.h"
-#include "GIntHash.hh"
+#include "GHashMap.hh"
 
 #define MAX_NODE 1000000
 #define KMER 31

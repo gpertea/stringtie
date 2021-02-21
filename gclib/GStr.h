@@ -30,14 +30,18 @@ class GStr {
     public:
         GStr();
         GStr(const GStr& s);
-        GStr(const char* s, uint addcap=4);
-        GStr(const int i);
+        //minimize reallocation when suffixes are added
+        GStr(const char* s, uint addcap=8);
+        GStr(const int i, uint addcap=8);
+
         GStr(const double f);
-        GStr(char c, int n = 1);
+        GStr(const char c, int n = 1);
         ~GStr();
         operator const char* () const { return my_data->chars;} //inline here
         char& operator[](int index);
         char operator[](int index) const;
+        GStr& assign(const char* s); //never shrinks the allocated space
+        GStr& assign(const int v); //never shrinks the allocated space
         GStr& operator=(const GStr& s);
         GStr& operator=(const char* s);
         GStr& operator=(const int i);

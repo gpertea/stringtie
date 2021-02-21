@@ -247,7 +247,7 @@ GFastMutex countMutex;
 
 #endif
 
-GHash<int> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
+GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
 
 bool NoMoreBundles=false;
 bool moreBundles(); //thread-safe retrieves NoMoreBundles
@@ -433,16 +433,18 @@ if (ballgown)
 #ifndef NOTHREADS
 //model: one producer, multiple consumers
 #define DEF_TSTACK_SIZE 8388608
+ size_t defStackSize=DEF_TSTACK_SIZE;
+#ifdef _GTHREADS_POSIX_
  int tstackSize=GThread::defaultStackSize();
- size_t defStackSize=0;
-if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
+ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  if (verbose) {
-	 if (defStackSize>0){
-		 int ssize=defStackSize;
-		 GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
-	 }
-	 else GMessage("Default stack size for threads: %d\n", tstackSize);
+   if (defStackSize>0){
+    int ssize=defStackSize;
+    GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
+   }
+   else GMessage("Default stack size for threads: %d\n", tstackSize);
  }
+#endif
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
@@ -1037,7 +1039,7 @@ void processOptions(GArgs& args) {
     	 s.startTokenize(" ,\t");
     	 GStr chrname;
     	 while (s.nextToken(chrname)) {
-    		 excludeGseqs.Add(chrname.chars(),new int(0));
+    		 excludeGseqs.Add(chrname.chars());
     	 }
      }
 
@@ -1271,7 +1273,7 @@ void processOptions(GArgs& args) {
 	 { //prepare temp path
 		 GStr stempl(out_dir);
 		 stempl.chomp('/');
-		 stempl+="/tmp.XXXXXXXX";
+		 stempl+="/tmp_XXXXXX";
 		 char* ctempl=Gstrdup(stempl.chars());
 	     Gmktempdir(ctempl);
 	     tmp_path=ctempl;
@@ -1343,11 +1345,11 @@ void noMoreBundles() {
 		  if (areThreadsWaiting) {
 		    DBGPRINT("##> NOTIFY ALL workers: no more data!\n");
 		    haveBundles.notify_all();
-		    current_thread::sleep_for(10);
+		    current_thread::sleep_for(1);
 		    waitMutex.lock();
 		     areThreadsWaiting=(threadsWaiting>0);
 		    waitMutex.unlock();
-		    current_thread::sleep_for(10);
+		    current_thread::sleep_for(1);
 		  }
 		} while (areThreadsWaiting); //paranoid check that all threads stopped waiting
 #else
@@ -1598,7 +1600,7 @@ int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts) {
   return num;
 }
 
-void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) {
+void writeUnbundledGenes(GHash<CGene*>& geneabs, const char* refseq, FILE* gout) {
 				 //write unbundled genes from this chromosome
 	geneabs.startIterate();
 	while (CGene* g=geneabs.NextData()) {
@@ -1617,7 +1619,7 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
  for (int g=0;g<refdata.Count();++g) {
 	 GRefData& crefd=refdata[g];
 	 if (crefd.rnas.Count()==0) continue;
-	 GHash<CGene> geneabs;
+	 GHash<CGene*> geneabs;
 	 //gene_id abundances (0), accumulating coords
 	 for (int m=0;m<crefd.rnas.Count();++m) {
 		 GffObj &t = *crefd.rnas[m];

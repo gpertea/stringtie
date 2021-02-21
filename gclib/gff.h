@@ -8,7 +8,8 @@
 #include "codons.h"
 #include "GFaSeqGet.h"
 #include "GList.hh"
-#include "GHash.hh"
+#include "GHashMap.hh"
+#include "GBitVec.h"
 
 #ifdef CUFFLINKS
 #include <boost/crc.hpp>  // for boost::crc_32_type
@@ -18,11 +19,11 @@
 extern int gff_fid_mRNA; // "mRNA" feature name
 extern int gff_fid_transcript; // *RNA, *transcript feature name
 extern int gff_fid_exon;
+extern int gff_fid_CDS;
 
 extern const uint GFF_MAX_LOCUS;
 extern const uint GFF_MAX_EXON;
 extern const uint GFF_MAX_INTRON;
-extern const int CLASSCODE_OVL_RANK;
 //extern const uint gfo_flag_LEVEL_MSK; //hierarchical level: 0 = no parent
 //extern const byte gfo_flagShift_LEVEL;
 
@@ -55,14 +56,27 @@ typedef void GFFCommentParser(const char* cmline, GfList* gflst); //comment pars
 class GffReader;
 class GffObj;
 
-//---transcript overlapping - utility functions:
-int classcode_rank(char c); //returns priority value for class codes
+//---transcript overlapping - utility functions
 
-char getOvlCode(GffObj& m, GffObj& r, int& ovlen, bool strictMatch=false); //returns: class code
+extern const byte CLASSCODE_OVL_RANK; //rank value just above 'o' class code
 
-char transcriptMatch(GffObj& a, GffObj& b, int& ovlen); //generic transcript match test
+byte classcode_rank(char c); //returns priority value for class codes
+
+struct TOvlData {
+	char ovlcode;
+	int ovlen;
+	int16_t numJmatch; //number of matching junctions (not introns)
+	GBitVec jbits; //bit array with 1 bit for each junctions (total = 2 * num_introns)
+	TOvlData(char oc=0, int olen=0, int16_t nmj=0, GBitVec* jb=NULL):ovlcode(oc),
+			ovlen(olen),numJmatch(nmj),jbits(jb) { }
+};
+
+TOvlData getOvlData(GffObj& m, GffObj& r, bool stricterMatch=false, int trange=0);
+
+char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange=0); //generic transcript match test
 // -- return '=', '~'  or 0
-char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen); //single-exon transcript match test
+char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange=0);
+//single-exon transcript match test - returning '=', '~'  or 0
 
 //---
 // -- tracking exon/CDS segments from local mRNA to genome coordinates
@@ -259,6 +273,8 @@ class GffLine {
     	GFREE(parents);
     	parents=NULL;
     }
+    void ensembl_GFF_ID_process(char*& id);
+    void ensembl_GTF_ID_process(char*& id, const char* ver_attr);
     static char* extractGFFAttr(char*& infostr, const char* oline, const char* pre, bool caseStrict=false,
     		bool enforce_GTF2=false, int* rlen=NULL, bool deleteAttr=true);
     char* extractAttr(const char* pre, bool caseStrict=false, bool enforce_GTF2=false, int* rlen=NULL){
@@ -402,13 +418,13 @@ class GffNameList:public GPVec<GffNameInfo> {
   friend class GffNameInfo;
   friend class GffNames;
 protected:
-  GHash<GffNameInfo> byName;//hash with shared keys
+  GHashMap<const char*, GffNameInfo*> byName;//hash with shared keys
   int idlast; //fList index of last added/reused name
   int addStatic(const char* tname) {// fast add
      GffNameInfo* f=new GffNameInfo(tname);
      idlast=this->Add(f);
      f->idx=idlast;
-     byName.shkAdd(f->name,f);
+     byName.Add(f->name,f);
      return idlast;
      }
 public:
@@ -436,7 +452,7 @@ public:
       f=new GffNameInfo(tname);
       fidx=this->Add(f);
       f->idx=fidx;
-      byName.shkAdd(f->name,f);
+      byName.Add(f->name,f);
       }
    idlast=fidx;
    return fidx;
@@ -446,7 +462,7 @@ public:
     GffNameInfo* f=new GffNameInfo(tname);
     int fidx=this->Add(f);
     f->idx=fidx;
-    byName.shkAdd(f->name,f);
+    byName.Add(f->name,f);
     return fidx;
     }
 
@@ -471,11 +487,11 @@ class GffNames {
    GffNames():tracks(),gseqs(),attrs(), feats() {
     numrefs=0;
     //the order below is critical!
-    //has to match: gff_fid_mRNA, gff_fid_exon
+    //has to match: gff_fid_mRNA, gff_fid_exon, gff_fid_CDS
     gff_fid_mRNA = feats.addStatic("mRNA");//index 0=gff_fid_mRNA
     gff_fid_transcript=feats.addStatic("transcript");//index 1=gff_fid_transcript
-    gff_fid_exon=feats.addStatic("exon");//index 1=gff_fid_exon
-    //feats.addStatic("CDS"); //index 2=gff_fid_CDS
+    gff_fid_exon=feats.addStatic("exon");//index 2=gff_fid_exon
+    gff_fid_CDS=feats.addStatic("CDS"); //index 3=gff_fid_CDS
     }
 };
 
@@ -484,8 +500,9 @@ void gffnames_unref(GffNames* &n);
 
 enum GffPrintMode {
   pgtfAny, //print record as read, if GTF
-  pgtfExon, //print exon only features
-  pgtfCDS,  //print CDS and exon features
+  pgtfExon, //print only exon features (CDS converted to exon if exons are missing)
+  pgtfCDS,  //print only CDS features
+  pgtfBoth,  //print both CDS and exon features
   pgffAny, //print record as read (if isCDSonly() prints only CDS)
   pgffExon,
   pgffCDS,
@@ -787,7 +804,7 @@ protected:
 public:
   void removeExon(int idx);
   void removeExon(GffExon* p);
-  char  strand; //true if features are on the reverse complement strand
+  char  strand; //'+', '-' or '.'
   GffScore gscore;
   int covlen; //total coverage of reference genomic sequence (sum of maxcf segment lengths)
   GffAttrs* attrs; //other gff3 attributes found for the main mRNA feature
@@ -840,8 +857,6 @@ public:
                //complete parsing: must be called in order to merge adjacent/close proximity subfeatures
    void parseAttrs(GffAttrs*& atrlist, char* info, bool isExon=false, bool CDSsrc=false);
    const char* getSubfName() { //returns the generic feature type of the entries in exons array
-     //int sid=exon_ftype_id;
-     //if (sid==gff_fid_exon && isCDS) sid=gff_fid_CDS;
      return names->feats.getName(subftype_id);
      }
    void setCDS(uint cd_start, uint cd_end, char phase=0);
@@ -863,6 +878,7 @@ public:
    void addAttr(const char* attrname, const char* attrvalue);
    int removeAttr(const char* attrname, const char* attrval=NULL);
    int removeAttr(int aid, const char* attrval=NULL);
+   int removeAttrs(GStrSet<>& attrSet); //remove attributes whose names are NOT in attrSet
    int removeExonAttr(GffExon& exon, const char* attrname, const char* attrval=NULL);
    int removeExonAttr(GffExon& exon, int aid, const char* attrval=NULL);
 
@@ -1006,7 +1022,7 @@ public:
    void updateCDSPhase(GList<GffExon>& segs); //for CDS-only features, updates GffExon::phase
    void printGTab(FILE* fout, char** extraAttrs=NULL);
    void printGxfExon(FILE* fout, const char* tlabel, const char* gseqname,
-          bool iscds, GffExon* exon, bool gff3, bool cvtChars, char* dbuf, int dbuf_len);
+          bool iscds, GffExon* exon, bool gff3, bool cvtChars);
    void printGxf(FILE* fout, GffPrintMode gffp=pgffExon,
              const char* tlabel=NULL, const char* gfparent=NULL, bool cvtChars=false);
    void printGtf(FILE* fout, const char* tlabel=NULL, bool cvtChars=false) {
@@ -1016,6 +1032,7 @@ public:
                                 const char* gfparent=NULL, bool cvtChars=false) {
       printGxf(fout, pgffAny, tlabel, gfparent, cvtChars);
    }
+   bool printAttrs(FILE* fout,  const char* sep=";", bool GTFstyle=false, bool cvtChars=false);
    void printTranscriptGff(FILE* fout, char* tlabel=NULL,
                             bool showCDS=false, const char* gfparent=NULL, bool cvtChars=false) {
       if (isValidTranscript())
@@ -1024,7 +1041,7 @@ public:
    void printExonList(FILE* fout); //print comma delimited list of exon intervals
    void printCDSList(FILE* fout); //print comma delimited list of CDS intervals
 
-   void printBED(FILE* fout, bool cvtChars, char* dbuf, int dbuf_len);
+   void printBED(FILE* fout, bool cvtChars);
        //print a BED-12 line + GFF3 attributes in 13th field
    void printSummary(FILE* fout=NULL);
 
@@ -1164,6 +1181,9 @@ class GffReader {
        bool sortByLoc:1; //if records should be sorted by location
        bool refAlphaSort:1; //if sortByLoc, reference sequences are
                        // sorted lexically instead of their id#
+       //Ensembl ID processing:
+       bool xEnsemblID:1; //for ensemble GTF merge gene_version and transcript_version into the ID
+                //for ensemble GFF3, cannot merge version (!), just remove "transcript:" and "gene:" prefixes
        bool gff_warns:1;
     };
   };
@@ -1177,8 +1197,7 @@ class GffReader {
   //bool gene2exon;  // for childless genes: add an exon as the entire gene span
   GHash<int> discarded_ids; //for transcriptsOnly mode, keep track
                             // of discarded parent IDs
-  GHash< GPVec<GffObj> > phash; //transcript_id => GPVec<GffObj>(false)
-  //GHash<int> tids; //just for transcript_id uniqueness
+  GHash< GPVec<GffObj>* > phash; //transcript_id => GPVec<GffObj>(false)
   char* gfoBuildId(const char* id, const char* ctg);
   //void gfoRemove(const char* id, const char* ctg);
   GffObj* gfoAdd(GffObj* gfo);
@@ -1188,9 +1207,9 @@ class GffReader {
   bool pFind(const char* id, GPVec<GffObj>*& glst);
   GffObj* gfoFind(const char* id, GPVec<GffObj>* & glst, const char* ctg=NULL,
 	                                         char strand=0, uint start=0, uint end=0);
-  CNonExon* subfPoolCheck(GffLine* gffline, GHash<CNonExon>& pex, char*& subp_name);
-  void subfPoolAdd(GHash<CNonExon>& pex, GffObj* newgfo);
-  GffObj* promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonExon>& pex);
+  CNonExon* subfPoolCheck(GffLine* gffline, GHash<CNonExon*>& pex, char*& subp_name);
+  void subfPoolAdd(GHash<CNonExon*>& pex, GffObj* newgfo);
+  GffObj* promoteFeature(CNonExon* subp, char*& subp_name, GHash<CNonExon*>& pex);
 
 #ifdef CUFFLINKS
      boost::crc_32_type  _crc_result;
@@ -1205,7 +1224,7 @@ class GffReader {
   //GffObj* replaceGffRec(GffLine* gffline, bool keepAttr, bool noExonAttr, int replaceidx);
   GffObj* updateGffRec(GffObj* prevgfo, GffLine* gffline);
   GffObj* updateParent(GffObj* newgfh, GffObj* parent);
-  bool readExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon>* pex=NULL);
+  bool readExonFeature(GffObj* prevgfo, GffLine* gffline, GHash<CNonExon*>* pex = NULL);
   GPVec<GSeqStat> gseqStats; //populated after finalize() with only the ref seqs in this file
   GffReader(FILE* f=NULL, bool t_only=false, bool sort=false):linebuf(NULL), fpos(0),
 		  buflen(0), flags(0), fh(f), fname(NULL), commentParser(NULL), gffline(NULL),
@@ -1233,6 +1252,8 @@ class GffReader {
   }
   */
   void gene2Exon(bool v) { gene2exon=v;}
+  void procEnsemblID(bool v) { xEnsemblID=v;}
+  bool procEnsemblID() { return xEnsemblID; }
   void enableSorting(bool sorting=true) { sortByLoc=sorting; }
   bool getSorting() { return sortByLoc; }
   void isBED(bool v=true) { is_BED=v; } //should be set before any parsing!
@@ -1296,7 +1317,7 @@ class GffReader {
       GFREE(linebuf);
       //GFREE(lastReadNext);
       gffnames_unref(GffObj::names);
-      }
+  }
 
 
   GffLine* nextGffLine();
