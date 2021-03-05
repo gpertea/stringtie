@@ -236,6 +236,16 @@ int Gmkdir(const char *path, bool recursive, int perms) {
 	return 0;
 }
 
+bool haveStdInput() {
+#ifdef _WIN32
+	HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+	DWORD stype = GetFileType(hIn);
+	return (stype!=FILE_TYPE_CHAR);
+#else
+	return !(isatty(fileno(stdin)));
+#endif
+}
+
 FILE* Gfopen(const char *path, char *mode) {
 	FILE* f=NULL;
 	if (mode==NULL) f=fopen(path, "rb");
@@ -244,6 +254,80 @@ FILE* Gfopen(const char *path, char *mode) {
 		GMessage("Error opening file '%s':  %s\n", path, strerror(errno));
 	return f;
 }
+#define IS_CHR_DELIM(c) ( c == ' ' || c == '\t' || c == ':' )
+void GRangeParser::parse(char* s) {
+	 //parses general range format: [+\-|.]refID[+\-\.][ |:][start][-|.\s]end[\s:][+\-\.]
+	// if ref ID has ':' a space delimited format is preferred
+	//   or just separate the ref ID from the coordinate range: [[+/-]ref<space>start[[-..][end]]
+	//the safest way would be to parse from the end in case the ref ID has ':' characters
+	//if the whole chromosome is intended (no coordinates to speficy)
+	   this->start=0;
+	   this->end=0;
+	   this->strand=0;
+	   int slen=strlen(s);
+	   if (slen==0) return;
+	   while (isspace(s[slen-1])) { slen--; s[slen]=0; } //trim trailing spaces
+	   while (isspace(*s)) { ++s; --slen; } //trim prefix spaces
+	   char c=*s;
+	   if (c=='+' || c=='-') {
+	     strand=c;
+	     ++s;slen--;
+	   }
+	   if (strand && (*s==':' || *s==' ')) //ignore
+		   { s++;slen--; }
+	   char* p=s; //parsing position for coordinate string
+	   char* isep=strpbrk(s, " \t");
+	   if (isep==NULL) isep=strchr(s, ':');
+	   if (isep) { //chr (ref) ID ending found
+		  p=isep+1;
+		  *isep=0;
+	       //character after the delimiter can only be a strand if it's followed by another delimiter
+		   //e.g. chr1 + 134551-204326 or chr1:+:134551-204326
+		  c=*(isep+1);
+		  if (strand==0 && (c=='+' || c=='-' || c=='.') && IS_CHR_DELIM(*(isep+2))) {
+			  strand=c;
+			  p=isep+3;
+		  }
+		  if (strand==0) {
+			  c=*(isep-1); //character before the delimiter could be the strand
+			  if (c=='+' || c=='-') { //not '.', sorry
+				isep--;
+				strand=c;
+				*isep=0; //ref is now parsable
+			  }
+		  }
+		  this->refName=Gstrdup(s,isep-1);
+	   }
+	   //here we are after ref ID (and possibly strand) delimiter
+	   char* pend=p;
+	   if (isdigit(*pend)) {
+		 //parse the start coordinate then
+		 do { pend++; } while (isdigit(*pend));
+		 c=*pend;
+		 *pend=0;
+		 this->start=atoi(p);
+		 p=pend;
+		 *p=c;
+	   }
+	   while (*p=='-' || *p=='.' || *p==' ' || *p=='\t') ++p;
+	   pend=p;
+	   while (isdigit(*pend)) pend++;
+	   if (pend>p) { //parse the 2nd coordinate
+		   c=*pend;
+		   *pend=0;
+		   this->end=atoi(p);
+		   *pend=c;
+	   }
+	   if (start && end && end<start) Gswap(this->start, this->end);
+	   //if (strand==0) { ?
+	   c=s[slen-1]; //peek at the end of the string for strand
+	   if (c=='+' || c=='-' || c=='.') {
+		   if (end || IS_CHR_DELIM(s[slen-2]))
+		   strand=c;
+		   //slen--;s[slen]=0;
+	   }
+}
+
 
 bool GstrEq(const char* a, const char* b) {
 	 if (a==NULL || b==NULL) return false;

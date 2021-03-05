@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.4"
+#define VERSION "2.1.5"
 
 //#define DEBUGPRINT 1
 
@@ -1076,6 +1076,7 @@ void processOptions(GArgs& args) {
 			 bundledist=0;
 		 }
 		 readthr=0;
+
 	 }
 
 	 s=args.getOpt('c');

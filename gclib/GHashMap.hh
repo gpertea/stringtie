@@ -78,7 +78,7 @@ public:
 	}
 
 	inline void Clear() {
-		this->clear(); //does not shrink !
+		this->clear(); //does not shrink
 	}
 
 	inline void Reset() {
@@ -114,7 +114,7 @@ public:
 		//returns a pointer to next valid key in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		uint32_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		K* k=&(this->key(i_iter-1));
 		++i_iter;
@@ -162,7 +162,7 @@ template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const ch
 	inline void Clear() {
 		khInt_t nb=this->n_buckets();
 		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
+			if (!this->_used(i)) continue;
 			//deallocate string copy
 			GFREE(this->key(i));
 		}
@@ -173,6 +173,7 @@ template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const ch
 	inline void Reset() {
 		this->Clear();
 		GFREE(this->used); GFREE(this->keys);
+		lastKey=NULL;
 		this->bits=0; this->count=0;
 	}
 
@@ -236,7 +237,7 @@ public:
 		}
 		khInt_t nb=this->n_buckets();
 		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
+			if (!this->_used(i)) continue;
 			if (freeItems) delete this->value(i);
 		}
 		this->clear();
@@ -244,17 +245,7 @@ public:
 
 	template <typename T=V> inline
 		typename std::enable_if< !std::is_pointer<T>::value, void>::type
-		Clear() {
-		if (!freeItems) {
-			this->clear(); //does not shrink !
-			return;
-		}
-		khInt_t nb=this->n_buckets();
-		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
-		}
-		this->clear();
-	}
+		Clear() { this->clear(); }
 
 	inline void Reset() {
 		this->Clear();
@@ -322,7 +313,7 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		val=this->value(i_iter);
 		K* k=&(this->key(i_iter));
@@ -336,7 +327,7 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		val=this->value(i_iter);
 		K k = this->key(i_iter);
@@ -350,7 +341,7 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		T* val=&(this->value(i_iter));
 		++i_iter;
@@ -363,7 +354,7 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		T val=this->value(i_iter);
 		++i_iter;
@@ -435,7 +426,7 @@ public:
 		Clear() {
 		khInt_t nb=this->n_buckets();
 		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
+			if (!this->_used(i)) continue;
 			if (this->freeItems) delete this->value(i);
 			GFREE(this->key(i));
 		}
@@ -448,7 +439,7 @@ public:
 		Clear() {
 		khInt_t nb=this->n_buckets();
 		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->__kh_used(this->used, i)) continue;
+			if (! this->_used(i) ) continue;
 			GFREE(this->key(i));
 		}
 		lastKey=NULL;

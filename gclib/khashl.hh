@@ -6,27 +6,6 @@
 #include <cstring>    // for memset()
 #include <stdint.h>   // for uint32_t
 
-/* // ==> Code example <==
-#include <cstdio>
-#include "khashl.hpp"
-
-int main(void)
-{
-	klib::KHashMap<uint32_t, int, std::hash<uint32_t> > h; // NB: C++98 doesn't have std::hash
-	uint32_t k;
-	int absent;
-	h[43] = 1, h[53] = 2, h[63] = 3, h[73] = 4;       // one way to insert
-	k = h.put(53, &absent), h.value(k) = -2;          // another way to insert
-	if (!absent) printf("already in the table\n");    //   which allows to test presence
-	if (h.get(33) == h.end()) printf("not found!\n"); // test presence without insertion
-	h.del(h.get(43));               // deletion
-	for (k = 0; k != h.end(); ++k)  // traversal
-		if (h.occupied(k))          // some buckets are not occupied; skip them
-			printf("%u => %d\n", h.key(k), h.value(k));
-	return 0;
-}
-*/
-
 namespace klib {
 
 /***********
@@ -46,13 +25,13 @@ protected:
 	static inline khint_t __kh_h2b(uint32_t hash, khint_t bits) { return hash * 2654435769U >> (32 - bits); }
 	static inline khint_t __kh_h2b(uint64_t hash, khint_t bits) { return hash * 11400714819323198485ULL >> (64 - bits); }
 public:
-	KHashSet() : bits(0), count(0), used(0), keys(0) {};
+	KHashSet() : bits(0), count(0), used(NULL), keys(NULL) {};
 	~KHashSet() { std::free(used); std::free(keys); };
 	inline khint_t n_buckets() const { return used? khint_t(1) << bits : 0; }
 	inline khint_t end() const { return n_buckets(); }
 	inline khint_t size() const { return count; }
 	inline T &key(khint_t x) { return keys[x]; };
-	inline bool occupied(khint_t x) const { return (__kh_used(used, x) != 0); }
+	inline bool _used(khint_t i) const { return (used[i>>5] >> (i&0x1fU) & 1U); }
 	void clear(void) {
 		if (!used) return;
 		memset(used, 0, __kh_fsize(n_buckets()) * sizeof(uint32_t));

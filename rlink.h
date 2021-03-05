@@ -355,9 +355,9 @@ struct CReadAln:public GSeg {
 	// GStr name;
 	char strand; // 1, 0 (unkown), -1 (reverse)
 	short int nh;
+	bool unitig:1;
 	uint len;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
-	bool unitig;
 	GVec<float> pair_count;   // keeps count for all paired reads
 	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
@@ -369,7 +369,7 @@ struct CReadAln:public GSeg {
 
 	CReadAln(char _strand=0, short int _nh=0,
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
-					strand(_strand),nh(_nh), len(0), read_count(0), unitig(false),pair_count(),pair_idx(),
+					strand(_strand),nh(_nh), unitig(false), len(0), read_count(0), pair_count(),pair_idx(),
 					segs(), juncs(false), tinfo(tif) { }
 	CReadAln(CReadAln &rd):GSeg(rd.start,rd.end) { // copy contructor
 		strand=rd.strand;
@@ -461,7 +461,7 @@ struct CTreePat {
 struct CTrimPoint { // this can work as a guide keeper too, where pos is the guideidx, abundance is the flow, and start is the included status
 	uint pos;
 	float abundance;
-	bool start;
+	bool start:1;
 	CTrimPoint(uint _pos=0,float abund=0.0,bool _start=true):pos(_pos),abundance(abund),start(_start) {}
 };
 
