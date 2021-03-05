@@ -55,7 +55,10 @@ else:
     #####
     ## Collect all samples file paths and if empty print help message and quit
     #####
-    samples = [(i,glob.iglob(os.path.join(opts.input,i,"*.gtf")).next()) for i in next(os.walk(opts.input))[1] if re.search(opts.pattern,i)]
+    for i in next(os.walk(opts.input))[1]:
+      if re.search(opts.pattern,i):
+         for f in glob.iglob(os.path.join(opts.input,i,"*.gtf")):
+           samples.append((i,f)) 
 
 if len(samples) == 0:
   parser.print_help()
@@ -152,8 +155,8 @@ for s in samples:
         ## i = numLine; v = corresponding i-th GTF row
         for i,v in enumerate(split):
             if is_transcript(v):
-                t_id=RE_TRANSCRIPT_ID.search(v[8]).group(1)
                 try:
+                  t_id=RE_TRANSCRIPT_ID.search(v[8]).group(1)
                   g_id=getGeneID(v[8], v[0], t_id)
                 except:
                   print "Problem parsing file %s at line:\n:%s\n" % (s[1], v)

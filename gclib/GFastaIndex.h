@@ -8,12 +8,12 @@
 #ifndef GFAIDX_H_
 #define GFAIDX_H_
 
-#include "GHash.hh"
+#include "GHashMap.hh"
 #include "GList.hh"
 
 class GFastaRec {
  public:
-  char* seqname;
+  const char* seqname;
   uint seqlen;
   off_t fpos;
   int line_len; //effective line length (without EoL)
@@ -42,7 +42,7 @@ class GFastaIndex {
   char* fai_name;
   bool haveFai;
  public:
-  GHash<GFastaRec> records;
+  GHash<GFastaRec*> records;
   void addRecord(const char* seqname, uint seqlen,
                     off_t foffs, int llen, int llen_full);
 

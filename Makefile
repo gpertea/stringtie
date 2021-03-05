@@ -8,7 +8,7 @@ INCDIRS := -I. -I${GDIR} -I${BAM}
 CXX   := $(if $(CXX),$(CXX),g++)
 
 BASEFLAGS := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
--D_LARGEFILE_SOURCE -std=c++0x -fno-strict-aliasing -fno-exceptions -fno-rtti
+-D_LARGEFILE_SOURCE -std=c++11 -fno-strict-aliasing -fno-exceptions -fno-rtti
 #for gcc 8+ add: -Wno-class-memaccess
 GCCVER5 := $(shell expr `${CXX} -dumpversion | cut -f1 -d.` \>= 5)
 ifeq "$(GCCVER5)" "1"
@@ -38,11 +38,11 @@ ifneq (,$(findstring mingw,$(shell ${CXX} -dumpmachine)))
 endif
 
 # Misc. system commands
-ifdef WINDOWS
- RM = del /Q
-else
- RM = rm -f
-endif
+#ifdef WINDOWS ##<-- use MSYS
+# RM = del /Q
+#else
+RM = rm -f
+#endif
 
 # File endings
 ifdef WINDOWS
@@ -145,14 +145,13 @@ memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
 memuse memusage memtrace: stringtie${EXE}
 nothreads: stringtie${EXE}
 
-${GDIR}/GBam.o : $(GDIR)/GBam.h
-stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHash.hh $(GDIR)/GBam.h
+stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GBam.h
 rlink.o : rlink.h tablemaker.h $(GDIR)/GBam.h $(GDIR)/GBitVec.h
 tmerge.o : rlink.h tmerge.h
 tablemaker.o : tablemaker.h rlink.h
 ${BAM}/libbam.a: 
 	cd ${BAM} && make lib
-stringtie: ${BAM}/libbam.a $(OBJS) stringtie.o
+stringtie${EXE}: ${BAM}/libbam.a $(OBJS) stringtie.o
 	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LIBS}
 	@echo
 	${DBG_WARN}

@@ -319,6 +319,7 @@ class GBamReader {
 class GBamWriter {
    samfile_t* bam_file;
    bam_header_t* bam_header;
+   bool sharedHeader;
  public:
    void create(const char* fname, bool uncompressed=false) {
       if (bam_header==NULL)
@@ -332,16 +333,21 @@ class GBamWriter {
       if (bam_file==NULL)
          GError("Error: could not create BAM file %s!\n",fname);
       }
+
    void create(const char* fname, bam_header_t* bh, bool uncompressed=false) {
      bam_header=bh;
      create(fname,uncompressed);
      }
 
-   GBamWriter(const char* fname, bam_header_t* bh, bool uncompressed=false) {
+   GBamWriter(const char* fname, bam_header_t* bh, bool uncompressed=false):sharedHeader(false) {
       create(fname, bh, uncompressed);
-      }
+   }
 
-   GBamWriter(const char* fname, const char* samfname, bool uncompressed=false) {
+   GBamWriter(bam_header_t* bh, const char* fname, bool uncompressed=false):sharedHeader(true) {
+	   create(fname, bh, uncompressed);
+   }
+
+   GBamWriter(const char* fname, const char* samfname, bool uncompressed=false):sharedHeader(false) {
       tamFile samf_in=sam_open(samfname);
       if (samf_in==NULL)
          GError("Error: could not open SAM file %s\n", samfname);
@@ -354,8 +360,8 @@ class GBamWriter {
 
     ~GBamWriter() {
       samclose(bam_file);
-      bam_header_destroy(bam_header);
-      }
+      if (!sharedHeader) bam_header_destroy(bam_header);
+    }
    bam_header_t* get_header() { return bam_header; }
    int32_t get_tid(const char *seq_name) {
       if (bam_header==NULL)

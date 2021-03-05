@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.3"
+#define VERSION "2.1.5"
 
 //#define DEBUGPRINT 1
 
@@ -69,8 +69,8 @@ Options:\n\
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
  -e only estimate the abundance of given reference transcripts (requires -G)\n\
- --viral : only relevant for long reads in viral data were splice sites don't\n\
-    follow consensus (default:false)\n\
+ --viral : only relevant for long reads from viral data where splice sites\n\
+    do not follow consensus (default:false)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -u no multi-mapping correction (default: correction enabled)\n\
  -h print this usage message and exit\n\
@@ -243,7 +243,7 @@ GFastMutex countMutex;
 
 #endif
 
-GHash<int> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
+GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
 
 bool NoMoreBundles=false;
 bool moreBundles(); //thread-safe retrieves NoMoreBundles
@@ -278,7 +278,7 @@ int main(int argc, char* argv[]) {
  // == Process arguments.
  GArgs args(argc, argv,
    "debug;help;version;viral;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
-   "exclude=zEihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
+   "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -292,7 +292,7 @@ int main(int argc, char* argv[]) {
  GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
  GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
 
- GVec<int> alncounts(30,0); //keep track of the number of read alignments per chromosome [gseq_id]
+ GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
 
  int bamcount=bamreader.start(); //setup and open input files
 #ifndef GFF_DEBUG
@@ -429,16 +429,18 @@ if (ballgown)
 #ifndef NOTHREADS
 //model: one producer, multiple consumers
 #define DEF_TSTACK_SIZE 8388608
+ size_t defStackSize=DEF_TSTACK_SIZE;
+#ifdef _GTHREADS_POSIX_
  int tstackSize=GThread::defaultStackSize();
- size_t defStackSize=0;
-if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
+ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  if (verbose) {
-	 if (defStackSize>0){
-		 int ssize=defStackSize;
-		 GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
-	 }
-	 else GMessage("Default stack size for threads: %d\n", tstackSize);
+   if (defStackSize>0){
+    int ssize=defStackSize;
+    GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
+   }
+   else GMessage("Default stack size for threads: %d\n", tstackSize);
  }
+#endif
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
@@ -523,7 +525,7 @@ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
 			 }
 
 			 if (alncounts.Count()<=gseq_id) {
-				 alncounts.Resize(gseq_id+1, 0);
+				 alncounts.Resize(gseq_id+1);
 			 }
 			 else if (alncounts[gseq_id]>0)
 			           GError("%s\nAlignments (%d) already found for %s !\n",
@@ -1029,7 +1031,7 @@ void processOptions(GArgs& args) {
     	 s.startTokenize(" ,\t");
     	 GStr chrname;
     	 while (s.nextToken(chrname)) {
-    		 excludeGseqs.Add(chrname.chars(),new int(0));
+    		 excludeGseqs.Add(chrname.chars());
     	 }
      }
 
@@ -1074,6 +1076,7 @@ void processOptions(GArgs& args) {
 			 bundledist=0;
 		 }
 		 readthr=0;
+
 	 }
 
 	 s=args.getOpt('c');
@@ -1151,7 +1154,7 @@ void processOptions(GArgs& args) {
 	             ptff.chars());
 	 }
 
-	 enableNames=(args.getOpt('E')!=NULL);
+	 //enableNames=(args.getOpt('E')!=NULL);
 
 	 retained_intron=(args.getOpt('i')!=NULL);
 
@@ -1258,7 +1261,7 @@ void processOptions(GArgs& args) {
 	 { //prepare temp path
 		 GStr stempl(out_dir);
 		 stempl.chomp('/');
-		 stempl+="/tmp.XXXXXXXX";
+		 stempl+="/tmp_XXXXXX";
 		 char* ctempl=Gstrdup(stempl.chars());
 	     Gmktempdir(ctempl);
 	     tmp_path=ctempl;
@@ -1330,11 +1333,11 @@ void noMoreBundles() {
 		  if (areThreadsWaiting) {
 		    DBGPRINT("##> NOTIFY ALL workers: no more data!\n");
 		    haveBundles.notify_all();
-		    current_thread::sleep_for(10);
+		    current_thread::sleep_for(1);
 		    waitMutex.lock();
 		     areThreadsWaiting=(threadsWaiting>0);
 		    waitMutex.unlock();
-		    current_thread::sleep_for(10);
+		    current_thread::sleep_for(1);
 		  }
 		} while (areThreadsWaiting); //paranoid check that all threads stopped waiting
 #else
@@ -1585,7 +1588,7 @@ int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts) {
   return num;
 }
 
-void writeUnbundledGenes(GHash<CGene>& geneabs, const char* refseq, FILE* gout) {
+void writeUnbundledGenes(GHash<CGene*>& geneabs, const char* refseq, FILE* gout) {
 				 //write unbundled genes from this chromosome
 	geneabs.startIterate();
 	while (CGene* g=geneabs.NextData()) {
@@ -1604,7 +1607,7 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
  for (int g=0;g<refdata.Count();++g) {
 	 GRefData& crefd=refdata[g];
 	 if (crefd.rnas.Count()==0) continue;
-	 GHash<CGene> geneabs;
+	 GHash<CGene*> geneabs;
 	 //gene_id abundances (0), accumulating coords
 	 for (int m=0;m<crefd.rnas.Count();++m) {
 		 GffObj &t = *crefd.rnas[m];
