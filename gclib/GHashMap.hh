@@ -114,7 +114,7 @@ public:
 		//returns a pointer to next valid key in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		uint32_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		K* k=&(this->key(i_iter-1));
 		++i_iter;
@@ -313,7 +313,7 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		val=this->value(i_iter);
 		K* k=&(this->key(i_iter));
@@ -327,7 +327,7 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		val=this->value(i_iter);
 		K k = this->key(i_iter);
@@ -341,7 +341,7 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->occupied(i_iter)) i_iter++;
+		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
 		if (i_iter==nb) return NULL;
 		T* val=&(this->value(i_iter));
 		++i_iter;
