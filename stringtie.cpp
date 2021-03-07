@@ -135,6 +135,7 @@ GStr out_dir;
 GStr tmp_path;
 GStr tmpfname;
 GStr genefname;
+GStr traindir; // training directory for CDS option
 bool guided=false;
 bool trim=true;
 bool viral=false;
@@ -163,6 +164,7 @@ uint runoffdist=200;
 float mcov=1; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 int allowed_nodes=1000;
 //bool adaptive=true; // adaptive read coverage -> depends on the overall gene coverage
+GPVec<CDSparam> cds;
 
 int no_xs=0; // number of records without the xs tag
 
@@ -281,7 +283,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;mix;cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
    "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -1031,6 +1033,12 @@ void processOptions(GArgs& args) {
 		 s=args.getOpt('S');
 	 if (!s.is_empty()) {
 		 gfasta=new GFastaDb(s.chars());
+	 }
+
+	 traindir=args.getOpt("cds");
+	 if(!traindir.is_empty()) {
+		 if(gfasta==NULL) GError("Genomic sequence file is required for --cds option.\n");
+		 load_cds_param(traindir,cds);
 	 }
 
      s=args.getOpt('x');

@@ -8,6 +8,7 @@
 #include "time.h"
 #include "tablemaker.h"
 #include "GHashMap.hh"
+#include "cds.h"
 
 #define MAX_NODE 1000000
 #define KMER 31
@@ -250,11 +251,11 @@ struct CExon{
 	CExon(int p=0,int e=0,float c=0):predno(p),exonno(e),exoncov(c) {}
 };
 
-struct TwoFloat{
+/*struct TwoFloat{
 	float start;
 	float end;
 	TwoFloat(float v1=0,float v2=0):start(v1),end(v2) {}
-};
+};*/
 
 struct CPred{
 	int predno;
