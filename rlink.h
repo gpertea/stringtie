@@ -14,6 +14,7 @@
 
 #define DROP 0.5
 #define ERROR_PERC 0.1
+#define DBL_ERROR 0.01
 
 #define CHI_WIN 100
 #define CHI_THR 50
