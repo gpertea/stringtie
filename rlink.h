@@ -8,7 +8,7 @@
 #include "time.h"
 #include "tablemaker.h"
 #include "GHashMap.hh"
-#include "cds.h"
+//#include "cds.h"
 
 #define MAX_NODE 1000000
 #define KMER 31

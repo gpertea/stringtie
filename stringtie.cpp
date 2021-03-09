@@ -164,7 +164,7 @@ uint runoffdist=200;
 float mcov=1; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 int allowed_nodes=1000;
 //bool adaptive=true; // adaptive read coverage -> depends on the overall gene coverage
-GPVec<CDSparam> cds;
+//GPVec<CDSparam> cds;
 
 int no_xs=0; // number of records without the xs tag
 
@@ -1035,11 +1035,11 @@ void processOptions(GArgs& args) {
 		 gfasta=new GFastaDb(s.chars());
 	 }
 
-	 traindir=args.getOpt("cds");
+	 /*traindir=args.getOpt("cds");
 	 if(!traindir.is_empty()) {
 		 if(gfasta==NULL) GError("Genomic sequence file is required for --cds option.\n");
 		 load_cds_param(traindir,cds);
-	 }
+	 }*/
 
      s=args.getOpt('x');
      if (!s.is_empty()) {
