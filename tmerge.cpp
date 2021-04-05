@@ -1,6 +1,6 @@
 #include "tmerge.h"
 
-GStr mfltgff;
+char* mfltgff=NULL;
 GHash<GSTree*> map_trees; //map a ref sequence name to its own interval trees (3 per ref seq)
 GPVec<GffObj> toFree(true);
 
@@ -9,7 +9,7 @@ int loadITree(const char* fname) {
 	int nt=0;
 	FILE* fr=fopen(fname, "r");
 	if (fr==NULL) GError("Error: could not open GFF file %s\n", fname);
-
+    GMessage("loading transcript filter file %s.. \n", fname);
 	GffReader* myR=new GffReader(fr, true, true);
 	const char* fext=getFileExt(fname);
 	if (Gstricmp(fext, "bed")==0) myR->isBED();
@@ -33,6 +33,7 @@ int loadITree(const char* fname) {
 		toFree.Add(t);
 	}
 	delete myR;
+	GMessage("   %d transcripts loaded for matching\n", nt);
 	return nt;
 }
 
@@ -179,6 +180,10 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
 
 int TInputFiles::start() {
 	GVec<GStr> bamfiles;
+	if (mfltgff) {
+		mFlt=(loadITree(mfltgff)>0);
+	}
+
 	if (mergeMode && this->files.Count()==1) {
 		//special case, if it's only one file it must be a list (usually)
 		GStr fname(this->files.First());

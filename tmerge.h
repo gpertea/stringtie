@@ -7,7 +7,7 @@
 
 extern GStr tmp_path;
 extern bool keepTempFiles;
-extern GStr mfltgff;
+extern char* mfltgff;
 
 struct GSTree {
 	GIntervalTree it[3]; //0=unstranded, 1: +strand, 2: -strand
@@ -67,11 +67,7 @@ struct TInputFiles {
 	GVec<GStr> tmpfiles; //all the temp files created by this
 	GList<TInputRecord> recs; //next record for each
 	TInputFiles():crec(NULL), mFlt(false), readers(true), files(), tmpfiles(),
-			recs(true, true, true) {
-		if (!mfltgff.is_empty()) {
-			mFlt=(loadITree(mfltgff.chars())>0);
-		}
-	}
+			recs(true, true, true) { }
 	void Add(const char* fn);
 	int count() { return files.Count(); }
 	int start(); //open all files, load 1 record from each

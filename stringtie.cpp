@@ -278,7 +278,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;mflt;"
+   "debug;help;version;viral;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;mflt=;"
    "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -988,6 +988,12 @@ void processOptions(GArgs& args) {
 	 if(mergeMode) {
 		 longreads=false; // these are not longreads
 	 }
+
+	 if (args.getOpt("mflt")) {
+		 mfltgff=args.getOpt("mflt");
+		 if (!mergeMode) GError("Error: option --mftl requires --merge!\n");
+	 }
+
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
 	 //adaptive=!(args.getOpt('d')!=NULL);
 	 verbose=(args.getOpt('v')!=NULL);
