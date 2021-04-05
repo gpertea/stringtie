@@ -3,8 +3,20 @@
 #include "GStr.h"
 #include "GList.hh"
 #include "rlink.h"
+#include "GIntervalTree.hh"
+
 extern GStr tmp_path;
 extern bool keepTempFiles;
+extern GStr mfltgff;
+
+struct GSTree {
+	GIntervalTree it[3]; //0=unstranded, 1: +strand, 2: -strand
+};
+
+extern GHash<GSTree*> map_trees; //map a ref sequence name to its own interval trees (3 per ref seq)
+
+int loadITree(const char* fname); //return number of transcripts loaded from fname into map_trees
+bool matchITree(GffObj& t); //return true if t has a match in map_trees
 
 struct TInputRecord {
 	GBamRecord* brec;
@@ -49,18 +61,22 @@ struct TInputFiles {
 	TInputRecord* crec;
 	GStr convert2BAM(GStr& gtf, int idx);
  public:
+	bool mFlt;
 	GPVec<GBamReader> readers;
 	GVec<GStr> files; //same order
 	GVec<GStr> tmpfiles; //all the temp files created by this
 	GList<TInputRecord> recs; //next record for each
-	TInputFiles():crec(NULL), readers(true), files(), tmpfiles(),
-			recs(true, true, true) { }
+	TInputFiles():crec(NULL), mFlt(false), readers(true), files(), tmpfiles(),
+			recs(true, true, true) {
+		if (!mfltgff.is_empty()) {
+			mFlt=(loadITree(mfltgff.chars())>0);
+		}
+	}
 	void Add(const char* fn);
 	int count() { return files.Count(); }
 	int start(); //open all files, load 1 record from each
 	GBamRecord* next();
 	void stop(); //
 };
-
 
 #endif /* STRINGTIE_MERGE_H_ */

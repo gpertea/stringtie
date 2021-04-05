@@ -95,6 +95,7 @@ the following options are available:\n\
   -g <gap_len>     gap between transcripts to merge together (default: 250)\n\
   -i               keep merged transcripts with retained introns; by default\n\
                    these are not kept unless there is strong evidence for them\n\
+  --mflt <f.gtf>   only consider transfrags matching transcripts in <f.gtf> \n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
 /*
@@ -277,7 +278,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;mflt;"
    "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 

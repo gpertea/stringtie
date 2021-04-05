@@ -1,5 +1,97 @@
 #include "tmerge.h"
 
+GStr mfltgtf;
+GHash<GSTree*> map_trees; //map a ref sequence name to its own interval trees (3 per ref seq)
+GPVec<GffObj> toFree(true);
+
+int loadITree(const char* fname) {
+	if (fname==NULL) return 0;
+	int nt=0;
+	FILE* fr=fopen(fname, "r");
+	if (fr==NULL) GError("Error: could not open GFF file %s\n", fname);
+
+	GffReader* myR=new GffReader(fr, true, true);
+	const char* fext=getFileExt(fname);
+	if (Gstricmp(fext, "bed")==0) myR->isBED();
+	GffObj* t=NULL;
+	while ((t=myR->readNext())!=NULL) {
+		if (t->exons.Count()==0) {
+			delete t;
+			continue; //skip exonless entities (e.g. genes)
+		}
+		nt++;
+		GSTree* cTree=map_trees[t->getGSeqName()];
+		if (cTree==NULL) {
+			cTree=new GSTree();
+			map_trees.Add(t->getGSeqName(), cTree);
+		}
+		if (t->strand=='+')
+		 cTree->it[1].Insert(t);
+		else if (t->strand=='-')
+			cTree->it[2].Insert(t);
+		else cTree->it[0].Insert(t);
+		toFree.Add(t);
+	}
+	delete myR;
+	return nt;
+}
+
+bool t_match(GffObj& a, GffObj& b) { //basic transcript match check
+	int imax=a.exons.Count()-1;
+	int jmax=b.exons.Count()-1;
+	if (imax!=jmax) return false; //different number of exons, cannot match
+	if (imax==0) { //single-exon mRNAs
+		 GSeg mseg(a.start, a.end);
+		 int ovlen=mseg.overlapLen(b.start, b.end);
+		 if (ovlen<=0) return false;
+		 int maxlen=GMAX(a.covlen, b.covlen);
+		 return (ovlen>=maxlen*0.8);
+	}
+	if ( a.exons[imax]->start<b.exons[0]->end ||
+		b.exons[jmax]->start<a.exons[0]->end )
+		return false; //intron chains do not overlap at all
+	//check intron overlaps
+	for (int i=1;i<=imax;i++) {
+		if ((a.exons[i-1]->end!=b.exons[i-1]->end) ||
+			(a.exons[i]->start!=b.exons[i]->start)) {
+			return false; //intron mismatch
+		}
+	}
+	return true;
+}
+
+bool matchITree(GffObj& t) { //return true if t has a match in map_trees
+	//returns false if no match is possible (including different or not found ref id)
+	const char* gseq=t.getGSeqName();
+	if (!map_trees.hasKey(gseq)) {
+		return false;
+	}
+	if (t.exons.Count()==0) {
+		return false; //only work with properly defined transcripts
+	}
+	GVec<int> sidx;
+	GSTree* cTree=map_trees[gseq];
+	sidx.cAdd(0); //always attempt to search the '.' strand
+    if (t.strand=='+') sidx.cAdd(1);
+	   else if (t.strand=='-') sidx.cAdd(2);
+	   else { sidx.cAdd(1); sidx.cAdd(2); }
+	bool mfound=false;
+	for (int k=0;k<sidx.Count();++k) {
+		GVec<GSeg*> *enu = cTree->it[sidx[k]].Enumerate(t.start, t.end);
+		if(enu->Count()>0) { //overlaps found
+			for (int i=0; i<enu->Count(); ++i) {
+				GffObj* r=(GffObj*)enu->Get(i);
+				if (t_match(t, *r)) {
+					mfound=true;
+					break;
+				}
+			}
+		}
+		delete enu;
+		if (mfound) break;
+	}
+	return mfound;
+}
 
 void TInputFiles::Add(const char* fn) {
 	   GStr sfn(fn);
@@ -10,7 +102,6 @@ void TInputFiles::Add(const char* fn) {
 
 		files.Add(sfn);
 	}
-
 
 int gseqstat_cmpName(const pointer p1, const pointer p2) {
 	return strcmp(((GSeqStat*)p1)->gseqname, ((GSeqStat*)p2)->gseqname);
@@ -44,6 +135,11 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   GBamWriter bw(bamfname.chars(),samhname.chars());
   for (int i=0;i<gfr.gflst.Count();++i) {
 	  GffObj& m = *gfr.gflst[i];
+
+	  if (mFlt) {
+		  if (!matchITree(m)) continue;
+	  }
+
 	  int t_id=bw.get_tid(m.getGSeqName());
 	  if (t_id<0)
 		   GError("Error getting header ID# for gseq %s (file: %s)\n",m.getGSeqName(),gtf.chars());
