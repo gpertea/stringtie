@@ -1,6 +1,6 @@
 #include "tmerge.h"
 
-GStr mfltgtf;
+GStr mfltgff;
 GHash<GSTree*> map_trees; //map a ref sequence name to its own interval trees (3 per ref seq)
 GPVec<GffObj> toFree(true);
 
