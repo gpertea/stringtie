@@ -387,7 +387,8 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	  	bdata.end=currentend;
 	}
 
-	float rdcount=1;
+	float rdcount=(float)brec.tag_int("YC"); // alignment count
+	if(!rdcount) rdcount=1;
 	if(unitig_cov) {
 		rdcount=unitig_cov;
 		if(isunitig) readlist[n]->unitig=true; // treat unitig reads differently when -U is set
@@ -2253,6 +2254,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 	for(int i=0;i<trimpoint.Count();i++) if(trimpoint[i].pos){
 		if(trimpoint[i].start) { // source trim
 			graphnode->end=trimpoint[i].pos-1;
+			//fprintf(stderr,"Create source trim:%d-%d and %d-%d\n",graphnode->start,graphnode->end,trimpoint[i].pos,newend);
 			CGraphnode *prevnode=graphnode;
 			graphnode=create_graphnode(s,g,trimpoint[i].pos,newend,graphno,bundlenode,bundle2graph,no2gnode);
 			graphnode->hardstart=true;
@@ -3201,18 +3203,17 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    					}
 	    					else {
 	    						graphnode=guide2sink(s,g,refstart,gstart,gend,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
-	    						dropcov=true;;
+	    						dropcov=true;
 	    					}
 
 	    				}
 	    			}
 	    		}
 	    		//if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
-	    		else if(trim && !mergeMode) {
-	    			if(!longreads) graphnode=trimnode_all(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
-	    			else if(lstart.Count() || lend.Count()) graphnode=longtrim(s,g,refstart,junction[njs]->start,nls,nle,dropcov,true,lstart,lend,
+	    		else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,junction[njs]->start,nls,nle,dropcov,true,lstart,lend,
 							graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    		}
+	    		if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
+
 
 	    		dropcov=true;
 	    		// if no trimming required just set the end of the node
@@ -3311,11 +3312,10 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    				}
 	    			}
 	    			//if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
-	    			else if(trim && !mergeMode) {
-	    				if(!longreads) graphnode=trimnode_all(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
-	    				else if(lstart.Count() || lend.Count()) graphnode=longtrim(s,g,refstart,pos-1,nls,nle,dropcov,false,lstart,lend,
+	    			else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,pos-1,nls,nle,dropcov,false,lstart,lend,
 	    						graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    			}
+	    			if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
+
 
 	    			graphnode->end=pos-1; // set end of current graphnode here
 	    			dropcov=false;
@@ -3383,12 +3383,9 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    		}
 	    	}
 	    	// if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
-	    	else if(trim && !mergeMode) {
-	    		if(!longreads) graphnode=trimnode_all(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
-	    		else if(lstart.Count() || lend.Count()) graphnode=longtrim(s,g,refstart,endbundle,nls,nle,dropcov,true,lstart,lend,
+	    	else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,endbundle,nls,nle,dropcov,true,lstart,lend,
 	    				graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    	}
-
+	    	if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 	    	graphnode->end=endbundle;
 	    	// COUNT EDGE HERE (this is an edge to sink)
@@ -5025,7 +5022,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 
 		CTransfrag *t=NULL;
 		bool add=true;
-		if(longreads) {
+		if(longreads || mixedMode) {
 			/*guidetrf[i].trf->pattern[0]=0;
 			guidetrf[i].trf->pattern[gno-1]=0;
 			int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
@@ -5038,7 +5035,8 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
 			if(!t) { // t is NULL
 				t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,0);
-				t->longread=true;
+				if(longreads) t->longread=true;
+				else t->abundance=trthr*ERROR_PERC;
 			}
 			else add=false;
 		}
@@ -5077,8 +5075,10 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			if(pos) t->pattern[*pos]=0;
 			pos=gpos[edge(t->nodes[t->nodes.Count()-2],t->nodes.Last(),gno)];
 			if(pos) t->pattern[*pos]=0;
+			if(add) {
 			t->nodes.Pop();
 			t->nodes.Shift();
+		}
 		}
 		t->guide=true;
 		t->longstart=no2gnode[t->nodes[0]]->start;
