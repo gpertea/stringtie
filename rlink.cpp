@@ -5076,9 +5076,9 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			pos=gpos[edge(t->nodes[t->nodes.Count()-2],t->nodes.Last(),gno)];
 			if(pos) t->pattern[*pos]=0;
 			if(add) {
-			t->nodes.Pop();
-			t->nodes.Shift();
-		}
+				t->nodes.Pop();
+				t->nodes.Shift();
+			}
 		}
 		t->guide=true;
 		t->longstart=no2gnode[t->nodes[0]]->start;
@@ -10212,7 +10212,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 			rate=inode->cov/rate;
 		}
 		noderate.Add(rate);
-		//fprintf(stderr,"Node[%d] no2gnode->cov=%f nodecov=%f noderate=%f\n",i,inode->cov,nodecov[i],noderate[i]);
+		//fprintf(stderr,"Node[%d]:%d-%d no2gnode->cov=%f nodecov=%f noderate=%f\n",i,inode->start,inode->end,inode->cov,nodecov[i],noderate[i]);
 	}
 
 	GVec<int> path;
@@ -10229,7 +10229,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 	GVec<CTransfrag> keeptrf;
 	GVec<int> checktrf;
 	for(int f=trflong.Count()-1;f>=0;f--) { // if this is a guide it should be reflected in the prediction downstream
-		 path.Clear();
+		path.Clear();
 		 int t=trflong[f];
 		 if(t<0) GError("Stored long transcript is negative!\n");
 		 pathpat=transfrag[t]->pattern;
@@ -10301,9 +10301,9 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 					 float cov=0;
 					 int startnode=1;
 					 int lastnode=path.Count()-2;
+
 					 uint startpoint=no2gnode[path[startnode]]->end;
 					 uint endpoint=no2gnode[path[lastnode]]->start;
-
 					 CGraphnode *jnode=no2gnode[path[startnode]];
 					 for(int i=0;i<jnode->trf.Count();i++) { // for all transfrags going through startnode
 						 int t=jnode->trf[i];
@@ -10315,7 +10315,6 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 							 }
 						 }
 					 }
-
 					 jnode=no2gnode[path[lastnode]];
 					 for(int i=0;i<jnode->trf.Count();i++) { // for all transfrags going through lastnode
 						 int t=jnode->trf[i];
@@ -10327,18 +10326,15 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 							 }
 						 }
 					 }
-
 					 if(startpoint==no2gnode[path[startnode]]->end) startpoint=no2gnode[path[1]]->start;
 					 if(endpoint==no2gnode[path[lastnode]]->start) endpoint=no2gnode[path[lastnode]]->end;
 
 
 					 while(j<=lastnode) {
 						 int nodestart=no2gnode[path[j]]->start;
-						 if(j==startnode) nodestart=startpoint;
 						 int nodeend=no2gnode[path[j]]->end;
-						 if(j==lastnode) nodeend=endpoint;
-						 nodecov[path[j]]-=nodeflux[j];
 						 len+=nodeend-nodestart+1;
+						 nodecov[path[j]]-=nodeflux[j];
 						 float ecov=nodeflux[j]*noderate[path[j]];
 						 float excov=ecov;
 						 /*if(mixedMode) {
@@ -10353,9 +10349,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 							 ecov=nodeflux[j]*noderate[path[j]];
 							 nodecov[path[j]]-=nodeflux[j];
 							 excov+=ecov;
-							 if(j==lastnode) nodeend=endpoint;
 							 len+=nodeend-no2gnode[path[j]]->start+1;
-
 						 }
 						 GSeg exon(nodestart,nodeend);
 						 exons.Add(exon);
@@ -10372,7 +10366,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 //fprintf(stderr,"1 Store prediction %d  with abundance=%f len=%d and exons:",pred.Count(),cov/len,len);
 						 //for(int i=0;i<exons.Count();i++) fprintf(stderr," %d-%d",exons[i].start,exons[i].end);
 						 //fprintf(stderr,"\n");
-						 CPrediction *p=new CPrediction(geneno, NULL,exons[0].start , exons.Last().end, cov, sign, len);
+						 CPrediction *p=new CPrediction(geneno, NULL,startpoint , endpoint, cov, sign, len);
 						 p->exons=exons;
 						 p->exoncov=exoncov;
 						 p->mergename='.'; // I should not delete this prediction
@@ -10449,6 +10443,12 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 				 else path.Add(transfrag[t]->nodes[j]);
 			 }
 			 if(path.Last()==transfrag[t]->nodes.Last()) { // this transfrag is complete, might be worth rescuing
+
+				 uint startpoint=no2gnode[path[1]]->end;
+				 uint endpoint=no2gnode[path.Last()]->start;
+				 if(transfrag[t]->longstart) startpoint=transfrag[t]->longstart;
+				 if(transfrag[t]->longend) endpoint=transfrag[t]->longend;
+
 				 int sink=gno-1;
 				 path.Add(sink);
 
@@ -10502,7 +10502,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 				 if(len>=mintranscriptlen) {
 				   if(first) { geneno++; first=false;}
 				   //fprintf(stderr,"2 Store prediction %d:%d-%d  with len=%d and abundance=%f\n",pred.Count(),exons[0].start ,exons.Last().end,len,cov/len);
-				   CPrediction *p=new CPrediction(geneno, NULL,exons[0].start , exons.Last().end, cov, sign, len);
+				   CPrediction *p=new CPrediction(geneno, NULL,startpoint , endpoint, cov, sign, len);
 				   p->exons=exons;
 				   p->exoncov=exoncov;
 				   p->tlen=-p->tlen; // negative transcript length signifies assembly is from a long read
@@ -10563,14 +10563,14 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 					 }
 				 }
 			 }
-			 if(mixedMode) {
+			 //if(mixedMode) {
 				 if(!transfrag[t]->nodes[0] || transfrag[t]->nodes.Last()==gno-1)
 					 transfrag[t]->abundance=0;
 				 else
 					 transfrag[t]->abundance=transfrag[t]->usepath; // this restores tranfrag[t] abundance to what it was before
 				 transfrag[t]->usepath=-1;
-			 }
-			 else transfrag[t]->abundance=0; // delete abundance in order not to use it in short reads
+			 //}
+			 //else transfrag[t]->abundance=0; // delete abundance in order not to use it in short reads
 		 }
 
 		 int p=npred;
@@ -10579,6 +10579,15 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 				 pred[p]->cov/=abs(pred[p]->tlen);
 				 for(int i=0;i<pred[p]->exons.Count();i++)
 					 pred[p]->exoncov[i]/=pred[p]->exons[i].len();
+				 // adjust start/endpoints
+				 if(pred[p]->start!=pred[p]->exons[0].start) {
+					 pred[p]->tlen+=pred[p]->start-pred[p]->exons[0].start;
+					 pred[p]->exons[0].start=pred[p]->start;
+				 }
+				 if(pred[p]->end!=pred[p]->exons.Last().end) {
+					 pred[p]->tlen+=pred[p]->exons.Last().end-pred[p]->end;
+					 pred[p]->exons.Last().end=pred[p]->end;
+				 }
 				 p++;
 			 }
 			 else if(!eonly) { // || !pred[p]->t_eq) {
@@ -10589,7 +10598,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 		 }
 	 }
 
-	 if(mixedMode) {
+	 //if(mixedMode) {
 		 int nkeep=keeptrf.Count();
 		 /*for(int i=nkeep-1;i>nkept-1;i--) { // delete all kept transfrags we are not confident in
 			 keeptrf.Delete(i);
@@ -10599,7 +10608,8 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 
 		 float flux=0;
 		 GVec<float> nodeflux;
-		 GVec<int> path;
+		 path.Clear();
+
 
 		 for(int i=0;i<nkeep;i++) { // compute flux from short read data here
 			 istranscript.reset();
@@ -10639,7 +10649,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 				 bool included=true;
 				 float cov=store_transcript(pred,keeptrf[i].nodes,nodeflux,nodecovall,no2gnode,geneno,first,strand,gno,gpos,included,prevpath);
 				 if(cov) {
-					 if(pred.Last()->cov>pred[keeptrf[i].weak]->cov) { // new prediction is better than the previous one
+					 if(pred.Last()->cov>pred[keeptrf[i].weak]->cov) { // new prediction is better than the previous one -- shouldn't I add this to previous prediction?
 						 int p=keeptrf[i].weak;
 						 pred[p]->cov=pred.Last()->cov;
 						 for(int k=0;k<pred[p]->exons.Count();k++) {
@@ -10652,7 +10662,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 			 }
 
 		 }
-	 }
+	 //}
 }
 
 void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,
