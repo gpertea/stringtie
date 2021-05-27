@@ -171,10 +171,11 @@ struct CTransfrag {
 	bool real:1;
 	bool guide:1;
 	bool longread:1; // there is at least a longread supporting transfrag
+	bool shortread:1; // there is at least one short read supporting transfrag
 	uint longstart; // for long reads: min start of all longreads sharing transfrag
 	uint longend; // for long reads: max end of all longreads sharing transfrag
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, bool tguide=false,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longread(false),longstart(false),longend(false) {}
-	CTransfrag(float abund=0, bool treal=false,bool tguide=false):nodes(),pattern(),abundance(abund),srabund(0),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longread(false),longstart(false),longend(false) {
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, bool tguide=false,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longread(false),shortread(false),longstart(false),longend(false) {}
+	CTransfrag(float abund=0, bool treal=false,bool tguide=false):nodes(),pattern(),abundance(abund),srabund(0),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longread(false),shortread(false),longstart(false),longend(false) {
 	}
 };
 

@@ -330,30 +330,47 @@ void GBamRecord::setupCoordinates() {
 	clipL=0;
 	clipR=0;
 	start=c->pos+1; //genomic start coordinate, 1-based (BAM core.pos is 0-based)
+	bool intron=false;
 	int exstart=c->pos;
+	int del=0;
 	for (int i = 0; i < c->n_cigar; ++i) {
 		int op = cigar[i]&0xf;
 		if (op == BAM_CMATCH || op==BAM_CEQUAL ||
-				op == BAM_CDIFF || op == BAM_CDEL) {
+				op == BAM_CDIFF) {
 			l += cigar[i]>>4;
+			intron=false;
+			del=0;
+		}
+		else if(op == BAM_CDEL) {
+			del=cigar[i]>>4;
+			l+=del;
+			if(intron) { // deletion after intron
+				exstart+=del;
+			}
 		}
 		else if (op == BAM_CREF_SKIP) { //N
 			//intron starts
 			//exon ends here
 			has_Introns=true;
-			GSeg exon(exstart+1,c->pos+l);
+			GSeg exon(exstart+1,c->pos+l-del);
 			exons.Add(exon);
 			mapped_len+=exon.len();
 			l += cigar[i]>>4;
 			exstart=c->pos+l;
+			intron=true;
+			del=0;
 		}
 		else if (op == BAM_CSOFT_CLIP) {
 			soft_Clipped=true;
 			if (l) clipR=(cigar[i]>>4);
 			else clipL=(cigar[i]>>4);
+			intron=false;
+			del=0;
 		}
 		else if (op == BAM_CHARD_CLIP) {
 			hard_Clipped=true;
+			intron=false;
+			del=0;
 		}
 	}
 	GSeg exon(exstart+1,c->pos+l);
