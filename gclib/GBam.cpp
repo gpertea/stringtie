@@ -334,56 +334,56 @@ void GBamRecord::setupCoordinates() {
 	clipL=0;
 	clipR=0;
 	start=c->pos+1; //genomic start coordinate, 1-based (BAM core.pos is 0-based)
-	bool intron=false;
 	int exstart=c->pos;
-	int del=0;
-		//int op = cigar[i]&0xf;
-		//int cl = cigar[i]>>4;
+	//bool intron=false;
+	//int del=0;
 	for (int i = 0; i < c->n_cigar; ++i) {
 		unsigned char op = _cigOp(cigar[i]);
 		switch(op) {
 		  case BAM_CEQUAL:    // =
 		  case BAM_CDIFF:     // X
 		  case BAM_CMATCH:    // M
-		    l+=_cigLen(cigar[i]);
-		    intron=false; del=0;
-		    break;
 		  case BAM_CDEL:      // D
+		    l+=_cigLen(cigar[i]);
+		    //intron=false; del=0;
+		    break;
+		 /*  case BAM_CDEL:      // D
 		    del=_cigLen(cigar[i]);
 		    l+=del;
 		    if(intron) // deletion after intron
 		      exstart+=del; //push exon start
-		    break;
+		    break; */
 		  case BAM_CREF_SKIP: // N
 		    //intron starts
 		    //exon ends here
 		    {
 		    has_Introns=true;
-		    GSeg exon(exstart+1,c->pos+l-del);
+		    //GSeg exon(exstart+1,c->pos+l-del);
+		    GSeg exon(exstart+1,c->pos+l);
 		    exons.Add( exon );
 		    mapped_len+=exon.len();
 		    l += _cigLen(cigar[i]);
 		    exstart=c->pos+l;
 		    }
-		    intron=true; del=0;
+		    //intron=true; del=0;
 		    break;
 		  case BAM_CSOFT_CLIP: // S
 		    soft_Clipped=true;
 		    if (l) clipR=_cigLen(cigar[i]);
 		      else clipL=_cigLen(cigar[i]);
-		    intron=false; del=0;
+		    //intron=false; del=0;
 		    break;
 		  case BAM_CHARD_CLIP:
 		    hard_Clipped=true;
-		    intron=false; del=0;
+		    //intron=false; del=0;
 		    break;
 		  case BAM_CINS:      // I
 		    //rpos+=cl; //gpos not advanced
-		    intron=false; del=0;
+		    //intron=false; del=0;
 		    break;
 		  case BAM_CPAD:
 		    //gpos+=cl;
-		    intron=false; del=0; //?
+		    //intron=false; del=0; //?
 		    break;
 		  default:
 		    int cl=_cigLen(cigar[i]);
