@@ -185,6 +185,19 @@ void countFragment(BundleData& bdata, GBamRecord& brec, int nh) {
 
 }
 
+bool deljuncmatch(CReadAln *rd,GVec<GSeg> &jd) {
+
+	if(rd->juncs.Count()!=jd.Count()) return(false);
+
+	for(int i=0;i<rd->juncs.Count();i++) {
+		uint startj=rd->segs[i].end-rd->juncs[i]->start;
+		uint endj=rd->juncs[i]->end-rd->segs[i+1].start;
+		if(startj!=jd[i].start || endj!=jd[i].end) return(false);
+	}
+
+	return(true);
+}
+
 bool exonmatch(GVec<GSeg> &prevexons, GVec<GSeg> &exons) {
 	if(prevexons.Count() != exons.Count()) return false;
 	for(int i=0;i<exons.Count();i++) {
@@ -309,7 +322,8 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	int n=readlist.Count()-1;
 
 	if(!mergeMode) while(n>-1 && readlist[n]->start==brec.start) {
-		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig)) match=exonmatch(readlist[n]->segs,brec.exons);
+		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig))
+			match=exonmatch(readlist[n]->segs,brec.exons) && deljuncmatch(readlist[n],brec.juncsdel);
 		//if(strand==readlist[n]->strand) match=exonmatch(readlist[n]->segs,brec.exons);
 		if(match) break; // this way I make sure that I keep the n of the matching readlist
 		n--;
@@ -346,8 +360,17 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 					CJunction *nullj=new CJunction(0, 0, 0);
 					junction.Add(nullj);
 				}
-				//CJunction* nj=add_junction(brec.exons[i-1].end, brec.exons[i].start, junction, strand); // unstranded junction might get added even though it might match a stranded one
-				CJunction* nj=junction.AddIfNew(new CJunction(brec.exons[i-1].end, brec.exons[i].start, strand), true);
+				int jstrand=strand;
+				uint jstart=brec.exons[i-1].end;
+				uint jend=brec.exons[i].start;
+				if(brec.juncsdel[i-1].start || brec.juncsdel[i-1].end) { // deletion at the junction start/end
+					if(!alndata.juncs.Count() || !alndata.juncs[i-1]->guide_match) { // if this junction matches a guide, I do not need to do anything
+						jstrand=0;
+						jstart-=brec.juncsdel[i-1].start;
+						jend+=brec.juncsdel[i-1].end;
+					}
+				}
+				CJunction* nj=junction.AddIfNew(new CJunction(jstart, jend, jstrand), true);
 				if (alndata.juncs.Count())
 					nj->guide_match=alndata.juncs[i-1]->guide_match;
 				if (nj) {
@@ -15469,6 +15492,20 @@ void count_good_junctions(BundleData* bdata) {
 							if(rd.segs[i-1].end!=rd.juncs[i-1]->start && rd.segs[i-1].start<=rd.juncs[i-1]->start) rd.segs[i-1].end=rd.juncs[i-1]->start;
 							if(rd.segs[i].start!=rd.juncs[i-1]->end && rd.segs[i].end>=rd.juncs[i-1]->end) rd.segs[i].start=rd.juncs[i-1]->end;
 						}
+					}
+				}
+				else if(!rd.juncs[i-1]->strand && (rd.segs[i-1].end!=rd.juncs[i-1]->start || rd.segs[i].start!=rd.juncs[i-1]->end)){ // see if I need to adjust read start/ends due to junction having deletions around it
+
+					CJunction *nj=NULL;
+					CJunction jn(rd.segs[i-1].end, rd.segs[i].start, rd.strand);
+					int oidx=-1;
+					if (junction.Found(&jn, oidx)) {
+						nj=junction.Get(oidx);
+						rd.juncs[i-1]=nj;
+					}
+					else { // adjust start/end of read but do not modify strandness of junction as I do not know if there are any junctions to support it
+						rd.segs[i-1].end=rd.juncs[i-1]->start;
+						rd.segs[i].start=rd.juncs[i-1]->end;
 					}
 				}
 

@@ -28,7 +28,7 @@ uint8_t* dupalloc_bdata(bam1_t *b, int size) {
 
 GBamRecord::GBamRecord(const char* qname, int32_t gseq_tid,
                  int pos, bool reverse, const char* qseq,
-                 const char* cigar, const char* quals):iflags(0), exons(1),
+                 const char* cigar, const char* quals):iflags(0), exons(1),juncsdel(1),
                 		 clipL(0), clipR(0), mapped_len(0), uval(0) {
    novel=true;
    bam_header=NULL;
@@ -57,7 +57,7 @@ GBamRecord::GBamRecord(const char* qname, int32_t gseq_tid,
 GBamRecord::GBamRecord(const char* qname, int32_t samflags, int32_t g_tid,
              int pos, int map_qual, const char* cigar, int32_t mg_tid, int mate_pos,
              int insert_size, const char* qseq, const char* quals,
-             GVec<char*>* aux_strings):iflags(0), exons(1), uval(0)  {
+             GVec<char*>* aux_strings):iflags(0), exons(1), juncsdel(1),uval(0)  {
   novel=true;
   bam_header=NULL;
   b=bam_init1();
@@ -330,33 +330,40 @@ void GBamRecord::setupCoordinates() {
 	clipL=0;
 	clipR=0;
 	start=c->pos+1; //genomic start coordinate, 1-based (BAM core.pos is 0-based)
-	bool intron=false;
 	int exstart=c->pos;
-	int del=0;
+	bool intron=false;
+	uint del=0;
+	uint prevdel=0;
 	for (int i = 0; i < c->n_cigar; ++i) {
 		int op = cigar[i]&0xf;
 		if (op == BAM_CMATCH || op==BAM_CEQUAL ||
 				op == BAM_CDIFF) {
 			l += cigar[i]>>4;
+			if(intron) { // op comes after intron --> update juncdel
+				GSeg deljunc(prevdel,0);
+				juncsdel.Add(deljunc);
+			}
 			intron=false;
 			del=0;
 		}
 		else if(op == BAM_CDEL) {
 			del=cigar[i]>>4;
 			l+=del;
-			if(intron) { // deletion after intron
-				exstart+=del;
+			if(intron) { // deletion after intron --> update juncdel
+				GSeg deljunc(prevdel,del);
+				juncsdel.Add(deljunc);
 			}
 		}
 		else if (op == BAM_CREF_SKIP) { //N
 			//intron starts
 			//exon ends here
 			has_Introns=true;
-			GSeg exon(exstart+1,c->pos+l-del);
+			GSeg exon(exstart+1,c->pos+l);
 			exons.Add(exon);
 			mapped_len+=exon.len();
 			l += cigar[i]>>4;
 			exstart=c->pos+l;
+			prevdel=del;
 			intron=true;
 			del=0;
 		}
