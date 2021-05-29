@@ -311,6 +311,16 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	//bool covSaturated=false;                       // coverage is set to not saturated
 
 
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Process read %s with strand=%d and exons:",brec.name(),strand);
+		for (int i=0;i<brec.exons.Count();i++) {
+			fprintf(stderr," %d-%d", brec.exons[i].start, brec.exons[i].end);
+		}
+		fprintf(stderr,"\n");
+	}
+	*/
+
 	double nm=(double)brec.tag_int("NM"); // read mismatch
 	float unitig_cov=0;
 	unitig_cov=brec.tag_float("YK");
@@ -323,7 +333,8 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 
 	if(!mergeMode) while(n>-1 && readlist[n]->start==brec.start) {
 		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig))
-			match=exonmatch(readlist[n]->segs,brec.exons) && deljuncmatch(readlist[n],brec.juncsdel);
+			match=exonmatch(readlist[n]->segs,brec.exons) && deljuncmatch(readlist[n],brec.juncsdel); //DEL AWARE
+			//match=exonmatch(readlist[n]->segs,brec.exons);
 		//if(strand==readlist[n]->strand) match=exonmatch(readlist[n]->segs,brec.exons);
 		if(match) break; // this way I make sure that I keep the n of the matching readlist
 		n--;
@@ -356,6 +367,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		for (int i=0;i<brec.exons.Count();i++) {
 			readaln->len+=brec.exons[i].len();
 			if(i) {
+
 				if(!junction.Count()) { // always add null junction first
 					CJunction *nullj=new CJunction(0, 0, 0);
 					junction.Add(nullj);
@@ -363,7 +375,10 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 				int jstrand=strand;
 				uint jstart=brec.exons[i-1].end;
 				uint jend=brec.exons[i].start;
-				if(brec.juncsdel[i-1].start || brec.juncsdel[i-1].end) { // deletion at the junction start/end
+
+				//fprintf(stderr,"exon count=%d junctiondel count=%d exonend=%d exonstart=%d\n",brec.exons.Count(),brec.juncsdel.Count(),jstart,jend);
+
+				if(brec.juncsdel[i-1].start || brec.juncsdel[i-1].end) { // deletion at the junction start/end //DEL AWARE
 					if(!alndata.juncs.Count() || !alndata.juncs[i-1]->guide_match) { // if this junction matches a guide, I do not need to do anything
 						jstrand=0;
 						jstart-=brec.juncsdel[i-1].start;
@@ -15494,6 +15509,7 @@ void count_good_junctions(BundleData* bdata) {
 						}
 					}
 				}
+				/* DEL AWARE*/
 				else if(!rd.juncs[i-1]->strand && (rd.segs[i-1].end!=rd.juncs[i-1]->start || rd.segs[i].start!=rd.juncs[i-1]->end)){ // see if I need to adjust read start/ends due to junction having deletions around it
 
 					CJunction *nj=NULL;
@@ -15508,6 +15524,7 @@ void count_good_junctions(BundleData* bdata) {
 						rd.segs[i].start=rd.juncs[i-1]->end;
 					}
 				}
+
 
 				if(rd.segs[i-1].len()>maxleftsupport) maxleftsupport=rd.segs[i-1].len();
 				if(rd.segs[nex-i].len()>maxrightsupport) maxrightsupport=rd.segs[nex-i].len();

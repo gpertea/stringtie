@@ -334,6 +334,7 @@ void GBamRecord::setupCoordinates() {
 	bool intron=false;
 	uint del=0;
 	uint prevdel=0;
+	bool ins=false;
 	for (int i = 0; i < c->n_cigar; ++i) {
 		int op = cigar[i]&0xf;
 		if (op == BAM_CMATCH || op==BAM_CEQUAL ||
@@ -345,6 +346,7 @@ void GBamRecord::setupCoordinates() {
 			}
 			intron=false;
 			del=0;
+			ins=false;
 		}
 		else if(op == BAM_CDEL) {
 			del=cigar[i]>>4;
@@ -353,14 +355,20 @@ void GBamRecord::setupCoordinates() {
 				GSeg deljunc(prevdel,del);
 				juncsdel.Add(deljunc);
 			}
+			ins=false;
+		}
+		else if(op == BAM_CINS) { // take care of case where there is an insertion in the middle of an intron
+			ins=true;
 		}
 		else if (op == BAM_CREF_SKIP) { //N
 			//intron starts
 			//exon ends here
+			if(!ins || !intron) { // insertion in the middle of an intron --> adjust last exon
+				GSeg exon(exstart+1,c->pos+l);
+				exons.Add(exon);
+				mapped_len+=exon.len();
+			}
 			has_Introns=true;
-			GSeg exon(exstart+1,c->pos+l);
-			exons.Add(exon);
-			mapped_len+=exon.len();
 			l += cigar[i]>>4;
 			exstart=c->pos+l;
 			prevdel=del;
@@ -373,11 +381,13 @@ void GBamRecord::setupCoordinates() {
 			else clipL=(cigar[i]>>4);
 			intron=false;
 			del=0;
+			ins=false;
 		}
 		else if (op == BAM_CHARD_CLIP) {
 			hard_Clipped=true;
 			intron=false;
 			del=0;
+			ins=false;
 		}
 	}
 	GSeg exon(exstart+1,c->pos+l);
