@@ -15517,6 +15517,8 @@ void count_good_junctions(BundleData* bdata) {
 					int oidx=-1;
 					if (junction.Found(&jn, oidx)) {
 						nj=junction.Get(oidx);
+						nj->nreads+=rd.juncs[i-1]->nreads;
+						nj->mm+=rd.juncs[i-1]->mm;
 						rd.juncs[i-1]=nj;
 					}
 					else { // adjust start/end of read but do not modify strandness of junction as I do not know if there are any junctions to support it
