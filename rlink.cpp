@@ -332,9 +332,10 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	int n=readlist.Count()-1;
 
 	if(!mergeMode) while(n>-1 && readlist[n]->start==brec.start) {
-		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig))
-			match=exonmatch(readlist[n]->segs,brec.exons) && deljuncmatch(readlist[n],brec.juncsdel); //DEL AWARE
-			//match=exonmatch(readlist[n]->segs,brec.exons);
+		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig)) {
+			match=exonmatch(readlist[n]->segs,brec.exons);
+			if(match && (longreads || mixedMode)) match=deljuncmatch(readlist[n],brec.juncsdel); //DEL AWARE
+		}
 		//if(strand==readlist[n]->strand) match=exonmatch(readlist[n]->segs,brec.exons);
 		if(match) break; // this way I make sure that I keep the n of the matching readlist
 		n--;
@@ -378,7 +379,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 
 				//fprintf(stderr,"exon count=%d junctiondel count=%d exonend=%d exonstart=%d\n",brec.exons.Count(),brec.juncsdel.Count(),jstart,jend);
 
-				if(brec.juncsdel[i-1].start || brec.juncsdel[i-1].end) { // deletion at the junction start/end //DEL AWARE
+				if((longreads || mixedMode) && (brec.juncsdel[i-1].start || brec.juncsdel[i-1].end)) { // deletion at the junction start/end //DEL AWARE
 					if(!alndata.juncs.Count() || !alndata.juncs[i-1]->guide_match) { // if this junction matches a guide, I do not need to do anything
 						jstrand=0;
 						jstart-=brec.juncsdel[i-1].start;
@@ -458,7 +459,8 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 
 		for(int i=0;i<readlist[n]->juncs.Count();i++) { // if read is PacBio I might want to increase the mismatch fraction, although the nm only gets used for longintrons
 			if(mismatch || nh>2) readlist[n]->juncs[i]->nm+=rdcount;
-			if(readlist[n]->segs[i].len()>longintronanchor && readlist[n]->segs[i+1].len()>longintronanchor) readlist[n]->juncs[i]->mm+=rdcount;
+			if(readlist[n]->segs[i].len()>longintronanchor && readlist[n]->segs[i+1].len()>longintronanchor)
+				readlist[n]->juncs[i]->mm+=rdcount;
 			//if(nh>2) readlist[n]->juncs[i]->mm+=rdcount; // vs3; vs2 only has nh>1
 			readlist[n]->juncs[i]->nreads+=rdcount;
 		}
@@ -15510,20 +15512,35 @@ void count_good_junctions(BundleData* bdata) {
 					}
 				}
 				/* DEL AWARE*/
-				else if(!rd.juncs[i-1]->strand && (rd.segs[i-1].end!=rd.juncs[i-1]->start || rd.segs[i].start!=rd.juncs[i-1]->end)){ // see if I need to adjust read start/ends due to junction having deletions around it
+				else if(!rd.juncs[i-1]->strand && (longreads || mixedMode) && (rd.segs[i-1].end!=rd.juncs[i-1]->start || rd.segs[i].start!=rd.juncs[i-1]->end)){ // see if I need to adjust read start/ends due to junction having deletions around it
 
 					CJunction *nj=NULL;
-					CJunction jn(rd.segs[i-1].end, rd.segs[i].start, rd.strand);
+					CJunction jn(rd.juncs[i-1]->start, rd.juncs[i-1]->end, rd.strand); // if the deletion makes sense then keep it
 					int oidx=-1;
 					if (junction.Found(&jn, oidx)) {
 						nj=junction.Get(oidx);
 						nj->nreads+=rd.juncs[i-1]->nreads;
 						nj->mm+=rd.juncs[i-1]->mm;
+						nj->nm+=rd.juncs[i-1]->nm;
 						rd.juncs[i-1]=nj;
-					}
-					else { // adjust start/end of read but do not modify strandness of junction as I do not know if there are any junctions to support it
+						// adjust start/end of read
 						rd.segs[i-1].end=rd.juncs[i-1]->start;
 						rd.segs[i].start=rd.juncs[i-1]->end;
+					}
+					else { // restore the correct junction
+						CJunction jn(rd.segs[i-1].end, rd.segs[i].start, rd.strand);
+						if (junction.Found(&jn, oidx)) {
+							nj=junction.Get(oidx);
+							nj->nreads+=rd.juncs[i-1]->nreads;
+							nj->mm+=rd.juncs[i-1]->mm;
+							nj->nm+=rd.juncs[i-1]->nm;
+							rd.juncs[i-1]=nj;
+						}
+						else { // new junction
+							rd.juncs[i-1]->strand=rd.strand;
+							rd.juncs[i-1]->start=rd.segs[i-1].end;
+							rd.juncs[i-1]->end=rd.segs[i].start;
+						}
 					}
 				}
 
