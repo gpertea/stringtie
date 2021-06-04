@@ -8,6 +8,7 @@
 #include "time.h"
 #include "tablemaker.h"
 #include "GHashMap.hh"
+//#include "cds.h"
 
 #define MAX_NODE 1000000
 #define KMER 31
@@ -169,10 +170,12 @@ struct CTransfrag {
 	int weak; // number of weak links
 	bool real:1;
 	bool guide:1;
+	bool longread:1; // there is at least a longread supporting transfrag
+	bool shortread:1; // there is at least one short read supporting transfrag
 	uint longstart; // for long reads: min start of all longreads sharing transfrag
 	uint longend; // for long reads: max end of all longreads sharing transfrag
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, bool tguide=false,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longstart(false),longend(false) {}
-	CTransfrag(float abund=0, bool treal=false,bool tguide=false):nodes(),pattern(),abundance(abund),srabund(0),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longstart(false),longend(false) {
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, bool tguide=false,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longread(false),shortread(false),longstart(false),longend(false) {}
+	CTransfrag(float abund=0, bool treal=false,bool tguide=false):nodes(),pattern(),abundance(abund),srabund(0),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longread(false),shortread(false),longstart(false),longend(false) {
 	}
 };
 
@@ -249,11 +252,11 @@ struct CExon{
 	CExon(int p=0,int e=0,float c=0):predno(p),exonno(e),exoncov(c) {}
 };
 
-struct TwoFloat{
+/*struct TwoFloat{
 	float start;
 	float end;
 	TwoFloat(float v1=0,float v2=0):start(v1),end(v2) {}
-};
+};*/
 
 struct CPred{
 	int predno;
@@ -273,6 +276,7 @@ struct CPrediction:public GSeg {
 	GffObj* t_eq; //equivalent reference transcript (guide)
 	//char *id;
 	float cov;
+	float longcov;
 	char strand;
 	//float frag; // counted number of fragments associated with prediction
 	int tlen;
@@ -281,7 +285,7 @@ struct CPrediction:public GSeg {
 	GVec<float> exoncov;
 	GStr mergename;
 	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
-	int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),strand(_strand),
+	int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
 	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
 			tlen(_len),flag(f),exons(),exoncov(),mergename() {}
@@ -302,7 +306,7 @@ struct CPrediction:public GSeg {
 
 	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
 //			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
-			t_eq(c.t_eq), cov(c.cov), strand(c.strand), tlen(c.tlen), flag(c.flag),
+			t_eq(c.t_eq), cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), flag(c.flag),
 	      exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename) {}
 	~CPrediction() { //GFREE(id);
 		}
@@ -356,9 +360,10 @@ struct CReadAln:public GSeg {
 	// GStr name;
 	char strand; // 1, 0 (unkown), -1 (reverse)
 	short int nh;
-	bool unitig:1;
 	uint len;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
+	bool unitig:1;			// set if read come from an unitig
+	bool longread:1;	    // set if read comes from long read data
 	GVec<float> pair_count;   // keeps count for all paired reads
 	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
@@ -370,7 +375,7 @@ struct CReadAln:public GSeg {
 
 	CReadAln(char _strand=0, short int _nh=0,
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
-					strand(_strand),nh(_nh), unitig(false), len(0), read_count(0), pair_count(),pair_idx(),
+					strand(_strand),nh(_nh), len(0), read_count(0), unitig(false),longread(false),pair_count(),pair_idx(),
 					segs(), juncs(false), tinfo(tif) { }
 	CReadAln(CReadAln &rd):GSeg(rd.start,rd.end) { // copy contructor
 		strand=rd.strand;
@@ -378,6 +383,7 @@ struct CReadAln:public GSeg {
 		len=rd.len;
 		read_count=rd.read_count;
 		unitig=rd.unitig;
+		longread=rd.longread;
 		pair_count=rd.pair_count;
 		pair_idx=rd.pair_idx;
 		juncs=rd.juncs;
@@ -473,6 +479,14 @@ struct CInterval {
 	CInterval(uint _pos=0,float _val=0,CInterval *_next=NULL):pos(_pos),val(_val),next(_next) {}
 };
 
+/*
+struct CSegCov:public GSeg {
+	bool spliced:1;
+	GVec<GStr> rname;
+	CSegCov *next; // next interval;
+	CSegCov(uint start=0,uint end=0):GSeg(start,end),spliced(false),rname(),next(NULL) {}
+};
+*/
 
 struct CMaxIntv:public GSeg {
 	GVec<CExon> node;

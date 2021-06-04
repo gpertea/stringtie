@@ -33,6 +33,7 @@ class GBamRecord: public GSeg {
    uint8_t abuf[512];
  public:
    GVec<GSeg> exons; //coordinates will be 1-based
+   GVec<GSeg> juncsdel; // delete coordinates around introns
    int clipL; //soft clipping data, as seen in the CIGAR string
    int clipR;
    int mapped_len; //sum of exon lengths
@@ -42,7 +43,7 @@ class GBamRecord: public GSeg {
    bool hasIntrons() { return has_Introns; }
    //created from a reader:
    void bfree_on_delete(bool b_free=true) { novel=b_free; }
-   GBamRecord(bam1_t* from_b=NULL, bam_header_t* b_header=NULL, bool b_free=true):iflags(0), exons(1),
+   GBamRecord(bam1_t* from_b=NULL, bam_header_t* b_header=NULL, bool b_free=true):iflags(0), exons(1),juncsdel(1),
 		   clipL(0), clipR(0), mapped_len(0), uval(0) {
       bam_header=NULL;
       if (from_b==NULL) {
@@ -58,7 +59,7 @@ class GBamRecord: public GSeg {
       setupCoordinates();//set 1-based coordinates (start, end and exons array)
    }
 
-   GBamRecord(GBamRecord& r):GSeg(r.start, r.end), iflags(0), exons(r.exons),
+   GBamRecord(GBamRecord& r):GSeg(r.start, r.end), iflags(0), exons(r.exons),juncsdel(r.juncsdel),
 		   clipL(r.clipL), clipR(r.clipR), mapped_len(r.mapped_len), uval(0) { //copy constructor
 	      //makes a new copy of the bam1_t record etc.
 	      clear();
@@ -76,6 +77,7 @@ class GBamRecord: public GSeg {
       start=r.start;
       end=r.end;
       exons = r.exons;
+      juncsdel=r.juncsdel;
       clipL = r.clipL;
       clipR = r.clipR;
       uval = r.uval;
@@ -91,6 +93,7 @@ class GBamRecord: public GSeg {
         }
         b=NULL;
         exons.Clear();
+        juncsdel.Clear();
         mapped_len=0;
         bam_header=NULL;
         iflags=0;
