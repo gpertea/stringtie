@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.5"
+#define VERSION "2.1.6"
 
 //#define DEBUGPRINT 1
 
@@ -34,10 +34,12 @@ stringtie <in.bam ..> [-G <guide_gff>] [-l <prefix>] [-o <out.gtf>] [-p <cpus>]\
  [-v] [-a <min_anchor_len>] [-m <min_len>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
  [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L] [-e] [--viral] [-E <err_margin>]\n\
  [--ptf <f_tab>] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B|-b <dir_path>}\n\
+ [--mix] [--conservative] [--rf] [--fr]\n\
 Assemble RNA-Seq alignments into potential transcripts.\n\
 Options:\n\
  --version : print just the version at stdout and exit\n\
  --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05\n\
+ --mix : both short and long read data alignments are provided\n\
  --rf : assume stranded library fr-firststrand\n\
  --fr : assume stranded library fr-secondstrand\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
@@ -133,6 +135,7 @@ GStr out_dir;
 GStr tmp_path;
 GStr tmpfname;
 GStr genefname;
+GStr traindir; // training directory for CDS option
 bool guided=false;
 bool trim=true;
 bool viral=false;
@@ -161,6 +164,7 @@ uint runoffdist=200;
 float mcov=1; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 int allowed_nodes=1000;
 //bool adaptive=true; // adaptive read coverage -> depends on the overall gene coverage
+//GPVec<CDSparam> cds;
 
 int no_xs=0; // number of records without the xs tag
 
@@ -194,6 +198,8 @@ bool forceBAM = false; //useful for stdin (piping alignments into StringTie)
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
+
+bool mixedMode = false; // both short and long read data alignments are provided
 
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -277,7 +283,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;mix;cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
    "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -960,7 +966,11 @@ void processOptions(GArgs& args) {
 		 bundledist=0;
 		 singlethr=1.5;
 	 }
-
+	 mixedMode=(args.getOpt("mix")!=NULL);
+	 if(mixedMode) {
+		 bundledist=0;
+		 //isofrac=0.02; // allow mixedMode to be more conservative
+	 }
 
 	if (args.getOpt("conservative")) {
 	  isofrac=0.05;
@@ -1025,6 +1035,12 @@ void processOptions(GArgs& args) {
 		 gfasta=new GFastaDb(s.chars());
 	 }
 
+	 /*traindir=args.getOpt("cds");
+	 if(!traindir.is_empty()) {
+		 if(gfasta==NULL) GError("Genomic sequence file is required for --cds option.\n");
+		 load_cds_param(traindir,cds);
+	 }*/
+
      s=args.getOpt('x');
      if (!s.is_empty()) {
     	 //split by comma and populate excludeGSeqs
@@ -1070,6 +1086,10 @@ void processOptions(GArgs& args) {
 
 	 rawreads=(args.getOpt('R')!=NULL);
 	 if(rawreads) {
+		 if(mixedMode) {
+			 GError("Mixed mode and rawreads options are incompatible!\n");
+		 }
+
 		 if(!longreads) {
 			 if(verbose) GMessage("Enable longreads processing\n");
 			 longreads=true;
