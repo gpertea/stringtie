@@ -5066,7 +5066,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 
 		CTransfrag *t=NULL;
 		bool add=true;
-		if(longreads || mixedMode) {
+		if(longreads) {
 			/*guidetrf[i].trf->pattern[0]=0;
 			guidetrf[i].trf->pattern[gno-1]=0;
 			int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
@@ -5079,8 +5079,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
 			if(!t) { // t is NULL
 				t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,0);
-				if(longreads) t->longread=true;
-				else t->abundance=trthr*ERROR_PERC;
+				t->longread=true;
 			}
 			else add=false;
 		}
