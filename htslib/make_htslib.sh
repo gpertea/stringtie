@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 ## 
+
+if [[ "$1" == "clean" ]]; then
+  make clean
+  /bin/rm -f config.h
+  /bin/rm -rf xlibs
+  /bin/rm -rf lzma
+  /bin/rm -rf libdeflate
+  /bin/rm -f *.tar.gz
+fi
+
 pwd=$(pwd -P)
 prefix=$pwd/xlibs
 incdir=$prefix/include
