@@ -39,11 +39,11 @@ void rc_updateExonCounts(const RC_ExonOvl& exonovl, int nh) {
 }
 
 bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
-	            //GBamRecord& brec, char& strand, int nh) {
+	            //GSamRecord& brec, char& strand, int nh) {
  if (rc_data==NULL) {
 	  return false; //no ref transcripts available for this reads' region
  }
- GBamRecord& brec=*(alndata.brec);
+ GSamRecord& brec=*(alndata.brec);
  int mate_pos=brec.mate_start();
  int nh=alndata.nh;
  if ((int)brec.end<rc_data->lmin || (int)brec.start>rc_data->rmax) {

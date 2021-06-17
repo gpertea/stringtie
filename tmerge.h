@@ -7,12 +7,12 @@ extern GStr tmp_path;
 extern bool keepTempFiles;
 
 struct TInputRecord {
-	GBamRecord* brec;
+	GSamRecord* brec;
 	int fidx; //index in files and readers
 	bool operator<(TInputRecord& o) {
 		 //decreasing location sort
-		 GBamRecord& r1=*brec;
-		 GBamRecord& r2=*(o.brec);
+		 GSamRecord& r1=*brec;
+		 GSamRecord& r2=*(o.brec);
 		 //int refcmp=strcmp(r1.refName(),r2.refName());
 		 int refcmp=mergeMode ? strcmp(r1.refName(),r2.refName()) : r1.refId()-r2.refId();
 		 if (refcmp==0) {
@@ -32,13 +32,13 @@ struct TInputRecord {
 		 }
 	}
 	bool operator==(TInputRecord& o) {
-		 GBamRecord& r1=*brec;
-		 GBamRecord& r2=*(o.brec);
+		 GSamRecord& r1=*brec;
+		 GSamRecord& r2=*(o.brec);
 		 return ( strcmp(r1.refName(),r2.refName())==0 && r1.start==r2.start && r1.end==r2.end
 				 && fidx==o.fidx && strcmp(r1.name(),r2.name())==0);
 	}
 
-	TInputRecord(GBamRecord* b=NULL, int i=0):brec(b),fidx(i) {}
+	TInputRecord(GSamRecord* b=NULL, int i=0):brec(b),fidx(i) {}
 	~TInputRecord() {
 		delete brec;
 	}
@@ -49,7 +49,7 @@ struct TInputFiles {
 	TInputRecord* crec;
 	GStr convert2BAM(GStr& gtf, int idx);
  public:
-	GPVec<GBamReader> readers;
+	GPVec<GSamReader> readers;
 	GVec<GStr> files; //same order
 	GVec<GStr> tmpfiles; //all the temp files created by this
 	GList<TInputRecord> recs; //next record for each
@@ -58,7 +58,7 @@ struct TInputFiles {
 	void Add(const char* fn);
 	int count() { return files.Count(); }
 	int start(); //open all files, load 1 record from each
-	GBamRecord* next();
+	GSamRecord* next();
 	void stop(); //
 };
 

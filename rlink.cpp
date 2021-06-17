@@ -171,7 +171,7 @@ void add_read_to_cov(GList<CReadAln>& rd,int n,GVec<float> *bpcov,int refstart) 
 	}
 }
 
-void countFragment(BundleData& bdata, GBamRecord& brec, int nh) {
+void countFragment(BundleData& bdata, GSamRecord& brec, int nh) {
 	static uint32_t BAM_R2SINGLE = BAM_FREAD2 | BAM_FMUNMAP ;
 
 
@@ -271,16 +271,16 @@ bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
 
 	GFREE(mdstring);
 
-	uint32_t *cigar = bam1_cigar(b);
+	uint32_t *cigar = bam_get_cigar(b);
 	rdlen=0;
 	parsedlen=0;
 	i=0;
 
-	for (int j = 0; j < b->core.n_cigar; ++j) {
-		int op = cigar[j]&0xf;
+	for (uint j = 0; j < b->core.n_cigar; ++j) {
+		int op = bam_cigar_op(cigar[j]);
 		if (op == BAM_CMATCH || op==BAM_CEQUAL ||
 				op == BAM_CDIFF || op == BAM_CDEL) {
-			parsedlen += cigar[j]>>4;
+			parsedlen += bam_cigar_oplen(cigar[j]);
 		}
 		else if(op == BAM_CINS) {
 			while(i<rd->segs.Count() && rdlen+(int)rd->segs[i].len()<parsedlen) {
@@ -299,7 +299,7 @@ bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread,  GReadAlnData& alndata) { // some false positives should be eliminated here in order to break the bundle
-	GBamRecord& brec=*(alndata.brec);			   // bam record
+	GSamRecord& brec=*(alndata.brec);			   // bam record
 	if((longreads || (mixedMode && brec.uval)) && (brec.flags() & BAM_FSECONDARY)) return;
 	GList<CReadAln>& readlist = bdata.readlist;    // list of reads gathered so far
 	GList<CJunction>& junction = bdata.junction;   // junctions added so far
@@ -5066,7 +5066,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 
 		CTransfrag *t=NULL;
 		bool add=true;
-		if(longreads || mixedMode) {
+		if(longreads) {
 			/*guidetrf[i].trf->pattern[0]=0;
 			guidetrf[i].trf->pattern[gno-1]=0;
 			int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
@@ -5079,8 +5079,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
 			if(!t) { // t is NULL
 				t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,0);
-				if(longreads) t->longread=true;
-				else t->abundance=trthr*ERROR_PERC;
+				t->longread=true;
 			}
 			else add=false;
 		}

@@ -1,9 +1,13 @@
 #-- for now these MUST point to the included "samtools-0.x.x" and "gclib" sub-directories
-BAM  := ./samtools-0.1.18
+HTSLIB  := ./htslib
+#-- 
+LIBDEFLATE := ${HTSLIB}/xlibs/lib/libdeflate.a
+LIBLZMA := ${HTSLIB}/xlibs/lib/liblzma.a
+
 GDIR := ./gclib
 #--
 
-INCDIRS := -I. -I${GDIR} -I${BAM}
+INCDIRS := -I. -I${GDIR} -I${HTSLIB}
 
 CXX   := $(if $(CXX),$(CXX),g++)
 
@@ -24,9 +28,9 @@ LINKER  := $(if $(LINKER),$(LINKER),g++)
 
 LDFLAGS := $(if $(LDFLAGS),$(LDFLAGS),-g)
 
-LDFLAGS += -L${BAM}
+# LDFLAGS += -L${BAM}
 
-LIBS    := -lbam -lz
+LIBS    := ${HTSLIB}/libhts.a ${LIBLZMA} ${LIBDEFLATE} -lbz2 -lz -lm
 
 ifneq (,$(filter %nothreads %prof %profile, $(MAKECMDGOALS)))
  NOTHREADS=1
@@ -128,7 +132,7 @@ ifdef DEBUG_BUILD
   DBG_WARN+='WARNING: built DEBUG version [much slower], use "make clean release" for a faster, optimized version of the program.'
 endif
 
-OBJS := ${GDIR}/GBase.o ${GDIR}/GArgs.o ${GDIR}/GStr.o ${GDIR}/GBam.o \
+OBJS := ${GDIR}/GBase.o ${GDIR}/GArgs.o ${GDIR}/GStr.o ${GDIR}/GSam.o \
  ${GDIR}/gdna.o ${GDIR}/codons.o ${GDIR}/GFastaIndex.o ${GDIR}/GFaSeqGet.o ${GDIR}/gff.o 
 
 ifneq (,$(filter %memtrace %memusage %memuse, $(MAKECMDGOALS)))
@@ -151,13 +155,15 @@ memuse memusage memtrace: stringtie${EXE}
 prof profile: stringtie${EXE}
 nothreads: stringtie${EXE}
 
-stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GBam.h
-rlink.o : rlink.h tablemaker.h $(GDIR)/GBam.h $(GDIR)/GBitVec.h
+stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GSam.h
+rlink.o : rlink.h tablemaker.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
 tmerge.o : rlink.h tmerge.h
 tablemaker.o : tablemaker.h rlink.h
-${BAM}/libbam.a: 
-	cd ${BAM} && make lib
-stringtie${EXE}: ${BAM}/libbam.a $(OBJS) stringtie.o
+
+##${BAM}/libbam.a: 
+##	cd ${BAM} && make lib
+
+stringtie${EXE}: $(OBJS) stringtie.o
 	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LIBS}
 	@echo
 	${DBG_WARN}
@@ -171,7 +177,7 @@ test demo tests: stringtie${EXE}
 clean:
 	${RM} stringtie${EXE} stringtie.o*  $(OBJS)
 	${RM} core.*
-allclean cleanAll cleanall:
-	cd ${BAM} && make clean
-	${RM} stringtie${EXE} stringtie.o* $(OBJS)
-	${RM} core.*
+##allclean cleanAll cleanall:
+##	cd ${BAM} && make clean
+##	${RM} stringtie${EXE} stringtie.o* $(OBJS)
+##	${RM} core.*

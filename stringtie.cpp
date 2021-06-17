@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.6"
+#define VERSION "2.1.7"
 
 //#define DEBUGPRINT 1
 
@@ -467,7 +467,7 @@ if (ballgown)
  BundleData bundles[1];
  BundleData* bundle = &(bundles[0]);
 #endif
- GBamRecord* brec=NULL;
+ GSamRecord* brec=NULL;
  bool more_alns=true;
  TAlnInfo* tinfo=NULL; // for --merge
  int prev_pos=0;
