@@ -29,11 +29,15 @@ GSamRecord::GSamRecord(const char* qname, int32_t gseq_tid,
    b=bam_init1();
    size_t l_qname=strlen(qname);
    size_t l_seq=0;
-   if (qseq!=NULL) l_seq=strlen(qseq);
+   if (qseq!=NULL) {
+	   l_seq=strlen(qseq);
+   }
+   //-- passed pos is 1-based
    if (pos<=0 || gseq_tid<0) {
 	   flag |= BAM_FUNMAP;
 	   pos=-1;
    }
+   pos--;
    if (reverse) flag|=BAM_FREVERSE;
 
    bam_set1(b, l_qname, qname, flag,

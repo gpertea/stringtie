@@ -56,7 +56,7 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
 		  //cigar+='M';
 		  cigar.Add( (m.exons[k]->len() << BAM_CIGAR_SHIFT) | BAM_CMATCH);
 	  }
-	  GSamRecord brec(m.getID(), t_id, m.start, false, cigar, "*");
+	  GSamRecord brec(m.getID(), t_id, m.start, false, cigar);
 	  if (m.strand=='-' || m.strand=='+') {
 		   GStr tag("XS:A:");
 		   tag+=m.strand;

@@ -75,7 +75,7 @@ class GSamRecord: public GSeg {
 
    GSamRecord(const char* qname, int32_t gseq_tid,
            int pos, bool reverse, GDynArray<uint32_t>& cigar,
-           const char* qseq, const char* quals=NULL);
+           const char* qseq=NULL, const char* quals=NULL);
 
    void init(bam1_t* from_b, sam_hdr_t* b_header=NULL, bool adopt_b=false) {
 	   clear();
