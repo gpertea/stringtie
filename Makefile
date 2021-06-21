@@ -169,7 +169,7 @@ tablemaker.o : tablemaker.h rlink.h
 ##	cd ${BAM} && make lib
 
 ${HTSLIB}/libhts.a:
-	cd ${HTSLIB} && ./make_htslib.sh
+	cd ${HTSLIB} && ./build_lib.sh
 
 stringtie${EXE}: ${HTSLIB}/libhts.a $(OBJS) stringtie.o
 	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LIBS}
