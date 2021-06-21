@@ -48,13 +48,6 @@ endif
 RM = rm -f
 #endif
 
-# File endings
-ifdef WINDOWS
- EXE = .exe
-else
- EXE =
-endif
-
 # Non-windows systems need pthread
 ifndef WINDOWS
  ifndef NOTHREADS
@@ -65,6 +58,18 @@ endif
 
 ifdef NOTHREADS
   BASEFLAGS += -DNOTHREADS
+endif
+
+# Compiling for Windows with MinGW?
+#ifneq ($(findstring -mingw,$(shell $(CC) -dumpmachine 2>/dev/null)),)
+#LIBS += -lregex -lws2_32
+#endif
+# File endings
+ifdef WINDOWS
+ EXE = .exe
+ LIBS += -lregex -lws2_32
+else
+ EXE =
 endif
 
 DMACH := $(shell ${CXX} -dumpmachine)
@@ -163,7 +168,10 @@ tablemaker.o : tablemaker.h rlink.h
 ##${BAM}/libbam.a: 
 ##	cd ${BAM} && make lib
 
-stringtie${EXE}: $(OBJS) stringtie.o
+${HTSLIB}/libhts.a:
+	cd ${HTSLIB} && ./make_htslib.sh
+
+stringtie${EXE}: ${HTSLIB}/libhts.a $(OBJS) stringtie.o
 	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LIBS}
 	@echo
 	${DBG_WARN}
