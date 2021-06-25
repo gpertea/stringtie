@@ -7110,6 +7110,9 @@ bool fwd_to_sink_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GBitV
 	}
 	else {
 		for(int c=0;c<nchildren;c++) {
+
+			bool childonpath=false;
+			if(pathpat[inode->child[c]]) childonpath=true;
 			// check if child is already on the path
 			int *pos=gpos[edge(i,inode->child[c],gno)];
 			if(pos && pathpat[*pos]) {
@@ -7203,9 +7206,10 @@ bool fwd_to_sink_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GBitV
 					}
 				}
 
-
-				pathpat[inode->child[c]]=0;
 				if(pos) pathpat[*pos]=0;
+				if(childonpath) break;
+				pathpat[inode->child[c]]=0;
+
 
 			}
 		}
@@ -7276,7 +7280,6 @@ bool fwd_to_sink_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GBitV
 		if(transfrag[tmax]->nodes.Last()>maxpath) maxpath=transfrag[tmax]->nodes.Last();
 	}
 
-
 	return fwd_to_sink_fast_long(maxc,path,minpath,maxpath,pathpat,transfrag,no2gnode,nodecov,gno,gpos);
 }
 
@@ -7326,6 +7329,10 @@ bool back_to_source_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GB
 		//int maxparent=inode->parent[0];
 		//float maxparentcov=-1;
 		for(int p=0;p<nparents;p++) {
+
+			bool parentonpath=false;
+			if(pathpat[inode->parent[p]]) parentonpath=true;
+
 			// check if parent is already on the path
 			int *pos=gpos[edge(inode->parent[p],i,gno)];
 			if(pos && pathpat[*pos]) { // this is next child on the path
@@ -7421,8 +7428,9 @@ bool back_to_source_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GB
 					}
 				}
 
-				pathpat[inode->parent[p]]=0;
 				if(pos) pathpat[*pos]=0;
+				if(parentonpath) break;
+				pathpat[inode->parent[p]]=0;
 
 			}
 		}
@@ -8073,7 +8081,7 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 	/*
 	{ // DEBUG ONLY
 		printTime(stderr);
-		fprintf(stderr,"Start max flow algorithm for path ");
+		fprintf(stderr,"Start max flow algorithm for gno=%d and path ",gno);
 		printBitVec(pathpat);
 		fprintf(stderr," :");
 		for(int i=0;i<n;i++) fprintf(stderr," %d:%d",i,path[i]);
@@ -10798,7 +10806,15 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 		 /*
 	 	 { // DEBUG ONLY
 	 	 fprintf(stderr,"\n\n***Start get_trf_long with maxi=%d minp=%d maxp=%d and transcript:",maxi,minp,maxp);
-	 	 for(int i=0;i<transfrag[t]->nodes.Count();i++) fprintf(stderr," %d",transfrag[t]->nodes[i]);
+	 	 for(int i=0;i<transfrag[t]->nodes.Count();i++) {
+	 		 if(i) {
+	 			 pos=gpos[edge(transfrag[t]->nodes[i-1],transfrag[t]->nodes[i],gno)];
+	 			 if(pos && pathpat[*pos])
+	 				 fprintf(stderr,"-");
+	 		 }
+	 		 fprintf(stderr," %d",transfrag[t]->nodes[i]);
+
+	 	 }
 	 	 fprintf(stderr," pathpat=");
 	 	 //printBitVec(pathpat);
 		 fprintf(stderr,"\n");

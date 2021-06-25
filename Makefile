@@ -2,6 +2,7 @@
 HTSLIB  := ./htslib
 #-- 
 LIBDEFLATE := ${HTSLIB}/xlibs/lib/libdeflate.a
+LIBBZ2 := ${HTSLIB}/xlibs/lib/libbz2.a
 LIBLZMA := ${HTSLIB}/xlibs/lib/liblzma.a
 
 GDIR := ./gclib
@@ -30,7 +31,7 @@ LDFLAGS := $(if $(LDFLAGS),$(LDFLAGS),-g)
 
 # LDFLAGS += -L${BAM}
 
-LIBS    := ${HTSLIB}/libhts.a ${LIBLZMA} ${LIBDEFLATE} -lbz2 -lz -lm
+LIBS    := ${HTSLIB}/libhts.a ${LIBBZ2} ${LIBLZMA} ${LIBDEFLATE} -lz -lm
 
 ifneq (,$(filter %nothreads %prof %profile, $(MAKECMDGOALS)))
  NOTHREADS=1
@@ -74,7 +75,7 @@ endif
 
 DMACH := $(shell ${CXX} -dumpmachine)
 
-ifneq (,$(filter %release %static, $(MAKECMDGOALS)))
+ifneq (,$(filter %release %static %static-cpp, $(MAKECMDGOALS)))
   # -- release build
   RELEASE_BUILD=1
   CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O3)
@@ -122,13 +123,16 @@ else
 endif
 
 ifdef RELEASE_BUILD
- ifneq (,$(findstring static, $(MAKECMDGOALS)))
-    STATIC_CLIB=1
+ ifneq ($(findstring static,$(MAKECMDGOALS)),) 
+  # static or static-cpp found
+  ifneq ($(findstring static-cpp,$(MAKECMDGOALS)),) 
+     #not a full static build, only c/c++ libs
+     LDFLAGS := -static-libgcc -static-libstdc++ ${LDFLAGS}
+  else
+     #full static build
+     LDFLAGS := -static -static-libgcc -static-libstdc++ ${LDFLAGS}
+  endif
  endif
-endif
-
-ifdef STATIC_CLIB
- LDFLAGS += -static-libgcc -static-libstdc++
 endif
 
 ifdef DEBUG_BUILD
@@ -154,7 +158,7 @@ endif
 
 OBJS += rlink.o tablemaker.o tmerge.o
 
-all release static debug: stringtie${EXE}
+all release static static-cpp debug: stringtie${EXE}
 memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
 memuse memusage memtrace: stringtie${EXE}
 prof profile: stringtie${EXE}
