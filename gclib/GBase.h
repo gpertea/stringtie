@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.12.6"
+#define GCLIB_VERSION "0.12.7"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -165,6 +165,11 @@ typedef int GCompareProc(const pointer item1, const pointer item2);
 typedef long GFStoreProc(const pointer item1, FILE* fstorage); //for serialization
 typedef pointer GFLoadProc(FILE* fstorage); //for deserialization
 
+void GError(const char* format,...); // Error routine (aborts program)
+void GMessage(const char* format,...);// Log message to stderr
+// Assert failed routine:- usually not called directly but through GASSERT
+void GAssert(const char* expression, const char* filename, unsigned int lineno);
+
 typedef void GFreeProc(pointer item); //usually just delete,
       //but may also support structures with embedded dynamic members
 
@@ -189,9 +194,11 @@ inline int iround(double x) {
    return (int)floor(x + 0.5);
 }
 
-int Gmkdir(const char *path, bool recursive=true, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH));
-void Gmktempdir(char* templ);
+char* Grealpath(const char *path, char *resolved_path);
 
+int Gmkdir(const char *path, bool recursive=true, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH));
+
+void Gmktempdir(char* templ);
 
 bool haveStdInput(); //if stdin is from a pipe or redirection
 
@@ -232,21 +239,52 @@ template<class T>
         std::is_same<char *, typename std::decay<T>::type>::value
   > {};
 
-/**************** Memory management ***************************/
 
-bool GMalloc(pointer* ptr, unsigned long size); // Allocate memory
-bool GCalloc(pointer* ptr, unsigned long size); // Allocate and initialize memory
-bool GRealloc(pointer* ptr,unsigned long size); // Resize memory
 
-void GFree(pointer* ptr); // Free memory, resets ptr to NULL
+inline void GFree(pointer* ptr){
+     GASSERT(ptr);
+     if (*ptr) free(*ptr);
+     *ptr=NULL;
+ }
 
-//int saprintf(char **retp, const char *fmt, ...);
+inline bool GMalloc(pointer* ptr,unsigned long size){
+    //GASSERT(ptr);
+    if (size!=0)
+  	  *ptr=malloc(size);
+    return *ptr!=NULL;
+ }
 
-void GError(const char* format,...); // Error routine (aborts program)
-void GMessage(const char* format,...);// Log message to stderr
-// Assert failed routine:- usually not called directly but through GASSERT
-void GAssert(const char* expression, const char* filename, unsigned int lineno);
+// Allocate 0-filled memory
+inline bool GCalloc(pointer* ptr,unsigned long size){
+    GASSERT(ptr);
+    *ptr=calloc(size,1);
+    return *ptr!=NULL;
+ }
 
+// Resize memory
+inline bool GRealloc(pointer* ptr,unsigned long size){
+    //GASSERT(ptr);
+    if (size==0) {
+      GFree(ptr);
+      return true;
+      }
+    if (*ptr==NULL) {//simple malloc
+     void *p=malloc(size);
+     if (p != NULL) {
+       *ptr=p;
+       return true;
+       }
+      else return false;
+     }//malloc
+    else {//realloc
+     void *p=realloc(*ptr,size);
+     if (p) {
+         *ptr=p;
+         return true;
+         }
+     return false;
+     }
+ }
 
 template<class T> T* GDupAlloc(T& data) {
 	T* tmp=NULL;
@@ -282,7 +320,6 @@ char* strupper(char * str);
 //for a substring:
 void* Gmemscan(void *mem, unsigned int len,
                   void *part, unsigned int partlen);
-
 
 FILE* Gfopen(const char *path, char *mode=NULL);
 
@@ -440,9 +477,6 @@ struct GRangeParser: GSeg {
 		GFREE(refName);
 	}
 };
-
-
-
 
 //basic dynamic array template for primitive types
 //which can only grow (reallocate) as needed

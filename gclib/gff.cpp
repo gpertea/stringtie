@@ -2910,14 +2910,15 @@ void GffObj::printGxfExon(FILE* fout, const char* tlabel, const char* gseqname, 
  }//GTF
 }
 
-bool GffObj::printAttrs(FILE* fout,  const char* sep, bool GTFstyle, bool cvtChars) {
- //* this prints sep FIRST IF GTFStyle is true, and then the list of attributes separated by sep
+bool GffObj::printAttrs(FILE* fout,  const char* sep, bool GTFstyle, bool cvtChars, bool sepFirst) {
+ //* this prints sep FIRST and then the list of attributes separated by sep
  //* does NOT print sep and newline at the end!
  // returns false if no attribute was printed at all
  const int DBUF_LEN=1024; //there should not be attribute values longer than 1K!
  char dbuf[DBUF_LEN];
+ const char* prsep=sepFirst ? sep : "";
+ //assumes ID or transcript_ID was already printed (without ending)
  bool pr=false;
- //assumes ID or transcript_ID was already printed
  if (GTFstyle) {
 	 //for GTF also print gene_id here! (and gene_name)
 	 char* gid=NULL;
@@ -2929,9 +2930,9 @@ bool GffObj::printAttrs(FILE* fout,  const char* sep, bool GTFstyle, bool cvtCha
 	   if (gid==NULL)
 		   gid=gffID; //last resort, write gid the same with gffID
 	 }
-   if (gid!=NULL)  { fprintf(fout, "%sgene_id \"%s\"",sep, gid); pr=true; }
+   if (gid!=NULL)  { fprintf(fout, "%sgene_id \"%s\"",prsep, gid); prsep=sep; pr=true; }
    if (gene_name!=NULL && getAttr("gene_name")==NULL && getAttr("GENE_NAME")==NULL)
-	  { fprintf(fout, "%sgene_name \"%s\"",sep, gene_name); pr=true; }
+	  { fprintf(fout, "%sgene_name \"%s\"",prsep, gene_name); prsep=sep; pr=true; }
    if (attrs!=NULL) {
 		bool trId=false;
 		//bool gId=false;
@@ -2950,13 +2951,14 @@ bool GffObj::printAttrs(FILE* fout,  const char* sep, bool GTFstyle, bool cvtCha
 		  if (Gstrcmp(attrname, "geneID")==0 && gid!=NULL &&
 					strcmp(attrval, gid)==0) continue;
 		  if (strcmp(attrname, "gene_id")==0) continue;
-		  pr=true;
 		  if (cvtChars) {
 			  decodeHexChars(dbuf, attrval, DBUF_LEN-1);
-			  fprintf(fout,"%s%s \"%s\"", sep, attrname, dbuf);
+			  fprintf(fout,"%s%s \"%s\"", prsep, attrname, dbuf);
 		  }
 		  else
-			 fprintf(fout,"%s%s \"%s\"", sep, attrname, attrs->Get(i)->attr_val);
+			 fprintf(fout,"%s%s \"%s\"", prsep, attrname, attrs->Get(i)->attr_val);
+		  prsep=sep;
+		  pr=true;
 		}
    }
  } else { //for GFF/BED/TLF etc, geneID and gene_name should be printed already
@@ -2970,10 +2972,11 @@ bool GffObj::printAttrs(FILE* fout,  const char* sep, bool GTFstyle, bool cvtCha
 		    	  //fprintf(fout,";%s",attrname);
 		      if (cvtChars) {
 		    	  decodeHexChars(dbuf, attrval, DBUF_LEN-1);
-		    	  fprintf(fout,"%s%s=%s", pr?sep:"",attrname, dbuf);
+		    	  fprintf(fout,"%s%s=%s", prsep, attrname, dbuf);
 		      }
 		      else
-		    	 fprintf(fout,"%s%s=%s", pr?sep:"", attrname, attrs->Get(i)->attr_val);
+		    	 fprintf(fout,"%s%s=%s", prsep, attrname, attrs->Get(i)->attr_val);
+		      prsep=sep;
 		      pr=true;
 		    }
 	   }
@@ -3002,7 +3005,7 @@ void GffObj::printGxf(FILE* fout, GffPrintMode gffp,
 	     "%s\t%s\ttranscript\t%d\t%d\t%s\t%c\t.\ttranscript_id \"%s\"",
 	     gseqname, tlabel, start, end, dbuf, strand, gffID);
 	   printAttrs(fout, "; ", true, cvtChars);
-	   fprintf(fout,";\n");
+	   fprintf(fout,"\n");
  }
  else if (gff3) { //print GFF3 transcript line:
    uint pstart, pend;
@@ -3051,7 +3054,6 @@ void GffObj::printGxf(FILE* fout, GffPrintMode gffp,
       fprintf(fout, ";geneID=%s",geneID);
    if (gene_name!=NULL && !parentPrint && getAttr("gene_name")==NULL && getAttr("GENE_NAME")==NULL)
       fprintf(fout, ";gene_name=%s",gene_name);
-   fprintf(fout, ";"); //printAttrs() does not print it for non-GTF
    printAttrs(fout, ";", false, cvtChars);
    fprintf(fout,"\n");
  }// gff3 transcript line

@@ -11,6 +11,7 @@
 
 #define XXH_INLINE_ALL 1
 #include "xxhash.h"
+#include "wyhash.h"
 
 template <typename K> struct GHashKey_xxHash32 { //K generic (class, primitive, pointer except const char* )
   //template <typename T=K> inline typename std::enable_if< std::is_trivial<T>::value, uint32_t>::type
@@ -40,6 +41,21 @@ template <> struct GHashKey_xxHash<const char*> {
    }
 };
 
+
+template <typename K> struct GHashKey_wyHash { //K generic (class, primitive, pointer except const char* )
+  //template <typename T=K> inline typename std::enable_if< std::is_trivial<T>::value, uint32_t>::type
+ uint64_t operator()(const K& s) const { //only works for trivial types!
+      static_assert(std::is_trivial<K>::value, "Error: cannot use this for non-trivial types!\n");
+      return wyhash((const void *) &s, sizeof(K), 0, _wyp);
+    }
+};
+
+template <> struct GHashKey_wyHash<const char*> {
+   inline uint32_t operator()(const char* s) const {
+      return wyhash(s, strlen(s), 0, _wyp);
+   }
+};
+
 template <typename K> struct GHashKey_Eq { //K is a type having the == operator defined
     inline bool operator()(const K& x, const K& y) const {
       return (x == y); //requires == operator to be defined for K
@@ -52,8 +68,9 @@ template <> struct GHashKey_Eq<const char*> {
     }
 };
 
-//GHashSet is never making a deep copy of the char* key, it only stores the pointer
-template <typename K=const char*, class Hash=GHashKey_xxHash<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t >
+// GHashSet<KType> never makes a deep copy of a char* key, it only stores the pointer
+//  - for pointer keys like char*, key allocation must be managed separately (and should always survive the GHashSet)
+template <typename K=const char*, class Hash=GHashKey_wyHash<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t >
   class GHashSet: public std::conditional< is_char_ptr<K>::value,
     klib::KHashSetCached< K, Hash,  Eq, khInt_t >,
 	klib::KHashSet< K, Hash,  Eq, khInt_t > >::type  {
@@ -125,9 +142,9 @@ public:
 
 };
 
-//GStrSet always allocates a copy of each added string;
-// if you don't want that (keys are shared), just use GHashSet<const char*> instead
-template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t>
+// GStrSet always allocates a new copy of each added string;
+//  if you don't want that, just use GHashSet<const char*> instead and manage the key allocation separately
+template <class Hash=GHashKey_wyHash<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t>
   class GStrSet: public GHashSet<const char*, Hash, Eq, khInt_t> {
   protected:
 	const char* lastKey=NULL;
@@ -183,9 +200,12 @@ template <class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const ch
 
 };
 
-//generic hash map where keys and values can be of any type
-//Warning: keys are always copied (shared), including const char* keys -- no deep copy!
-template <class K, class V, class Hash=GHashKey_xxHash<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t>
+// Generic hash map where keys and values can be of any type
+// Note: keys are always copied (shared) as simple value, there is no deep copy/allocation for pointers
+//     so pointer keys must me managed separately
+// Note: pointer values are automatically deallocated on container destruction by default,
+//         use GHashMap(false) to disable that when V is a pointer
+template <class K, class V, class Hash=GHashKey_wyHash<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t>
   class GHashMap:public std::conditional< is_char_ptr<K>::value,
     klib::KHashMapCached< K, V, Hash,  Eq, khInt_t>,
     klib::KHashMap< K, V, Hash,  Eq, khInt_t> >::type  {
@@ -227,7 +247,6 @@ public:
 		  return -1;
 	}
 
-
 	template <typename T=V> inline
 		typename std::enable_if< std::is_pointer<T>::value, void>::type
 		Clear() {
@@ -258,7 +277,6 @@ public:
     }
 
   // -- these can be shared with GHash:
-
 	GHashMap(bool doFree=std::is_pointer<V>::value):freeItems(doFree) {
 		static_assert(std::is_trivial<K>::value,
 				"Error: cannot use this for non-trivial types!\n");
@@ -361,13 +379,14 @@ public:
 		return val;
 	}
 
-
-
 	inline uint32_t Count() { return this->count; }
 
 };
 
-template <class V, class Hash=GHashKey_xxHash<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t >
+// GHash<VType>(doFree=true) -- basic string hashmap
+// Note: this hash map always makes a copy of the string key which can be costly
+//     use GHashMap<const char*, VTYPE> for a faster alternative
+template <class V, class Hash=GHashKey_wyHash<const char*>, class Eq=GHashKey_Eq<const char*>, typename khInt_t=uint64_t >
   class GHash:public GHashMap<const char*, V, Hash, Eq, khInt_t>  {
 protected:
   const char* lastKey=NULL;
