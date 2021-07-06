@@ -11,8 +11,8 @@ echo "-------------------"
 /bin/rm -f $linpack.tar.gz
 mkdir $linpack
 cd $srcpack
-make cleanall
-make static
+make clean
+make static-cpp
 cp LICENSE README.md run_tests.sh stringtie prepDE.py prepDE.py3 ../$linpack/
 cd ..
 tar cvfz $linpack.tar.gz $linpack

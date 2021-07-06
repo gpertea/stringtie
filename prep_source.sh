@@ -31,8 +31,6 @@ if [[ -d $srm ]]; then
 fi
 gldir=stringtie-$ver/gclib/
 cp Makefile LICENSE README.md run_tests.sh stringtie.cpp prepDE.py prepDE.py3 {rlink,tablemaker,tmerge}.{h,cpp} $pack/
-cp -r htslib $pack/
-/bin/rm -rf $pack/samtools-0.1.18/.git
 cp ./gclib/{GVec,GList,khashl,GHashMap}.hh ./gclib/GBitVec.h ./gclib/xxhash.h ./gclib/wyhash.h $gldir
 cp ./gclib/{GArgs,GStr,GSam,GBase,gdna,codons,gff,GFaSeqGet,GFastaIndex,proc_mem,GThreads}.{h,cpp} $gldir
 tar cvfz $pack.tar.gz $pack
