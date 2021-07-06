@@ -32,8 +32,8 @@ template <class OBJ> class GArray:public GVec<OBJ> {
     GArray(GCompareProc* cmpFunc=NULL);
     GArray(bool sorted, bool unique=false);
     GArray(int init_capacity, bool sorted, bool unique=false);
-    GArray(GArray<OBJ>& array); //copy constructor
-    const GArray<OBJ>& operator=(GArray<OBJ>& array);
+    GArray(const GArray<OBJ>& array); //copy constructor
+    GArray<OBJ>& operator=(const GArray<OBJ>& array);
     //~GArray();
     //assignment operator
     void setSorted(GCompareProc* cmpFunc);
@@ -97,9 +97,11 @@ template <class OBJ> class GList:public GPVec<OBJ> {
         bool beUnique=false);
     GList(bool sorted, bool free_elements=true, bool beUnique=false);
     GList(int init_capacity, bool sorted, bool free_elements=true, bool beUnique=false);
-    GList(GList<OBJ>& list); //copy constructor?
+    GList(const GList<OBJ>& list); //copy constructor
+    GList(GList<OBJ>&& list); //move constructor
     GList(GList<OBJ>* list); //kind of a copy constructor
-    const GList<OBJ>& operator=(GList<OBJ>& list);
+    GList<OBJ>& operator=(GList<OBJ>& list); //copy operator
+    GList<OBJ>& operator=(GList<OBJ>&& list); //move operator
     //void Clear();
     //~GList();
     void setSorted(GCompareProc* compareProc);
@@ -154,12 +156,11 @@ template <class OBJ> class GList:public GPVec<OBJ> {
 
 //-------------------- TEMPLATE IMPLEMENTATION-------------------------------
 
-template <class OBJ> GArray<OBJ>::GArray(GArray<OBJ>& array):GVec<OBJ>(0) { //copy constructor
+template <class OBJ> GArray<OBJ>::GArray(const GArray<OBJ>& array):GVec<OBJ>(0) { //copy constructor
  this->fCount=array.fCount;
  this->fCapacity=array.fCapacity;
  this->fArray=NULL;
  if (this->fCapacity>0) {
-    //GMALLOC(this->fArray, this->fCapacity*sizeof(OBJ));
     this->fArray=new OBJ[this->fCapacity];
     }
  this->fCount=array.fCount;
@@ -169,7 +170,7 @@ template <class OBJ> GArray<OBJ>::GArray(GArray<OBJ>& array):GVec<OBJ>(0) { //co
  for (int i=0;i<this->fCount;i++) this->fArray[i]=array[i];
  }
 
-template <class OBJ> const GArray<OBJ>& GArray<OBJ>::operator=(GArray<OBJ>& array) {
+template <class OBJ> GArray<OBJ>& GArray<OBJ>::operator=(const GArray<OBJ>& array) {
  if (&array==this) return *this;
  GVec<OBJ>::Clear();
  this->fCount=array.fCount;
@@ -365,37 +366,26 @@ template <class OBJ> void GArray<OBJ>::Sort() {
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //*=> GList implementation -- sortable array of pointers to OBJ
 
-template <class OBJ> GList<OBJ>::GList(GList<OBJ>& list):GPVec<OBJ>(list) { //copy constructor
+template <class OBJ> GList<OBJ>::GList(const GList<OBJ>& list):GPVec<OBJ>(list) { //copy constructor
  fUnique=list.fUnique;
  fCompareProc=list.fCompareProc;
 }
 
-template <class OBJ> GList<OBJ>::GList(GList<OBJ>* plist):GPVec<OBJ>(0) { //another copy constructor
- this->fCapacity=plist->fCapacity;
- this->fList=NULL;
- if (this->fCapacity>0) {
-     GMALLOC(this->fList, this->fCapacity*sizeof(OBJ*));
- }
+template <class OBJ> GList<OBJ>::GList(GList<OBJ>&& list):GPVec<OBJ>(list) { //move constructor
+ fUnique=list.fUnique;
+ fCompareProc=list.fCompareProc;
+}
+
+
+template <class OBJ> GList<OBJ>::GList(GList<OBJ>* plist):GPVec<OBJ>(*plist) {
  fUnique=plist->fUnique;
  fCompareProc=plist->fCompareProc;
- this->fFreeProc=plist->fFreeProc;
- this->fCount=plist->fCount;
- memcpy(this->fList, plist->fList, this->fCount*sizeof(OBJ*));
- //for (int i=0;i<list->fCount;i++) Add(plist->Get(i));
 }
 
 template <class OBJ> void GList<OBJ>::Add(GList<OBJ>& list) {
   if (list.Count()==0) return;
-  if (SORTED) {
-    for (int i=0;i<list.Count();i++) Add(list[i]);
-    }
-  else { //simply copy
-    this->setCapacity(this->fCapacity+list.fCount);
-    memcpy( & (this->fList[this->fCount]), list.fList, list.fCount*sizeof(OBJ*));
-    this->fCount+=list.fCount;
-    }
+  for (int i=0;i<list.Count();i++) Add(list[i]);
 }
-
 
 template <class OBJ> GList<OBJ>::GList(GCompareProc* compareProc,
        GFreeProc* freeProc, bool beUnique) {
@@ -451,7 +441,7 @@ template <class OBJ> GList<OBJ>::GList(int init_capacity, bool sorted,
       }
 }
 
-template <class OBJ> const GList<OBJ>& GList<OBJ>::operator=(GList& list) {
+template <class OBJ> GList<OBJ>& GList<OBJ>::operator=(GList& list) {
  if (&list!=this) {
      GPVec<OBJ>::Clear();
      fCompareProc=list.fCompareProc;
@@ -460,6 +450,20 @@ template <class OBJ> const GList<OBJ>& GList<OBJ>::operator=(GList& list) {
      //but the actual objects are NOT duplicated
      for (int i=0;i<list.Count();i++) Add(list[i]);
      }
+ return *this;
+}
+
+template <class OBJ> GList<OBJ>& GList<OBJ>::operator=(GList&& list) {
+ if (&list!=this) {
+     GPVec<OBJ>::Clear();
+     fCompareProc=list.fCompareProc;
+     this->fCount=list.fCount;
+     this->fFreeProc=list.fFreeProc;
+     this->fList=list.fList;
+     list.fList=NULL;
+     list.fCount=0;
+     list.fCapacity=0;
+   }
  return *this;
 }
 
@@ -583,7 +587,7 @@ template <class OBJ> bool GList<OBJ>::Found(OBJ* item, int& idx) {
    l = 0;
    h = this->fCount - 1;
    while (l <= h) {
-       i = (l + h) >> 1;
+       i = l + ((h-l)>>1);
        c = (*fCompareProc)(this->fList[i], item);
        if (c < 0)  l = i + 1;
        else {

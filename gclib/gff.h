@@ -1032,7 +1032,7 @@ public:
                                 const char* gfparent=NULL, bool cvtChars=false) {
       printGxf(fout, pgffAny, tlabel, gfparent, cvtChars);
    }
-   bool printAttrs(FILE* fout,  const char* sep=";", bool GTFstyle=false, bool cvtChars=false);
+   bool printAttrs(FILE* fout,  const char* sep=";", bool GTFstyle=false, bool cvtChars=false, bool sepFirst=true);
    void printTranscriptGff(FILE* fout, char* tlabel=NULL,
                             bool showCDS=false, const char* gfparent=NULL, bool cvtChars=false) {
       if (isValidTranscript())

@@ -62,61 +62,17 @@ void GMessage(const char* format,...){
     _vsnprintf(msg, 4095, format, arguments);
     msg[4095]=0;
     va_end(arguments);
-    OutputDebugString(msg);
+    fflush(stderr);
+    //OutputDebugString(msg);
   #else
     va_list arguments;
     va_start(arguments,format);
     vfprintf(stderr,format,arguments);
     va_end(arguments);
+    fflush(stderr);
   #endif
   }
 
-/*************** Memory management routines *****************/
-// Allocate memory
-bool GMalloc(pointer* ptr,unsigned long size){
-  //GASSERT(ptr);
-  if (size!=0)
-	  *ptr=malloc(size);
-  return *ptr!=NULL;
-  }
-
-// Allocate cleaned memory (0 filled)
-bool GCalloc(pointer* ptr,unsigned long size){
-  GASSERT(ptr);
-  *ptr=calloc(size,1);
-  return *ptr!=NULL;
-  }
-
-// Resize memory
-bool GRealloc(pointer* ptr,unsigned long size){
-  //GASSERT(ptr);
-  if (size==0) {
-    GFree(ptr);
-    return true;
-    }
-  if (*ptr==NULL) {//simple malloc
-   void *p=malloc(size);
-   if (p != NULL) {
-     *ptr=p;
-     return true;
-     }
-    else return false;
-   }//malloc
-  else {//realloc
-   void *p=realloc(*ptr,size);
-   if (p) {
-       *ptr=p;
-       return true;
-       }
-   return false;
-   }
- }
-// Free memory, resets ptr to NULL afterward
-void GFree(pointer* ptr){
-  GASSERT(ptr);
-  if (*ptr) free(*ptr);
-  *ptr=NULL;
-  }
 
 char* Gstrdup(const char* str, int xtracap) {
   if (str==NULL) return NULL;
@@ -183,6 +139,44 @@ void Gmktempdir(char* templ) {
 	  GError("Error creating temp dir %s!(%s)\n", templ, strerror(errno));
 #endif
 }
+
+char *to_unix_path(char *p) {
+    if (p != NULL) {
+        char *pp = p;
+        while (*pp != 0) {
+            if (*pp == '\\')
+                *pp = '/';
+            ++pp;
+        }
+    }
+    return p;
+}
+
+char* Grealpath(const char *path, char *resolved_path) {
+#ifdef _WIN32
+  //char *realpath(const char *path, char *resolved_path) {
+  char *ret = NULL;
+  if (path == NULL) {
+     errno = EINVAL;
+  } else if (access(path, R_OK) == 0) {
+     ret = resolved_path;
+     if (ret == NULL) {
+         GMALLOC(ret, _MAX_PATH);
+     }
+     if (ret == NULL) {
+       errno = ENOMEM;
+     } else {
+        ret = _fullpath(ret, path, _MAX_PATH);
+        if (ret == NULL)
+            errno = EIO;
+     }
+  }
+  return to_unix_path(ret);
+  #else
+    return realpath(path, resolved_path);
+  #endif
+}
+
 
 int Gmkdir(const char *path, bool recursive, int perms) {
 	if (path==NULL || path[0]==0) return -1;
