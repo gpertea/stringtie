@@ -194,7 +194,7 @@ bool ballgown=false;
 //no more reads will be considered for a bundle if the local coverage exceeds this value
 //(each exon is checked for this)
 
-bool forceBAM = false; //useful for stdin (piping alignments into StringTie)
+//bool forceBAM = false; //useful for stdin (piping alignments into StringTie)
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
@@ -276,6 +276,28 @@ void workerThread(GThreadData& td); // Thread function
 int waitForData(BundleData* bundles);
 #endif
 
+
+
+#define DBG_ALN_DATA 1
+#ifdef DBG_ALN_DATA
+  FILE* fdbgaln=NULL;
+  void dbg_waln(GSamRecord* b) {
+	  if (fdbgaln==NULL) {
+		  GStr fn=outfname;
+		  if (fn.rindex('.')>0)
+			  fn=fn.cut(fn.rindex('.'));
+		  fn+="_alndbg.tab";
+		  fdbgaln=fopen(fn.chars(), "w");
+		  if (fdbgaln==NULL) GError("Error creating file %s\n", fn.chars());
+	  }
+	  //              gseqname, flags, readname, start, end, cigar, nh, hi
+	  char* pcigar=b->cigar();
+	  fprintf(fdbgaln, "%s\t%d\t%s\t%d\t%d\t%s\t%d\t%d\n", b->refName(), b->flags(),
+			  b->name(), b->start, b->end, pcigar, (uint)b->tag_int("NH"), (uint)b->tag_int("HI"));
+	  GFREE(pcigar);
+  }
+
+#endif
 
 TInputFiles bamreader;
 
@@ -395,7 +417,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    fclose(f);
  }
 
-
 #ifdef GFF_DEBUG
   for (int r=0;r<refguides.Count();++r) {
 	  GRefData& grefdata = refguides[r];
@@ -489,6 +510,9 @@ if (ballgown)
 					 brec->name(), brec->start, brec->mapped_len);
 			 continue;
 		 }
+#ifdef DBG_ALN_DATA
+		 dbg_waln(brec);
+#endif
 		 refseqName=brec->refName();
 		 xstrand=brec->spliceStrand(); // tagged strand gets priority
 		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
@@ -809,6 +833,11 @@ if (ballgown)
  }
 #endif
 
+#ifdef DBG_ALN_DATA
+ fclose(fdbgaln);
+#endif
+
+
 #ifdef B_DEBUG
  fclose(dbg_out);
 #endif
@@ -992,7 +1021,7 @@ void processOptions(GArgs& args) {
 	}
 
 	 debugMode=(args.getOpt("debug")!=NULL || args.getOpt('D')!=NULL);
-	 forceBAM=(args.getOpt("bam")!=NULL); //assume the stdin stream is BAM instead of text SAM
+	 //forceBAM=(args.getOpt("bam")!=NULL); //assume the stdin stream is BAM instead of text SAM
 	 mergeMode=(args.getOpt("merge")!=NULL);
 	 if(mergeMode) {
 		 longreads=false; // these are not longreads

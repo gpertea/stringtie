@@ -119,7 +119,7 @@ int TInputFiles::start() {
 		GFREE(line);
 		fclose(flst);
 	}
-	if (mergeMode) {//files are GTF/GFF, convert to temp BAM files
+	if (mergeMode) { //files are GTF/GFF, convert to temp BAM files
 		for (int i=0;i<files.Count();++i) {
 			//crude way to bypass GTF conversion when resuming/debugging
 			if (files[i].endsWith(".bam")) {
@@ -136,8 +136,9 @@ int TInputFiles::start() {
 	}
 	//stringtie multi-BAM input
 	for (int i=0;i<bamfiles.Count();++i) {
-		GSamReader* bamreader=new GSamReader(bamfiles[i].chars(),
-				(bamfiles[i]=="-" && forceBAM));
+		//GSamReader* bamreader=new GSamReader(bamfiles[i].chars(),
+		//		(bamfiles[i]=="-" && forceBAM));
+		GSamReader* bamreader=new GSamReader(bamfiles[i].chars());
 		readers.Add(bamreader);
 		GSamRecord* brec=bamreader->next();
 		if (brec)

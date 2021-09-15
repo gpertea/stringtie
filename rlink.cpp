@@ -207,7 +207,9 @@ bool exonmatch(GVec<GSeg> &prevexons, GVec<GSeg> &exons) {
 }
 
 bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
-
+//TODO DEBUG ONLY see if MD string influences anything!
+	return false;
+//TODO
 	if(mdstr==NULL) return false;
 
 	//--make a copy of the string, in case the original is a const string
@@ -361,7 +363,6 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			for (int i=0;i<brec.exons.Count();i++) len+=brec.exons[i].len();
 			if(len<mintranscriptlen) return;
 		}
-
 		readaln=new CReadAln(strand, nh, brec.start, brec.end, alndata.tinfo);
 		readaln->longread=longr;
 		alndata.tinfo=NULL; //alndata.tinfo was passed to CReadAln

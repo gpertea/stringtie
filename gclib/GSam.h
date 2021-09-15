@@ -56,21 +56,16 @@ class GSamRecord: public GSeg {
    //created from a reader:
    void bfree_on_delete(bool b_free=true) { novel=b_free; }
    GSamRecord() { }
-   GSamRecord(bam1_t* from_b, sam_hdr_t* b_header=NULL, bool b_free=true):b_hdr(b_header),
+   GSamRecord(bam1_t* from_b, sam_hdr_t* b_header=NULL, bool takeOver=true):b(from_b), b_hdr(b_header),
 		   exons(1),juncsdel(1) {
-      if (from_b==NULL) {
-           b=bam_init1();
-           novel=true;
-      }
-      else {
-           b=from_b; //it'll take over from_b
-           novel=b_free;
+      if (from_b==NULL) GError("Error: invalid GSamRecord(from_b) call with null from_b!\n");
+      novel=takeOver;
+      // true if it should take over (adopt) from_b, will free it on destroy
 #ifdef _DEBUG
-           _cigar=cigar();
-           _read=name();
+      _cigar=cigar();
+      _read=name();
 #endif
-           setupCoordinates();//set 1-based coordinates (start, end and exons array)
-      }
+      setupCoordinates();//set 1-based coordinates (start, end and exons array)
    }
 
    GSamRecord(const char* qname, int32_t gseq_tid,
@@ -264,12 +259,17 @@ class GSamReader {
 	      hts_file=hts_open(filename, "r");
 	      if (hts_file==NULL)
 	         GError("Error: could not open alignment file %s \n",filename);
-	      if (hts_file->is_cram && cram_refseq!=NULL) {
-	              hts_set_opt(hts_file, CRAM_OPT_REFERENCE, cram_refseq);
+	      if (hts_file->is_cram) {
+	    	  if (cram_refseq!=NULL) {
+	               hts_set_opt(hts_file, CRAM_OPT_REFERENCE, cram_refseq);
+	    	  }
+	    	  if (required_fields==0) {
+	    		  required_fields=SAM_QNAME|SAM_FLAG|SAM_RNAME|SAM_POS|SAM_MAPQ|SAM_CIGAR|
+	    					SAM_RNEXT|SAM_PNEXT|SAM_TLEN|SAM_AUX;
+	    	  }
+	          hts_set_opt(hts_file, CRAM_OPT_REQUIRED_FIELDS,
+		    			  required_fields);
     	  }
-
-          hts_set_opt(hts_file, CRAM_OPT_REQUIRED_FIELDS,
-	    			  required_fields);
 	      fname=Gstrdup(filename);
 	      hdr=sam_hdr_read(hts_file);
    }
@@ -402,7 +402,6 @@ class GSamReader {
         GSamRecord* bamrec=new GSamRecord(b, hdr, true);
         return bamrec;
       }
-      bam_destroy1(b);
       return NULL;
    }
 
