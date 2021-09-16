@@ -178,7 +178,7 @@ class GFastaDb {
             //GMessage("creating GFastaIndex with fastaPath=%s, fainame=%s\n", fastaPath, fainame.chars());
             faIdx=new GFastaIndex(fastaPath, fainame);
             char* fainamecwd=fainame; //will hold just the file name without the path
-            char* plast=strrchr(fainamecwd, '/'); //CHPATHSEP
+            char* plast=strrchr(fainamecwd, '/');
             if (plast!=NULL) {
               fainamecwd=plast+1; //point to the file name only
             }
