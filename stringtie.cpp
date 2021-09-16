@@ -76,6 +76,7 @@ Options:\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -u no multi-mapping correction (default: correction enabled)\n\
  -h print this usage message and exit\n\
+ --ref/--cram-ref reference FASTA file for CRAM input\n\
 \n\
 Transcript merge usage mode: \n\
   stringtie --merge [Options] { gtf_list | strg1.gtf ...}\n\
@@ -133,6 +134,7 @@ FILE* c_out=NULL;
 GStr outfname;
 GStr out_dir;
 GStr tmp_path;
+GStr cram_ref; //reference genome FASTA for CRAM input
 GStr tmpfname;
 GStr genefname;
 GStr traindir; // training directory for CDS option
@@ -278,7 +280,7 @@ int waitForData(BundleData* bundles);
 
 
 
-#define DBG_ALN_DATA 1
+//#define DBG_ALN_DATA 1
 #ifdef DBG_ALN_DATA
   FILE* fdbgaln=NULL;
   void dbg_waln(GSamRecord* b) {
@@ -292,8 +294,9 @@ int waitForData(BundleData* bundles);
 	  }
 	  //              gseqname, flags, readname, start, end, cigar, nh, hi
 	  char* pcigar=b->cigar();
-	  fprintf(fdbgaln, "%s\t%d\t%s\t%d\t%d\t%s\t%d\t%d\n", b->refName(), b->flags(),
-			  b->name(), b->start, b->end, pcigar, (uint)b->tag_int("NH"), (uint)b->tag_int("HI"));
+	  fprintf(fdbgaln, "%s\t%d\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", b->refName(), b->flags(),
+			  b->name(), b->start, b->end, pcigar, (uint)b->tag_int("NM"), (uint)b->tag_int("NH"), (uint)b->tag_int("HI"),
+			  b->mate_refId(), b->mate_start(), b->clipL, b->clipR);
 	  GFREE(pcigar);
   }
 
@@ -305,7 +308,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;mix;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
    "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -837,7 +840,6 @@ if (ballgown)
  fclose(fdbgaln);
 #endif
 
-
 #ifdef B_DEBUG
  fclose(dbg_out);
 #endif
@@ -1050,18 +1052,19 @@ void processOptions(GArgs& args) {
 	 }
 	 else if(mergeMode) mintranscriptlen=50;
 
-	 /*
-	 if (args.getOpt('S')) {
-		 // sensitivitylevel=2; no longer supported from version 1.0.3
-		 sensitivitylevel=1;
-	 }
-	*/
-
 	 s=args.getOpt("rseq");
 	 if (s.is_empty())
 		 s=args.getOpt('S');
 	 if (!s.is_empty()) {
 		 gfasta=new GFastaDb(s.chars());
+	 }
+
+	 //-- cram ref sequence
+	 s=args.getOpt("ref");
+	 if (s.is_empty())
+		 s=args.getOpt("cram-ref");
+	 if (!s.is_empty()) {
+		 cram_ref=s;
 	 }
 
 	 /*traindir=args.getOpt("cds");

@@ -1,6 +1,5 @@
 #include "tmerge.h"
 
-
 void TInputFiles::Add(const char* fn) {
 	   GStr sfn(fn);
 		if (sfn!="-" && fileExists(fn)<2) {
@@ -136,9 +135,7 @@ int TInputFiles::start() {
 	}
 	//stringtie multi-BAM input
 	for (int i=0;i<bamfiles.Count();++i) {
-		//GSamReader* bamreader=new GSamReader(bamfiles[i].chars(),
-		//		(bamfiles[i]=="-" && forceBAM));
-		GSamReader* bamreader=new GSamReader(bamfiles[i].chars());
+		GSamReader* bamreader=new GSamReader(bamfiles[i].chars(), cram_ref.is_empty() ? NULL : cram_ref.chars());
 		readers.Add(bamreader);
 		GSamRecord* brec=bamreader->next();
 		if (brec)

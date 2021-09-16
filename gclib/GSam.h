@@ -254,51 +254,30 @@ class GSamReader {
    sam_hdr_t* hdr;
    bam1_t* b_next; //for light next(GBamRecord& b)
  public:
-   void bopen(const char* filename, int32_t required_fields,
-		   const char* cram_refseq=NULL) {
+   void bopen(const char* filename, const char* cram_refseq=NULL, int32_t cram_req_fields=0) {
 	      hts_file=hts_open(filename, "r");
 	      if (hts_file==NULL)
 	         GError("Error: could not open alignment file %s \n",filename);
 	      if (hts_file->is_cram) {
 	    	  if (cram_refseq!=NULL) {
 	               hts_set_opt(hts_file, CRAM_OPT_REFERENCE, cram_refseq);
-	    	  }
-	    	  if (required_fields==0) {
-	    		  required_fields=SAM_QNAME|SAM_FLAG|SAM_RNAME|SAM_POS|SAM_MAPQ|SAM_CIGAR|
-	    					SAM_RNEXT|SAM_PNEXT|SAM_TLEN|SAM_AUX;
-	    	  }
-	          hts_set_opt(hts_file, CRAM_OPT_REQUIRED_FIELDS,
-		    			  required_fields);
+	               hts_set_opt(hts_file, CRAM_OPT_DECODE_MD, 1);
+	    	  } else {
+				  if (cram_req_fields==0) {
+					  cram_req_fields=SAM_QNAME|SAM_FLAG|SAM_RNAME|SAM_POS|SAM_MAPQ|SAM_CIGAR|
+								SAM_RNEXT|SAM_PNEXT|SAM_TLEN|SAM_AUX;
+				  }
+				  hts_set_opt(hts_file, CRAM_OPT_REQUIRED_FIELDS,
+							  cram_req_fields);
+			 }
     	  }
 	      fname=Gstrdup(filename);
 	      hdr=sam_hdr_read(hts_file);
    }
 
-   void bopen(const char* filename, const char* cram_refseq=NULL) {
-      hts_file=hts_open(filename, "r");
-      if (hts_file==NULL)
-         GError("Error: could not open alignment file %s \n",filename);
-      if (hts_file->is_cram) {
-    	  if (cram_refseq!=NULL) {
-              hts_set_opt(hts_file, CRAM_OPT_REFERENCE, cram_refseq);
-    	  }
-    	  else hts_set_opt(hts_file, CRAM_OPT_REQUIRED_FIELDS,
-    		SAM_QNAME|SAM_FLAG|SAM_RNAME|SAM_POS|SAM_MAPQ|SAM_CIGAR|
-			SAM_RNEXT|SAM_PNEXT|SAM_TLEN|SAM_AUX );
-
-      }
-      fname=Gstrdup(filename);
-      hdr=sam_hdr_read(hts_file);
-   }
-
-   GSamReader(const char* fn, int32_t required_fields,
-		   const char* cram_ref=NULL):hts_file(NULL),fname(NULL), hdr(NULL), b_next(NULL) {
-      bopen(fn, required_fields, cram_ref);
-   }
-
-   GSamReader(const char* fn, const char* cram_ref=NULL):hts_file(NULL),fname(NULL),
-		   hdr(NULL), b_next(NULL) {
-      bopen(fn, cram_ref);
+   GSamReader(const char* fn, const char* cram_ref=NULL,
+		   int32_t required_fields=0):hts_file(NULL),fname(NULL), hdr(NULL), b_next(NULL) {
+      bopen(fn, cram_ref, required_fields);
    }
 
    sam_hdr_t* header() {

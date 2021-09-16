@@ -207,11 +207,7 @@ bool exonmatch(GVec<GSeg> &prevexons, GVec<GSeg> &exons) {
 }
 
 bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
-//TODO DEBUG ONLY see if MD string influences anything!
-	return false;
-//TODO
-	if(mdstr==NULL) return false;
-
+	if (mdstr==NULL) return false;
 	//--make a copy of the string, in case the original is a const string
 	// (because the parseUInt() function modifies the string temporarily
 	char* mdstring=Gstrdup(mdstr);
