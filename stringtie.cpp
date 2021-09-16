@@ -1,8 +1,14 @@
 //#define GFF_DEBUG 1 //debugging guides loading
 #include "rlink.h"
 #include "tmerge.h"
+
 #ifndef NOTHREADS
-#include "GThreads.h"
+//#include "GThreads.h"
+#include "MPMCQueue.h"
+#include <vector>
+#include <thread>
+#include <mutex>
+using namespace rigtorp;
 #endif
 
 //#define GMEMTRACE 1  //debugging mem allocation
@@ -11,7 +17,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.7-htslib"
+#define VERSION "2.1.7-htsmt"
 
 //#define DEBUGPRINT 1
 
@@ -100,7 +106,7 @@ the following options are available:\n\
                    these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
-/*
+/*std::lock_guard<std::mutex> guard(logMutex);
  -C output a file with reference transcripts that are covered by reads\n\
  -U unitigs are treated as reads and not as guides \n\ \\ not used now
  -d disable adaptive read coverage mode (default: yes)\n\
@@ -219,12 +225,16 @@ int refseqCount=0; // number of reference sequences found in the guides file
  GStr maxMemBundle;
 #endif
 
-
 #ifndef NOTHREADS
 //single producer, multiple consumers
-//main thread/program is always loading the producer
+//main thread/program is the single producer
+
+
+/*
+
+GVec<int> dataClear; //indexes in bundles[] cleared for loading by producers (clear slot pool)
+
 GMutex dataMutex; //manage availability of data records ready to be loaded by main thread
-GVec<int> dataClear; //indexes of data bundles cleared for loading by main thread (clear data pool)
 GConditionVar haveBundles; //will notify a thread that a bundle was loaded in the ready queue
                            //(or that no more bundles are coming)
 int bundleWork=1; // bit 0 set if bundles are still being prepared (BAM file not exhausted yet)
@@ -241,21 +251,23 @@ GConditionVar haveClear; //will notify when bundle buf space available
 
 GMutex queueMutex; //controls bundleQueue and bundles access
 
-GFastMutex printMutex; //for writing the output to file
-
-GFastMutex logMutex; //only when verbose - to avoid mangling the log output
-
 GFastMutex bamReadingMutex;
 
 GFastMutex countMutex;
+*/
+std::mutex printMutex; //for writing the output to file
+
+std::mutex logMutex; //only when verbose - to avoid mangling the log output
+
 
 #endif
 
 GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
 
-bool NoMoreBundles=false;
-bool moreBundles(); //thread-safe retrieves NoMoreBundles
-void noMoreBundles(); //sets NoMoreBundles to true
+std::atomic<bool> NoMoreBundles=false;
+
+//bool moreBundles(); //thread-safe retrieves NoMoreBundles
+//void noMoreBundles(); //sets NoMoreBundles to true
 //--
 void processOptions(GArgs& args);
 
@@ -272,13 +284,12 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout=NULL);
 
 bool noThreadsWaiting();
 
-void workerThread(GThreadData& td); // Thread function
+//void workerThread(GThreadData& td); // Thread function
+void workerThread(MPMCQueue<BundleData*> & bundleQueue); // Thread function
 
-//prepare the next free bundle for loading
-int waitForData(BundleData* bundles);
+//prepare the next free bundlof e for loading
+//int waitForData(BundleData* bundles);
 #endif
-
-
 
 //#define DBG_ALN_DATA 1
 #ifdef DBG_ALN_DATA
@@ -434,7 +445,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
  // --- input processing
 
-
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
  GList<GffObj>* guides=NULL; //list of transcripts on a specific reference
  GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
@@ -454,12 +464,16 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  FILE* f_idata=NULL;
  FILE* f_e2t=NULL;
  FILE* f_i2t=NULL;
-if (ballgown)
- Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
+ if (ballgown)
+   Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
+
+ BundleData bundle;
+
 #ifndef NOTHREADS
 //model: one producer, multiple consumers
 #define DEF_TSTACK_SIZE 8388608
  size_t defStackSize=DEF_TSTACK_SIZE;
+ //TODO: do this for POSIX thread systems (instead of relying on _GTHREADS_POSIX)
 #ifdef _GTHREADS_POSIX_
  int tstackSize=GThread::defaultStackSize();
  if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
@@ -471,22 +485,25 @@ if (ballgown)
    else GMessage("Default stack size for threads: %d\n", tstackSize);
  }
 #endif
- GThread* threads=new GThread[num_cpus]; //bundle processing threads
-
- GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
+ //GThread* threads=new GThread[num_cpus]; //bundle processing threads
+ //std::thread *threads = new std::thread[num_cpus];
+ vector<std::thread> threads;
+ //GPVec<BundleData> undleQueue(false); //queue of loaded bundles
+ MPMCQueue<BundleData> bundleQueue(num_cpus+1);
  //the consumers take (pop) bundles out of this queue for processing
  //the producer populates this queue with bundles built from reading the BAM input
 
- BundleData* bundles=new BundleData[num_cpus+1];
+ //BundleData* bundles=new BundleData[num_cpus+1];
  //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
-
- dataClear.setCapacity(num_cpus+1);
+ //dataClear.setCapacity(num_cpus+1);
+ threads.reserve(num_cpus);
  for (int b=0;b<num_cpus;b++) {
-	 threads[b].kickStart(workerThread, (void*) &bundleQueue, defStackSize);
-	 bundles[b+1].idx=b+1;
-	 dataClear.Push(b);
-   }
- BundleData* bundle = &(bundles[num_cpus]);
+	 //threads[b].kickStart(workerThread, (void*) &bundleQueue, defStackSize);
+	 threads.emplace_back(workerThread, std::ref(bundleQueue));
+	 //bundles[b+1].idx=b+1; //keep track of Bundle index in bundles[] array
+	 //dataClear.Push(b);
+ }
+ //BundleData* bundle = &(bundles[num_cpus]);
 #else
  BundleData bundles[1];
  BundleData* bundle = &(bundles[0]);
@@ -622,10 +639,14 @@ if (ballgown)
 			}
 #ifndef NOTHREADS
 			//push this in the bundle queue where it'll be picked up by the threads
+			/*
 			DBGPRINT2("##> Locking queueMutex to push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
 			int qCount=0;
 			queueMutex.lock();
-			bundleQueue.Push(bundle);
+			*/
+			DBGPRINT2("##> push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
+			bundleQueue.push(bundle);
+			/*
 			bundleWork |= 0x02; //set bit 1
 			qCount=bundleQueue.Count();
 			queueMutex.unlock();
@@ -651,6 +672,7 @@ if (ballgown)
 				DBGPRINT("##> queueMutex locked again within while loop\n");
 			}
 			queueMutex.unlock();
+			*/
 
 #else //no threads
 			//Num_Fragments+=bundle->num_fragments;
@@ -661,14 +683,14 @@ if (ballgown)
 		 } //have alignments to process
 		 else { //no read alignments in this bundle?
 #ifndef NOTHREADS
-			dataMutex.lock();
-			DBGPRINT2("##> dataMutex locked for bundle #%d clearing..\n", bundle->idx);
+			//dataMutex.lock();
+			//DBGPRINT2("##> dataMutex locked for bundle #%d clearing..\n", bundle->idx);
 #endif
 			bundle->Clear();
 #ifndef NOTHREADS
-			dataClear.Push(bundle->idx);
-			DBGPRINT2("##> dataMutex unlocking as dataClear got pushed idx #%d\n", bundle->idx);
-			dataMutex.unlock();
+			//dataClear.Push(bundle->idx);
+			//DBGPRINT2("##> dataMutex unlocking as dataClear got pushed idx #%d\n", bundle->idx);
+			//dataMutex.unlock();
 #endif
 		 } //nothing to do with this bundle
 
@@ -702,7 +724,7 @@ if (ballgown)
 		 if (!more_alns) {
 				if (verbose) {
 #ifndef NOTHREADS
-					GLockGuard<GFastMutex> lock(logMutex);
+					std::lock_guard<std::mutex> guard(logMutex);
 #endif
 					if (Num_Fragments) {
 					   printTime(stderr);
@@ -710,7 +732,8 @@ if (ballgown)
 					}
 					//GMessage(" Done reading alignments.\n");
 				}
-			 noMoreBundles();
+			 //noMoreBundles();
+			 NoMoreBundles=true;
 			 break;
 		 }
 #ifndef NOTHREADS
@@ -1358,7 +1381,7 @@ void processOptions(GArgs& args) {
 		 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
 	 }
 }
-
+/*
 //---------------
 bool moreBundles() { //getter (interogation)
 	bool v=true;
@@ -1396,7 +1419,7 @@ void noMoreBundles() {
 	  NoMoreBundles=true;
 #endif
 }
-
+*/
 void processBundle(BundleData* bundle) {
 	if (verbose) {
 	#ifndef NOTHREADS
@@ -1507,10 +1530,12 @@ bool noThreadsWaiting() {
 	return (v<1);
 }
 
-void workerThread(GThreadData& td) {
-	GPVec<BundleData>* bundleQueue = (GPVec<BundleData>*)td.udata;
+//void workerThread(GThreadData& td) {
+//	GPVec<BundleData>* bundleQueue = (GPVec<BundleData>*)td.udata;
+void workerThread(MPMCQueue<BundleData*>& bundleQueue) {
 	//wait for a ready bundle in the queue, until there is no hope for incoming bundles
 	DBGPRINT2("---->> Thread%d starting..\n",td.thread->get_id());
+	/*
 	DBGPRINT2("---->> Thread%d locking queueMutex..\n",td.thread->get_id());
 	queueMutex.lock(); //enter wait-for-notification loop
 	while (bundleWork) {
@@ -1557,6 +1582,7 @@ void workerThread(GThreadData& td) {
 	} //while there is reason to live
 	queueMutex.unlock();
 	DBGPRINT2("---->> Thread%d DONE.\n", td.thread->get_id());
+	*/
 }
 
 //prepare the next available bundle slot for loading

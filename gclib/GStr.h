@@ -30,6 +30,7 @@ class GStr {
     public:
         GStr();
         GStr(const GStr& s);
+        GStr(GStr&& s);
         //minimize reallocation when suffixes are added
         GStr(const char* s, uint addcap=8);
         GStr(const int i, uint addcap=8);

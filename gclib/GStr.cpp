@@ -148,6 +148,18 @@ GStr::GStr(const GStr& s): my_data(&null_data){
  replace_data(s.my_data);
  }
 
+GStr::GStr(GStr&& s) noexcept: fTokenDelimiter(s.fTokenDelimiter),
+		fTokenizeMode(s.fTokenizeMode), fLastTokenStart(s.fLastTokenStart),
+		readbuf(s.readbuf), readbufsize(s.readbufsize), my_data(s.my_data) {
+  s.my_data=&null_data;
+  s.TokenDelimiter=NULL;
+  s.fTokenizeMode=tkCharSet;
+  s.fLastTokenStart=0;
+  s.readbuf=NULL;
+  s.readbufsize=0;
+ }
+
+
 GStr::GStr(const char *s, uint addcap): my_data(&null_data) {
   fTokenDelimiter=NULL;
   fTokenizeMode=tkCharSet;

@@ -8,6 +8,7 @@
 #include "time.h"
 #include "tablemaker.h"
 #include "GHashMap.hh"
+#include <utility>
 //#include "cds.h"
 
 #define MAX_NODE 1000000
@@ -709,7 +710,27 @@ struct BundleData {
 
  //bool evalReadAln(GSamRecord& brec, char& strand, int nh); //, int hi);
  bool evalReadAln(GReadAlnData& alndata, char& strand);
-
+ // -- disable copy constructor
+  BundleData(const BundleData& bd) = delete;
+ // -- enforce move constructor
+  BundleData(BundleData&& bd) noexcept : status(bd.status), idx(bd.idx), start(bd.start), end(bd.end),
+ 		 numreads(bd.numreads), num_fragments(bd.num_fragments), frag_len(bd.frag_len),
+ 		 sum_cov(bd.sum_cov), covflags(bd.covflags), refseq(std::move(bd.refseq)), gseq(bd.gseq),
+ 		 readlist(std::move(bd.readlist)), junction(std::move(bd.junction)),
+ 		 keepguides(std::move(bd.keepguides)), ptfs(std::move(bd.ptfs)),
+ 		 pred(std::move(bd.pred)), rc_data(bd.rc_data) {
+ 	for(int i=0;i<3;i++) {
+ 		 bpcov[i]=std::move(bd.bpcov[i]);
+ 		 //bd.bpcov[i].Clear();
+ 		 bd.bpcov[i].setCapacity(1024);
+ 	}
+ 	pred.setSorted(false);
+ 	status=BUNDLE_STATUS_CLEAR; idx=0;
+ 	start=0; end=0; numreads=0; num_fragments(0);
+ 	frag_len(0); sum_cov(0); covflags(0);
+ 	gseq=NULL;
+ 	rc_data=NULL;
+  }
  void Clear() {
 	keepguides.Clear();
 	ptfs.Clear();
