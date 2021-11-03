@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.7-htslib"
+#define VERSION "2.1.8"
 
 //#define DEBUGPRINT 1
 
@@ -76,7 +76,7 @@ Options:\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -u no multi-mapping correction (default: correction enabled)\n\
  -h print this usage message and exit\n\
- --ref/--cram-ref reference FASTA file for CRAM input\n\
+ --ref/--cram-ref reference FASTA file for CRAM file input\n\
 \n\
 Transcript merge usage mode: \n\
   stringtie --merge [Options] { gtf_list | strg1.gtf ...}\n\
