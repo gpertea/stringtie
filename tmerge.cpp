@@ -1,6 +1,5 @@
 #include "tmerge.h"
 
-
 void TInputFiles::Add(const char* fn) {
 	   GStr sfn(fn);
 		if (sfn!="-" && fileExists(fn)<2) {
@@ -41,21 +40,22 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   }
   fprintf(samh, "@CO\tfn:%s\n",gtf.chars());
   fclose(samh);
-  GBamWriter bw(bamfname.chars(),samhname.chars());
+  GSamWriter bw(bamfname.chars(),samhname.chars());
   for (int i=0;i<gfr.gflst.Count();++i) {
 	  GffObj& m = *gfr.gflst[i];
 	  int t_id=bw.get_tid(m.getGSeqName());
 	  if (t_id<0)
 		   GError("Error getting header ID# for gseq %s (file: %s)\n",m.getGSeqName(),gtf.chars());
-	  GStr cigar;
+	  GDynArray<uint32_t> cigar;
 	  for (int k=0;k<m.exons.Count();++k) {
 		  if (k>0) {
-			  cigar+=int(m.exons[k]->start-m.exons[k-1]->end-1); cigar+='N';
+			  cigar.Add((int(m.exons[k]->start-m.exons[k-1]->end-1) << BAM_CIGAR_SHIFT) | BAM_CREF_SKIP); // cigar+='N';
 		  }
-		  cigar+=m.exons[k]->len();
-		  cigar+='M';
+		  //cigar+=m.exons[k]->len();
+		  //cigar+='M';
+		  cigar.Add( (m.exons[k]->len() << BAM_CIGAR_SHIFT) | BAM_CMATCH);
 	  }
-	  GBamRecord brec(m.getID(), t_id, m.start, false, "*", cigar.chars());
+	  GSamRecord brec(m.getID(), t_id, m.start, false, cigar);
 	  if (m.strand=='-' || m.strand=='+') {
 		   GStr tag("XS:A:");
 		   tag+=m.strand;
@@ -118,7 +118,7 @@ int TInputFiles::start() {
 		GFREE(line);
 		fclose(flst);
 	}
-	if (mergeMode) {//files are GTF/GFF, convert to temp BAM files
+	if (mergeMode) { //files are GTF/GFF, convert to temp BAM files
 		for (int i=0;i<files.Count();++i) {
 			//crude way to bypass GTF conversion when resuming/debugging
 			if (files[i].endsWith(".bam")) {
@@ -135,23 +135,22 @@ int TInputFiles::start() {
 	}
 	//stringtie multi-BAM input
 	for (int i=0;i<bamfiles.Count();++i) {
-		GBamReader* bamreader=new GBamReader(bamfiles[i].chars(),
-				(bamfiles[i]=="-" && forceBAM));
+		GSamReader* bamreader=new GSamReader(bamfiles[i].chars(), cram_ref.is_empty() ? NULL : cram_ref.chars());
 		readers.Add(bamreader);
-		GBamRecord* brec=bamreader->next();
+		GSamRecord* brec=bamreader->next();
 		if (brec)
 		   recs.Add(new TInputRecord(brec, i));
 	}
 	return readers.Count();
 }
 
-GBamRecord* TInputFiles::next() {
+GSamRecord* TInputFiles::next() {
 	//must free old current record first
 	delete crec;
 	crec=NULL;
     if (recs.Count()>0) {
     	crec=recs.Pop();//lowest coordinate
-    	GBamRecord* rnext=readers[crec->fidx]->next();
+    	GSamRecord* rnext=readers[crec->fidx]->next();
     	if (rnext)
     		recs.Add(new TInputRecord(rnext, crec->fidx));
     	crec->brec->uval=crec->fidx; //send file index

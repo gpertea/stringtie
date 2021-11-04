@@ -3,7 +3,7 @@
 #include "GArgs.h"
 #include "GStr.h"
 #include "gff.h"
-#include "GBam.h"
+#include "GSam.h"
 #include "GBitVec.h"
 #include "time.h"
 #include "tablemaker.h"
@@ -19,6 +19,7 @@
 
 #define CHI_WIN 100
 #define CHI_THR 50
+#define SMALL_EXON 35 // exons smaller than this have a tendency to be missed by long read data
 
 #define IS_FPKM_FLAG 1
 #define IS_TPM_FLAG 2
@@ -169,13 +170,13 @@ struct CTransfrag {
 	float usepath;
 	int weak; // number of weak links
 	bool real:1;
-	bool guide:1;
 	bool longread:1; // there is at least a longread supporting transfrag
 	bool shortread:1; // there is at least one short read supporting transfrag
+	int guide;
 	uint longstart; // for long reads: min start of all longreads sharing transfrag
 	uint longend; // for long reads: max end of all longreads sharing transfrag
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, bool tguide=false,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longread(false),shortread(false),longstart(false),longend(false) {}
-	CTransfrag(float abund=0, bool treal=false,bool tguide=false):nodes(),pattern(),abundance(abund),srabund(0),path(),usepath(-1),weak(-1),real(treal),guide(tguide),longread(false),shortread(false),longstart(false),longend(false) {
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, int tguide=0,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),longread(false),shortread(false),guide(tguide),longstart(false),longend(false) {}
+	CTransfrag(float abund=0, bool treal=false,int tguide=0):nodes(),pattern(),abundance(abund),srabund(0),path(),usepath(-1),weak(-1),real(treal),longread(false),shortread(false),guide(tguide),longstart(false),longend(false) {
 	}
 };
 
@@ -584,7 +585,7 @@ struct CJunction:public GSeg {
 };
 
 struct GReadAlnData {
-	GBamRecord* brec;
+	GSamRecord* brec;
 	char strand; //-1, 0, 1
 	int nh;
 	int hi;
@@ -594,7 +595,7 @@ struct GReadAlnData {
 		bool in_guide;
 	};
 	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
-	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
+	GReadAlnData(GSamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
 			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
 					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
 	~GReadAlnData() { if(mergeMode) delete tinfo; }
@@ -707,7 +708,7 @@ struct BundleData {
  void keepGuide(GffObj* scaff, GPVec<RC_TData>* rc_tdata=NULL,
 		 GPVec<RC_Feature>* rc_edata=NULL, GPVec<RC_Feature>* rc_idata=NULL);
 
- //bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
+ //bool evalReadAln(GSamRecord& brec, char& strand, int nh); //, int hi);
  bool evalReadAln(GReadAlnData& alndata, char& strand);
 
  void Clear() {
@@ -741,9 +742,9 @@ struct BundleData {
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata);
-		 //GBamRecord& brec, char strand, int nh, int hi);
+		 //GSamRecord& brec, char strand, int nh, int hi);
 
-void countFragment(BundleData& bdata, GBamRecord& brec, int hi,int nh);
+void countFragment(BundleData& bdata, GSamRecord& brec, int hi,int nh);
 
 int printResults(BundleData* bundleData, int geneno, GStr& refname);
 int printMergeResults(BundleData* bundleData, int geneno, GStr& refname);

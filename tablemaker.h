@@ -21,33 +21,6 @@ extern bool ballgown;
 void Ballgown_setupFiles(FILE* &f_tdata, FILE* &f_edata, FILE* &f_idata,
 	            FILE* &f_e2t, FILE* &f_i2t);
 
-//Bundle raw count data
-/*
-struct RC_TSeg {
-   uint id; //feature id (>0)
-   int l; int r; //genomic coordinates
-   char strand;
-   bool operator<(const RC_TSeg& o) const {
-     //if (id == o.id) return false;
-     if (l != o.l) return (l < o.l);
-     if (r != o.r) return (r < o.r);
-     if (strand == '.' || o.strand == '.') return false;
-     if (strand != o.strand) return (strand < o.strand);
-     return false;
-   }
-
-   bool operator==(const RC_TSeg& o) const {
-     //if (id == o.id) return true;
-     return (l==o.l && r==o.r &&
-         (strand == o.strand || strand == '.' || o.strand == '.'));
-   }
-
-   RC_TSeg(int fl=0, int fr=0, char s='.', int fid=0) : id(fid),
-         l(fl), r(fr), strand(s) { }
-
-};
-*/
-
 struct RC_Feature { //exon or intron of a reference transcript
 	uint id; //feature id (>0), +1 to the index either in global guides_RC_exons/introns if ballgown,
 	         //                                 or in bundle_RC_exons/introns if not ballgown

@@ -4,9 +4,9 @@ For StringTie's manual and prepared source and binary packages, please refer to 
 
 Source and binary packages for this software, along with a small test data set 
 can be directly downloaded from the [Releases](https://github.com/gpertea/stringtie/releases) page for this repository. 
-StringTie is compatible with a wide range of Linux and Apple OS systems (going as far back as RedHat Enterprise Linux 5.0 and OS X 10.7). 
-The main program (StringTie) does not have any other library dependencies and in order to compile it from source it requires only 
-a C++ compiler which supports the C++ 0x standard (GCC 4.5 or newer).
+StringTie is compatible with a wide range of Linux and Apple OS systems.
+The main program (StringTie) does not have any other library dependencies (besides zlib) and in order to compile it from source it requires
+a C++ compiler which supports the C++ 11 standard (GCC 4.8 or newer).
 
 ### Building the latest version from the repository 
 In order to compile the StringTie source in this GitHub repository the following steps can be taken:
@@ -30,12 +30,10 @@ is obtained by using `make release` as instructed above.
 ### Using pre-compiled (binary) releases
 Instead of compiling from source, some users may prefer to download an already compiled binary for Linux 
 and Apple OS X, ready to run. These binary package releases are compiled on older versions of these 
-operating systems (RedHat Enterprise Linux 5.0 and OS X 10.7) in order to provide compatibility with 
-a wide range of (older) OS versions, not just the most recent versions. These precompiled packages are 
-made available on the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> page for this repository.
+operating systems in order to provide compatibility with a wide range of (older) OS versions, not just the most recent distributions. 
+These precompiled packages are made available on the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> page for this repository.
 Please note that these binary packages do not include the optional [super-reads module](#the-super-reads-module), 
 which currently can only be built on Linux machines, from the source made available in this repository.
-
 
 ## Running StringTie
 
