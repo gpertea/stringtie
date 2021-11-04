@@ -40,9 +40,10 @@ Options:\n\
  --version : print just the version at stdout and exit\n\
  --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05\n\
  --mix : both short and long read data alignments are provided\n\
+        (long read alignments must be the 2nd BAM/CRAM input file)\n\
  --rf : assume stranded library fr-firststrand\n\
  --fr : assume stranded library fr-secondstrand\n\
- -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
+ -G reference annotation to use for guiding the assembly process (GTF/GFF)\n\
  --ptf : load point-features from a given 4 column feature file <f_tab>\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -l name prefix for output transcripts (default: STRG)\n\
@@ -76,7 +77,7 @@ Options:\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -u no multi-mapping correction (default: correction enabled)\n\
  -h print this usage message and exit\n\
- --ref/--cram-ref reference FASTA file for CRAM file input\n\
+ --ref/--cram-ref reference genome FASTA file for CRAM input\n\
 \n\
 Transcript merge usage mode: \n\
   stringtie --merge [Options] { gtf_list | strg1.gtf ...}\n\
