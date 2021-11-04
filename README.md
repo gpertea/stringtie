@@ -1,4 +1,12 @@
-For StringTie's manual and prepared source and binary packages, please refer to the official website: <https://ccb.jhu.edu/software/stringtie>
+![alt text](https://img.shields.io/badge/License-MIT-blue.svg "MIT License")
+
+## StringTie - efficient transcript assembly and quantitation of RNA-Seq data
+
+This software employs efficient algorithms for transcript structure recovery and abundance estimation from bulk RNA-Seq reads aligned to a reference genome. 
+StringTie takes as input RNA-seq read alignments in coordinate-sorted SAM/BAM/CRAM format and produces a GTF output which consists of assembled 
+transcript structures and their estimated expression levels (FPKM/TPM and base coverage values).
+
+For additional StringTie documentation and the latest official source and binary packages please refer to the official website: <https://ccb.jhu.edu/software/stringtie>
 
 ## Obtaining and installing StringTie
 
@@ -16,36 +24,49 @@ git clone https://github.com/gpertea/stringtie
 cd stringtie
 make release
 ```
+During the first run of the above make command a few library dependencies will be downloaded and compiled, but any subsequent stringtie updates (using `git pull`) 
+should rebuild much faster.
 
-If the compilation is successful, the resulting `stringtie` binary can then be copied to 
-a programs directory of choice.
+To complete the installation, the resulting `stringtie` binary can then be copied to a programs directory of choice (preferably one that is in the current shell's  PATH).
 
-Installation of StringTie this way should take less than a minute on a regular Linux or Apple MacOS 
+Building and installing of StringTie this way should take less than a minute on a regular Linux or Apple MacOS 
 desktop.
 
-Note that simply running `make` would produce an executable which is more suitable for debugging 
-and runtime checking but which can be significantly slower than the optimized version which 
-is obtained by using `make release` as instructed above.
+Note that simply running `make` would produce a less optimized executable which is suitable for debugging 
+and runtime checking but that is significantly slower than the optimized version which 
+is built by using the `make release` command as instructed above.
 
 ### Using pre-compiled (binary) releases
 Instead of compiling from source, some users may prefer to download an already compiled binary for Linux 
-and Apple OS X, ready to run. These binary package releases are compiled on older versions of these 
-operating systems in order to provide compatibility with a wide range of (older) OS versions, not just the most recent distributions. 
+and Apple MacOS, ready to run. These binary package releases are compiled on older versions of these 
+operating systems in order to provide compatibility with a wide range of OS versions not just the most recent distributions. 
 These precompiled packages are made available on the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> page for this repository.
 Please note that these binary packages do not include the optional [super-reads module](#the-super-reads-module), 
-which currently can only be built on Linux machines, from the source made available in this repository.
+which currently can only be built on Linux machines from the source made available in this repository.
 
 ## Running StringTie
 
-Run stringtie from the command line like this:
+The generic command line for the default usage has this format:
 ```
-stringtie [options] <aligned_reads.bam>
+stringtie [-o <output.gtf>] [other_options] <read_alignments.bam> 
 ```
-The main input of the program is a SAMTools BAM file with RNA-Seq mappings
-sorted by genomic location (for example the accepted_hits.bam file produced
-by TopHat).
+The main output is a GTF file containing the structural definitions of the transcripts assembled by StringTie from the read alignment data. The name of the output file should be specified with the `-o` option. If this `-o` option is not used, the output GTF with the assembled transcripts will be printed to the standard 
+output (and can be captured into a file using the `>` output redirect operator).
 
-The main output of the program is a GTF file containing the structural definitions of the transcripts assembled by StringTie from the read alignment data. The name of the output file should be specified by with the `-o` option.
+The main input of the program (_<read_alignments.bam>_) must be a SAM, BAM or CRAM file with RNA-Seq read 
+alignments sorted by their genomic location (for example the `accepted_hits.bam` file produced
+by TopHat, or HISAT2 output sorted with `samtools sort` etc.). The output 
+
+__Note__: if the `--mix` option is used, StringTie expects two alignment files to be given as positional parameters, in a specific order: the short read alignments must be the first file given while the long read alignments must be the second input file. Both alignment files must be sorted by genomic location.
+```
+stringtie [-o <output.gtf>] --mix [other_options] <short_read_alns.bam> <long_read_alns.bam> 
+```
+
+Note that the command line parser in StringTie allows arbitrary order and mixing of the input positional parameters with the other options of the program, so the input alignment files can precede or be given in between the other options, so the following command line if equivalent to the one above:
+
+```
+stringtie <short_read_alns.bam> <long_read_alns.bam> --mix [other_options] [-o <output.gtf>] 
+```
 
 ### Running StringTie on the provided test/demo data
 When building from this source repository, after the program was compiled with `make release` as instructed above, the generated binary can be tested on a small data set with a command like this:
