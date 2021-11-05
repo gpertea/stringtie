@@ -1,9 +1,16 @@
-For StringTie's manual and prepared source and binary packages, please refer to the official website: <https://ccb.jhu.edu/software/stringtie>
+![alt text](https://img.shields.io/badge/License-MIT-blue.svg "MIT License")
+
+## StringTie: efficient transcript assembly and quantitation of RNA-Seq data
+
+Stringtie employs efficient algorithms for transcript structure recovery and abundance estimation from bulk RNA-Seq reads aligned to a reference genome. 
+It takes as input spliced alignments in coordinate-sorted SAM/BAM/CRAM format and produces a GTF output which consists of assembled 
+transcript structures and their estimated expression levels (FPKM/TPM and base coverage values).
+
+For additional StringTie documentation and the latest official source and binary packages please refer to the official website: <https://ccb.jhu.edu/software/stringtie>
 
 ## Obtaining and installing StringTie
 
-Source and binary packages for this software, along with a small test data set 
-can be directly downloaded from the [Releases](https://github.com/gpertea/stringtie/releases) page for this repository. 
+Source and binary packages for this software can be directly downloaded from the [Releases](https://github.com/gpertea/stringtie/releases) page for this repository. 
 StringTie is compatible with a wide range of Linux and Apple OS systems.
 The main program (StringTie) does not have any other library dependencies (besides zlib) and in order to compile it from source it requires
 a C++ compiler which supports the C++ 11 standard (GCC 4.8 or newer).
@@ -16,38 +23,52 @@ git clone https://github.com/gpertea/stringtie
 cd stringtie
 make release
 ```
+During the first run of the above make command a few library dependencies will be downloaded and compiled, but any subsequent stringtie updates (using `git pull`) 
+should rebuild much faster.
 
-If the compilation is successful, the resulting `stringtie` binary can then be copied to 
-a programs directory of choice.
+To complete the installation, the resulting `stringtie` binary can then be copied to a programs directory of choice (preferably one that is in the current shell's  PATH).
 
-Installation of StringTie this way should take less than a minute on a regular Linux or Apple MacOS 
+Building and installing of StringTie this way should take less than a minute on a regular Linux or Apple MacOS 
 desktop.
 
-Note that simply running `make` would produce an executable which is more suitable for debugging 
-and runtime checking but which can be significantly slower than the optimized version which 
-is obtained by using `make release` as instructed above.
+Note that simply running `make` would produce a less optimized executable which is suitable for debugging 
+and runtime checking but that is significantly slower than the optimized version which 
+is built by using the `make release` command as instructed above.
 
 ### Using pre-compiled (binary) releases
 Instead of compiling from source, some users may prefer to download an already compiled binary for Linux 
-and Apple OS X, ready to run. These binary package releases are compiled on older versions of these 
-operating systems in order to provide compatibility with a wide range of (older) OS versions, not just the most recent distributions. 
+and Apple MacOS, ready to run. These binary package releases are compiled on older versions of these 
+operating systems in order to provide compatibility with a wide range of OS versions not just the most recent distributions. 
 These precompiled packages are made available on the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> page for this repository.
 Please note that these binary packages do not include the optional [super-reads module](#the-super-reads-module), 
-which currently can only be built on Linux machines, from the source made available in this repository.
+which currently can only be built on Linux machines from the source made available in this repository.
 
 ## Running StringTie
 
-Run stringtie from the command line like this:
+The generic command line for the default usage has this format:
 ```
-stringtie [options] <aligned_reads.bam>
+stringtie [-o <output.gtf>] [other_options] <read_alignments.bam> 
 ```
-The main input of the program is a SAMTools BAM file with RNA-Seq mappings
-sorted by genomic location (for example the accepted_hits.bam file produced
-by TopHat).
+The main output is a GTF file containing the structural definitions of the transcripts assembled by StringTie from the read alignment data. The name of the output file should be specified with the `-o` option. If this `-o` option is not used, the output GTF with the assembled transcripts will be printed to the standard 
+output (and can be captured into a file using the `>` output redirect operator).
 
-The main output of the program is a GTF file containing the structural definitions of the transcripts assembled by StringTie from the read alignment data. The name of the output file should be specified by with the `-o` option.
+The main input of the program (_<read_alignments.bam>_) must be a SAM, BAM or CRAM file with RNA-Seq read 
+alignments sorted by their genomic location (for example the `accepted_hits.bam` file produced
+by TopHat, or HISAT2 output sorted with `samtools sort` etc.). The output 
+
+__Note__: if the `--mix` option is used, StringTie expects two alignment files to be given as positional parameters, in a specific order: the short read alignments must be the first file given while the long read alignments must be the second input file. Both alignment files must be sorted by genomic location.
+```
+stringtie [-o <output.gtf>] --mix [other_options] <short_read_alns.bam> <long_read_alns.bam> 
+```
+
+Note that the command line parser in StringTie allows arbitrary order and mixing of the positional parameters with the other options of the program, so the input alignment files can also precede or be given in between the other options -- the following command line is equivalent to the one above:
+
+```
+stringtie <short_read_alns.bam> <long_read_alns.bam> --mix [other_options] [-o <output.gtf>] 
+```
 
 ### Running StringTie on the provided test/demo data
+
 When building from this source repository, after the program was compiled with `make release` as instructed above, the generated binary can be tested on a small data set with a command like this:
 ```
 make test
@@ -89,26 +110,28 @@ stringtie -L -o long_reads.out.gtf long_reads.bam
 stringtie -L -G human-chr19_P.gff -o long_reads_guided.out.gtf long_reads.bam
 ```
 
-The above runs should take around one second each on a regular Linux or MacOS desktop. 
-(see also <a href="https://github.com/gpertea/stringtie/blob/master/test_data/README.md">test_data/README.md</a>).
-
 For very large data sets one can expect up to one hour of processing time. A minimum of 8GB of RAM is recommended for running StringTie on regular size RNA-Seq samples, with 16 GB or more being strongly advised for larger data sets.
 
 
 ### StringTie options
 
-The following optional parameters can be specified (use -h/--help to get the
-usage message):
+The following optional parameters can be specified (use `-h` or `--help` to get the complete usage message):
 ```
+Options:
  --version : print just the version at stdout and exit
- --conservative : conservative transcriptome assembly, same as -t -c 1.5 -f 0.05
- --rf assume stranded library fr-firststrand
- --fr assume stranded library fr-secondstrand
- -G reference annotation to use for guiding the assembly process (GTF/GFF3)
+ --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05
+ --mix : both short and long read data alignments are provided
+        (long read alignments must be the 2nd BAM/CRAM input file)
+ --rf : assume stranded library fr-firststrand
+ --fr : assume stranded library fr-secondstrand
+ -G reference annotation to use for guiding the assembly process (GTF/GFF)
+ --ptf : load point-features from a given 4 column feature file <f_tab>
  -o output path/file name for the assembled transcripts GTF (default: stdout)
  -l name prefix for output transcripts (default: STRG)
  -f minimum isoform fraction (default: 0.01)
- -L use long reads settings (default:false)
+ -L long reads processing; also enforces -s 1.5 -g 0 (default:false)
+ -R if long reads are provided, just clean and collapse the reads but
+    do not assemble
  -m minimum assembled transcript length (default: 200)
  -a minimum anchor length for junctions (default: 10)
  -j minimum junction coverage (default: 1)
@@ -123,14 +146,19 @@ usage message):
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)
  -p number of threads (CPUs) to use (default: 1)
  -A gene abundance estimation output file
+ -E define window around possibly erroneous splice sites from long reads to
+    look out for correct splice sites (default: 25)
  -B enable output of Ballgown table files which will be created in the
     same directory as the output GTF (requires -G, -o recommended)
  -b enable output of Ballgown table files but these files will be 
     created under the directory path given as <dir_path>
  -e only estimate the abundance of given reference transcripts (requires -G)
+ --viral : only relevant for long reads from viral data where splice sites
+    do not follow consensus (default:false)
  -x do not assemble any transcripts on the given reference sequence(s)
  -u no multi-mapping correction (default: correction enabled)
  -h print this usage message and exit
+ --ref/--cram-ref reference genome FASTA file for CRAM input
 
 Transcript merge usage mode: 
   stringtie --merge [Options] { gtf_list | strg1.gtf ...}
@@ -153,12 +181,13 @@ the following options are available:
   -i               keep merged transcripts with retained introns; by default
                    these are not kept unless there is strong evidence for them
   -l <label>       name prefix for output transcripts (default: MSTRG)
+
 ```
 
 ## Input files
 
-StringTie takes as input a binary SAM (BAM) file sorted by reference position. 
-This file contains spliced read alignments such as the ones produced by TopHat or HISAT2.
+StringTie takes as input a SAM, BAM or CRAM file sorted by coordinate (genomic location). 
+This file should contain spliced RNA-seq read alignments such as the ones produced by TopHat or HISAT2.
 A text file in SAM format should be converted to BAM and sorted using the 
 samtools program:
 ```
@@ -167,18 +196,35 @@ samtools view -Su alns.sam | samtools sort - alns.sorted
 The file resulted from the above command (alns.sorted.bam) can be used 
 directly as input to StringTie. 
 
-Any SAM spliced read alignment (a read alignment across at least one junction)
-needs to contain the XS tag to indicate the strand from which the RNA that produced
-this read originated. TopHat alignments already include this tag, but if you use
+Any SAM record with a spliced alignment (i.e. having a read alignment across at least one junction)
+should have the `XS` tag to indicate the transcription strand - the genomic strand from which the RNA that produced
+this read originated. TopHat and HISAT2 alignments already include this tag, but if you use
 a different read mapper you should check that this tag is also included for spliced alignment
-records. For example HISAT2 should be run with the `--dta` option in order to tag spliced 
-alignments this way. As explained above, the alignments in SAM format should be sorted and
-preferrably converted to BAM.
+records. STAR aligner should be run with the option `--outSAMstrandField intronMotif` in order to generate this tag.
 
-Optionally, a reference annotation file in GTF/GFF3 format can be provided to StringTie 
-using the `-G` option. In this case, StringTie will check to see if the reference transcripts 
-are expressed in the RNA-Seq data, and for the ones that are expressed it will compute coverage
-and FPKM values.
+There is an exception when the `XS` tags are not necessary in the case of long RNA-seq reads aligned with `minimap2` 
+with the `-ax splice` option. minimap2 adds the `ts` tags to splice alignments to indicate the transcription strand 
+(though in a different manner than the `XS` tag), and StringTie can recognize the `ts` tag as well, if the `XS` tag is missing. 
+Thus the long read spliced alignments produced by `minimap2` can be also assembled by StringTie (with the option `-L` or 
+as the 2nd input file for the `--mix` option).
+
+As explained above, the alignments must be sorted by coordinate before they can be used as input for StringTie.
+
+When CRAM files are used as input, the original reference genomic sequence can be provided with the `--ref` option as
+a multi-FASTA file with the same chromosome sequences that were used when aligning the reads. The use of `--ref` option is 
+optional but recommended as StringTie can make use of some alignment quality data (mismatches) that may only be retrieved
+in the case of CRAM files when the reference genome sequence is also provided. In particular it is the assessment of junctions
+and their quality that may be slightly affected by omitting the `--ref` option.
+
+### Reference transcripts (guides)
+
+A reference annotation file in GTF or GFF3 format can be provided to StringTie 
+using the `-G` option which can be used as 'guides' for the assembly process. 
+
+When the `-e` option is used (i.e. expression estimation only), this option is required, 
+and in that case StringTie will not attempt to assemble the read alignments but instead it will 
+only estimate the expression levels of all the transcripts provided in this file
+
 Note that the reference transcripts should be fully covered by reads in order to be included
 in StringTie's output with the original ID of the reference transcript shown in the 
 _`reference_id`_ GTF attribute in the output file . Other transcripts assembled from 
