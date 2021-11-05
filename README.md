@@ -1,9 +1,9 @@
 ![alt text](https://img.shields.io/badge/License-MIT-blue.svg "MIT License")
 
-## StringTie - efficient transcript assembly and quantitation of RNA-Seq data
+## StringTie: efficient transcript assembly and quantitation of RNA-Seq data
 
 Stringtie employs efficient algorithms for transcript structure recovery and abundance estimation from bulk RNA-Seq reads aligned to a reference genome. 
-It takes as input RNA-seq read alignments in coordinate-sorted SAM/BAM/CRAM format and produces a GTF output which consists of assembled 
+It takes as input spliced alignments in coordinate-sorted SAM/BAM/CRAM format and produces a GTF output which consists of assembled 
 transcript structures and their estimated expression levels (FPKM/TPM and base coverage values).
 
 For additional StringTie documentation and the latest official source and binary packages please refer to the official website: <https://ccb.jhu.edu/software/stringtie>
