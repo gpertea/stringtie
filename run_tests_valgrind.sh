@@ -13,7 +13,7 @@ function unpack_test_data() {
      echo "Error: invalid test data archive?"
      exit 1
   fi
-  /bin/rm -f test_data.tar.gz
+  #/bin/rm -f test_data.tar.gz
 }
 
 #if [ ! -f test_data/human-chr19_P.gff ]; then
@@ -31,11 +31,13 @@ function unpack_test_data() {
 cd test_data
 # array element format:
 # 
-arrins=("short_reads" "short_reads_and_superreads" "long_reads" "long_reads")
-arrparms=("" "" "-L" "-L -G human-chr19_P.gff")
-arrout=("short_reads" "short_reads_and_superreads" "long_reads" "long_reads_guided")
-arrmsg=("Short reads"  "Short reads and super-reads" \
-   "Long reads" "Long reads with annotation guides")
+arrins=("short_reads" "short_reads_and_superreads" "long_reads" "long_reads" \
+  "mix_short mix_long" "mix_short mix_long")
+arrparms=("" "" "-L" "-L -G human-chr19_P.gff" "--mix" "--mix -G mix_guides.gff")
+arrout=("short_reads" "short_reads_and_superreads" "long_reads" "long_reads_guided" \
+  "mix_reads" "mix_reads_guided")
+arrmsg=("Short reads"  "Short reads and super-reads" "Long reads" \
+ "Long reads with annotation guides" "Mixed reads" "Mixed reads with annotation guides")
 for i in ${!arrmsg[@]}; do
  fout="${arrout[$i]}.out.gtf"
  /bin/rm -f $fout
@@ -48,6 +50,11 @@ for i in ${!arrmsg[@]}; do
  ((n++))
  echo "Test ${n}: ${arrmsg[$i]}"
  fin=${arrins[$i]}.bam
+ if [[ ${arrins[$i]} =~ ^mix ]]; then
+   ins=( ${arrins[$i]} )
+   fin="${ins[0]}.bam ${ins[1]}.bam"
+ fi
+ 
  valgrind --leak-check=full --show-reachable=yes ../stringtie ${arrparms[$i]} -o $fout $fin
  if [ ! -f $fout ]; then
    echo "Error: file $fout not created! Failed running stringtie on $fin"

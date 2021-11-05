@@ -38,3 +38,16 @@ stringtie -L -o long_reads.out.gtf long_reads.bam
 ```
 stringtie -L -G human-chr19_P.gff -o long_reads_guided.out.gtf long_reads.bam
 ```
+
+### Test 5: Input consists of short read alignments and long read alignments:
+
+```
+stringtie --mix -o mix_reads.out.gtf mix_short.bam mix_long.bam
+```
+
+### Test 6: Input consists of short read alignments and long read alignments, with reference annotation (guides):
+
+```
+stringtie --mix -G mix_guides.gff -o mix_reads_guided.out.gtf mix_short.bam mix_long.bam
+```
+
