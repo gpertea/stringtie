@@ -17,9 +17,9 @@ function unpack_test_data() {
 }
 
 #if [ ! -f test_data/human-chr19_P.gff ]; then
-  if [ -f test_data.tar.gz ]; then
+  if [ -d ./test_data ]; then
     #extract the tarball and rename the directory
-    echo "..Using existing ./test_data.tar.gz"
+    echo "..Using existing ./test_data"
     unpack_test_data
   else
     echo "..Downloading test data.."
