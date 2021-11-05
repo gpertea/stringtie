@@ -210,9 +210,20 @@ as the 2nd input file for the `--mix` option).
 
 As explained above, the alignments must be sorted by coordinate before they can be used as input for StringTie.
 
-Optionally, a reference annotation file in GTF or GFF3 format can be provided to StringTie 
-using the `-G` option which can be used as 'guides' for the assembly process, or their expression levels
-can be directly estimated (without any assembly) when the `-e` option is given.
+When CRAM files are used as input, the original reference genomic sequence can be provided with the `--ref` option as
+a multi-FASTA file with the same chromosome sequences that were used when aligning the reads. The use of `--ref` option is 
+optional but recommended as StringTie can make use of some alignment quality data (mismatches) that may only be retrieved
+in the case of CRAM files when the reference genome sequence is also provided. In particular it is the assessment of junctions
+and their quality that may be slightly affected by omitting the `--ref` option.
+
+### Reference transcripts (guides)
+
+A reference annotation file in GTF or GFF3 format can be provided to StringTie 
+using the `-G` option which can be used as 'guides' for the assembly process. 
+
+When the `-e` option is used (i.e. expression estimation only), this option is required, 
+and in that case StringTie will not attempt to assemble the read alignments but instead it will 
+only estimate the expression levels of all the transcripts provided in this file
 
 Note that the reference transcripts should be fully covered by reads in order to be included
 in StringTie's output with the original ID of the reference transcript shown in the 

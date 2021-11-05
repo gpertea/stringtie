@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 function unpack_test_data() {
-  t=test_data.tar.gz
+  t=tests.tar.gz
   if [ ! -f $t ]; then
     echo "Error: file $t not found!"
     exit 1
@@ -9,22 +9,22 @@ function unpack_test_data() {
   echo "..unpacking test data.."
   echo
   tar -xzf $t
-  if [ ! -f test_data/human-chr19_P.gff ]; then
+  if [ ! -f tests/human-chr19_P.gff ]; then
      echo "Error: invalid test data archive?"
      exit 1
   fi
-  #/bin/rm -f test_data.tar.gz
+  #/bin/rm -f tests.tar.gz
 }
 
-#if [ ! -f test_data/human-chr19_P.gff ]; then
-  if [ -d ./test_data ]; then
+#if [ ! -f tests/human-chr19_P.gff ]; then
+  if [ -d ./tests ]; then
     #extract the tarball and rename the directory
-    echo "..Using existing ./test_data"
+    echo "..Using existing ./tests"
     unpack_test_data
   else
     echo "..Downloading test data.."
     #use curl to fetch the tarball from a specific github release or branch
-    curl -sLO https://github.com/gpertea/stringtie/raw/test_data/test_data.tar.gz
+    curl -sLO https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
     unpack_test_data
   fi
 # fi
