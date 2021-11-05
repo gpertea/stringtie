@@ -1,9 +1,14 @@
 #-- for now these MUST point to the included "samtools-0.x.x" and "gclib" sub-directories
-BAM  := ./samtools-0.1.18
+HTSLIB  := ./htslib
+#-- 
+LIBDEFLATE := ${HTSLIB}/xlibs/lib/libdeflate.a
+LIBBZ2 := ${HTSLIB}/xlibs/lib/libbz2.a
+LIBLZMA := ${HTSLIB}/xlibs/lib/liblzma.a
+
 GDIR := ./gclib
 #--
 
-INCDIRS := -I. -I${GDIR} -I${BAM}
+INCDIRS := -I. -I${GDIR} -I${HTSLIB}
 
 CXX   := $(if $(CXX),$(CXX),g++)
 
@@ -24,9 +29,9 @@ LINKER  := $(if $(LINKER),$(LINKER),g++)
 
 LDFLAGS := $(if $(LDFLAGS),$(LDFLAGS),-g)
 
-LDFLAGS += -L${BAM}
+# LDFLAGS += -L${BAM}
 
-LIBS    := -lbam -lz
+LIBS    := ${HTSLIB}/libhts.a ${LIBBZ2} ${LIBLZMA} ${LIBDEFLATE} -lz -lm
 
 ifneq (,$(filter %nothreads %prof %profile, $(MAKECMDGOALS)))
  NOTHREADS=1
@@ -44,13 +49,6 @@ endif
 RM = rm -f
 #endif
 
-# File endings
-ifdef WINDOWS
- EXE = .exe
-else
- EXE =
-endif
-
 # Non-windows systems need pthread
 ifndef WINDOWS
  ifndef NOTHREADS
@@ -63,9 +61,21 @@ ifdef NOTHREADS
   BASEFLAGS += -DNOTHREADS
 endif
 
+# Compiling for Windows with MinGW?
+#ifneq ($(findstring -mingw,$(shell $(CC) -dumpmachine 2>/dev/null)),)
+#LIBS += -lregex -lws2_32
+#endif
+# File endings
+ifdef WINDOWS
+ EXE = .exe
+ LIBS += -lregex -lws2_32
+else
+ EXE =
+endif
+
 DMACH := $(shell ${CXX} -dumpmachine)
 
-ifneq (,$(filter %release %static, $(MAKECMDGOALS)))
+ifneq (,$(filter %release %static %static-cpp, $(MAKECMDGOALS)))
   # -- release build
   RELEASE_BUILD=1
   CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O3)
@@ -113,13 +123,16 @@ else
 endif
 
 ifdef RELEASE_BUILD
- ifneq (,$(findstring static, $(MAKECMDGOALS)))
-    STATIC_CLIB=1
+ ifneq ($(findstring static,$(MAKECMDGOALS)),) 
+  # static or static-cpp found
+  ifneq ($(findstring static-cpp,$(MAKECMDGOALS)),) 
+     #not a full static build, only c/c++ libs
+     LDFLAGS := -static-libgcc -static-libstdc++ ${LDFLAGS}
+  else
+     #full static build
+     LDFLAGS := -static -static-libgcc -static-libstdc++ ${LDFLAGS}
+  endif
  endif
-endif
-
-ifdef STATIC_CLIB
- LDFLAGS += -static-libgcc -static-libstdc++
 endif
 
 ifdef DEBUG_BUILD
@@ -128,7 +141,7 @@ ifdef DEBUG_BUILD
   DBG_WARN+='WARNING: built DEBUG version [much slower], use "make clean release" for a faster, optimized version of the program.'
 endif
 
-OBJS := ${GDIR}/GBase.o ${GDIR}/GArgs.o ${GDIR}/GStr.o ${GDIR}/GBam.o \
+OBJS := ${GDIR}/GBase.o ${GDIR}/GArgs.o ${GDIR}/GStr.o ${GDIR}/GSam.o \
  ${GDIR}/gdna.o ${GDIR}/codons.o ${GDIR}/GFastaIndex.o ${GDIR}/GFaSeqGet.o ${GDIR}/gff.o 
 
 ifneq (,$(filter %memtrace %memusage %memuse, $(MAKECMDGOALS)))
@@ -145,19 +158,24 @@ endif
 
 OBJS += rlink.o tablemaker.o tmerge.o
 
-all release static debug: stringtie${EXE}
+all release static static-cpp debug: stringtie${EXE}
 memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
 memuse memusage memtrace: stringtie${EXE}
 prof profile: stringtie${EXE}
 nothreads: stringtie${EXE}
 
-stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GBam.h
-rlink.o : rlink.h tablemaker.h $(GDIR)/GBam.h $(GDIR)/GBitVec.h
+stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GSam.h
+rlink.o : rlink.h tablemaker.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
 tmerge.o : rlink.h tmerge.h
 tablemaker.o : tablemaker.h rlink.h
-${BAM}/libbam.a: 
-	cd ${BAM} && make lib
-stringtie${EXE}: ${BAM}/libbam.a $(OBJS) stringtie.o
+
+##${BAM}/libbam.a: 
+##	cd ${BAM} && make lib
+
+${HTSLIB}/libhts.a:
+	cd ${HTSLIB} && ./build_lib.sh
+
+stringtie${EXE}: ${HTSLIB}/libhts.a $(OBJS) stringtie.o
 	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LIBS}
 	@echo
 	${DBG_WARN}
@@ -171,7 +189,7 @@ test demo tests: stringtie${EXE}
 clean:
 	${RM} stringtie${EXE} stringtie.o*  $(OBJS)
 	${RM} core.*
-allclean cleanAll cleanall:
-	cd ${BAM} && make clean
-	${RM} stringtie${EXE} stringtie.o* $(OBJS)
-	${RM} core.*
+##allclean cleanAll cleanall:
+##	cd ${BAM} && make clean
+##	${RM} stringtie${EXE} stringtie.o* $(OBJS)
+##	${RM} core.*

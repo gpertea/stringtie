@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # this must be run into an active git repository
+#url=https://github.com/gpertea/stringtie.git
 ver=$(fgrep '#define VERSION ' stringtie.cpp)
 ver=${ver#*\"}
 ver=${ver%%\"*}
@@ -10,22 +11,27 @@ echo "-------------------"
 /bin/rm -f $pack.tar.gz
 mkdir $pack
 mkdir $pack/gclib
-cd samtools-0.1.18
-make clean
-cd ..
+#cd htslib
+#make clean
+#/bin/rm -f xlibs config.h lzma bzip2 libdeflate
+#cd ..
+# getting a clean htslib directory
+hts=htslib
+mv $hts $hts.prep
+git checkout -- $hts
+mv $hts $pack/
+mv $hts.prep $hts
 # getting a clean SuperReads_RNA directory
 srm=SuperReads_RNA
 if [[ -d $srm ]]; then
-  mv $srm $srm.prepping
+  mv $srm $srm.prep
   git checkout -- $srm
   mv $srm $pack/
-  mv $srm.prepping $srm
+  mv $srm.prep $srm
 fi
 gldir=stringtie-$ver/gclib/
 cp Makefile LICENSE README.md run_tests.sh stringtie.cpp prepDE.py prepDE.py3 {rlink,tablemaker,tmerge}.{h,cpp} $pack/
-cp -r samtools-0.1.18 $pack/
-/bin/rm -rf $pack/samtools-0.1.18/.svn
-cp ./gclib/{GVec,GList,khashl,GHashMap}.hh ./gclib/GBitVec.h ./gclib/xxhash.h $gldir
-cp ./gclib/{GArgs,GStr,GBam,GBase,gdna,codons,gff,GFaSeqGet,GFastaIndex,proc_mem,GThreads}.{h,cpp} $gldir
+cp ./gclib/{GVec,GList,khashl,GHashMap}.hh ./gclib/GBitVec.h ./gclib/xxhash.h ./gclib/wyhash.h $gldir
+cp ./gclib/{GArgs,GStr,GSam,GBase,gdna,codons,gff,GFaSeqGet,GFastaIndex,proc_mem,GThreads}.{h,cpp} $gldir
 tar cvfz $pack.tar.gz $pack
 ls -l $pack.tar.gz

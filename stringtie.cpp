@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.7b"
+#define VERSION "2.1.8"
 
 //#define DEBUGPRINT 1
 
@@ -40,9 +40,10 @@ Options:\n\
  --version : print just the version at stdout and exit\n\
  --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05\n\
  --mix : both short and long read data alignments are provided\n\
+        (long read alignments must be the 2nd BAM/CRAM input file)\n\
  --rf : assume stranded library fr-firststrand\n\
  --fr : assume stranded library fr-secondstrand\n\
- -G reference annotation to use for guiding the assembly process (GTF/GFF3)\n\
+ -G reference annotation to use for guiding the assembly process (GTF/GFF)\n\
  --ptf : load point-features from a given 4 column feature file <f_tab>\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -l name prefix for output transcripts (default: STRG)\n\
@@ -76,6 +77,7 @@ Options:\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -u no multi-mapping correction (default: correction enabled)\n\
  -h print this usage message and exit\n\
+ --ref/--cram-ref reference genome FASTA file for CRAM input\n\
 \n\
 Transcript merge usage mode: \n\
   stringtie --merge [Options] { gtf_list | strg1.gtf ...}\n\
@@ -133,6 +135,7 @@ FILE* c_out=NULL;
 GStr outfname;
 GStr out_dir;
 GStr tmp_path;
+GStr cram_ref; //reference genome FASTA for CRAM input
 GStr tmpfname;
 GStr genefname;
 GStr traindir; // training directory for CDS option
@@ -194,7 +197,7 @@ bool ballgown=false;
 //no more reads will be considered for a bundle if the local coverage exceeds this value
 //(each exon is checked for this)
 
-bool forceBAM = false; //useful for stdin (piping alignments into StringTie)
+//bool forceBAM = false; //useful for stdin (piping alignments into StringTie)
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
@@ -277,13 +280,36 @@ int waitForData(BundleData* bundles);
 #endif
 
 
+
+//#define DBG_ALN_DATA 1
+#ifdef DBG_ALN_DATA
+  FILE* fdbgaln=NULL;
+  void dbg_waln(GSamRecord* b) {
+	  if (fdbgaln==NULL) {
+		  GStr fn=outfname;
+		  if (fn.rindex('.')>0)
+			  fn=fn.cut(fn.rindex('.'));
+		  fn+="_alndbg.tab";
+		  fdbgaln=fopen(fn.chars(), "w");
+		  if (fdbgaln==NULL) GError("Error creating file %s\n", fn.chars());
+	  }
+	  //              gseqname, flags, readname, start, end, cigar, nh, hi
+	  char* pcigar=b->cigar();
+	  fprintf(fdbgaln, "%s\t%d\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", b->refName(), b->flags(),
+			  b->name(), b->start, b->end, pcigar, (uint)b->tag_int("NM"), (uint)b->tag_int("NH"), (uint)b->tag_int("HI"),
+			  b->mate_refId(), b->mate_start(), b->clipL, b->clipR);
+	  GFREE(pcigar);
+  }
+
+#endif
+
 TInputFiles bamreader;
 
 int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;mix;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
    "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -395,7 +421,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    fclose(f);
  }
 
-
 #ifdef GFF_DEBUG
   for (int r=0;r<refguides.Count();++r) {
 	  GRefData& grefdata = refguides[r];
@@ -467,7 +492,7 @@ if (ballgown)
  BundleData bundles[1];
  BundleData* bundle = &(bundles[0]);
 #endif
- GBamRecord* brec=NULL;
+ GSamRecord* brec=NULL;
  bool more_alns=true;
  TAlnInfo* tinfo=NULL; // for --merge
  int prev_pos=0;
@@ -489,6 +514,9 @@ if (ballgown)
 					 brec->name(), brec->start, brec->mapped_len);
 			 continue;
 		 }
+#ifdef DBG_ALN_DATA
+		 dbg_waln(brec);
+#endif
 		 refseqName=brec->refName();
 		 xstrand=brec->spliceStrand(); // tagged strand gets priority
 		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
@@ -809,6 +837,10 @@ if (ballgown)
  }
 #endif
 
+#ifdef DBG_ALN_DATA
+ fclose(fdbgaln);
+#endif
+
 #ifdef B_DEBUG
  fclose(dbg_out);
 #endif
@@ -992,7 +1024,7 @@ void processOptions(GArgs& args) {
 	}
 
 	 debugMode=(args.getOpt("debug")!=NULL || args.getOpt('D')!=NULL);
-	 forceBAM=(args.getOpt("bam")!=NULL); //assume the stdin stream is BAM instead of text SAM
+	 //forceBAM=(args.getOpt("bam")!=NULL); //assume the stdin stream is BAM instead of text SAM
 	 mergeMode=(args.getOpt("merge")!=NULL);
 	 if(mergeMode) {
 		 longreads=false; // these are not longreads
@@ -1021,18 +1053,19 @@ void processOptions(GArgs& args) {
 	 }
 	 else if(mergeMode) mintranscriptlen=50;
 
-	 /*
-	 if (args.getOpt('S')) {
-		 // sensitivitylevel=2; no longer supported from version 1.0.3
-		 sensitivitylevel=1;
-	 }
-	*/
-
 	 s=args.getOpt("rseq");
 	 if (s.is_empty())
 		 s=args.getOpt('S');
 	 if (!s.is_empty()) {
 		 gfasta=new GFastaDb(s.chars());
+	 }
+
+	 //-- cram ref sequence
+	 s=args.getOpt("ref");
+	 if (s.is_empty())
+		 s=args.getOpt("cram-ref");
+	 if (!s.is_empty()) {
+		 cram_ref=s;
 	 }
 
 	 /*traindir=args.getOpt("cds");

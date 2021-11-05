@@ -3,7 +3,7 @@
 #include "GArgs.h"
 #include "GStr.h"
 #include "gff.h"
-#include "GBam.h"
+#include "GSam.h"
 #include "GBitVec.h"
 #include "time.h"
 #include "tablemaker.h"
@@ -584,7 +584,7 @@ struct CJunction:public GSeg {
 };
 
 struct GReadAlnData {
-	GBamRecord* brec;
+	GSamRecord* brec;
 	char strand; //-1, 0, 1
 	int nh;
 	int hi;
@@ -594,7 +594,7 @@ struct GReadAlnData {
 		bool in_guide;
 	};
 	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
-	GReadAlnData(GBamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
+	GReadAlnData(GSamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
 			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
 					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
 	~GReadAlnData() { if(mergeMode) delete tinfo; }
@@ -707,7 +707,7 @@ struct BundleData {
  void keepGuide(GffObj* scaff, GPVec<RC_TData>* rc_tdata=NULL,
 		 GPVec<RC_Feature>* rc_edata=NULL, GPVec<RC_Feature>* rc_idata=NULL);
 
- //bool evalReadAln(GBamRecord& brec, char& strand, int nh); //, int hi);
+ //bool evalReadAln(GSamRecord& brec, char& strand, int nh); //, int hi);
  bool evalReadAln(GReadAlnData& alndata, char& strand);
 
  void Clear() {
@@ -741,9 +741,9 @@ struct BundleData {
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata);
-		 //GBamRecord& brec, char strand, int nh, int hi);
+		 //GSamRecord& brec, char strand, int nh, int hi);
 
-void countFragment(BundleData& bdata, GBamRecord& brec, int hi,int nh);
+void countFragment(BundleData& bdata, GSamRecord& brec, int hi,int nh);
 
 int printResults(BundleData* bundleData, int geneno, GStr& refname);
 int printMergeResults(BundleData* bundleData, int geneno, GStr& refname);
