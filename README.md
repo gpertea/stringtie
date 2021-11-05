@@ -49,12 +49,12 @@ The generic command line for the default usage has this format:
 ```
 stringtie [-o <output.gtf>] [other_options] <read_alignments.bam> 
 ```
-The main output is a GTF file containing the structural definitions of the transcripts assembled by StringTie from the read alignment data. The name of the output file should be specified with the `-o` option. If this `-o` option is not used, the output GTF with the assembled transcripts will be printed to the standard 
-output (and can be captured into a file using the `>` output redirect operator).
-
 The main input of the program (_<read_alignments.bam>_) must be a SAM, BAM or CRAM file with RNA-Seq read 
 alignments sorted by their genomic location (for example the `accepted_hits.bam` file produced
-by TopHat, or HISAT2 output sorted with `samtools sort` etc.). The output 
+by TopHat, or HISAT2 output sorted with `samtools sort` etc.). 
+
+The main output is a GTF file containing the structural definitions of the transcripts assembled by StringTie from the read alignment data. The name of the output file should be specified with the `-o` option. If this `-o` option is not used, the output GTF with the assembled transcripts will be printed to the standard 
+output (and can be captured into a file using the `>` output redirect operator).
 
 __Note__: if the `--mix` option is used, StringTie expects two alignment files to be given as positional parameters, in a specific order: the short read alignments must be the first file given while the long read alignments must be the second input file. Both alignment files must be sorted by genomic location.
 ```
