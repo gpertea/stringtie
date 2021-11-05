@@ -56,21 +56,16 @@ class GSamRecord: public GSeg {
    //created from a reader:
    void bfree_on_delete(bool b_free=true) { novel=b_free; }
    GSamRecord() { }
-   GSamRecord(bam1_t* from_b, sam_hdr_t* b_header=NULL, bool b_free=true):b_hdr(b_header),
+   GSamRecord(bam1_t* from_b, sam_hdr_t* b_header=NULL, bool takeOver=true):b(from_b), b_hdr(b_header),
 		   exons(1),juncsdel(1) {
-      if (from_b==NULL) {
-           b=bam_init1();
-           novel=true;
-      }
-      else {
-           b=from_b; //it'll take over from_b
-           novel=b_free;
+      if (from_b==NULL) GError("Error: invalid GSamRecord(from_b) call with null from_b!\n");
+      novel=takeOver;
+      // true if it should take over (adopt) from_b, will free it on destroy
 #ifdef _DEBUG
-           _cigar=cigar();
-           _read=name();
+      _cigar=cigar();
+      _read=name();
 #endif
-           setupCoordinates();//set 1-based coordinates (start, end and exons array)
-      }
+      setupCoordinates();//set 1-based coordinates (start, end and exons array)
    }
 
    GSamRecord(const char* qname, int32_t gseq_tid,
@@ -145,7 +140,117 @@ class GSamRecord: public GSeg {
     ~GSamRecord() {
        clear();
     }
+/*
+    void print_cigar(bam1_t *al){
+        for (uint8_t c=0;c<al->core.n_cigar;++c){
+            uint32_t *cigar_full=bam_get_cigar(al);
+            int opcode=bam_cigar_op(cigar_full[c]);
+            int length=bam_cigar_oplen(cigar_full[c]);
+            std::cout<<length<<bam_cigar_opchr(opcode);
+        }
+        std::cout<<std::endl;
+    }
 
+    void print_seq(bam1_t *new_rec){
+        int32_t qlen = new_rec->core.l_qseq;
+        int8_t *buf = NULL;
+        buf = static_cast<int8_t *>(realloc(buf, qlen+1));
+        buf[qlen] = '\0';
+        uint8_t* seq = bam_get_seq(new_rec);
+        for (int i = 0; i < qlen; ++i)
+            buf[i] = bam_seqi(seq, i);
+        for (int i = 0; i < qlen; ++i) {
+            buf[i] = seq_nt16_str[buf[i]];
+        }
+        std::string str_seq((char*)(char*)buf);
+        std::cout<<str_seq<<std::endl;
+    }
+*/
+    // taken from samtools/bam_import.c
+    static inline uint8_t * alloc_data(bam1_t *b, size_t size)
+    {
+        if (b->m_data < size)
+        {
+            b->m_data = size;
+            kroundup32(b->m_data);
+            b->data = (uint8_t*)realloc(b->data, b->m_data);
+        }
+        return b->data;
+    }
+
+    bam1_t * bam_update(bam1_t * b,
+                        const size_t nbytes_old,
+                        const size_t nbytes_new,
+                        uint8_t * field_start){ // from pysam
+        int d = nbytes_new - nbytes_old;
+        int new_size;
+        size_t nbytes_before;
+        uint8_t * retval = NULL;
+
+        // no change
+        if (d == 0)
+            return b;
+
+        // new size of total data
+        new_size = d + b->l_data;
+
+        // fields before field in data
+        nbytes_before = field_start - b->data;
+/*
+        if (b->l_data != 0)
+        {
+            assert(nbytes_before >= 0);
+            assert(nbytes_before <= b->l_data);
+        }
+*/
+        // increase memory if required
+        if (d > 0)
+        {
+            retval = alloc_data(b, new_size);
+            if (retval == NULL)
+                return NULL;
+            field_start = b->data + nbytes_before;
+        }
+
+        // move data after field to new location
+        memmove(field_start + nbytes_new,
+                field_start + nbytes_old,
+                b->l_data - (nbytes_before + nbytes_old));
+
+        // adjust l_data
+        b->l_data = new_size;
+
+        return b;
+    }
+/*
+    void replace_qname(int id){ // replace the name with an ID
+        char * p = bam_get_qname(b);
+
+        std::string qname = std::to_string(id);
+        int l = qname.size()+1;
+        int l_extranul = 0;
+        if (l % 4 != 0){
+            l_extranul = 4 - l % 4;
+        }
+
+        bam1_t * retval = bam_update(b,b->core.l_qname,l + l_extranul,(uint8_t*)p);
+        if (retval == NULL){
+            GError("Could not allocate memory");
+        }
+
+        b->core.l_extranul = l_extranul;
+        b->core.l_qname = l + l_extranul;
+
+        p = bam_get_qname(b);
+
+        strcpy(p,qname.c_str());
+        uint16_t x = 0;
+
+        for (int x=l;x<l+l_extranul;x++){
+            p[x] = '\0';
+        }
+    }
+*/
     void parse_error(const char* s) {
       GError("SAM parsing error: %s\n", s);
     }
@@ -259,46 +364,30 @@ class GSamReader {
    sam_hdr_t* hdr;
    bam1_t* b_next; //for light next(GBamRecord& b)
  public:
-   void bopen(const char* filename, int32_t required_fields,
-		   const char* cram_refseq=NULL) {
+   void bopen(const char* filename, const char* cram_refseq=NULL, int32_t cram_req_fields=0) {
 	      hts_file=hts_open(filename, "r");
 	      if (hts_file==NULL)
 	         GError("Error: could not open alignment file %s \n",filename);
-	      if (hts_file->is_cram && cram_refseq!=NULL) {
-	              hts_set_opt(hts_file, CRAM_OPT_REFERENCE, cram_refseq);
+	      if (hts_file->is_cram) {
+	    	  if (cram_refseq!=NULL) {
+	               hts_set_opt(hts_file, CRAM_OPT_REFERENCE, cram_refseq);
+	               hts_set_opt(hts_file, CRAM_OPT_DECODE_MD, 1);
+	    	  } else {
+				  if (cram_req_fields==0) {
+					  cram_req_fields=SAM_QNAME|SAM_FLAG|SAM_RNAME|SAM_POS|SAM_MAPQ|SAM_CIGAR|
+								SAM_RNEXT|SAM_PNEXT|SAM_TLEN|SAM_AUX;
+				  }
+				  hts_set_opt(hts_file, CRAM_OPT_REQUIRED_FIELDS,
+							  cram_req_fields);
+			 }
     	  }
-
-          hts_set_opt(hts_file, CRAM_OPT_REQUIRED_FIELDS,
-	    			  required_fields);
 	      fname=Gstrdup(filename);
 	      hdr=sam_hdr_read(hts_file);
    }
 
-   void bopen(const char* filename, const char* cram_refseq=NULL) {
-      hts_file=hts_open(filename, "r");
-      if (hts_file==NULL)
-         GError("Error: could not open alignment file %s \n",filename);
-      if (hts_file->is_cram) {
-    	  if (cram_refseq!=NULL) {
-              hts_set_opt(hts_file, CRAM_OPT_REFERENCE, cram_refseq);
-    	  }
-    	  else hts_set_opt(hts_file, CRAM_OPT_REQUIRED_FIELDS,
-    		SAM_QNAME|SAM_FLAG|SAM_RNAME|SAM_POS|SAM_MAPQ|SAM_CIGAR|
-			SAM_RNEXT|SAM_PNEXT|SAM_TLEN|SAM_AUX );
-
-      }
-      fname=Gstrdup(filename);
-      hdr=sam_hdr_read(hts_file);
-   }
-
-   GSamReader(const char* fn, int32_t required_fields,
-		   const char* cram_ref=NULL):hts_file(NULL),fname(NULL), hdr(NULL), b_next(NULL) {
-      bopen(fn, required_fields, cram_ref);
-   }
-
-   GSamReader(const char* fn, const char* cram_ref=NULL):hts_file(NULL),fname(NULL),
-		   hdr(NULL), b_next(NULL) {
-      bopen(fn, cram_ref);
+   GSamReader(const char* fn, const char* cram_ref=NULL,
+		   int32_t required_fields=0):hts_file(NULL),fname(NULL), hdr(NULL), b_next(NULL) {
+      bopen(fn, cram_ref, required_fields);
    }
 
    sam_hdr_t* header() {

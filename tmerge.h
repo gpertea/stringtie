@@ -4,6 +4,7 @@
 #include "GList.hh"
 #include "rlink.h"
 extern GStr tmp_path;
+extern GStr cram_ref;
 extern bool keepTempFiles;
 
 struct TInputRecord {

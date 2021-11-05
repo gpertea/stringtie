@@ -2,7 +2,7 @@
 
 The test data can be automatically retrieved by the `run_tests.sh` script included 
 with all source or binary distributions of StringTie, or downloaded separately from this url:
-https://github.com/gpertea/stringtie/raw/test_data/test_data.tar.gz
+https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
 
 The `run_tests.sh` script will then run StringTie on these data sets and compare the output with the 
 precomputed, expected output for each case. If the output of each test matches the 
@@ -38,3 +38,16 @@ stringtie -L -o long_reads.out.gtf long_reads.bam
 ```
 stringtie -L -G human-chr19_P.gff -o long_reads_guided.out.gtf long_reads.bam
 ```
+
+### Test 5: Input consists of short read alignments and long read alignments:
+
+```
+stringtie --mix -o mix_reads.out.gtf mix_short.bam mix_long.bam
+```
+
+### Test 6: Input consists of short read alignments and long read alignments, with reference annotation (guides):
+
+```
+stringtie --mix -G mix_guides.gff -o mix_reads_guided.out.gtf mix_short.bam mix_long.bam
+```
+
