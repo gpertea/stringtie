@@ -24,7 +24,7 @@ function unpack_test_data() {
   else
     echo "..Downloading test data.."
     #use curl to fetch the tarball from a specific github release or branch
-    curl -sLO https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
+    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
     unpack_test_data
   fi
 # fi
