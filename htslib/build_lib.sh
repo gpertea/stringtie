@@ -38,16 +38,16 @@ if [[ ! -f $libdir/libdeflate.a ]]; then
   cd ..
 fi
 
-
 bzip="bzip2-1.0.8"
 if [[ ! -d bzip2 ]]; then
-  curl -sLO https://sourceware.org/pub/bzip2/$bzip.tar.gz
-  tar -xzf $bzip.tar.gz
+  curl -ksLO https://sourceware.org/pub/bzip2/$bzip.tar.gz || \
+    exec echo "Error: failed to fetch $bzip.tar.gz!"
+  tar -xzf $bzip.tar.gz || exec echo "Error: failed to unpack $bzip.tar.gz!"
   /bin/rm -f $bzip.tar.gz
-  mv $bzip bzip2 
+  mv $bzip bzip2
 fi
 if [[ ! -f $libdir/libbz2.a ]]; then 
-  cd bzip2 
+  cd bzip2
   make -j 4 libbz2.a
   cp bzlib.h $incdir/
   cp libbz2.a $libdir/
@@ -58,8 +58,9 @@ fi
 xz="xz-5.2.5"
 
 if [[ ! -d lzma ]]; then
-  curl -sLO https://tukaani.org/xz/$xz.tar.gz
-  tar -xzf $xz.tar.gz
+  curl -ksLO https://tukaani.org/xz/$xz.tar.gz || \
+   exec echo "Error: failed to fetch $xz.tar.gz !"
+  tar -xzf $xz.tar.gz || exec echo "Error: failed to unpack $xz.tar.gz !"
   /bin/rm -f $xz.tar.gz
   mv $xz lzma
 fi
