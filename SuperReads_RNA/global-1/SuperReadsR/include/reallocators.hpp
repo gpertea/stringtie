@@ -138,7 +138,7 @@ struct remaper : public reallocator<T> {
   typedef T element_type;
   //  T* operator()(T* ptr, size_t osize, size_t nsize) {
   static T* realloc(T* ptr, size_t osize, size_t nsize) {
-    T* res = reallocator<T>::operator()(ptr, osize, nsize);
+    T* res = reallocator<T>::realloc()(ptr, osize, nsize);
     if(res && nsize > osize)
       memset(res + osize, '\0', sizeof(T) * (nsize - osize));
     return res;
