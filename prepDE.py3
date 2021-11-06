@@ -3,6 +3,7 @@ import re, csv, sys, os, glob, warnings, itertools
 from math import ceil
 from optparse import OptionParser
 from operator import itemgetter
+from collections import defaultdict
 
 parser=OptionParser(description='Generates two CSV files containing the count matrices for genes and transcripts, using the coverage values found in the output of `stringtie -e`')
 parser.add_option('-i', '--input', '--in', default='.', help="a folder containing all sample sub-directories, or a text file with sample ID and path to its GTF file on each line [default: %default/]")
@@ -127,7 +128,7 @@ read_len=opts.length
 t_count_matrix, g_count_matrix=[],[]
 
 ##Get ready for clustering, stuff is once for all samples##
-geneIDs={} #key=transcript, value=cluster/gene_id
+geneIDs=defaultdict(lambda: str) #key=transcript, value=cluster/gene_id
 
 
 ## For each of the sorted sample paths
@@ -157,7 +158,7 @@ for s in samples:
                 except:
                   print("Problem parsing file %s at line:\n:%s\n" % (s[1], v))
                   sys.exit(1)
-                geneIDs.setdefault(t_id, g_id)
+                geneIDs[t_id]=g_id
                 if not RE_STRING.match(g_id):
                     badGenes.append([v[0],v[6], t_id, g_id, min(int(v[3]),int(v[4])), max(int(v[3]),int(v[4]))]) #chromosome, strand, cluster/transcript id, start, end
                     j=i+1
@@ -211,8 +212,8 @@ if opts.cluster and len(badGenes)>0:
         my_writer=csv.writer(l_file)
         my_writer.writerows(legend)
 
-geneDict={} #key=gene/cluster, value=dictionary with key=sample, value=summed counts
-t_dict={}
+geneDict=defaultdict(lambda: defaultdict(lambda: 0)) #key=gene/cluster, value=dictionary with key=sample, value=summed counts
+t_dict=defaultdict(lambda: defaultdict(lambda: 0))
 guidesFile='' # file given with -G for the 1st sample
 for q, s in enumerate(samples):
     if opts.v:
@@ -250,8 +251,7 @@ for q, s in enumerate(samples):
             if v[2]=="transcript":
                 if transcript_len>0:
 ##                        transcriptList.append((g_id, t_id, int(ceil(coverage*transcript_len/read_len))))
-                    t_dict.setdefault(t_id, {})
-                    t_dict[t_id].setdefault(s[0], int(ceil(coverage*transcript_len/read_len)))
+                    t_dict[t_id][s[0]] = int(ceil(coverage*transcript_len/read_len))
                 t_id=RE_TRANSCRIPT_ID.search(v[len(v)-1]).group(1)
                 #g_id=RE_GENE_ID.search(v[len(v)-1]).group(1)
                 g_id=getGeneID(v[8], v[0], t_id)
@@ -262,8 +262,7 @@ for q, s in enumerate(samples):
                 transcript_len+=int(v[4])-int(v[3])+1 #because end coordinates are inclusive in GTF
 
 ##            transcriptList.append((g_id, t_id, int(ceil(coverage*transcript_len/read_len))))
-        t_dict.setdefault(t_id, {})
-        t_dict[t_id].setdefault(s[0], int(ceil(coverage*transcript_len/read_len)))
+        t_dict[t_id][s[0]]=int(ceil(coverage*transcript_len/read_len))
 
     except StopIteration:
 #        if not gtfList:
@@ -277,8 +276,6 @@ for q, s in enumerate(samples):
     for i,v in t_dict.items():
 ##        print i,v
        try:
-          geneDict.setdefault(geneIDs[i],{}) #gene_id
-          geneDict[geneIDs[i]].setdefault(s[0],0)
           geneDict[geneIDs[i]][s[0]]+=v[s[0]]
        except KeyError:
           print("Error: could not locate transcript %s entry for sample %s" % ( i, s[0] ))
