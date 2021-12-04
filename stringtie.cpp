@@ -5,13 +5,13 @@
 #include "GThreads.h"
 #endif
 
-//#define GMEMTRACE 1  //debugging mem allocation
+//#define GMEMTRACE 1 
 
 #ifdef GMEMTRACE
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.8"
+#define VERSION "2.2.0"
 
 //#define DEBUGPRINT 1
 

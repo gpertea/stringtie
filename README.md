@@ -79,52 +79,62 @@ and runs a few simple tests to ensure that the program works and generates the e
 If a pre-compiled package is used instead of compiling the program from source, the `run_tests.sh` script is included in the binary package as well and it can be run immediately after unpacking the binary package:
 
 ```
-tar -xvzf stringtie-2.0.Linux_x86_64.tar.gz
-cd stringtie-2.0.Linux_x86_64
+tar -xvzf stringtie-2.2.0.Linux_x86_64.tar.gz
+cd stringtie-2.2.0.Linux_x86_64
 ./run_tests.sh
 ```
 
-These small test/demo data sets can also be downloaded separately as <a href="https://github.com/gpertea/stringtie/raw/test_data/test_data.tar.gz">test_data.tar.gz</a> 
+These small test/demo data sets can also be downloaded separately as <a href="https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz">test_data.tar.gz</a> 
 along with the source package and pre-compiled packages on the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> 
 page of this repository.
 
 The tests can also be run manually as shown below (after changing to the _test_data_ directory, `cd test_data`):
 
-#### Run 1: Input consists of only alignments of short reads
+#### Test 1: Input consists of only alignments of short reads
 ```
 stringtie -o short_reads.out.gtf short_reads.bam
 ```
 
-#### Run 2: Input consists of alignments of short reads and superreads
+#### Test 2: Input consists of alignments of short reads and superreads
 ```
 stringtie -o short_reads_and_superreads.out.gtf short_reads_and_superreads.bam
 ```
     
-#### Run 3: Input consists of alignments of long reads
+#### Test 3: Input consists of alignments of long reads
 ```
 stringtie -L -o long_reads.out.gtf long_reads.bam
 ```
     
-#### Run 4: Input consists of alignments of long reads and reference annotation (guides)
+#### Test 4: Input consists of alignments of long reads and reference annotation (guides)
 ```
 stringtie -L -G human-chr19_P.gff -o long_reads_guided.out.gtf long_reads.bam
 ```
+#### Test 5: Input consists of alignments of short reads and alignments of long reads (using `--mix` option)
+```
+stringtie --mix -o mix_reads.out.gtf mix_short.bam mix_long.bam
+```
 
-For very large data sets one can expect up to one hour of processing time. A minimum of 8GB of RAM is recommended for running StringTie on regular size RNA-Seq samples, with 16 GB or more being strongly advised for larger data sets.
+#### Test 6: Input consists of alignments of short reads, alignments of long reads and a reference annotation (guides)
+```
+stringtie --mix -G mix_guides.gff -o mix_reads_guided.out.gtf mix_short.bam mix_long.bam
+```
+
+These tests should complete in several seconds.
+
+For large data sets one can expect up to one hour of processing time. A minimum of 8GB of RAM is recommended for running StringTie on regular size RNA-Seq samples, with 16 GB or more being strongly advised for larger data sets.
 
 
 ### StringTie options
 
-The following optional parameters can be specified (use `-h` or `--help` to get the complete usage message):
+The following optional parameters can be specified (use `-h` or `--help` to get the usage message):
+
 ```
-Options:
- --version : print just the version at stdout and exit
- --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05
  --mix : both short and long read data alignments are provided
         (long read alignments must be the 2nd BAM/CRAM input file)
  --rf : assume stranded library fr-firststrand
  --fr : assume stranded library fr-secondstrand
  -G reference annotation to use for guiding the assembly process (GTF/GFF)
+ --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05
  --ptf : load point-features from a given 4 column feature file <f_tab>
  -o output path/file name for the assembled transcripts GTF (default: stdout)
  -l name prefix for output transcripts (default: STRG)
@@ -157,10 +167,10 @@ Options:
     do not follow consensus (default:false)
  -x do not assemble any transcripts on the given reference sequence(s)
  -u no multi-mapping correction (default: correction enabled)
- -h print this usage message and exit
  --ref/--cram-ref reference genome FASTA file for CRAM input
 
 Transcript merge usage mode: 
+
   stringtie --merge [Options] { gtf_list | strg1.gtf ...}
 With this option StringTie will assemble transcripts from multiple
 input files generating a unified non-redundant set of isoforms. In this mode
@@ -183,6 +193,8 @@ the following options are available:
   -l <label>       name prefix for output transcripts (default: MSTRG)
 
 ```
+
+More details about StringTie options can be found in the [online manual](http://ccb.jhu.edu/software/stringtie/index.shtml?t=manual).
 
 ## Input files
 
@@ -229,10 +241,8 @@ can be considered "novel" transcript structures with respect to the given refere
 This optional module can be used to de-novo assemble, align and pre-process
 RNA-Seq reads, preparing them to be used as "super-reads" by Stringtie.
 
-Mode detailed information is provided in the 
-<a href="https://github.com/gpertea/stringtie/blob/master/SuperReads_RNA/README.md">SuperReads_RNA/README.md</a>.
-Quick installation instructions for this module from the source available on this repository 
-(assuming the above Stringtie installation was completed):
+More usage information is provided in <a href="https://github.com/gpertea/stringtie/blob/master/SuperReads_RNA/README.md">SuperReads_RNA/README.md</a>.
+Quick installation instructions for this module from the source available on this repository (assuming main Stringtie installation was already completed as described above):
 
 ```
  cd SuperReads_RNA
@@ -242,7 +252,7 @@ Quick installation instructions for this module from the source available on thi
 ### Using super-reads with Stringtie
 
 After running the super-reads module (see the <a href="https://github.com/gpertea/stringtie/blob/master/SuperReads_RNA/README.md">SuperReads_RNA</a> module documentation for usage details), there 
-is a BAM file which contains sorted alignment for both short reads and super-reads, called *`sr_merge.bam`*, 
+is a BAM file created which contains sorted alignment for both short reads and super-reads, called *`sr_merge.bam`*, 
 created in the selected output directory. This file can be directly given as the main input file
 to StringTie as described in the [Running StringTie](#running-stringtie) section above.
 
