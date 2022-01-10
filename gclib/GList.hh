@@ -460,6 +460,7 @@ template <class OBJ> GList<OBJ>& GList<OBJ>::operator=(GList&& list) {
      this->fCount=list.fCount;
      this->fFreeProc=list.fFreeProc;
      this->fList=list.fList;
+     this->fCapacity=list.fCapacity;
      list.fList=NULL;
      list.fCount=0;
      list.fCapacity=0;

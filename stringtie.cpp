@@ -5,7 +5,7 @@
 #include "GThreads.h"
 #endif
 
-//#define GMEMTRACE 1 
+//#define GMEMTRACE 1
 
 #ifdef GMEMTRACE
 #include "proc_mem.h"
