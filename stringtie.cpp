@@ -465,7 +465,7 @@ if (ballgown)
  int tstackSize=GThread::defaultStackSize();
  if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  if (verbose) {
-   if (defStackSize>0){
+   if (tstackSize<defStackSize){
     int ssize=defStackSize;
     GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
    }

@@ -4512,7 +4512,7 @@ bool eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag
 	while(transfrag.Count()>max_trf_number) {
 		threshold++;
 		for(int t=transfrag.Count()-1;t>=0;t--)
-			if(!transfrag[t]->guide && transfrag[t]->abundance<threshold && 
+			if(!transfrag[t]->guide && transfrag[t]->abundance<threshold &&
 			    transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1) { // need to delete transfrag that doesn't come from source
 				settrf_in_treepat(NULL,gno,gpos,transfrag[t]->nodes,transfrag[t]->pattern,tr2no); // this should be eliminated if I want to store transcripts from 0 node
 				transfrag.Exchange(t,transfrag.Count()-1);
@@ -10478,7 +10478,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 		 }
 
 		 if(tocheck)  { // try to see if you can rescue transfrag
-			if(!guided || transfrag[t]->guide || (no2gnode[transfrag[t]->nodes[0]]->parent[0]==0 && 
+			if(!guided || transfrag[t]->guide || (no2gnode[transfrag[t]->nodes[0]]->parent[0]==0 &&
 				   no2gnode[transfrag[t]->nodes.Last()]->child.Last()==gno-1) )
 				// only accept long transfrags that are linked to source and sink
 			 checktrf.Add(t);
@@ -17032,8 +17032,10 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	GVec<int> transcripts; // for each gene remembers how many transcripts were printed
 
 	//pred.Sort();
-	for(int i=0;i<npred;i++) if(pred[i]->flag) {
-		if(pred[i]->cov<1 || (!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
+	for(int i=0;i<npred;i++)
+	  if(pred[i]->flag) {
+		//if(pred[i]->cov<1 || (!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
+		if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
 		//if(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr))) {
 			pred[i]->flag=false;
 			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
@@ -17490,6 +17492,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	*/
 
 	int npred=pred.Count();
+
 	pred.setSorted(predCmp);
 
 	GVec<CGene> predgene;
@@ -17497,7 +17500,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	GVec<float>* bpcov = bundleData->bpcov;
 	int startgno=geneno+1;
 
-	if(rawreads) {
+	if(rawreads) { //-R mode
 		// assign gene numbers
 		GVec<int> genes; // for each prediction remembers it's geneno
 		genes.Resize(npred,-1);
@@ -17681,7 +17684,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		}
 
 		return(geneno);
-	}
+	} // ^^^^ rawreads processing mode (-R)
 
 	/*
 	{ // DEBUG ONLY
@@ -17697,8 +17700,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		fprintf(stderr,"\n");
 	}
 	*/
-
-
 
 	bool preddel=false;
 
@@ -17720,7 +17721,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			if(guides[i]->exons.Count()>1 && longreads) isintronguide=true;
 
-			if(eonly) { // if eonly I need to print all guides that were not printed yet
+			if (eonly) { // if eonly I need to print all guides that were not printed yet
 				if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
 
 					fprintf(f_out,"1 %d %d %d 0.0\n",guides[i]->exons.Count()+1,guides[i]->covlen, ((RC_TData*)guides[i]->uptr)->t_id);
@@ -17805,7 +17806,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 					i--;
 				}
 				while(i>=0 && pred[i]->end>pred[n]->start){
-					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC) pred[i]->flag=false;
+					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC)
+						pred[i]->flag=false;
 					i--;
 				}
 				// check if there are single exon on the right of the predicted transcript
@@ -17824,7 +17826,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 					i++;
 				}
 				while(i<npred && pred[i]->start<pred[n]->end) {
-					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC) pred[i]->flag=false;
+					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC)
+						pred[i]->flag=false;
 					i++;
 			}
 		}
