@@ -14,13 +14,14 @@ function unpack_test_data() {
      exit 1
   fi
   #/bin/rm -f tests.tar.gz
+  cp tests_exp_out/*.gtf tests/ 2>/dev/null
 }
 
 #if [ ! -f tests/human-chr19_P.gff ]; then
   if [ -d ./tests ]; then
     #extract the tarball and rename the directory
     echo "..Using existing ./tests"
-    unpack_test_data
+    #unpack_test_data
   else
     echo "..Downloading test data.."
     #use curl to fetch the tarball from a specific github release or branch
@@ -28,7 +29,7 @@ function unpack_test_data() {
     unpack_test_data
   fi
 # fi
-cd test_data
+cd tests
 # array element format:
 # 
 arrins=("short_reads" "short_reads_and_superreads" "long_reads" "long_reads" \
