@@ -17031,11 +17031,10 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	genes.Resize(npred,-1);
 	GVec<int> transcripts; // for each gene remembers how many transcripts were printed
 
-	//pred.Sort();
+	float minCov=readthr>1.0 ? 1.0 : readthr;
 	for(int i=0;i<npred;i++)
-	  if(pred[i]->flag && !eonly) {
-		if ( pred[i]->cov<1 ||
-				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
+	  if(pred[i]->flag) {
+		if (!pred[i]->t_eq && (pred[i]->cov<minCov || (mixedMode && guided && pred[i]->cov<singlethr) ) ) {
 		// ---- or forget about eonly and just consider (!pred[i]->t_eq && pred[i]->cov<1)
 		//if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
 			pred[i]->flag=false;
