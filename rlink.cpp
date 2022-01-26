@@ -17033,10 +17033,11 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	//pred.Sort();
 	for(int i=0;i<npred;i++)
-	  if(pred[i]->flag) {
-		//if(pred[i]->cov<1 || (!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
-		if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
-		//if(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr))) {
+	  if(pred[i]->flag && !eonly) {
+		if ( pred[i]->cov<1 ||
+				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
+		// ---- or forget about eonly and just consider (!pred[i]->t_eq && pred[i]->cov<1)
+		//if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
 			pred[i]->flag=false;
 			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
 			continue;
