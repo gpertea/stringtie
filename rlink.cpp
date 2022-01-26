@@ -17031,12 +17031,14 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	genes.Resize(npred,-1);
 	GVec<int> transcripts; // for each gene remembers how many transcripts were printed
 
-	float minCov=readthr>1.0 ? 1.0 : readthr;
+	float minCov = readthr>1.0 ? readthr : 1.0; // at least 1x coverage is required to keep predictions
+	// TODO: for t_eq preds it would be better to use an "intron coverage" of 1.0 instead (by reads),
+	//       no matter what the base coverage is
+	// FIXME: with the code change below, t_eq predictions have no coverage threshold at all!
+	//       this is BAD if t_eq has introns only supported by guides, but barely any read support!
 	for(int i=0;i<npred;i++)
 	  if(pred[i]->flag) {
 		if (!pred[i]->t_eq && (pred[i]->cov<minCov || (mixedMode && guided && pred[i]->cov<singlethr) ) ) {
-		// ---- or forget about eonly and just consider (!pred[i]->t_eq && pred[i]->cov<1)
-		//if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
 			pred[i]->flag=false;
 			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
 			continue;
