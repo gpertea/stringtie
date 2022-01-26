@@ -13,8 +13,8 @@ function unpack_test_data() {
      echo "Error: invalid test data archive?"
      exit 1
   fi
-  #/bin/rm -f tests.tar.gz
-  cp tests_exp_out/*.gtf tests/ 2>/dev/null
+  
+  #cp tests_exp_out/*.gtf tests/ 2>/dev/null
 }
 
 #if [ ! -f tests/human-chr19_P.gff ]; then

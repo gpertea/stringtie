@@ -14,7 +14,7 @@ cd $srcpack
 make clean
 make static-cpp
 cp LICENSE README.md run_tests.sh stringtie prepDE.py prepDE.py3 ../$linpack/
-cp -r tests_exp_out ../$linpack/
+#cp -r tests_exp_out ../$linpack/
 cd ..
 tar cvfz $linpack.tar.gz $linpack
 ls -l $linpack.tar.gz
