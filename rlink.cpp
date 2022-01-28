@@ -17027,16 +17027,17 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	}
 
 	// assign gene numbers
-	GVec<int> genes; // for each prediction remembers it's geneno
+	GVec<int> genes; // for each prediction remembers its geneno
 	genes.Resize(npred,-1);
 	GVec<int> transcripts; // for each gene remembers how many transcripts were printed
 
 	//pred.Sort();
 	for(int i=0;i<npred;i++)
 	  if(pred[i]->flag && !eonly) {
+		 //TODO: this eliminates e.g. 0.98 cov prediction based on long read that otherwise covers all the junctions!
+		 //  =>  implement a jcov metric (junction coverage) which should supersede base coverage ?
 		if ( pred[i]->cov<1 ||
 				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
-		// ---- or forget about eonly and just consider (!pred[i]->t_eq && pred[i]->cov<1)
 		//if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
 			pred[i]->flag=false;
 			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
