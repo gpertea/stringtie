@@ -802,7 +802,8 @@ if (ballgown)
     	 //check for overlaps with ref transcripts which may set xstrand
     	 if (xstrand=='+') alndata.strand=1;
     	 else if (xstrand=='-') alndata.strand=-1;
-    	 //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
+    	 //const char* bname=brec->name();
+    	 //GMessage("%s\t%c\t%d\thi=%d\n",bname, xstrand, alndata.strand,hi);
     	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
     	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
     	   processRead(currentstart, currentend, *bundle, hashread, alndata);

@@ -347,7 +347,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		if(alndata.tinfo->tpm>=0) bdata.covflags |= IS_TPM_FLAG;
 	}
 
-	if (bdata.end<currentend) {// I am not sure why this is done here?
+	if (bdata.end<currentend) {
 		bdata.start=currentstart;
 		bdata.end=currentend;
 	}

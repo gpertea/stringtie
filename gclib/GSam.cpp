@@ -358,7 +358,7 @@ switch (cop) {
 		  case BAM_CDIFF:     // X
 		  case BAM_CMATCH:    // M
 		    l+=_cigLen(cigar[i]);
-			if(intron) { // op comes after intron --> update juncdel
+			if(intron) { // op comes after intron --> update juncsdel
 				GSeg deljunc(prevdel,0);
 				juncsdel.Add(deljunc);
 			}
@@ -381,6 +381,8 @@ switch (cop) {
 		    ins=true;
 		    break;
 		  case BAM_CREF_SKIP: // N
+			if (i==0 || i==c->n_cigar-1)
+				break; // anomaly? alignment starts/ends with an intron, not exon!
 		    // exon ends here
 		    if(!ins || !intron) { // insertion in the middle of an intron --> adjust last exon
 		      exon.end=c->pos+l;
