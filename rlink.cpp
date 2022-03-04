@@ -309,7 +309,6 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	CReadAln* readaln=NULL;                        // readaln is initialized with NULL
 	//bool covSaturated=false;                       // coverage is set to not saturated
 
-
 	/*
 	{ // DEBUG ONLY
 		fprintf(stderr,"Process read %s with strand=%d and exons:",brec.name(),strand);
