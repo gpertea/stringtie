@@ -21,18 +21,22 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   GStr samhname(bamfname);
   bamfname+=".bam";
   samhname+=".sam";
-  tmpfiles.Add(bamfname);
-  tmpfiles.Add(samhname);
-  FILE* samh=fopen(samhname.chars(), "w");
-  if (samh==NULL) GError("Error creating file: %s\n",samhname.chars());
-  fprintf(samh, "@HD\tVN:1.0\tSO:coordinate\n");
   //load GTF as sorted
   GffReader gfr(gtf.chars(), true, true); //transcript only, sorted by location
   gfr.setRefAlphaSorted(true); //make sure refseq IDs are sorted alphabetically
   gfr.showWarnings(debugMode || verbose);
   gfr.readAll(true, true, true); //keep attributes, merge close exons, no_exon_attributes
-  if (gfr.gflst.Count()==0)
-	  GError("Error: no transcripts were found in input file %s\n", gtf.chars());
+  if (gfr.gflst.Count()==0) {
+	  GMessage("Warning: no transcripts found in input file %s\n", gtf.chars());
+	  bamfname.clear();
+	  return bamfname;
+  }
+  tmpfiles.Add(bamfname);
+  tmpfiles.Add(samhname);
+  FILE* samh=fopen(samhname.chars(), "w");
+  if (samh==NULL) GError("Error creating file: %s\n",samhname.chars());
+  fprintf(samh, "@HD\tVN:1.0\tSO:coordinate\n");
+
   gfr.gseqStats.Sort(gseqstat_cmpName);
   for (int i=0;i<gfr.gseqStats.Count();++i) {
   	fprintf(samh, "@SQ\tSN:%s\tLN:%u\n", gfr.gseqStats[i]->gseqname,
@@ -80,7 +84,6 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   return bamfname;
 }
 
-
 int TInputFiles::start() {
 	GVec<GStr> bamfiles;
 	if (mergeMode && this->files.Count()==1) {
@@ -119,6 +122,7 @@ int TInputFiles::start() {
 		fclose(flst);
 	}
 	if (mergeMode) { //files are GTF/GFF, convert to temp BAM files
+		//int deleted=0;
 		for (int i=0;i<files.Count();++i) {
 			//crude way to bypass GTF conversion when resuming/debugging
 			if (files[i].endsWith(".bam")) {
@@ -126,7 +130,7 @@ int TInputFiles::start() {
 			}
 			else {
 				GStr s=convert2BAM(files[i], i);
-				bamfiles.Add(s);
+				bamfiles.Add(s); //could be empty string!
 			}
 		}
 	}
@@ -135,9 +139,12 @@ int TInputFiles::start() {
 	}
 	//stringtie multi-BAM input
 	for (int i=0;i<bamfiles.Count();++i) {
-		GSamReader* bamreader=new GSamReader(bamfiles[i].chars(), cram_ref.is_empty() ? NULL : cram_ref.chars());
-		readers.Add(bamreader);
-		GSamRecord* brec=bamreader->next();
+		GSamRecord* brec=NULL;
+		if (!bamfiles[i].is_empty()) {
+		   GSamReader* bamreader=new GSamReader(bamfiles[i].chars(), cram_ref.is_empty() ? NULL : cram_ref.chars());
+		   readers.Add(bamreader);
+		   brec=bamreader->next();
+		}
 		if (brec)
 		   recs.Add(new TInputRecord(brec, i));
 	}
