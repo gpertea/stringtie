@@ -146,7 +146,7 @@ int TInputFiles::start() {
 		   brec=bamreader->next();
 		}
 		if (brec)
-		   recs.Add(new TInputRecord(brec, i));
+		   recs.Add(new TInputRecord(brec, readers.Count()-1));
 	}
 	return readers.Count();
 }
