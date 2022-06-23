@@ -250,6 +250,8 @@ GFastMutex bamReadingMutex;
 
 GFastMutex countMutex;
 
+GFastMutex printCovMutex;
+
 #endif
 
 GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)

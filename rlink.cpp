@@ -1,6 +1,7 @@
 #include "rlink.h"
 #include "GBitVec.h"
 #include <float.h>
+#include "GThreads.h"
 
 //#define GMEMTRACE 1  //debugging memory allocation
 #ifdef GMEMTRACE
@@ -13,6 +14,7 @@
 
 //extern GffNames* gseqNames;
 extern FILE *c_out;         // file handle for the input transcripts that are fully covered by reads
+extern GFastMutex printCovMutex; 
 
 extern bool trim;
 extern bool eonly;
@@ -11720,7 +11722,9 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 				GStr guidecov;
 				guidecov.appendfmt("%.2f",guideabundance);
 				guides[guidetrf[g].g]->addAttr("coverage",guidecov.chars());
+				printCovMutex.lock();
 				guides[guidetrf[g].g]->printTranscriptGff(c_out);
+				printCovMutex.unlock();
 			}
 		}
 	}
@@ -14250,7 +14254,9 @@ int build_graphs(BundleData* bdata) {
     						GStr guidecov;
     						guidecov.appendfmt("%.2f",gcov);
     						guides[g]->addAttr("coverage",guidecov.chars());
+    						printCovMutex.lock();
     						guides[g]->printTranscriptGff(c_out);
+    						printCovMutex.unlock();
     					}
     					GSeg exon(guides[g]->start, guides[g]->end);
     					p->exons.Add(exon);
