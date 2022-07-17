@@ -15,8 +15,8 @@ CXX   := $(if $(CXX),$(CXX),g++)
 BASEFLAGS := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
 -D_LARGEFILE_SOURCE -std=c++11 -fno-strict-aliasing -fno-exceptions -fno-rtti
 #for gcc 8+ add: -Wno-class-memaccess
-GCCVER5 := $(shell expr `${CXX} -dumpversion | cut -f1 -d.` \>= 5)
-ifeq "$(GCCVER5)" "1"
+GCCGTE5 := $(shell expr `${CXX} -dumpversion | cut -f1 -d.` \>= 5)
+ifeq "$(GCCGTE5)" "1"
  BASEFLAGS += -Wno-implicit-fallthrough
 endif
 
@@ -82,10 +82,8 @@ ifneq (,$(filter %release %static %static-cpp, $(MAKECMDGOALS)))
   CXXFLAGS += -DNDEBUG $(BASEFLAGS)
 else
   ifneq (,$(filter %memcheck %memdebug %tsan %tcheck %thrcheck, $(MAKECMDGOALS)))
-     #use sanitizer in gcc 4.9+
-     GCCVER49 := $(shell expr `${CXX} -dumpversion | cut -f1,2 -d.` \>= 4.9)
-     ifeq "$(GCCVER49)" "0"
-       $(error gcc version 4.9 or greater is required for this build target)
+     ifneq "$(GCCGTE5)" "1"
+       $(error g++ version 5 or greater is required for this build target)
      endif
      CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
      SANLIBS :=
@@ -98,7 +96,7 @@ else
         CXXFLAGS += -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
         SANLIBS := -lasan
      endif
-     ifeq "$(GCCVER5)" "1"
+     ifeq "$(GCCGTE5)" "1"
        CXXFLAGS += -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=vptr
        CXXFLAGS += -fsanitize=float-cast-overflow -fsanitize=object-size
        #CXXFLAGS += -fcheck-pointer-bounds -mmpx
