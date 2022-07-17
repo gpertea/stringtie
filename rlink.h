@@ -602,43 +602,7 @@ struct GReadAlnData {
 	~GReadAlnData() { if(mergeMode) delete tinfo; }
 };
 
-
-/*
-struct CTCov { //covered transcript info
-	int first_cov_exon;
-	int last_cov_exon;
-	int numt;
-	GffObj* guide;
-	bool whole;
-	CTCov(GffObj* t, int fex=-1, int lex=0, int ntr=0):first_cov_exon(fex), last_cov_exon(lex),
-			   numt(ntr), guide(t), whole(false) {
-		whole = (first_cov_exon<0);
-	}
-	void print(FILE* f) {
-		if (whole) { //from get_covered()
-			guide->printTranscriptGff(f);
-		}
-		else { //from get_partial_covered()
-			bool partial=true;
-			if (last_cov_exon<0) {
-				if (guide->exons.Count()==1) partial=false;
-				last_cov_exon=first_cov_exon;
-			} else {
-			 if(last_cov_exon-first_cov_exon+1==guide->exons.Count()) partial=false;
-			}
-			for(int i=first_cov_exon;i<=last_cov_exon;i++) {
-				if(partial) fprintf(f, "%s\tpartial\texon\t%u\t%u\t.\t%c\t.\ttranscript_id \"%s_part%d\";\n",guide->getGSeqName(),
-						guide->exons[i]->start,guide->exons[i]->end,guide->strand,guide->getID(), numt);
-				else fprintf(f, "%s\tcomplete\texon\t%u\t%u\t.\t%c\t.\ttranscript_id \"%s\";\n",guide->getGSeqName(),
-						guide->exons[i]->start,guide->exons[i]->end,guide->strand,guide->getID());
-			}
-		}
-	}
-};
-*/
-
 // bundle data structure, holds all input data parsed from BAM file
-// - r216 regression
 struct BundleData {
  BundleStatus status;
  //int64_t bamStart; //start of bundle in BAM file
@@ -699,13 +663,7 @@ struct BundleData {
 	  			rc_tdata, rc_edata, rc_idata);
 	  }
  }
- /* after reference annotation was loaded
- void rc_finalize_refs() {
-     if (rc_data==NULL) return;
-     //rc_data->setupCov();
-	}
-	Not needed here, we update the coverage span as each transcript is added
- */
+
  void keepGuide(GffObj* scaff, GPVec<RC_TData>* rc_tdata=NULL,
 		 GPVec<RC_Feature>* rc_edata=NULL, GPVec<RC_Feature>* rc_idata=NULL);
 

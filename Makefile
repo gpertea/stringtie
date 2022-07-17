@@ -109,13 +109,19 @@ else
        CXXFLAGS := -DNDEBUG $(BASEFLAGS) -g -pg
        LDFLAGS += -g -pg
      else
-        #just plain debug build
-        DEBUG_BUILD=1
-        CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
-        ifneq (, $(findstring darwin, $(DMACH)))
-           CXXFLAGS += -gdwarf-3
+        ifneq (,$(filter %cov %gcov, $(MAKECMDGOALS)))
+           ## gcov build
+           CXXFLAGS := -DNDEBUG $(BASEFLAGS) -g -fprofile-arcs -ftest-coverage
+           LDFLAGS += -g -fprofile-arcs
+        else
+           #just plain debug build
+           DEBUG_BUILD=1
+           CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
+           ifneq (, $(findstring darwin, $(DMACH)))
+             CXXFLAGS += -gdwarf-3
+           endif
+           CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
         endif
-        CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
      endif
   endif
 endif
@@ -159,7 +165,7 @@ OBJS += rlink.o tablemaker.o tmerge.o
 all release static static-cpp debug: stringtie${EXE}
 memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
 memuse memusage memtrace: stringtie${EXE}
-prof profile: stringtie${EXE}
+gcov cov prof profile: stringtie${EXE}
 nothreads: stringtie${EXE}
 
 stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GSam.h
