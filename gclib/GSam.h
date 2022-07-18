@@ -5,6 +5,9 @@
 #include "htslib/kstring.h"
 #include "htslib/sam.h"
 #include "htslib/cram.h"
+#include <iostream>
+#include <ostream>
+#include <string>
 
 class GSamReader;
 class GSamWriter;
@@ -140,7 +143,7 @@ class GSamRecord: public GSeg {
     ~GSamRecord() {
        clear();
     }
-/*
+#ifdef _DEBUG
     void print_cigar(bam1_t *al){
         for (uint8_t c=0;c<al->core.n_cigar;++c){
             uint32_t *cigar_full=bam_get_cigar(al);
@@ -165,7 +168,7 @@ class GSamRecord: public GSeg {
         std::string str_seq((char*)(char*)buf);
         std::cout<<str_seq<<std::endl;
     }
-*/
+#endif
     // taken from samtools/bam_import.c
     static inline uint8_t * alloc_data(bam1_t *b, size_t size)
     {
@@ -222,7 +225,7 @@ class GSamRecord: public GSeg {
 
         return b;
     }
-/*
+
     void replace_qname(int id){ // replace the name with an ID
         char * p = bam_get_qname(b);
 
@@ -250,7 +253,7 @@ class GSamRecord: public GSeg {
             p[x] = '\0';
         }
     }
-*/
+
     void parse_error(const char* s) {
       GError("SAM parsing error: %s\n", s);
     }

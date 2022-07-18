@@ -1,20 +1,5 @@
 #include "GSam.h"
 #include <ctype.h>
-/*
-//for bam1_t (re)allocation functions:
-// sam_realloc_bam_data(), realloc_bam_data(), possibly_expand_bam_data()
-#include "sam_internal.h"
-
-//for parsing functions hts_str2uint() etc.:
-#include "textutils_internal.h"
-
-#define  _get_bmem(type_t, x, b, l) if (possibly_expand_bam_data((b), (l)) < 0) \
- GError("Error: cannot allocate SAM data\n"); \
- *(x) = (type_t*)((b)->data + (b)->l_data); (b)->l_data += (l)
-*/
-#define _parse_err(cond, msg) if (cond) GError("Error [SAM parsing]: %s\n",msg);
-#define _parse_warn(cond, msg) if (cond) GMessage("Warning [SAM parsing]: %s\n",msg);
-#define _parse_mem_err() GError("Error [SAM parsing]: memory allocation problem!\n");
 
 #define _cigOp(c) ((c)&BAM_CIGAR_MASK)
 #define _cigLen(c) ((c)>>BAM_CIGAR_SHIFT)
