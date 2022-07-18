@@ -14,7 +14,7 @@
 
 //extern GffNames* gseqNames;
 extern FILE *c_out;         // file handle for the input transcripts that are fully covered by reads
-extern GFastMutex printCovMutex; 
+extern GFastMutex printCovMutex;
 
 extern bool trim;
 extern bool eonly;
@@ -5046,34 +5046,34 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 	// add all guide patterns to the set of transfrags so that I can have a "backbone" for each guide
 	// I need this because there might be an incompatible transfrag connecting the nodes in the guide
 	//fprintf(stderr,"There are %d guides\n",guidetrf.Count());
-	for(int i=0;i<guidetrf.Count();i++) if(guidetrf[i].trf->guide){
+	for(int i=0;i<guidetrf.Count();i++)
+	  if (guidetrf[i].trf->guide){
+		 CTransfrag *t=NULL;
+		 bool add=true;
+		 if(longreads || mixedMode) {
+				/*guidetrf[i].trf->pattern[0]=0;
+				guidetrf[i].trf->pattern[gno-1]=0;
+				int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
+				if(pos) guidetrf[i].trf->pattern[*pos]=0;
+				pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
+				if(pos) guidetrf[i].trf->pattern[*pos]=0;
+				guidetrf[i].trf->nodes.Pop();
+				guidetrf[i].trf->nodes.Shift();*/
 
-		CTransfrag *t=NULL;
-		bool add=true;
-		if(longreads || mixedMode) {
-			/*guidetrf[i].trf->pattern[0]=0;
-			guidetrf[i].trf->pattern[gno-1]=0;
-			int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
-			if(pos) guidetrf[i].trf->pattern[*pos]=0;
-			pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
-			if(pos) guidetrf[i].trf->pattern[*pos]=0;
-			guidetrf[i].trf->nodes.Pop();
-			guidetrf[i].trf->nodes.Shift();*/
+				t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
+				if(!t) { // t is NULL
+					float abund=0;
+					if(mixedMode) abund=trthr*ERROR_PERC;
+					t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund);
+					t->longread=true;
+				}
+				else add=false;
+		 }
+		 else {
+		 	t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC);
+		 }
 
-			t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
-			if(!t) { // t is NULL
-				float abund=0;
-				if(mixedMode) abund=trthr*ERROR_PERC;
-				t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund);
-				t->longread=true;
-			}
-			else add=false;
-		}
-		else {
-			t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC);
-		}
-
-		if(!longreads) {
+		 if(!longreads) {
 			if(includesource) {
 				guidetrf[i].trf->nodes.Insert(0,0); // I need to comment this if I need path not to include the source
 				guidetrf[i].trf->pattern[0]=1;
@@ -5085,9 +5085,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			guidetrf[i].trf->pattern[sink]=1;
 			int *pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
 			if(pos) guidetrf[i].trf->pattern[*pos]=1;
-		}
-
-
+		 }
 
 		/*
 		float abund=0;
@@ -5185,18 +5183,18 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 		int edgedist=CHI_WIN; // I need to be consistent (if I change here then I need to change in update_abundance too)
 		int ssdist=longintronanchor;
 
-		/*
-		{ // DEBUG ONLY
+
+		/* { // DEBUG ONLY
 			//printTime(stderr);
 			fprintf(stderr,"\nThere are %d transfrags after clean up:\n",transfrag.Count());
 			for(int i=0;i<transfrag.Count();i++) {
-				fprintf(stderr,"transfrag[%d] abund=%f:",i,transfrag[i]->abundance);
+				fprintf(stderr,"transfrag[%02d] (%07d-%07d) guide:%02d, abund=%f:", i,
+					transfrag[i]->longstart, transfrag[i]->longend, transfrag[i]->guide, transfrag[i]->abundance);
 				for(int j=0;j<transfrag[i]->nodes.Count();j++) fprintf(stderr," %d",transfrag[i]->nodes[j]);
-				if(transfrag[i]->guide) fprintf(stderr," guide");
+				//if(transfrag[i]->guide) fprintf(stderr," guide");
 				fprintf(stderr,"\n");
 			}
-		}
-		*/
+		} */
 
 		for(int t1=0;t1<transfrag.Count();t1++) {
 			/*fprintf(stderr,"Consider t=%d with abund=%f guide=%d and nodes:",t1,transfrag[t1]->abundance,transfrag[t1]->guide);
@@ -5307,7 +5305,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 					}
 				}
 			}
-		}
+		} //foreach transfrag
 
 
 		char sign='-';
@@ -5365,7 +5363,6 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 				}
 			}
 
-
 			if(rawreads) {
 				GVec<GSeg> exons;
 				int j=0;
@@ -5411,8 +5408,8 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 
 		}
 
-		/*
-		{ // DEBUG ONLY
+
+		/* { // DEBUG ONLY
 			fprintf(stderr,"%d keeptrf:\n",keeptrf.Count());
 			for(int i=0;i<keeptrf.Count();i++) {
 				fprintf(stderr,"(%d) %d abund=%f keepcov=%f",i,keeptrf[i].t,transfrag[keeptrf[i].t]->abundance,keeptrf[i].cov);
@@ -5426,8 +5423,8 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			for(int i=0;i<trflong.Count();i++)
 				fprintf(stderr," %d",trflong[i]);
 			fprintf(stderr,"\n");
-		}
-		*/
+		}*/
+
 
 
 		// add source/sink connections
@@ -14588,6 +14585,8 @@ int build_graphs(BundleData* bdata) {
     						for(int j=0;j<no2gnode[s][b][i]->trf.Count();j++) fprintf(stderr," %d",no2gnode[s][b][i]->trf[j]);
     						fprintf(stderr,"\n");
     					}
+    					*/
+    				 /*{ //DEBUG ONLY
     					fprintf(stderr,"There are %d transfrags[%d][%d]:\n",transfrag[s][b].Count(),s,b);
     					for(int t=0;t<transfrag[s][b].Count();t++) {
     						fprintf(stderr,"%d: ",t);
@@ -14597,9 +14596,8 @@ int build_graphs(BundleData* bdata) {
     						if(!transfrag[s][b][t]->abundance) fprintf(stderr," *");
     						fprintf(stderr,"\n");
     					}
+    				}*/
 
-    				}
-    				*/
 
 /*
 #ifdef GMEMTRACE
@@ -14614,7 +14612,7 @@ int build_graphs(BundleData* bdata) {
     				//if(!longreads) {
     				// find transcripts now
     				if(!rawreads) geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
-    						geneno,s,guidetrf,guides,guidepred,bdata,trflong);
+    						geneno,s,guidetrf,guides,guidepred, bdata,trflong);
     				//}
     				for(int g=0;g<guidetrf.Count();g++) delete guidetrf[g].trf;
 
@@ -14668,16 +14666,16 @@ int build_graphs(BundleData* bdata) {
 #endif
 */
 
-    /*
-    { // DEBUG ONLY
+
+    /*{ // DEBUG ONLY
     	for(int i=0;i<pred.Count();i++) {
     		if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
     		fprintf(stderr,"pred[%d] (cov=%f,strand=%c):",i,pred[i]->cov,pred[i]->strand);
     		for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
     		fprintf(stderr,"\n");
     	}
-    }
-    */
+    }*/
+
 
     // don't forget to clean up the allocated data here
     return(geneno);
