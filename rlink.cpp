@@ -4513,7 +4513,7 @@ bool eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag
 	while(transfrag.Count()>max_trf_number) {
 		threshold++;
 		for(int t=transfrag.Count()-1;t>=0;t--)
-			if(!transfrag[t]->guide && transfrag[t]->abundance<threshold &&
+			if(!transfrag[t]->guide && transfrag[t]->abundance<threshold && 
 			    transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1) { // need to delete transfrag that doesn't come from source
 				settrf_in_treepat(NULL,gno,gpos,transfrag[t]->nodes,transfrag[t]->pattern,tr2no); // this should be eliminated if I want to store transcripts from 0 node
 				transfrag.Exchange(t,transfrag.Count()-1);
@@ -5048,32 +5048,32 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 	//fprintf(stderr,"There are %d guides\n",guidetrf.Count());
 	for(int i=0;i<guidetrf.Count();i++)
 	  if (guidetrf[i].trf->guide){
-		 CTransfrag *t=NULL;
-		 bool add=true;
-		 if(longreads || mixedMode) {
-				/*guidetrf[i].trf->pattern[0]=0;
-				guidetrf[i].trf->pattern[gno-1]=0;
-				int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
-				if(pos) guidetrf[i].trf->pattern[*pos]=0;
-				pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
-				if(pos) guidetrf[i].trf->pattern[*pos]=0;
-				guidetrf[i].trf->nodes.Pop();
-				guidetrf[i].trf->nodes.Shift();*/
+		CTransfrag *t=NULL;
+		bool add=true;
+		if(longreads || mixedMode) {
+			/*guidetrf[i].trf->pattern[0]=0;
+			guidetrf[i].trf->pattern[gno-1]=0;
+			int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
+			if(pos) guidetrf[i].trf->pattern[*pos]=0;
+			pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
+			if(pos) guidetrf[i].trf->pattern[*pos]=0;
+			guidetrf[i].trf->nodes.Pop();
+			guidetrf[i].trf->nodes.Shift();*/
 
-				t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
-				if(!t) { // t is NULL
-					float abund=0;
-					if(mixedMode) abund=trthr*ERROR_PERC;
-					t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund);
-					t->longread=true;
-				}
-				else add=false;
-		 }
-		 else {
-		 	t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC);
-		 }
+			t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
+			if(!t) { // t is NULL
+				float abund=0;
+				if(mixedMode) abund=trthr*ERROR_PERC;
+				t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund);
+				t->longread=true;
+			}
+			else add=false;
+		}
+		else {
+			t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC);
+		}
 
-		 if(!longreads) {
+		if(!longreads) {
 			if(includesource) {
 				guidetrf[i].trf->nodes.Insert(0,0); // I need to comment this if I need path not to include the source
 				guidetrf[i].trf->pattern[0]=1;
@@ -5085,7 +5085,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			guidetrf[i].trf->pattern[sink]=1;
 			int *pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
 			if(pos) guidetrf[i].trf->pattern[*pos]=1;
-		 }
+		}
 
 		/*
 		float abund=0;
@@ -10476,7 +10476,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 		 }
 
 		 if(tocheck)  { // try to see if you can rescue transfrag
-			if(!guided || transfrag[t]->guide || (no2gnode[transfrag[t]->nodes[0]]->parent[0]==0 &&
+			if(!guided || transfrag[t]->guide || (no2gnode[transfrag[t]->nodes[0]]->parent[0]==0 && 
 				   no2gnode[transfrag[t]->nodes.Last()]->child.Last()==gno-1) )
 				// only accept long transfrags that are linked to source and sink
 			 checktrf.Add(t);
@@ -14612,7 +14612,7 @@ int build_graphs(BundleData* bdata) {
     				//if(!longreads) {
     				// find transcripts now
     				if(!rawreads) geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
-    						geneno,s,guidetrf,guides,guidepred, bdata,trflong);
+    						geneno,s,guidetrf,guides,guidepred,bdata,trflong);
     				//}
     				for(int g=0;g<guidetrf.Count();g++) delete guidetrf[g].trf;
 
@@ -17036,12 +17036,12 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	//pred.Sort();
 	for(int i=0;i<npred;i++)
-	  if(pred[i]->flag && !eonly) {
+	  if(pred[i]->flag) {
 		 //TODO: this eliminates e.g. 0.98 cov prediction based on long read that otherwise covers all the junctions!
 		 //  =>  implement a jcov metric (junction coverage) which should supersede base coverage ?
 		if ( pred[i]->cov<1 ||
 				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
-		//if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
+		//if(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr))) {
 			pred[i]->flag=false;
 			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
 			continue;
@@ -17726,7 +17726,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			if(guides[i]->exons.Count()>1 && longreads) isintronguide=true;
 
-			if (eonly) { // if eonly I need to print all guides that were not printed yet
+			if(eonly) { // if eonly I need to print all guides that were not printed yet
 				if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
 
 					fprintf(f_out,"1 %d %d %d 0.0\n",guides[i]->exons.Count()+1,guides[i]->covlen, ((RC_TData*)guides[i]->uptr)->t_id);
