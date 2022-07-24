@@ -14,7 +14,7 @@
 
 //extern GffNames* gseqNames;
 extern FILE *c_out;         // file handle for the input transcripts that are fully covered by reads
-extern GFastMutex printCovMutex; 
+extern GFastMutex printCovMutex;
 
 extern bool trim;
 extern bool eonly;
@@ -17038,7 +17038,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	//pred.Sort();
 	for(int i=0;i<npred;i++)
-	  if(pred[i]->flag && !eonly) {
+	  if(pred[i]->flag) {
 		 //TODO: this eliminates e.g. 0.98 cov prediction based on long read that otherwise covers all the junctions!
 		 //  =>  implement a jcov metric (junction coverage) which should supersede base coverage ?
 		if ( pred[i]->cov<1 ||
