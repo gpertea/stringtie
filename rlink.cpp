@@ -5053,32 +5053,32 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 	//fprintf(stderr,"There are %d guides\n",guidetrf.Count());
 	for(int i=0;i<guidetrf.Count();i++)
 	  if (guidetrf[i].trf->guide){
-		 CTransfrag *t=NULL;
-		 bool add=true;
-		 if(longreads || mixedMode) {
-				/*guidetrf[i].trf->pattern[0]=0;
-				guidetrf[i].trf->pattern[gno-1]=0;
-				int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
-				if(pos) guidetrf[i].trf->pattern[*pos]=0;
-				pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
-				if(pos) guidetrf[i].trf->pattern[*pos]=0;
-				guidetrf[i].trf->nodes.Pop();
-				guidetrf[i].trf->nodes.Shift();*/
+		CTransfrag *t=NULL;
+		bool add=true;
+		if(longreads || mixedMode) {
+			/*guidetrf[i].trf->pattern[0]=0;
+			guidetrf[i].trf->pattern[gno-1]=0;
+			int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
+			if(pos) guidetrf[i].trf->pattern[*pos]=0;
+			pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
+			if(pos) guidetrf[i].trf->pattern[*pos]=0;
+			guidetrf[i].trf->nodes.Pop();
+			guidetrf[i].trf->nodes.Shift();*/
 
-				t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
-				if(!t) { // t is NULL
-					float abund=0;
-					if(mixedMode) abund=trthr*ERROR_PERC;
-					t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund);
-					t->longread=true;
-				}
-				else add=false;
-		 }
-		 else {
-		 	t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC);
-		 }
+			t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
+			if(!t) { // t is NULL
+				float abund=0;
+				if(mixedMode) abund=trthr*ERROR_PERC;
+				t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund);
+				t->longread=true;
+			}
+			else add=false;
+		}
+		else {
+			t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC);
+		}
 
-		 if(!longreads) {
+		if(!longreads) {
 			if(includesource) {
 				guidetrf[i].trf->nodes.Insert(0,0); // I need to comment this if I need path not to include the source
 				guidetrf[i].trf->pattern[0]=1;
@@ -14617,7 +14617,7 @@ int build_graphs(BundleData* bdata) {
     				//if(!longreads) {
     				// find transcripts now
     				if(!rawreads) geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
-    						geneno,s,guidetrf,guides,guidepred, bdata,trflong);
+    						geneno,s,guidetrf,guides,guidepred,bdata,trflong);
     				//}
     				for(int g=0;g<guidetrf.Count();g++) delete guidetrf[g].trf;
 
