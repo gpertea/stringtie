@@ -1186,7 +1186,6 @@ void processOptions(GArgs& args) {
 
 	 tmpfname=args.getOpt('o');
 
-	 // coverage saturation no longer used after version 1.0.4; left here for compatibility with previous versions
 	 s=args.getOpt('s');
 	 if (!s.is_empty()) {
 		 singlethr=(float)s.asDouble();
