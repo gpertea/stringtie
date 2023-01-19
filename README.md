@@ -261,6 +261,8 @@ to StringTie as described in the [Running StringTie](#running-stringtie) section
 StringTie is free, open source software released under an <a href="https://opensource.org/licenses/MIT">MIT License</a>.
 
 ## Publications
+Shumate A, Wong B, Pertea G, Pertea M [**Improved transcriptome assembly using a hybrid of long and short reads with StringTie**](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1009730), _PLOS Computational Biology_ 18, 6 (2022), doi.org/10.1371/journal.pcbi.1009730 
+
 Kovaka S, Zimin AV, Pertea GM, Razaghi R, Salzberg SL, Pertea M  [**Transcriptome assembly from long-read RNA-seq alignments with StringTie2**](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1910-1), _Genome Biology_ 20, 278 (2019),  doi:10.1186/s13059-019-1910-1
 
 Pertea M, Kim D, Pertea GM, Leek JT, Salzberg SL [**Transcript-level expression analysis of RNA-seq experiments with HISAT, StringTie and Ballgown**](http://www.nature.com/nprot/journal/v11/n9/full/nprot.2016.095.html), _Nature Protocols_ 11, 1650-1667 (2016), doi:10.1038/nprot.2016.095
