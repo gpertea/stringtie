@@ -833,7 +833,10 @@ void merge_fwd_groups(GPVec<CGroup>& group, CGroup *group1, CGroup *group2, GVec
 int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,GList<CReadAln>& readlist,int color,GPVec<CGroup>& group,
 		CGroup **allcurrgroup,CGroup **startgroup,GVec<int> *readgroup,GVec<int>& eqcol,GVec<int>& merge,int *usedcol) {
 
+
+	//if (p==9 && np==928562 && n==928057 && sno==2 && readcol==637064){
 	//fprintf(stderr,"merge readcol=%d for read=%d:%d-%d with paird=%d and sno=%d\n",readcol,n,readlist[n]->start,readlist[n]->end,np,sno);
+	//}
 	// check if read was processed before as a fragment
 	uint localdist=0;
 	if(!longreads && !mixedMode) localdist=bundledist+longintronanchor;
@@ -852,14 +855,15 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 
 		//set currgroup first
 		CGroup *lastgroup=NULL;
-		while(currgroup!=NULL && readlist[n]->start > currgroup->end) { // while read start after the current group's end advance group -> I might have more groups leaving from current group due to splicing
+		while(currgroup!=NULL && readlist[n]->start > currgroup->end) { // while read start after the current group's end advance group
+			//-> might have more groups leaving from current group due to splicing
 		    lastgroup=currgroup;
 		    currgroup=currgroup->next_gr;
 		}
 
 		if(currgroup==NULL || readlist[n]->segs[0].end < currgroup->start) // currgroup is null only if we reached end of currgroup list
-																		   // because currgroup is not NULL initially and it starts BEFORE read
-			currgroup=lastgroup; // making sure read comes after currgroup
+									// because currgroup is not NULL initially and it starts BEFORE read
+			currgroup=lastgroup; // making sure read comes after currgroup //FIXME: lastgroup can be NULL!
 
 		// now process each group of coordinates individually
 		CGroup *thisgroup=currgroup;
@@ -1000,8 +1004,8 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 
 					thisgroup->cov_sum+=(readlist[n]->segs[i].end-readlist[n]->segs[i].start+1)*readcov; // coverage is different than number of reads
 				} // end if(thisgroup && readlist[n]->segs[i].end >= thisgroup->start)
-				else { // read is at the end of groups, or read is not overlapping other groups -> lastgroup is not null here because currgroup was not null
-
+				else { // read is at the end of groups, or read is not overlapping other groups
+					// -> lastgroup can be null here because currgroup may have been set to null
 		    			// I need to split pairs here because I have no overlap => color didn't reach here for sure if I am at the first exon
 		    			if(!i && np>-1 && readlist[np]->nh && np<n) {
 
@@ -1037,7 +1041,8 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 		    			CGroup *newgroup=new CGroup(readlist[n]->segs[i].start,readlist[n]->segs[i].end,readcol,ngroup,readlist[n]->segs[i].len()*readcov,multi);
 		    			group.Add(newgroup);
 		    			merge.Add(ngroup);
-		    			lastgroup->next_gr=newgroup; // can lastgroup be null here -> no from the way I got here
+		    			if (lastgroup) lastgroup->next_gr=newgroup; // can lastgroup be null here -> yes
+		    			          //else lastgroup=newgroup; //TODO check this?
 		    			newgroup->next_gr=thisgroup;
 
 		    			//fprintf(stderr,"Assign/create group %d:%d-%d with color=%d to read %d\n",ngroup,readlist[n]->segs[i].start,readlist[n]->segs[i].end,readcol,n);
