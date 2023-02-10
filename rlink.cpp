@@ -832,11 +832,7 @@ void merge_fwd_groups(GPVec<CGroup>& group, CGroup *group1, CGroup *group2, GVec
 
 int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,GList<CReadAln>& readlist,int color,GPVec<CGroup>& group,
 		CGroup **allcurrgroup,CGroup **startgroup,GVec<int> *readgroup,GVec<int>& eqcol,GVec<int>& merge,int *usedcol) {
-
-
-	//if (p==9 && np==928562 && n==928057 && sno==2 && readcol==637064){
 	//fprintf(stderr,"merge readcol=%d for read=%d:%d-%d with paird=%d and sno=%d\n",readcol,n,readlist[n]->start,readlist[n]->end,np,sno);
-	//}
 	// check if read was processed before as a fragment
 	uint localdist=0;
 	if(!longreads && !mixedMode) localdist=bundledist+longintronanchor;
@@ -873,7 +869,6 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 
 		int i=0;
 		while(i<ncoord) {
-
 			bool keep=true;
 			// determine if this exon is good enough to be kept (it is big enough and has good junctions)
 			if(readlist[n]->segs[i].len()<junctionsupport || (readlist[n]->longread && readlist[n]->segs[i].len()<CHI_THR && readlist[n]->segs[i].len()<DROP*readlist[n]->len)) { // exon is too small to keep
@@ -890,9 +885,7 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 				else if(readlist[n]->juncs.Count()){ // this is last exon
 					if(!readlist[n]->juncs[i-1]->strand) keep=false;
 				}
-
 			}
-
 
 			if(keep) {
 				// skip groups that are left behind
@@ -4518,7 +4511,7 @@ bool eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag
 	while(transfrag.Count()>max_trf_number) {
 		threshold++;
 		for(int t=transfrag.Count()-1;t>=0;t--)
-			if(!transfrag[t]->guide && transfrag[t]->abundance<threshold && 
+			if(!transfrag[t]->guide && transfrag[t]->abundance<threshold &&
 			    transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1) { // need to delete transfrag that doesn't come from source
 				settrf_in_treepat(NULL,gno,gpos,transfrag[t]->nodes,transfrag[t]->pattern,tr2no); // this should be eliminated if I want to store transcripts from 0 node
 				transfrag.Exchange(t,transfrag.Count()-1);
@@ -10481,7 +10474,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 		 }
 
 		 if(tocheck)  { // try to see if you can rescue transfrag
-			if(!guided || transfrag[t]->guide || (no2gnode[transfrag[t]->nodes[0]]->parent[0]==0 && 
+			if(!guided || transfrag[t]->guide || (no2gnode[transfrag[t]->nodes[0]]->parent[0]==0 &&
 				   no2gnode[transfrag[t]->nodes.Last()]->child.Last()==gno-1) )
 				// only accept long transfrags that are linked to source and sink
 			 checktrf.Add(t);
@@ -17042,8 +17035,8 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	//pred.Sort();
 	for(int i=0;i<npred;i++)
 	  if(pred[i]->flag) {
-		 //TODO: this eliminates e.g. 0.98 cov prediction based on long read that otherwise covers all the junctions!
-		 //  =>  implement a jcov metric (junction coverage) which should supersede base coverage ?
+		 //this eliminates e.g. 0.98 cov prediction based on long read that otherwise covers all the junctions!
+		 //  TODO: implement jcov (junction coverage) which could override base coverage ?
 		if ( pred[i]->cov<1 ||
 				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
 		//if(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr))) {
