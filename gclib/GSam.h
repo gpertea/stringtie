@@ -105,6 +105,7 @@ class GSamRecord: public GSeg {
       //makes a new copy of the bam1_t struct etc.
       clear();
       b=bam_dup1(r.b);
+      b_hdr = r.b_hdr; // need to copy sam_hdr_t* reference pointer
       iflags=r.iflags;
       novel=true; //will also free b when destroyed
       start=r.start;
