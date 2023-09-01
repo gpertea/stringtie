@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.2.1"
+#define VERSION "3.0.0"
 
 //#define DEBUGPRINT 1
 
@@ -33,7 +33,7 @@
 stringtie <in.bam ..> [-G <guide_gff>] [-l <prefix>] [-o <out.gtf>] [-p <cpus>]\n\
  [-v] [-a <min_anchor_len>] [-m <min_len>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
  [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L] [-e] [--viral] [-E <err_margin>]\n\
- [--ptf <f_tab>] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B|-b <dir_path>}\n\
+ [--ptf <f_tab>] [--usg <f_tab>] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B|-b <dir_path>}\n\
  [--mix] [--conservative] [--rf] [--fr]\n\
 Assemble RNA-Seq alignments into potential transcripts.\n\
 Options:\n\
@@ -188,6 +188,7 @@ GFastaDb* gfasta=NULL;
 
 GStr guidegff; // -G option
 GStr ptff; // --ptf option (point features)
+GStr usgf; // --usg feature (universal splicing graph)
 
 bool debugMode=false;
 bool verbose=false;
@@ -263,6 +264,7 @@ void noMoreBundles(); //sets NoMoreBundles to true
 void processOptions(GArgs& args);
 
 int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts);
+int loadUSG(FILE* f, GArray<GRefPtData>& refusg); // load USG
 
 char* sprintTime();
 
@@ -311,7 +313,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;mix;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;usg=;bam;fr;rf;merge;"
    "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -389,7 +391,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		    if (verbose)
 		    	GMessage("Warning: exonless GFF %s feature with ID %s found, added implicit exon %d-%d.\n",
 		    			m->getFeatureName(), m->getID(), m->start, m->end);
-		    m->addExon(m->start, m->end); //should never happen!
+		    m->addExon(m->start, m->end); //should never happen! // @suppress("Ambiguous problem")
 	   }
 	   //DONE: always keep a RC_TData pointer around, with additional info about guides
 	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
@@ -411,6 +413,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  gseqNames=GffObj::names; //might have been populated already by gff data
  gffnames_ref(gseqNames);  //initialize the names collection if not guided
  bool havePtFeatures=false;
+ bool useUSG=false;
 
  // -- loading point-feature data
  if (!ptff.is_empty()) {
