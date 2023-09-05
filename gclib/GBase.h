@@ -240,7 +240,6 @@ template<class T>
   > {};
 
 
-
 inline void GFree(pointer* ptr){
      GASSERT(ptr);
      if (*ptr) free(*ptr);
@@ -648,7 +647,6 @@ template<class OBJ> class GDynArray {
 
 };
 
-
 int strsplit(char* str, GDynArray<char*>& fields, const char* delim, int maxfields=MAX_INT);
 //splits a string by placing 0 where any of the delim chars are found, setting fields[] to the beginning
 //of each field (stopping after maxfields); returns number of fields parsed
@@ -721,7 +719,6 @@ class GLineReader {
   */
 char* fgetline(char* & buf, int& buflen, FILE* stream, off_t* f_pos=NULL, int* linelen=NULL);
 
-
 //print int/values nicely formatted in 3-digit groups
 char* commaprintnum(uint64 n);
 
@@ -735,7 +732,6 @@ void delFileName(char* filepath);
 const char* getFileName(const char* filepath);
 // returns a pointer to the file "extension" part in a filename
 const char* getFileExt(const char* filepath);
-
 
 int fileExists(const char* fname);
 //returns 0 if path doesn't exist

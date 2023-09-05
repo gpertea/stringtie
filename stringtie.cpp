@@ -1,6 +1,7 @@
 //#define GFF_DEBUG 1 //debugging guides loading
 #include "rlink.h"
 #include "tmerge.h"
+#include "usgread.h"
 #ifndef NOTHREADS
 #include "GThreads.h"
 #endif
@@ -188,7 +189,6 @@ GFastaDb* gfasta=NULL;
 
 GStr guidegff; // -G option
 GStr ptff; // --ptf option (point features)
-GStr usgf; // --usg feature (universal splicing graph)
 
 bool debugMode=false;
 bool verbose=false;
@@ -264,7 +264,7 @@ void noMoreBundles(); //sets NoMoreBundles to true
 void processOptions(GArgs& args);
 
 int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts);
-int loadUSG(FILE* f, GArray<GRefPtData>& refusg); // load USG
+//int loadUSG(FILE* f, GArray<GRefPtData>& refusg); // load USG
 
 char* sprintTime();
 
@@ -308,6 +308,9 @@ int waitForData(BundleData* bundles);
 #endif
 
 TInputFiles bamreader;
+
+FILE* usgfh=NULL; // --usg feature (universal splicing graph)
+bool useUSG=false;
 
 int main(int argc, char* argv[]) {
 
@@ -413,7 +416,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  gseqNames=GffObj::names; //might have been populated already by gff data
  gffnames_ref(gseqNames);  //initialize the names collection if not guided
  bool havePtFeatures=false;
- bool useUSG=false;
 
  // -- loading point-feature data
  if (!ptff.is_empty()) {
@@ -440,7 +442,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
  // --- input processing
 
-
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
  GList<GffObj>* guides=NULL; //list of transcripts on a specific reference
  GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
@@ -460,6 +461,20 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  FILE* f_idata=NULL;
  FILE* f_e2t=NULL;
  FILE* f_i2t=NULL;
+
+ // -----  test SGBundle reading
+  SGReader* usgreader=nullptr;
+  if (useUSG) {
+ 	 usgreader=new SGReader(usgfh);
+ 	 SGBundle bundle;
+ 	 while (usgreader->next(bundle)) {
+ 		 fprintf(stdout, "bundle #%d: %s:%d-%d (%d nodes)\n",
+ 		     bundle.id, bundle.chr, bundle.start, bundle.end, bundle.nodes.Count());
+ 	 }
+ 	delete usgreader;
+ 	exit(0); //TEST only
+  }
+
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 #ifndef NOTHREADS
@@ -477,6 +492,7 @@ if (ballgown)
    else GMessage("Default stack size for threads: %d\n", tstackSize);
  }
 #endif
+
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
@@ -502,6 +518,8 @@ if (ballgown)
  TAlnInfo* tinfo=NULL; // for --merge
  int prev_pos=0;
  bool skipGseq=false;
+
+ // ------ bundle forming loop
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;
@@ -805,13 +823,9 @@ if (ballgown)
      bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
      if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide
     	 //check for overlaps with ref transcripts which may set xstrand
-    	 if (xstrand=='+') alndata.strand=1;
+    	if (xstrand=='+') alndata.strand=1;
     	 else if (xstrand=='-') alndata.strand=-1;
-    	 //const char* bname=brec->name();
-    	 //GMessage("%s\t%c\t%d\thi=%d\n",bname, xstrand, alndata.strand,hi);
-    	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
-    	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
-    	   processRead(currentstart, currentend, *bundle, hashread, alndata);
+   	    processRead(currentstart, currentend, *bundle, hashread, alndata);
      }
  } //for each read alignment
 
@@ -819,6 +833,8 @@ if (ballgown)
  delete brec;
 
  bamreader.stop(); //close all BAM files
+
+ if (useUSG) delete usgreader;
 
  if (guided && no_ref_used) {
 	    GMessage("WARNING: no reference transcripts were found for the genomic sequences where reads were mapped!\n"
@@ -866,7 +882,7 @@ if (ballgown)
  if(verbose && no_xs>0)
 	 GMessage("Number spliced alignments missing the XS tag (skipped): %d\n",no_xs);
 
-if(!mergeMode) {
+ if(!mergeMode) {
 	if(verbose) {
 		GMessage("Total count of aligned fragments: %g\n", Num_Fragments);
 		if (Num_Fragments)
@@ -1213,6 +1229,15 @@ void processOptions(GArgs& args) {
 	             ptff.chars());
 	 }
 
+     s=args.getOpt("usg");
+     if (!s.is_empty()) {
+  	   if (fileExists(s.chars())<=1)
+  		   GError("Error: USG file (%s) not found.\n",  s.chars());
+       usgfh=fopen(s.chars(),"r");
+	   if (usgfh==NULL) GError("Error: could not open USG file (%s)!\n",
+		       s.chars());
+	   useUSG=true;
+     }
 	 //enableNames=(args.getOpt('E')!=NULL);
 
 	 retained_intron=(args.getOpt('i')!=NULL);
@@ -1364,7 +1389,7 @@ void processOptions(GArgs& args) {
 		 f_out=fopen(tmpfname.chars(), "w");
 		 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
 	 }
-}
+} //processOptions()
 
 //---------------
 bool moreBundles() { //getter (interogation)

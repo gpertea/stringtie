@@ -14,7 +14,10 @@
 
 //extern GffNames* gseqNames;
 extern FILE *c_out;         // file handle for the input transcripts that are fully covered by reads
+
+#ifndef NOTHREADS
 extern GFastMutex printCovMutex;
+#endif
 
 extern bool trim;
 extern bool eonly;
@@ -11727,9 +11730,13 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 				GStr guidecov;
 				guidecov.appendfmt("%.2f",guideabundance);
 				guides[guidetrf[g].g]->addAttr("coverage",guidecov.chars());
+#ifndef NOTHREADS
 				printCovMutex.lock();
+#endif
 				guides[guidetrf[g].g]->printTranscriptGff(c_out);
+#ifndef NOTHREADS
 				printCovMutex.unlock();
+#endif
 			}
 		}
 	}
@@ -13126,7 +13133,6 @@ int build_graphs(BundleData* bdata) {
 			}
 
 			if(covered) {
-
 				tdata->in_bundle=2;
 				int s=-1; // unknown strand
 				if(guides[g]->strand=='+') s=1; // guide on positive strand
@@ -14259,9 +14265,13 @@ int build_graphs(BundleData* bdata) {
     						GStr guidecov;
     						guidecov.appendfmt("%.2f",gcov);
     						guides[g]->addAttr("coverage",guidecov.chars());
+#ifndef NOTHREADS
     						printCovMutex.lock();
+#endif
     						guides[g]->printTranscriptGff(c_out);
+#ifndef NOTHREADS
     						printCovMutex.unlock();
+#endif
     					}
     					GSeg exon(guides[g]->start, guides[g]->end);
     					p->exons.Add(exon);
