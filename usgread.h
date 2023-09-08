@@ -47,7 +47,7 @@ struct SGNode {
     bool operator<(SGNode& d){
          return (position==d.position)? (type<d.type) : (position<d.position);
       }
-    char* catTokens(GDynArray<char*>& tokens) {
+    const char* catTokens(GDynArray<char*>& tokens) {
     	//in-place restoration of a strsplit result
     	char* r=NULL;
     	if (tokens.Count()==0) return "";
@@ -62,7 +62,7 @@ struct SGNode {
     SGNode(SGNodeType _type, uint _pos):type(_type), position(_pos) {};
     SGNode(GDynArray<char*>& tokens) {
 		 if (tokens.Count()<6) {
-			 char* catline=catTokens(tokens);
+			 const char* catline=catTokens(tokens);
 			 GError("Error: SGNode line must have at least 6 tokens\n%s\n", catline);
 		 }
 		 this->type=(strcmp(tokens[0], "tstart") == 0) ? TSTART :
@@ -75,12 +75,12 @@ struct SGNode {
 		 if (this->type<JSTART) { //tstart/tend
 			this->cov_diff=atof(tokens[5]);
 		 } else { // jstart/jend - parse list
-			for (int i=5;i<tokens.Count();i++) {
+			for (uint i=5;i<tokens.Count();i++) {
 				SGJxLink newLink;
 				GDynArray<char*> lnktok(3);
 				int numtk=strsplit(tokens[i], lnktok, ':');
 				if (numtk!=3) {
-					 char* catline=catTokens(tokens);
+					 const char* catline=catTokens(tokens);
 					 GError("Error parsing SGNode j-line links:\n%s\n", catline);
 				}
 				newLink.pos = atoi(lnktok[0]);

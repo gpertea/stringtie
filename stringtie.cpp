@@ -258,7 +258,7 @@ GFastMutex printCovMutex;
 GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
 
 bool NoMoreBundles=false;
-bool moreBundles(); //thread-safe retrieves NoMoreBundles
+//bool moreBundles(); //thread-safe retrieves NoMoreBundles
 void noMoreBundles(); //sets NoMoreBundles to true
 //--
 void processOptions(GArgs& args);
@@ -311,7 +311,25 @@ TInputFiles bamreader;
 
 FILE* usgfh=NULL; // --usg feature (universal splicing graph)
 bool useUSG=false;
+SGReader* usgreader=nullptr;
 
+bool haveMoreAlns(bool more_alns, SGBundle* usgbundle, bool& nextUSGBundle) {
+	if (!more_alns) return false;
+	if (nextUSGBundle) {
+		nextUSGBundle=false;
+		return usgreader->next(*usgbundle);
+	}
+	return more_alns;
+}
+
+GSamRecord* pushedAln=nullptr;
+GSamRecord* getNextAln() {
+	if (pushedAln) { pushedAln=nullptr; return pushedAln; }
+	return bamreader.next();
+}
+void ungetAln(GSamRecord* brec) { pushedAln=brec; }
+
+//==================================================
 int main(int argc, char* argv[]) {
 
  // == Process arguments.
@@ -463,9 +481,9 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  FILE* f_i2t=NULL;
 
  // -----  test SGBundle reading
-  SGReader* usgreader=nullptr;
-  if (useUSG) {
+ if (useUSG) {
  	 usgreader=new SGReader(usgfh);
+ 	 /*
  	 SGBundle bundle;
  	 while (usgreader->next(bundle)) {
  		 fprintf(stdout, "bundle #%d: %s:%d-%d (%d nodes)\n",
@@ -473,6 +491,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  	 }
  	delete usgreader;
  	exit(0); //TEST only
+ 	*/
   }
 
 if (ballgown)
@@ -482,7 +501,7 @@ if (ballgown)
 #define DEF_TSTACK_SIZE 8388608
  size_t defStackSize=DEF_TSTACK_SIZE;
 #ifdef _GTHREADS_POSIX_
- int tstackSize=GThread::defaultStackSize();
+ uint tstackSize=(uint)GThread::defaultStackSize();
  if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  if (verbose) {
    if (tstackSize<defStackSize){
@@ -514,12 +533,14 @@ if (ballgown)
  BundleData* bundle = &(bundles[0]);
 #endif
  GSamRecord* brec=NULL;
- bool more_alns=true;
  TAlnInfo* tinfo=NULL; // for --merge
  int prev_pos=0;
  bool skipGseq=false;
-
+ SGBundle* usgbundle=useUSG ? new SGBundle() : nullptr;
+ bool more_alns=true;
+ //bool nextUSG=useUSG ? true : false;
  // ------ bundle forming loop
+ //while (haveMoreAlns(more_alns, usgbundle, nextUSG)) {
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;
@@ -529,8 +550,7 @@ if (ballgown)
 	 int hi=0;
 	 int gseq_id=lastref_id;  //current chr id
 	 bool new_bundle=false;
-	 //delete brec;
-	 if ((brec=bamreader.next())!=NULL) {
+	 if ((brec=getNextAln())!=NULL) {
 		 if (brec->isUnmapped()) continue;
 		 if (brec->start<1 || brec->mapped_len<10) {
 			 if (verbose) GMessage("Warning: invalid mapping found for read %s (position=%d, mapped length=%d)\n",
@@ -541,6 +561,15 @@ if (ballgown)
 		 dbg_waln(brec);
 #endif
 		 refseqName=brec->refName();
+		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
+		 if (useUSG) {
+			 int cmpchr=strcmp(refseqName, usgbundle->chr);
+			 if (cmpchr<0 || (cmpchr==0 && brec->end < usgbundle->start))
+				 continue; //alignment before current usg bundle
+			 if (cmpchr>0 || (cmpchr==0 && brec->start > usgbundle->end)) {
+		          new_bundle=true;
+			 }
+		 }
 		 xstrand=brec->spliceStrand(); // tagged strand gets priority
 		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
 			 if(brec->isPaired()) { // read is paired
@@ -558,16 +587,10 @@ if (ballgown)
 				 else xstrand='-';
 			 }
 		 }
-
-		 /*
-		 if (xstrand=='.' && brec->exons.Count()>1) {
+		 /*  if (xstrand=='.' && brec->exons.Count()>1) {
 			 no_xs++;
 			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
-		 }
-		 // I might still infer strand later */
-
-		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
-		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
+		 } // I might still infer strand later */
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
 		 if (chr_changed) {
 			 skipGseq=excludeGseqs.hasKey(refseqName);
@@ -585,47 +608,50 @@ if (ballgown)
 				 alncounts.Resize(gseq_id+1);
 			 }
 			 else if (alncounts[gseq_id]>0)
-			           GError("%s\nAlignments (%d) already found for %s !\n",
-			             ERR_BAM_SORT, alncounts[gseq_id], refseqName);
+					   GError("%s\nAlignments (%d) already found for %s !\n",
+						 ERR_BAM_SORT, alncounts[gseq_id], refseqName);
 			 prev_pos=0;
-		 }
+		 } //chr_changed
+
+		 //if (skipGseq) continue; //FIXME current bundle should be queued first
+		 pos=brec->start;
 		 if (pos<prev_pos) GError("%s\nread %s (start %d) found at position %d on %s when prev_pos=%d\n",
-		       ERR_BAM_SORT, brec->name(), brec->start,  pos, refseqName, prev_pos);
+			   ERR_BAM_SORT, brec->name(), brec->start,  pos, refseqName, prev_pos);
 		 prev_pos=pos;
-		 if (skipGseq) continue;
 		 alncounts[gseq_id]++;
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
 		 if (mergeMode) {
-		    //tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
+			//tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
 			 tinfo=new TAlnInfo(brec->name(), brec->uval);
-		    GStr score(brec->tag_str("ZS"));
-		    if (!score.is_empty()) {
-		      GStr srest=score.split('|');
-		      if (!score.is_empty())
-		         tinfo->cov=score.asDouble();
-		      score=srest.split('|');
-		      if (!srest.is_empty())
-		    	 tinfo->fpkm=srest.asDouble();
-		      srest=score.split('|');
-		      if (!score.is_empty())
-		         tinfo->tpm=score.asDouble();
-		    }
+			GStr score(brec->tag_str("ZS"));
+			if (!score.is_empty()) {
+			  GStr srest=score.split('|');
+			  if (!score.is_empty())
+				 tinfo->cov=score.asDouble();
+			  score=srest.split('|');
+			  if (!srest.is_empty())
+				 tinfo->fpkm=srest.asDouble();
+			  srest=score.split('|');
+			  if (!score.is_empty())
+				 tinfo->tpm=score.asDouble();
+			}
 		 }
 
 		 if (!chr_changed && currentend>0 && pos>currentend+(int)runoffdist) {
 			 new_bundle=true;
 		 }
-	 }
+	 } // one alignment read
 	 else { //no more alignments
 		 more_alns=false;
 		 new_bundle=true; //fake a new start (end of last bundle)
+		 break;
 	 }
 
-	 if (new_bundle || chr_changed) {
+	 if (new_bundle || chr_changed) { // queue current bundle for processing
 		 hashread.Clear();
-		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
+		 if (bundle->readlist.Count()>0) {
 			// (readthr, junctionthr, mintranscriptlen are globals)
 			if (refptfs) { //point-features defined for this reference
 				while (ptf_idx<refptfs->Count() && (int)(refptfs->Get(ptf_idx)->coord)<currentstart)
@@ -723,7 +749,7 @@ if (ballgown)
 			 currentend=0;
 		 }
 
-		 if (!more_alns) {
+		 if (!more_alns) { //exit the loop
 				if (verbose) {
 #ifndef NOTHREADS
 					GLockGuard<GFastMutex> lock(logMutex);
@@ -737,8 +763,8 @@ if (ballgown)
 			 noMoreBundles();
 			 break;
 		 }
+// ------------ starting to populate a new bundle
 #ifndef NOTHREADS
-
 		 int new_bidx=waitForData(bundles);
 		 if (new_bidx<0) {
 			 //should never happen!
@@ -749,7 +775,7 @@ if (ballgown)
 #endif
 		 currentstart=pos;
 		 currentend=brec->end;
-		 if (guides) { //guided and guides!=NULL
+		 if (guides) { // add guides overlapping to first alignment
 			 ng_start=ng_end+1;
 			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
 				 // for now, skip guides which have no overlap with current read
@@ -1392,6 +1418,7 @@ void processOptions(GArgs& args) {
 } //processOptions()
 
 //---------------
+/*
 bool moreBundles() { //getter (interogation)
 	bool v=true;
 #ifndef NOTHREADS
@@ -1400,7 +1427,7 @@ bool moreBundles() { //getter (interogation)
   v = ! NoMoreBundles;
   return v;
 }
-
+*/
 void noMoreBundles() {
 #ifndef NOTHREADS
 		bamReadingMutex.lock();
