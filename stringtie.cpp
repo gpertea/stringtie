@@ -329,6 +329,95 @@ GSamRecord* getNextAln() {
 }
 void ungetAln(GSamRecord* brec) { pushedAln=brec; }
 
+
+
+//guides related structures and code
+struct GuidesData {
+ GList<GffObj>* guides=nullptr; //list of transcripts on a specific reference
+ int ng_start=0;
+ int ng_end=-1;
+ int ng=0;
+ GPVec<RC_TData> guides_RC_tdata; //raw count data or other info for all guide transcripts
+ GPVec<RC_Feature> guides_RC_exons; //raw count data for all guide exons
+ GPVec<RC_Feature> guides_RC_introns;//raw count data for all guide introns
+ GuidesData():guides_RC_tdata(true), guides_RC_exons(true), guides_RC_introns(true) {}
+ void newChrInit(GVec<GRefData> &refguides, int gseq_id) { //new chr
+	 ng = 0;
+	 guides = nullptr;
+	 ng_start = 0;
+	 ng_end = -1;
+	 if (refguides.Count() > gseq_id && refguides[gseq_id].rnas.Count() > 0) {
+		 guides = &(refguides[gseq_id].rnas);
+		 ng = guides->Count();
+	 }
+ }
+ void addOverlappingGuides(BundleData* bundle, int& currentstart, int& currentend);
+ void newBundleGuides(int pos, BundleData* bundle, int& currentstart, int& currentend);
+};
+
+void GuidesData::newBundleGuides(int pos, BundleData* bundle, int& currentstart, int& currentend) {
+	ng_start=ng_end+1;
+	while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
+		// for now, skip guides which have no overlap with current read
+		ng_start++;
+	}
+	int ng_ovl=ng_start;
+	//add all guides overlapping the current read and other guides that overlap them
+	while (ng_ovl<ng && (int)(*guides)[ng_ovl]->start<=currentend) { //while guide overlap
+		if (currentstart>(int)(*guides)[ng_ovl]->start)
+			currentstart=(*guides)[ng_ovl]->start;
+		if (currentend<(int)(*guides)[ng_ovl]->end)
+			currentend=(*guides)[ng_ovl]->end;
+		if (ng_ovl==ng_start && ng_ovl>0) { //first time only, we have to check back all possible transitive guide overlaps
+			//char* geneid=(*guides)[ng_ovlstart]->getGeneID();
+			//if (geneid==NULL) geneid=(*guides)[ng_ovlstart]->getGeneName();
+			//if (geneid && !bgeneids.hasKey(geneid))
+			//  bgeneids.shkAdd(geneid, &ng); //whatever pointer to int
+			int g_back=ng_ovl; //start from the overlapping guide, going backwards
+			int g_ovl_start=ng_ovl;
+			while (g_back>ng_end+1) {
+				--g_back;
+				//if overlap, set g_back_start=g_back and update currentstart
+				if (currentstart<=(int)(*guides)[g_back]->end) {
+					g_ovl_start=g_back;
+					if (currentstart>(int)(*guides)[g_back]->start)
+						currentstart=(int)(*guides)[g_back]->start;
+				}
+			} //while checking previous guides that could be pulled in this bundle
+			for (int gb=g_ovl_start;gb<=ng_ovl;++gb) {
+				bundle->keepGuide((*guides)[gb],
+						&guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+			}
+		} //needed to check previous guides for overlaps
+		else
+		bundle->keepGuide((*guides)[ng_ovl],
+				&guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+		ng_ovl++;
+	} //while guide overlap
+	ng_end=ng_ovl-1; //MUST update ng_end here, even if no overlaps were found
+}
+
+
+void GuidesData::addOverlappingGuides(BundleData* bundle, int& currentstart, int& currentend) { //add any newly overlapping guides to bundle
+	bool cend_changed;
+	do {
+		cend_changed=false;
+		while (ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=currentend) {
+			++ng_end;
+			//more transcripts overlapping this bundle?
+			if ((int)(*guides)[ng_end]->end>=currentstart) {
+				//it should really overlap the bundle
+				bundle->keepGuide((*guides)[ng_end],
+						&guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+				if(currentend<(int)(*guides)[ng_end]->end) {
+					currentend=(*guides)[ng_end]->end;
+					cend_changed=true;
+				}
+			}
+		}
+	} while (cend_changed);
+}
+
 //==================================================
 int main(int argc, char* argv[]) {
 
@@ -345,10 +434,8 @@ int main(int argc, char* argv[]) {
  GArray<GRefPtData> refpts(true, true); // sorted,unique array of refseq point-features data
 
  //table indexes for Ballgown Raw Counts data (-B/-b option)
- GPVec<RC_TData> guides_RC_tdata(true); //raw count data or other info for all guide transcripts
- GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
- GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
 
+ 
  GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
 
  int bamcount=bamreader.start(); //setup and open input files
@@ -364,11 +451,13 @@ int main(int argc, char* argv[]) {
 
 const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
- if(guided) { // read guiding transcripts from input gff file
-	 if (verbose) {
+GuidesData gd;
+
+if(guided) { // read guiding transcripts from input gff file
+	if (verbose) {
 		 printTime(stderr);
 		 GMessage(" Loading reference annotation (guides)..\n");
-	 }
+	}
    FILE* f=fopen(guidegff.chars(),"r");
    if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
        guidegff.chars());
@@ -417,10 +506,10 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 	   //DONE: always keep a RC_TData pointer around, with additional info about guides
 	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
 	   m->uptr=tdata;
-	   guides_RC_tdata.Add(tdata);
+	   gd.guides_RC_tdata.Add(tdata);
 	   if (ballgown) { //already gather exon & intron info for all ref transcripts
-		   tdata->rc_addFeatures(c_exon_id, uexons, guides_RC_exons,
-		          c_intron_id, uintrons, guides_RC_introns);
+		   tdata->rc_addFeatures(c_exon_id, uexons, gd.guides_RC_exons,
+		          c_intron_id, uintrons, gd.guides_RC_introns);
 	   }
 	   GRefData& grefdata = refguides[m->gseq_id];
 	   grefdata.add(&gffr, m); //transcripts already sorted by location
@@ -443,7 +532,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    //                transcripts_only    sort by location?
    int numptf=loadPtFeatures(f, refpts); //adds to gseqNames->gseqs accordingly, populates refpts
    havePtFeatures=(numptf>0);
-   fclose(f);
+   std::fclose(f);
  }
 
 #ifdef GFF_DEBUG
@@ -461,13 +550,10 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  // --- input processing
 
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
- GList<GffObj>* guides=NULL; //list of transcripts on a specific reference
  GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
+
  int currentstart=0, currentend=0;
- int ng_start=0;
- int ng_end=-1;
  int ptf_idx=0; //point-feature current index in the current (*refptfs)[]
- int ng=0;
  GStr lastref;
  bool no_ref_used=true;
  int lastref_id=-1; //last seen gseq_id
@@ -534,13 +620,13 @@ if (ballgown)
 #endif
  SGBundle* usgbundle=useUSG ? new SGBundle() : nullptr;
  bool skipGseq=false;
+ //bool nextUSG=useUSG ? true : false;
+ // ------ bundle forming loop
  
  GSamRecord* brec=NULL;
  TAlnInfo* tinfo=NULL; // for --merge
  int prev_pos=0;
  bool more_alns=true;
- //bool nextUSG=useUSG ? true : false;
- // ------ bundle forming loop
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;
@@ -709,16 +795,7 @@ if (ballgown)
 		 } //nothing to do with this bundle
 
 		 if (chr_changed) {
-			 if (guided) {
-				 ng=0;
-				 guides=NULL;
-				 ng_start=0;
-				 ng_end=-1;
-				 if (refguides.Count()>gseq_id && refguides[gseq_id].rnas.Count()>0) {
-					 guides=&(refguides[gseq_id].rnas);
-					 ng=guides->Count();
-				 }
-			 }
+			 if (guided) gd.newChrInit(refguides, gseq_id);
 			 if (havePtFeatures) {
 				 ptf_idx=-1;
 				 //setup refptf
@@ -749,9 +826,8 @@ if (ballgown)
 			 noMoreBundles();
 			 break;
 		 }
-// ------------ starting to populate a new bundle
+// ------ starting a new bundle
 #ifndef NOTHREADS
-
 		 int new_bidx=waitForData(bundles);
 		 if (new_bidx<0) {
 			 //should never happen!
@@ -762,75 +838,19 @@ if (ballgown)
 #endif
 		 currentstart=pos;
 		 currentend=brec->end;
-		 if (guides) { // add guides overlapping to first alignment
-			 ng_start=ng_end+1;
-			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
-				 // for now, skip guides which have no overlap with current read
-				 ng_start++;
-			 }
-			 int ng_ovl=ng_start;
-			 //add all guides overlapping the current read and other guides that overlap them
-			 while (ng_ovl<ng && (int)(*guides)[ng_ovl]->start<=currentend) { //while guide overlap
-				 if (currentstart>(int)(*guides)[ng_ovl]->start)
-					 currentstart=(*guides)[ng_ovl]->start;
-				 if (currentend<(int)(*guides)[ng_ovl]->end)
-					 currentend=(*guides)[ng_ovl]->end;
-				 if (ng_ovl==ng_start && ng_ovl>0) { //first time only, we have to check back all possible transitive guide overlaps
-					 //char* geneid=(*guides)[ng_ovlstart]->getGeneID();
-					 //if (geneid==NULL) geneid=(*guides)[ng_ovlstart]->getGeneName();
-					 //if (geneid && !bgeneids.hasKey(geneid))
-					 //  bgeneids.shkAdd(geneid, &ng); //whatever pointer to int
-					 int g_back=ng_ovl; //start from the overlapping guide, going backwards
-					 int g_ovl_start=ng_ovl;
-					 while (g_back>ng_end+1) {
-						 --g_back;
-						 //if overlap, set g_back_start=g_back and update currentstart
-						 if (currentstart<=(int)(*guides)[g_back]->end) {
-							 g_ovl_start=g_back;
-							 if (currentstart>(int)(*guides)[g_back]->start)
-								  currentstart=(int)(*guides)[g_back]->start;
-						 }
-					 } //while checking previous guides that could be pulled in this bundle
-					 for (int gb=g_ovl_start;gb<=ng_ovl;++gb) {
-						 bundle->keepGuide((*guides)[gb],
-								   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
-					 }
-				 } //needed to check previous guides for overlaps
-				 else
-				    bundle->keepGuide((*guides)[ng_ovl],
-						   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
-				 ng_ovl++;
-			 } //while guide overlap
-			 ng_end=ng_ovl-1; //MUST update ng_end here, even if no overlaps were found
-		 } //guides present on the current chromosome
-		bundle->refseq=lastref;
-		bundle->start=currentstart;
-		bundle->end=currentend;
+		 if (gd.guides) // add guides overlapping to first alignment
+               gd.newBundleGuides(pos, bundle, currentstart, currentend);
+		 //guides present on the current chromosome
+		 bundle->refseq=lastref;
+		 bundle->start=currentstart;
+		 bundle->end=currentend;
 	 } //<---- new bundle started
 
 	 if (currentend<(int)brec->end) {
 		 //current read extends the bundle
 		 //this might not happen if a longer guide had already been added to the bundle
 		 currentend=brec->end;
-		 if (guides) { //add any newly overlapping guides to bundle
-			 bool cend_changed;
-			 do {
-				 cend_changed=false;
-				 while (ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=currentend) {
-					 ++ng_end;
-					 //more transcripts overlapping this bundle?
-					 if ((int)(*guides)[ng_end]->end>=currentstart) {
-						 //it should really overlap the bundle
-						 bundle->keepGuide((*guides)[ng_end],
-								  &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
-						 if(currentend<(int)(*guides)[ng_end]->end) {
-							 currentend=(*guides)[ng_end]->end;
-							 cend_changed=true;
-						 }
-				 	 }
-				 }
-			 } while (cend_changed);
-		 }
+		 if (gd.guides) gd.addOverlappingGuides(bundle, currentstart, currentend);
 	 } //adjusted currentend and checked for overlapping reference transcripts
 	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
      bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
@@ -928,23 +948,23 @@ if (ballgown)
 		int linebuflen=5000;
 		GMALLOC(linebuf, linebuflen);
 		int nl;
-		int istr;
+		int istx;
 		int tlen;
 		float tcov; //do we need to increase precision here ? (double)
 		float calc_fpkm;
 		float calc_tpm;
 		int t_id;
 		while(fgetline(linebuf,linebuflen,ftmp_in)) {
-			sscanf(linebuf,"%d %d %d %d %g", &istr, &nl, &tlen, &t_id, &tcov);
+			sscanf(linebuf,"%d %d %d %d %g", &istx, &nl, &tlen, &t_id, &tcov);
 			if (tcov<0) tcov=0;
 			if (Frag_Len>0.001) calc_fpkm=tcov*1000000000/Frag_Len;
 				else calc_fpkm=0.0;
 			if (Cov_Sum>0.00001) calc_tpm=tcov*1000000/Cov_Sum;
 				else calc_tpm=0.0;
-			if(istr) { // this is a transcript
+			if(istx) { // this is a transcript
 				if (ballgown && t_id>0) {
-					guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
-					guides_RC_tdata[t_id-1]->cov=tcov;
+					gd.guides_RC_tdata[t_id-1]->fpkm=calc_fpkm;
+					gd.guides_RC_tdata[t_id-1]->cov=tcov;
 				}
 				for(int i=0;i<nl;i++) {
 					fgetline(linebuf,linebuflen,ftmp_in);
@@ -981,7 +1001,7 @@ if (ballgown)
 
 	//lastly, for ballgown, rewrite the tdata file with updated cov and fpkm
 	if (ballgown) {
-		rc_writeRC(guides_RC_tdata, guides_RC_exons, guides_RC_introns,
+		rc_writeRC(gd.guides_RC_tdata, gd.guides_RC_exons, gd.guides_RC_introns,
 				f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 	}
 }
