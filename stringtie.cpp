@@ -532,11 +532,12 @@ if (ballgown)
  BundleData bundles[1];
  BundleData* bundle = &(bundles[0]);
 #endif
+ SGBundle* usgbundle=useUSG ? new SGBundle() : nullptr;
+ bool skipGseq=false;
+ 
  GSamRecord* brec=NULL;
  TAlnInfo* tinfo=NULL; // for --merge
  int prev_pos=0;
- bool skipGseq=false;
- SGBundle* usgbundle=useUSG ? new SGBundle() : nullptr;
  bool more_alns=true;
  //bool nextUSG=useUSG ? true : false;
  // ------ bundle forming loop
@@ -557,9 +558,7 @@ if (ballgown)
 					 brec->name(), brec->start, brec->mapped_len);
 			 continue;
 		 }
-#ifdef DBG_ALN_DATA
-		 dbg_waln(brec);
-#endif
+
 		 refseqName=brec->refName();
 		 xstrand=brec->spliceStrand(); // tagged strand gets priority
 		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
@@ -578,14 +577,6 @@ if (ballgown)
 				 else xstrand='-';
 			 }
 		 }
-
-		 /*
-		 if (xstrand=='.' && brec->exons.Count()>1) {
-			 no_xs++;
-			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
-		 }
-		 // I might still infer strand later */
-
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
