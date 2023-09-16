@@ -587,18 +587,41 @@ struct CJunction:public GSeg {
 
 struct GReadAlnData {
 	GSamRecord* brec;
-	char strand; //-1, 0, 1
-	int nh;
-	int hi;
+	char strand=0; //-1, 0, 1
+	int nh=0;
+	int hi=0;
 	GPVec<CJunction> juncs;
 	union {
-		TAlnInfo* tinfo;
+		TAlnInfo* tinfo=nullptr;
 		bool in_guide;
 	};
 	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
-	GReadAlnData(GSamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
+	/* GReadAlnData(GSamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
 			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
-					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
+					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)*/
+	GReadAlnData(GSamRecord* bamrec=NULL, char xstrand='.'):brec(bamrec) {
+		if (brec) {
+		 if (xstrand!='.') strand=(xstrand=='+') ? 1:-1;
+		 nh=brec->tag_int("NH");
+		 if (nh==0) nh=1;
+		 hi=brec->tag_int("HI");
+		 		 if (mergeMode) {
+			tinfo=new TAlnInfo(brec->name(), brec->uval);
+			GStr score(brec->tag_str("ZS"));
+			if (!score.is_empty()) {
+			  GStr srest=score.split('|');
+			  if (!score.is_empty())
+				 tinfo->cov=score.asDouble();
+			  score=srest.split('|');
+			  if (!srest.is_empty())
+				 tinfo->fpkm=srest.asDouble();
+			  srest=score.split('|');
+			  if (!score.is_empty())
+				 tinfo->tpm=score.asDouble();
+			}
+		 }
+		}
+	}
 	~GReadAlnData() { if(mergeMode) delete tinfo; }
 };
 

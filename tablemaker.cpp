@@ -96,10 +96,11 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
  }
  if (xstrand=='.' && strandbits && strandbits<3) {
 	xstrand = (strandbits==1) ? '+' : '-';
+  // adjust/override aln strand
+  alndata.strand = (xstrand=='+') ? 1 : -1;
  }
 
  if(!mergeMode && is_in_guide) alndata.in_guide=true;
-
  return result;
 }
 
@@ -143,7 +144,6 @@ FILE* rc_frenopen(const char* fname) {
 
 void rc_frendel(const char* fname) {
 	GStr fpath(ballgown_dir);
-	//fpath += '.';
 	fpath += fname;
 	fpath += ".ctab";
 	fpath += ".tmp";

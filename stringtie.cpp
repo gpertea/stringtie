@@ -221,6 +221,7 @@ int refseqCount=0; // number of reference sequences found in the guides file
  GStr maxMemBundle;
 #endif
 
+const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
 #ifndef NOTHREADS
 //single producer, multiple consumers
@@ -283,8 +284,6 @@ void workerThread(GThreadData& td); // Thread function
 int waitForData(BundleData* bundles);
 #endif
 
-
-
 //#define DBG_ALN_DATA 1
 #ifdef DBG_ALN_DATA
   FILE* fdbgaln=NULL;
@@ -330,7 +329,6 @@ GSamRecord* getNextAln() {
 void ungetAln(GSamRecord* brec) { pushedAln=brec; }
 
 
-
 //guides related structures and code
 struct GuidesData {
  GList<GffObj>* guides=nullptr; //list of transcripts on a specific reference
@@ -341,7 +339,7 @@ struct GuidesData {
  GPVec<RC_Feature> guides_RC_exons; //raw count data for all guide exons
  GPVec<RC_Feature> guides_RC_introns;//raw count data for all guide introns
  GuidesData():guides_RC_tdata(true), guides_RC_exons(true), guides_RC_introns(true) {}
- void newChrInit(GVec<GRefData> &refguides, int gseq_id) { //new chr
+ inline void newChrInit(GVec<GRefData> &refguides, int gseq_id) { //new chr
 	 ng = 0;
 	 guides = nullptr;
 	 ng_start = 0;
@@ -351,11 +349,11 @@ struct GuidesData {
 		 ng = guides->Count();
 	 }
  }
- void addOverlappingGuides(BundleData* bundle, int& currentstart, int& currentend);
- void newBundleGuides(int pos, BundleData* bundle, int& currentstart, int& currentend);
+ inline void addOverlappingGuides(BundleData* bundle, int& currentstart, int& currentend);
+ inline void newBundleGuides(int pos, BundleData* bundle, int& currentstart, int& currentend);
 };
 
-void GuidesData::newBundleGuides(int pos, BundleData* bundle, int& currentstart, int& currentend) {
+inline void GuidesData::newBundleGuides(int pos, BundleData* bundle, int& currentstart, int& currentend) {
 	ng_start=ng_end+1;
 	while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
 		// for now, skip guides which have no overlap with current read
@@ -397,8 +395,7 @@ void GuidesData::newBundleGuides(int pos, BundleData* bundle, int& currentstart,
 	ng_end=ng_ovl-1; //MUST update ng_end here, even if no overlaps were found
 }
 
-
-void GuidesData::addOverlappingGuides(BundleData* bundle, int& currentstart, int& currentend) { //add any newly overlapping guides to bundle
+inline void GuidesData::addOverlappingGuides(BundleData* bundle, int& currentstart, int& currentend) { //add any newly overlapping guides to bundle
 	bool cend_changed;
 	do {
 		cend_changed=false;
@@ -418,234 +415,49 @@ void GuidesData::addOverlappingGuides(BundleData* bundle, int& currentstart, int
 	} while (cend_changed);
 }
 
-//==================================================
-int main(int argc, char* argv[]) {
+bool havePtFeatures=false;
+bool no_ref_used=true;
 
- // == Process arguments.
- GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;usg=;bam;fr;rf;merge;"
-   "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
- args.printError(USAGE, true);
-
- processOptions(args);
+ // --- input processing globals - main bundle building thread
+ // the entries below are NOT thread-safe, but they are only used by the main thread
+ GHash<int> hashread;      //read_name:pos:hit_index => readlist index
+ int currentstart=0, currentend=0;
+ 
+ GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
+ int ptf_idx=0; //point-feature current index in the current (*refptfs)[]
+ GArray<GRefPtData> refpts(true, true); // sorted,unique array of refseq point-features data in current ref
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
-
- GArray<GRefPtData> refpts(true, true); // sorted,unique array of refseq point-features data
-
- //table indexes for Ballgown Raw Counts data (-B/-b option)
-
- 
- GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
-
- int bamcount=bamreader.start(); //setup and open input files
-#ifndef GFF_DEBUG
- if (bamcount<1) {
-	 GError("%sError: no input files provided!\n",USAGE);
- }
-#endif
-
-#ifdef DEBUGPRINT
-  verbose=true;
-#endif
-
-const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
-
-GuidesData gd;
-
-if(guided) { // read guiding transcripts from input gff file
-	if (verbose) {
-		 printTime(stderr);
-		 GMessage(" Loading reference annotation (guides)..\n");
-	}
-   FILE* f=fopen(guidegff.chars(),"r");
-   if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
-       guidegff.chars());
-   //                transcripts_only    sort by location?
-   GffReader gffr(f,       true,             true); //loading only recognizable transcript features
-   gffr.setRefAlphaSorted(); //alphabetical sorting of refseq IDs
-   gffr.showWarnings(verbose);
-   //        keepAttrs    mergeCloseExons   noExonAttrs
-   gffr.readAll(false,          true,        true);
-   //the list of GffObj is in gffr.gflst, sorted by chromosome and start-end coordinates
-   //collect them in other data structures, if it's kept for later call gffobj->isUsed(true)
-   // (otherwise it'll be deallocated when gffr is destroyed due to going out of scope)
-   refseqCount=gffr.gseqtable.Count();
-   if (refseqCount==0 || gffr.gflst.Count()==0) {
-	   GError("Error: could not any valid reference transcripts in %s (invalid GTF/GFF file?)\n",
-			   guidegff.chars());
-   }
-   refguides.setCount(refseqCount); //maximum gseqid
-   uint c_tid=0;
-   uint c_exon_id=0;
-   uint c_intron_id=0;
-   GList<RC_Feature> uexons(true, false, true); //sorted, free items, unique
-   GList<RC_Feature> uintrons(true, false, true);
-   //assign unique transcript IDs based on the sorted order
-   int last_refid=-1;
-   bool skipGseq=false;
-   for (int i=0;i<gffr.gflst.Count();i++) {
-	   GffObj* m=gffr.gflst[i];
-	   if (last_refid!=m->gseq_id) {
-		   //chromosome switch
-		   if (ballgown) { //prepare memory storage/tables for all guides on this chromosome
-			   uexons.Clear();
-			   uintrons.Clear();
-		   }
-		   last_refid=m->gseq_id;
-		   skipGseq=excludeGseqs.hasKey(m->getGSeqName());
-	   }
-	   //sanity check: make sure there are no exonless "genes" or other
-	   if (skipGseq) continue;
-	   if (m->exons.Count()==0) {
-		    if (verbose)
-		    	GMessage("Warning: exonless GFF %s feature with ID %s found, added implicit exon %d-%d.\n",
-		    			m->getFeatureName(), m->getID(), m->start, m->end);
-		    m->addExon(m->start, m->end); //should never happen! // @suppress("Ambiguous problem")
-	   }
-	   //DONE: always keep a RC_TData pointer around, with additional info about guides
-	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
-	   m->uptr=tdata;
-	   gd.guides_RC_tdata.Add(tdata);
-	   if (ballgown) { //already gather exon & intron info for all ref transcripts
-		   tdata->rc_addFeatures(c_exon_id, uexons, gd.guides_RC_exons,
-		          c_intron_id, uintrons, gd.guides_RC_introns);
-	   }
-	   GRefData& grefdata = refguides[m->gseq_id];
-	   grefdata.add(&gffr, m); //transcripts already sorted by location
-   }
-	 if (verbose) {
-		 printTime(stderr);
-		 GMessage(" %d reference transcripts loaded.\n", gffr.gflst.Count());
-	 }
- }
-
- gseqNames=GffObj::names; //might have been populated already by gff data
- gffnames_ref(gseqNames);  //initialize the names collection if not guided
- bool havePtFeatures=false;
-
- // -- loading point-feature data
- if (!ptff.is_empty()) {
-   FILE* f=fopen(ptff.chars(),"r");
-   if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
-       ptff.chars());
-   //                transcripts_only    sort by location?
-   int numptf=loadPtFeatures(f, refpts); //adds to gseqNames->gseqs accordingly, populates refpts
-   havePtFeatures=(numptf>0);
-   std::fclose(f);
- }
-
-#ifdef GFF_DEBUG
-  for (int r=0;r<refguides.Count();++r) {
-	  GRefData& grefdata = refguides[r];
-      for (int k=0;k<grefdata.rnas.Count();++k) {
-    	  GMessage("#transcript #%d : %s (%d exons)\n", k, grefdata.rnas[k]->getID(), grefdata.rnas[k]->exons.Count());
-    	  grefdata.rnas[k]->printGff(stderr);
-      }
-  }
-  GMessage("GFF Debug mode, exiting...\n");
-  exit(0);
-#endif
-
- // --- input processing
-
- GHash<int> hashread;      //read_name:pos:hit_index => readlist index
- GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
-
- int currentstart=0, currentend=0;
- int ptf_idx=0; //point-feature current index in the current (*refptfs)[]
  GStr lastref;
- bool no_ref_used=true;
- int lastref_id=-1; //last seen gseq_id
- // int ncluster=0; used it for debug purposes only
+  int lastref_id=-1; //last seen gseq_id
 
- //Ballgown files
- FILE* f_tdata=NULL;
- FILE* f_edata=NULL;
- FILE* f_idata=NULL;
- FILE* f_e2t=NULL;
- FILE* f_i2t=NULL;
-
- // -----  test SGBundle reading
- if (useUSG) {
- 	 usgreader=new SGReader(usgfh);
- 	 /*
- 	 SGBundle bundle;
- 	 while (usgreader->next(bundle)) {
- 		 fprintf(stdout, "bundle #%d: %s:%d-%d (%d nodes)\n",
- 		     bundle.id, bundle.chr, bundle.start, bundle.end, bundle.nodes.Count());
- 	 }
- 	delete usgreader;
- 	exit(0); //TEST only
- 	*/
-  }
-
-if (ballgown)
- Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
-#ifndef NOTHREADS
-//model: one producer, multiple consumers
-#define DEF_TSTACK_SIZE 8388608
- size_t defStackSize=DEF_TSTACK_SIZE;
-#ifdef _GTHREADS_POSIX_
- uint tstackSize=(uint)GThread::defaultStackSize();
- if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
- if (verbose) {
-   if (tstackSize<defStackSize){
-    int ssize=defStackSize;
-    GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
-   }
-   else GMessage("Default stack size for threads: %d\n", tstackSize);
- }
-#endif
-
- GThread* threads=new GThread[num_cpus]; //bundle processing threads
-
+#ifndef NOTHREADS 
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
  //the consumers take (pop) bundles out of this queue for processing
  //the producer populates this queue with bundles built from reading the BAM input
-
- BundleData* bundles=new BundleData[num_cpus+1];
- //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
-
- dataClear.setCapacity(num_cpus+1);
- for (int b=0;b<num_cpus;b++) {
-	 threads[b].kickStart(workerThread, (void*) &bundleQueue, defStackSize);
-	 bundles[b+1].idx=b+1;
-	 dataClear.Push(b);
-   }
- BundleData* bundle = &(bundles[num_cpus]);
+ BundleData* bundles=nullptr;
 #else
- BundleData bundles[1];
- BundleData* bundle = &(bundles[0]);
+ BundleData bundles[1]; 
 #endif
- SGBundle* usgbundle=useUSG ? new SGBundle() : nullptr;
- bool skipGseq=false;
- //bool nextUSG=useUSG ? true : false;
- // ------ bundle forming loop
- 
- GSamRecord* brec=NULL;
- TAlnInfo* tinfo=NULL; // for --merge
- int prev_pos=0;
- bool more_alns=true;
- while (more_alns) {
-	 bool chr_changed=false;
-	 int pos=0;
-	 const char* refseqName=NULL;
-	 char xstrand=0;
-	 int nh=1;
-	 int hi=0;
-	 int gseq_id=lastref_id;  //current chr id
-	 bool new_bundle=false;
-	 //delete brec;
-	 if ((brec=bamreader.next())!=NULL) {
-		 if (brec->isUnmapped()) continue;
+
+inline bool getNextReadAln( TInputFiles& bamreader, GSamRecord*& brec,  int& pos, int& prev_pos, 
+                    const char* & refseqName, int& gseq_id, char& xstrand, bool& chr_changed, 
+					GStr& lastref, GVec<int>& alncounts, bool& skipAln) {
+		 if ( (brec=bamreader.next())==nullptr) return false;
+		 skipAln=false;
+		 if (brec->isUnmapped()) { skipAln=true; return true; }
 		 if (brec->start<1 || brec->mapped_len<10) {
 			 if (verbose) GMessage("Warning: invalid mapping found for read %s (position=%d, mapped length=%d)\n",
 					 brec->name(), brec->start, brec->mapped_len);
-			 continue;
+			 skipAln=true;
+			 return true;
+		 }
+		 refseqName=brec->refName();
+		 if (excludeGseqs.hasKey(refseqName)) {
+			 skipAln=true;
+			 return true;
 		 }
 
-		 refseqName=brec->refName();
 		 xstrand=brec->spliceStrand(); // tagged strand gets priority
 		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
 			 if(brec->isPaired()) { // read is paired
@@ -667,7 +479,6 @@ if (ballgown)
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
 		 if (chr_changed) {
-			 skipGseq=excludeGseqs.hasKey(refseqName);
 			 gseq_id=gseqNames->gseqs.addName(refseqName);
 			 if (guided) {
 				 if (gseq_id>=refseqCount) {
@@ -691,37 +502,12 @@ if (ballgown)
 			   ERR_BAM_SORT, brec->name(), brec->start,  pos, refseqName, prev_pos);
 		 prev_pos=pos;
 		 //if (skipGseq) continue; //FIXME current bundle should be queued first!
-		 alncounts[gseq_id]++;
-		 nh=brec->tag_int("NH");
-		 if (nh==0) nh=1;
-		 hi=brec->tag_int("HI");
-		 if (mergeMode) {
-			//tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
-			 tinfo=new TAlnInfo(brec->name(), brec->uval);
-			GStr score(brec->tag_str("ZS"));
-			if (!score.is_empty()) {
-			  GStr srest=score.split('|');
-			  if (!score.is_empty())
-				 tinfo->cov=score.asDouble();
-			  score=srest.split('|');
-			  if (!srest.is_empty())
-				 tinfo->fpkm=srest.asDouble();
-			  srest=score.split('|');
-			  if (!score.is_empty())
-				 tinfo->tpm=score.asDouble();
-			}
-		 }
+        alncounts[gseq_id]++;
+ 	    return true;
+}
 
-		 if (!chr_changed && currentend>0 && pos>currentend+(int)runoffdist) {
-			 new_bundle=true;
-		 }
-	 } // one alignment read
-	 else { //no more alignments
-		 more_alns=false;
-		 new_bundle=true; //fake a new start (end of last bundle)
-	 }
 
-	 if (new_bundle || chr_changed) { // queue current bundle for processing
+inline bool closeBundle(BundleData* bundle, int& currentstart, int& currentend, GVec<int>& alncounts) {
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) {
 			// (readthr, junctionthr, mintranscriptlen are globals)
@@ -794,7 +580,12 @@ if (ballgown)
 #endif
 		 } //nothing to do with this bundle
 
-		 if (chr_changed) {
+}
+
+inline bool startNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec,
+        bool& more_alns, bool& chr_changed, const char* & refseqName, int& gseq_id, 
+		int& pos, int& currentstart, int& currentend) {
+	  if (chr_changed) {
 			 if (guided) gd.newChrInit(refguides, gseq_id);
 			 if (havePtFeatures) {
 				 ptf_idx=-1;
@@ -810,9 +601,9 @@ if (ballgown)
 			 lastref=refseqName;
 			 lastref_id=gseq_id;
 			 currentend=0;
-		 }
+	  }
 
-		 if (!more_alns) { //exit the loop
+	  if (!more_alns) { //no more alignments to process
 				if (verbose) {
 #ifndef NOTHREADS
 					GLockGuard<GFastMutex> lock(logMutex);
@@ -824,15 +615,15 @@ if (ballgown)
 					//GMessage(" Done reading alignments.\n");
 				}
 			 noMoreBundles();
-			 break;
-		 }
+			 return false; // break the main loop 
+	}
 // ------ starting a new bundle
 #ifndef NOTHREADS
 		 int new_bidx=waitForData(bundles);
 		 if (new_bidx<0) {
 			 //should never happen!
 			 GError("Error: waitForData() returned invalid bundle index(%d)!\n",new_bidx);
-			 break;
+			 //break;
 		 }
 		 bundle=&(bundles[new_bidx]);
 #endif
@@ -844,23 +635,242 @@ if (ballgown)
 		 bundle->refseq=lastref;
 		 bundle->start=currentstart;
 		 bundle->end=currentend;
-	 } //<---- new bundle started
+		 return true; //new bundle started
+}
 
-	 if (currentend<(int)brec->end) {
-		 //current read extends the bundle
+//==================================================
+int main(int argc, char* argv[]) {
+
+ // == Process arguments.
+ GArgs args(argc, argv,
+   "debug;help;version;viral;conservative;mix;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;usg=;bam;fr;rf;merge;"
+   "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
+ args.printError(USAGE, true);
+
+ processOptions(args);
+
+  //table indexes for Ballgown Raw Counts data (-B/-b option)
+ 
+ GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
+
+ int bamcount=bamreader.start(); //setup and open input files
+#ifndef GFF_DEBUG
+ if (bamcount<1) {
+	 GError("%sError: no input files provided!\n",USAGE);
+ }
+#endif
+
+#ifdef DEBUGPRINT
+  verbose=true;
+#endif
+
+GuidesData gd;
+
+if(guided) { // read guiding transcripts from input gff file
+	if (verbose) {
+		 printTime(stderr);
+		 GMessage(" Loading reference annotation (guides)..\n");
+	}
+   FILE* f=fopen(guidegff.chars(),"r");
+   if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
+       guidegff.chars());
+   //                transcripts_only    sort by location?
+   GffReader gffr(f,       true,             true); //loading only recognizable transcript features
+   gffr.setRefAlphaSorted(); //alphabetical sorting of refseq IDs
+   gffr.showWarnings(verbose);
+   //        keepAttrs    mergeCloseExons   noExonAttrs
+   gffr.readAll(false,          true,        true);
+   //the list of GffObj is in gffr.gflst, sorted by chromosome and start-end coordinates
+   //collect them in other data structures, if it's kept for later call gffobj->isUsed(true)
+   // (otherwise it'll be deallocated when gffr is destroyed due to going out of scope)
+   refseqCount=gffr.gseqtable.Count();
+   if (refseqCount==0 || gffr.gflst.Count()==0) {
+	   GError("Error: could not any valid reference transcripts in %s (invalid GTF/GFF file?)\n",
+			   guidegff.chars());
+   }
+   refguides.setCount(refseqCount); //maximum gseqid
+   uint c_tid=0;
+   uint c_exon_id=0;
+   uint c_intron_id=0;
+   GList<RC_Feature> uexons(true, false, true); //sorted, free items, unique
+   GList<RC_Feature> uintrons(true, false, true);
+   //assign unique transcript IDs based on the sorted order
+   int last_refid=-1;
+   bool skipGseq=false;
+   for (int i=0;i<gffr.gflst.Count();i++) {
+	   GffObj* m=gffr.gflst[i];
+	   if (last_refid!=m->gseq_id) {
+		   //chromosome switch
+		   if (ballgown) { //prepare memory storage/tables for all guides on this chromosome
+			   uexons.Clear();
+			   uintrons.Clear();
+		   }
+		   last_refid=m->gseq_id;
+		   skipGseq=excludeGseqs.hasKey(m->getGSeqName());
+	   }
+	   //sanity check: make sure there are no exonless "genes" or other
+	   if (skipGseq) continue;
+	   if (m->exons.Count()==0) {
+		    if (verbose)
+		    	GMessage("Warning: exonless GFF %s feature with ID %s found, added implicit exon %d-%d.\n",
+		    			m->getFeatureName(), m->getID(), m->start, m->end);
+		    m->addExon(m->start, m->end); //should never happen! // @suppress("Ambiguous problem")
+	   }
+	   //DONE: always keep a RC_TData pointer around, with additional info about guides
+	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
+	   m->uptr=tdata;
+	   gd.guides_RC_tdata.Add(tdata);
+	   if (ballgown) { //already gather exon & intron info for all ref transcripts
+		   tdata->rc_addFeatures(c_exon_id, uexons, gd.guides_RC_exons,
+		          c_intron_id, uintrons, gd.guides_RC_introns);
+	   }
+	   GRefData& grefdata = refguides[m->gseq_id];
+	   grefdata.add(&gffr, m); //transcripts already sorted by location
+   }
+	 if (verbose) {
+		 printTime(stderr);
+		 GMessage(" %d reference transcripts loaded.\n", gffr.gflst.Count());
+	 }
+ }
+
+ gseqNames=GffObj::names; //might have been populated already by gff data
+ gffnames_ref(gseqNames);  //initialize the names collection if not guided
+ 
+ // -- loading point-feature data
+ if (!ptff.is_empty()) {
+   FILE* f=fopen(ptff.chars(),"r");
+   if (f==NULL) GError("Error: could not open reference annotation file (%s)!\n",
+       ptff.chars());
+   //                transcripts_only    sort by location?
+   int numptf=loadPtFeatures(f, refpts); //adds to gseqNames->gseqs accordingly, populates refpts
+   havePtFeatures=(numptf>0);
+   std::fclose(f);
+ }
+
+#ifdef GFF_DEBUG
+  for (int r=0;r<refguides.Count();++r) {
+	  GRefData& grefdata = refguides[r];
+      for (int k=0;k<grefdata.rnas.Count();++k) {
+    	  GMessage("#transcript #%d : %s (%d exons)\n", k, grefdata.rnas[k]->getID(), grefdata.rnas[k]->exons.Count());
+    	  grefdata.rnas[k]->printGff(stderr);
+      }
+  }
+  GMessage("GFF Debug mode, exiting...\n");
+  exit(0);
+#endif
+
+ // int ncluster=0; used it for debug purposes only
+
+ //Ballgown files
+ FILE* f_tdata=NULL;
+ FILE* f_edata=NULL;
+ FILE* f_idata=NULL;
+ FILE* f_e2t=NULL;
+ FILE* f_i2t=NULL;
+
+ // -----  test SGBundle reading
+ if (useUSG) {
+ 	 usgreader=new SGReader(usgfh);
+ 	 /*
+ 	 SGBundle bundle;
+ 	 while (usgreader->next(bundle)) {
+ 		 fprintf(stdout, "bundle #%d: %s:%d-%d (%d nodes)\n",
+ 		     bundle.id, bundle.chr, bundle.start, bundle.end, bundle.nodes.Count());
+ 	 }
+ 	delete usgreader;
+ 	exit(0); //TEST only
+ 	*/
+  }
+
+if (ballgown)
+ Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
+
+#ifndef NOTHREADS
+//model: one producer, multiple consumers
+#define DEF_TSTACK_SIZE 8388608
+ size_t defStackSize=DEF_TSTACK_SIZE;
+#ifdef _GTHREADS_POSIX_
+ uint tstackSize=(uint)GThread::defaultStackSize();
+ if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
+ if (verbose) {
+   if (tstackSize<defStackSize){
+    int ssize=defStackSize;
+    GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
+   }
+   else GMessage("Default stack size for threads: %d\n", tstackSize);
+ }
+#endif
+
+ GThread* threads=new GThread[num_cpus]; //bundle processing threads
+
+ //the consumers take (pop) bundles out of this queue for processing
+ //the producer populates this queue with bundles built from reading the BAM input
+ bundles=new BundleData[num_cpus+1];
+ //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
+
+ dataClear.setCapacity(num_cpus+1);
+ for (int b=0;b<num_cpus;b++) {
+	 threads[b].kickStart(workerThread, (void*) &bundleQueue, defStackSize);
+	 bundles[b+1].idx=b+1;
+	 dataClear.Push(b);
+   }
+ BundleData* bundle = &(bundles[num_cpus]);
+#else
+ BundleData* bundle = &(bundles[0]);
+#endif
+ SGBundle* usgbundle=useUSG ? new SGBundle() : nullptr;
+ //bool skipGseq=false;
+ //bool nextUSG=useUSG ? true : false;
+ // ------ bundle forming loop
+ 
+ GSamRecord* brec=NULL;
+ int prev_pos=0;
+ bool more_alns=true;
+ while (more_alns) {
+	 bool chr_changed=false;
+	 int pos=0;
+	 const char* refseqName=NULL;
+	 char xstrand=0;
+	 int nh=1;
+	 int hi=0;
+	 int gseq_id=lastref_id;  //current chr id
+	 bool new_bundle=false;
+	 bool skipAln=false;
+	 ////// ---- try to read the next alignment
+	 if (getNextReadAln(bamreader, brec, pos, prev_pos, refseqName, gseq_id, xstrand, 
+	    chr_changed, lastref, alncounts, skipAln)) {
+		 if (skipAln) continue;
+		 ///// <> start a new bundle if this alignment is too far from currentend
+		 if (!chr_changed && currentend>0 && pos>currentend+(int)runoffdist) {
+			 new_bundle=true;
+		 }
+	 } // one alignment read
+	 else { //// ---- no more read alignments
+		 more_alns=false;
+		 new_bundle=true; //fake a new start (end of last bundle)
+	 }
+     ///// <<>> check if new end of bundle
+	 if (new_bundle || chr_changed) { // queue current bundle for processing & start new bundle
+	     closeBundle(bundle,  currentstart, currentend, alncounts);
+		 if (!startNewBundle(bundle, gd, brec, more_alns, chr_changed, refseqName, gseq_id, 
+		                    pos, currentstart, currentend))
+			 break; //no more alignments to process		 
+	 } // close & queue prev bundle, start new bundle
+
+     //////----- add current read alignment to the current/new bundle
+	 //////      if it overlaps guides OR we're in assembly mode
+	 if (currentend<(int)brec->end) { //current read aln extends the bundle
 		 //this might not happen if a longer guide had already been added to the bundle
 		 currentend=brec->end;
 		 if (gd.guides) gd.addOverlappingGuides(bundle, currentstart, currentend);
 	 } //adjusted currentend and checked for overlapping reference transcripts
-	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
-     bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
-     if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide
+	 GReadAlnData alndata(brec, xstrand);
+     bool ovlpguide=bundle->evalReadAln(alndata, xstrand); //check for overlaps with guides, update strand
+     if(!eonly || ovlpguide) { // in eonly case consider aln only if it overlaps a guide
     	 //check for overlaps with ref transcripts which may set xstrand
-    	if (xstrand=='+') alndata.strand=1;
-    	 else if (xstrand=='-') alndata.strand=-1;
    	    processRead(currentstart, currentend, *bundle, hashread, alndata);
      }
- } //for each read alignment
+ } //read alignment reading loop
 
  //cleaning up
  delete brec;
