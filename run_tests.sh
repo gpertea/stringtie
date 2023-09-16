@@ -56,7 +56,7 @@ for i in ${!arrmsg[@]}; do
    ins=( ${arrins[$i]} )
    fin="${ins[0]}.bam ${ins[1]}.bam"
  fi
-
+ echo "../stringtie ${arrparms[$i]} -o $fout $fin"
  ../stringtie ${arrparms[$i]} -o $fout $fin
  if [ ! -f $fout ]; then
    echo "Error: file $fout not created! Failed running stringtie on $fin"

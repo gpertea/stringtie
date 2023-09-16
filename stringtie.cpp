@@ -258,7 +258,7 @@ GFastMutex printCovMutex;
 GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
 
 bool NoMoreBundles=false;
-//bool moreBundles(); //thread-safe retrieves NoMoreBundles
+bool moreBundles(); //thread-safe retrieves NoMoreBundles
 void noMoreBundles(); //sets NoMoreBundles to true
 //--
 void processOptions(GArgs& args);
@@ -540,7 +540,6 @@ if (ballgown)
  bool more_alns=true;
  //bool nextUSG=useUSG ? true : false;
  // ------ bundle forming loop
- //while (haveMoreAlns(more_alns, usgbundle, nextUSG)) {
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;
@@ -550,7 +549,8 @@ if (ballgown)
 	 int hi=0;
 	 int gseq_id=lastref_id;  //current chr id
 	 bool new_bundle=false;
-	 if ((brec=getNextAln())!=NULL) {
+	 //delete brec;
+	 if ((brec=bamreader.next())!=NULL) {
 		 if (brec->isUnmapped()) continue;
 		 if (brec->start<1 || brec->mapped_len<10) {
 			 if (verbose) GMessage("Warning: invalid mapping found for read %s (position=%d, mapped length=%d)\n",
@@ -561,15 +561,6 @@ if (ballgown)
 		 dbg_waln(brec);
 #endif
 		 refseqName=brec->refName();
-		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
-		 if (useUSG) {
-			 int cmpchr=strcmp(refseqName, usgbundle->chr);
-			 if (cmpchr<0 || (cmpchr==0 && brec->end < usgbundle->start))
-				 continue; //alignment before current usg bundle
-			 if (cmpchr>0 || (cmpchr==0 && brec->start > usgbundle->end)) {
-		          new_bundle=true;
-			 }
-		 }
 		 xstrand=brec->spliceStrand(); // tagged strand gets priority
 		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
 			 if(brec->isPaired()) { // read is paired
@@ -587,10 +578,16 @@ if (ballgown)
 				 else xstrand='-';
 			 }
 		 }
-		 /*  if (xstrand=='.' && brec->exons.Count()>1) {
+
+		 /*
+		 if (xstrand=='.' && brec->exons.Count()>1) {
 			 no_xs++;
 			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
-		 } // I might still infer strand later */
+		 }
+		 // I might still infer strand later */
+
+		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
+		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
 		 if (chr_changed) {
 			 skipGseq=excludeGseqs.hasKey(refseqName);
@@ -613,11 +610,10 @@ if (ballgown)
 			 prev_pos=0;
 		 } //chr_changed
 
-		 //if (skipGseq) continue; //FIXME current bundle should be queued first
-		 pos=brec->start;
 		 if (pos<prev_pos) GError("%s\nread %s (start %d) found at position %d on %s when prev_pos=%d\n",
 			   ERR_BAM_SORT, brec->name(), brec->start,  pos, refseqName, prev_pos);
 		 prev_pos=pos;
+		 //if (skipGseq) continue; //FIXME current bundle should be queued first!
 		 alncounts[gseq_id]++;
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
@@ -646,7 +642,6 @@ if (ballgown)
 	 else { //no more alignments
 		 more_alns=false;
 		 new_bundle=true; //fake a new start (end of last bundle)
-		 break;
 	 }
 
 	 if (new_bundle || chr_changed) { // queue current bundle for processing
@@ -765,6 +760,7 @@ if (ballgown)
 		 }
 // ------------ starting to populate a new bundle
 #ifndef NOTHREADS
+
 		 int new_bidx=waitForData(bundles);
 		 if (new_bidx<0) {
 			 //should never happen!
@@ -1418,7 +1414,6 @@ void processOptions(GArgs& args) {
 } //processOptions()
 
 //---------------
-/*
 bool moreBundles() { //getter (interogation)
 	bool v=true;
 #ifndef NOTHREADS
@@ -1427,7 +1422,7 @@ bool moreBundles() { //getter (interogation)
   v = ! NoMoreBundles;
   return v;
 }
-*/
+
 void noMoreBundles() {
 #ifndef NOTHREADS
 		bamReadingMutex.lock();
