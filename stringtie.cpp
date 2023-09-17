@@ -330,8 +330,11 @@ bool no_ref_used=true;
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
  const char* refseqName=NULL;
  int gseq_id=-1;  //current chr id
+
  GStr lastref;
  int lastref_id=-1; //last seen gseq_id
+
+ GVec<int> alncounts(26); //keep track of the number of read alignments per chromosome [gseq_id]
 //-------------------
 
 //guides related structures and code
@@ -439,8 +442,23 @@ inline void GuidesData::addOverlappingGuides(BundleData* bundle, bool fixed_end)
  BundleData bundles[1]; 
 #endif
 
-inline bool getNextReadAln( TInputFiles& bamreader, GSamRecord*& brec,  int& pos, int& prev_pos, 
-                    char& xstrand, bool& chr_changed, GVec<int>& alncounts, bool& skipAln, SGBundle* usgbundle=nullptr,
+inline int getRefSeqId(const char* chr, bool aln=false) {
+	//returns the gseq_id for the given refSeqName
+	//if not found, adds it to the gseqNames dictionary
+	gseq_id=gseqNames->gseqs.addName(chr);
+	if (aln) {
+		if (alncounts.Count()<=gseq_id) {
+					alncounts.Resize(gseq_id+1);
+				}
+				else if (alncounts[gseq_id]>0)
+						GError("%s\nAlignments (%d) already found for %s !\n",
+							ERR_BAM_SORT, alncounts[gseq_id], refseqName);
+	}
+	return gseq_id;
+}
+
+inline bool getNextReadAln( TInputFiles& bamreader, GSamRecord*& brec, int& prev_pos, 
+                    char& xstrand, bool& chr_changed, bool& skipAln, SGBundle* usgbundle=nullptr,
 					bool* overlap_usg=nullptr) {
 		 if ( (brec=bamreader.next())==nullptr) return false;
 		 skipAln=false;
@@ -460,12 +478,14 @@ inline bool getNextReadAln( TInputFiles& bamreader, GSamRecord*& brec,  int& pos
 			if (usgrefcmp<0 || (usgrefcmp==0 && brec->end<usgbundle->start)) { 
 				//alignment before usgbundle, skip it
 				skipAln=true;
+				prev_pos=(usgrefcmp!=0) ? 0 : brec->start;
 				return true;
 			}
 			ovlusg=(usgrefcmp==0 && brec->start<=usgbundle->end);
 			if (overlap_usg) *overlap_usg=ovlusg;
 		 }
 		 if (excludeGseqs.hasKey(refseqName)) {
+			 prev_pos=brec->start; //or 0 if there was a chr change
 			 skipAln=true; //this should also work for exclusion of region by BED file
 			 return true;
 		 }
@@ -487,11 +507,11 @@ inline bool getNextReadAln( TInputFiles& bamreader, GSamRecord*& brec,  int& pos
 				 else xstrand='-';
 			 }
 		 }
-		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
 		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
 		 if (chr_changed) {
-			 gseq_id=gseqNames->gseqs.addName(refseqName);
-			 if (guided) {
+			 prev_pos=0;
+			 gseq_id=getRefSeqId(refseqName, true);
+ 			 if (guided) {
 				 if (gseq_id>=refseqCount) {
 					 if (verbose)
 						 GMessage("WARNING: no reference transcripts found for genomic sequence \"%s\"! (mismatched reference names?)\n",
@@ -499,19 +519,11 @@ inline bool getNextReadAln( TInputFiles& bamreader, GSamRecord*& brec,  int& pos
 				 }
 				 else no_ref_used=false;
 			 }
-
-			 if (alncounts.Count()<=gseq_id) {
-				 alncounts.Resize(gseq_id+1);
-			 }
-			 else if (alncounts[gseq_id]>0)
-					   GError("%s\nAlignments (%d) already found for %s !\n",
-						 ERR_BAM_SORT, alncounts[gseq_id], refseqName);
-			 prev_pos=0;
 		 } //chr_changed
 
-		 if (pos<prev_pos) GError("%s\nread %s (start %d) found at position %d on %s when prev_pos=%d\n",
-			   ERR_BAM_SORT, brec->name(), brec->start,  pos, refseqName, prev_pos);
-		 prev_pos=pos;
+		 if (brec->start<prev_pos) GError("%s\nread %s found at position %d on %s when prev_pos=%d\n",
+			   ERR_BAM_SORT, brec->name(), brec->start, refseqName, prev_pos);
+		 prev_pos=brec->start;
 		 if (usgbundle) {
                // we only count alignments overlapping the bundle
 			   //TODO: update this after next bundle is started
@@ -597,8 +609,8 @@ inline void closeBundle(BundleData* bundle) {
 
 //if an usgbundle is provided, it determines the fixed span of
 // the new bundle (currentstart, currentend) and also updates gseq_id
-inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec,
-        bool more_alns, bool& chr_changed, int& pos, SGBundle* usgbundle=nullptr, 
+inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec, int& prev_pos,
+        bool more_alns, bool& chr_changed, SGBundle* usgbundle=nullptr, 
 		bool* overlap_usg=nullptr) {
 	  if (!more_alns) { //no more alignments to process
 		if (verbose) {
@@ -620,13 +632,14 @@ inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec
 		refseqName=usgbundle->chr;
 		chr_changed=(lastref.is_empty() || lastref!=refseqName);
         if (chr_changed) { //update gseq_id
-		   gseq_id=gseqNames->gseqs.addName(refseqName);
+		   gseq_id=getRefSeqId(refseqName, true);
 		}
 		aln_ovl=strcmp(refseqName, usgbundle->chr)==0 && 
 		                brec->start<=usgbundle->end && brec->end>=usgbundle->start;
 		if (overlap_usg) *overlap_usg=aln_ovl;
 	  }
 	  if (chr_changed) { //load guides and point-features for this chromosome
+	    prev_pos=0;
 		if (guided) gd.newChrInit();
 		if (havePtFeatures) {
 			ptf_idx=-1;
@@ -661,7 +674,7 @@ inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec
 			//bundle->refseq=usgbundle->chr;
 			bundle->usgbundle=usgbundle;
 		 } else {
-			currentstart=pos;
+			currentstart=brec->start;
 			currentend=brec->end;
 		 }
 		 if (gd.guides) // add guides overlapping and/or extending the initial range
@@ -683,10 +696,7 @@ int main(int argc, char* argv[]) {
  args.printError(USAGE, true);
 
  processOptions(args);
-
-  //table indexes for Ballgown Raw Counts data (-B/-b option)
  
- GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
 
  int bamcount=bamreader.start(); //setup and open input files
 #ifndef GFF_DEBUG
@@ -806,16 +816,7 @@ if(guided) { // read guiding transcripts from input gff file
  // -----  test SGBundle reading
  if (useUSG) {
  	 usgreader=new SGReader(usgfh);
- 	 /*
- 	 SGBundle bundle;
- 	 while (usgreader->next(bundle)) {
- 		 fprintf(stdout, "bundle #%d: %s:%d-%d (%d nodes)\n",
- 		     bundle.id, bundle.chr, bundle.start, bundle.end, bundle.nodes.Count());
- 	 }
- 	delete usgreader;
- 	exit(0); //TEST only
- 	*/
-  }
+ }
 
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
@@ -872,17 +873,16 @@ if (ballgown)
 		bool chr_changed=false;
 		refseqName=NULL;
 		gseq_id=lastref_id;  //current chr id
-		int pos=0;
 		char xstrand=0;
 		bool new_bundle=false;
 		bool skipAln=false;
 		bool aln_in_bundle=false;
 		////// ---- read the next read alignment
-		if (getNextReadAln(bamreader, brec, pos, prev_pos, xstrand, 
-			chr_changed, alncounts, skipAln, usgbundle, &aln_in_bundle)) {
+		if (getNextReadAln(bamreader, brec, prev_pos, xstrand, 
+			chr_changed, skipAln, usgbundle, &aln_in_bundle)) {
 			if (skipAln) continue;
 			///// <> signal we should start a new bundle? 
-			//if (!chr_changed && currentend>0 && pos>currentend+(int)runoffdist) {
+			//if (!chr_changed && currentend>0 && brec->start>currentend+(int)runoffdist) {
 			//	new_bundle=true;
 			//}
 			// in USG mode, we only start a new bundle if aln is past current usgbundle
@@ -898,8 +898,8 @@ if (ballgown)
 			// useUSG: read next usgbundle 
 			usgbundle = new SGBundle();
 			more_usg=usgreader->next(*usgbundle);
-			if (!initNewBundle(bundle, gd, brec, more_alns && more_usg, chr_changed, 
-			                   pos, usgbundle, &aln_in_bundle))
+			if (!initNewBundle(bundle, gd, brec, prev_pos, more_alns && more_usg, chr_changed, 
+			                   usgbundle, &aln_in_bundle))
 				break; //no more alignments to process					 
 		} // close & queue prev bundle, start new bundle
 
@@ -911,6 +911,7 @@ if (ballgown)
 			currentend=brec->end;
 			if (gd.guides) gd.addOverlappingGuides(bundle);
 		} //adjusted currentend and checked for overlapping reference transcripts
+		//NOTE: in USG mode all overlapping guides are already added to the bundle by initNewBundle()
 		*/
 	    if (aln_in_bundle) { //current read aln overlaps the usgbundle
 			GReadAlnData alndata(brec, xstrand);
@@ -918,6 +919,7 @@ if (ballgown)
 			if(!eonly || ovlpguide) { // in eonly case consider aln only if it overlaps a guide
 			    //usgbundle boundary needs to be extended by any overlapping read
 		        if (currentend<(int)brec->end) currentend=brec->end;			
+				if (currentstart>(int)brec->start) currentstart=brec->start;
 				//check for overlaps with ref transcripts which may set xstrand
 				processRead(currentstart, currentend, *bundle, hashread, alndata);
 			}
@@ -928,15 +930,14 @@ if (ballgown)
 		bool chr_changed=false;
 		refseqName=NULL;
 		gseq_id=lastref_id;  //current chr id
-		int pos=0;
 		char xstrand=0;
 		bool new_bundle=false;
 		bool skipAln=false;
 		////// ---- try to read the next alignment
-		if (getNextReadAln(bamreader, brec, pos, prev_pos, xstrand, chr_changed, alncounts, skipAln)) {
+		if (getNextReadAln(bamreader, brec, prev_pos, xstrand, chr_changed, skipAln)) {
 			if (skipAln) continue;
 			///// <> signal we should start a new bundle? 
-			if (!chr_changed && currentend>0 && pos>currentend+(int)runoffdist) {
+			if (!chr_changed && currentend>0 && brec->start>currentend+(int)runoffdist) {
 				new_bundle=true;
 			}
 		} // one alignment read
@@ -947,7 +948,7 @@ if (ballgown)
 		///// <<>> check if new end of bundle
 		if (new_bundle || chr_changed) { // queue current bundle for processing & start new bundle
 			closeBundle(bundle);
-			if (!initNewBundle(bundle, gd, brec, more_alns, chr_changed, pos))
+			if (!initNewBundle(bundle, gd, brec, prev_pos, more_alns, chr_changed))
 				break; //no more alignments to process		 
 		} // close & queue prev bundle, start new bundle
 
