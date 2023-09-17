@@ -354,27 +354,30 @@ struct GuidesData {
 		 ng = guides->Count();
 	 }
  }
- inline void newBundleGuides(int pos, BundleData* bundle, bool fixed_ends=false);
+ inline void newBundleGuides(BundleData* bundle, bool fixed_ends=false);
  inline void addOverlappingGuides(BundleData* bundle, bool fixed_end=false);
 };
 
-inline void GuidesData::newBundleGuides(int pos, BundleData* bundle, bool fixed_ends) {
+inline void GuidesData::newBundleGuides(BundleData* bundle, bool fixed_ends) {
+	// uses AND updates currentstart, currentend with overlapping guids
 	ng_start=ng_end+1;
-	while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
-		// for now, skip guides which have no overlap with current read
+	while (ng_start<ng && (int)(*guides)[ng_start]->end < currentstart) {
+		// skip guides which have no overlap with current read
 		ng_start++;
 	}
 	int ng_ovl=ng_start;
 	//add all guides overlapping the current read and other guides that overlap them
 	while (ng_ovl<ng && (int)(*guides)[ng_ovl]->start<=currentend) { //while guide overlap
-	    if (fixed_ends) {
-            ng_ovl++;
-			continue; //do not update currentstart/currentend, no back checking
-		}
  	    if (currentstart>(int)(*guides)[ng_ovl]->start)
 			   currentstart=(*guides)[ng_ovl]->start;
 		if (currentend<(int)(*guides)[ng_ovl]->end)
-			     currentend=(*guides)[ng_ovl]->end;		
+			     currentend=(*guides)[ng_ovl]->end;
+	    if (fixed_ends) {
+			bundle->keepGuide((*guides)[ng_ovl],
+				&guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+            ng_ovl++;
+			continue; //do not back check
+		}
 		if (ng_ovl==ng_start && ng_ovl>0) { //first time only, we have to check back all possible transitive guide overlaps
 			int g_back=ng_ovl; //start from the overlapping guide, going backwards
 			int g_ovl_start=ng_ovl;
@@ -402,6 +405,7 @@ inline void GuidesData::newBundleGuides(int pos, BundleData* bundle, bool fixed_
 inline void GuidesData::addOverlappingGuides(BundleData* bundle, bool fixed_end) { 
 	//add any newly overlapping guides to bundle
 	bool cend_changed;
+	int new_end=currentend;
 	do {
 		cend_changed=false;
 		while (ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=currentend) {
@@ -411,14 +415,19 @@ inline void GuidesData::addOverlappingGuides(BundleData* bundle, bool fixed_end)
 				//it should really overlap the bundle
 				bundle->keepGuide((*guides)[ng_end],
 						&guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
-				if (fixed_end) continue; //do not update currentend
-				if(currentend<(int)(*guides)[ng_end]->end) {
-					currentend=(*guides)[ng_end]->end;
-					cend_changed=true;
+				if (fixed_end) {
+					if (new_end<(int)(*guides)[ng_end]->end)  
+					   new_end=(*guides)[ng_end]->end;
+				} else {
+					if(currentend<(int)(*guides)[ng_end]->end) {
+						currentend=(*guides)[ng_end]->end;
+						cend_changed=true;
+					}
 				}
 			}
 		}
 	} while (cend_changed);
+	if (fixed_end) currentend=new_end;
 }
 
 #ifndef NOTHREADS 
@@ -589,7 +598,8 @@ inline void closeBundle(BundleData* bundle) {
 //if an usgbundle is provided, it determines the fixed span of
 // the new bundle (currentstart, currentend) and also updates gseq_id
 inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec,
-        bool more_alns, bool& chr_changed, int& pos, SGBundle* usgbundle=nullptr) {
+        bool more_alns, bool& chr_changed, int& pos, SGBundle* usgbundle=nullptr, 
+		bool* overlap_usg=nullptr) {
 	  if (!more_alns) { //no more alignments to process
 		if (verbose) {
 #ifndef NOTHREADS
@@ -604,6 +614,7 @@ inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec
 		noMoreBundles();
 		return false; // break the main loop 
 	  }
+	  bool aln_ovl;
       if (usgbundle) {
 		//update refseqName, gseq_id
 		refseqName=usgbundle->chr;
@@ -611,23 +622,26 @@ inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec
         if (chr_changed) { //update gseq_id
 		   gseq_id=gseqNames->gseqs.addName(refseqName);
 		}
+		aln_ovl=strcmp(refseqName, usgbundle->chr)==0 && 
+		                brec->start<=usgbundle->end && brec->end>=usgbundle->start;
+		if (overlap_usg) *overlap_usg=aln_ovl;
 	  }
 	  if (chr_changed) { //load guides and point-features for this chromosome
-			 if (guided) gd.newChrInit();
-			 if (havePtFeatures) {
-				 ptf_idx=-1;
-				 //setup refptf
-				 refptfs=NULL;
-				 GRefPtData rd(gseq_id);
-				 int ridx=refpts.IndexOf(rd);
-				 if (ridx>=0) {
-					refptfs=&(refpts[ridx].pfs);
-					ptf_idx=0;
-				 }
-			 }
-			 lastref=refseqName;
-			 lastref_id=gseq_id;
-			 currentend=0; //signal that this bundle was just initialized on a new chromosome
+		if (guided) gd.newChrInit();
+		if (havePtFeatures) {
+			ptf_idx=-1;
+			//setup refptf
+			refptfs=NULL;
+			GRefPtData rd(gseq_id);
+			int ridx=refpts.IndexOf(rd);
+			if (ridx>=0) {
+			refptfs=&(refpts[ridx].pfs);
+			ptf_idx=0;
+			}
+		}
+		lastref=refseqName;
+		lastref_id=gseq_id;
+		currentend=0; //signal that this bundle was just initialized on a new chromosome
 	  }
 
 // ------ start and initialize a new bundle
@@ -642,8 +656,8 @@ inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec
 		 bundle=&(bundles[new_bidx]);
 #endif
 		 if (usgbundle) {
-			currentstart=usgbundle->start;
-			currentend=usgbundle->end;
+			currentstart=aln_ovl ? GMIN(usgbundle->start, brec->start) : usgbundle->start;
+			currentend=aln_ovl ? GMAX(usgbundle->end, brec->end): usgbundle->end;
 			//bundle->refseq=usgbundle->chr;
 			bundle->usgbundle=usgbundle;
 		 } else {
@@ -651,7 +665,7 @@ inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec
 			currentend=brec->end;
 		 }
 		 if (gd.guides) // add guides overlapping and/or extending the initial range
-               gd.newBundleGuides(pos, bundle, usgbundle!=nullptr);
+               gd.newBundleGuides(bundle, usgbundle!=nullptr);
 		 	   
 		 bundle->refseq=lastref;
 		 bundle->start=currentstart;
@@ -884,8 +898,9 @@ if (ballgown)
 			// useUSG: read next usgbundle 
 			usgbundle = new SGBundle();
 			more_usg=usgreader->next(*usgbundle);
-			if (!initNewBundle(bundle, gd, brec, more_alns && more_usg, chr_changed, pos, usgbundle))
-				break; //no more alignments to process		 
+			if (!initNewBundle(bundle, gd, brec, more_alns && more_usg, chr_changed, 
+			                   pos, usgbundle, &aln_in_bundle))
+				break; //no more alignments to process					 
 		} // close & queue prev bundle, start new bundle
 
 		//////----- add current read alignment to the current/new bundle IF it overlaps USG bundle
@@ -901,6 +916,8 @@ if (ballgown)
 			GReadAlnData alndata(brec, xstrand);
 			bool ovlpguide=bundle->evalReadAln(alndata, xstrand); //check for overlaps with guides, update strand
 			if(!eonly || ovlpguide) { // in eonly case consider aln only if it overlaps a guide
+			    //usgbundle boundary needs to be extended by any overlapping read
+		        if (currentend<(int)brec->end) currentend=brec->end;			
 				//check for overlaps with ref transcripts which may set xstrand
 				processRead(currentstart, currentend, *bundle, hashread, alndata);
 			}
