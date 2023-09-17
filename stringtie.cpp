@@ -521,7 +521,7 @@ inline bool getNextReadAln( TInputFiles& bamreader, GSamRecord*& brec, int& prev
 			 }
 		 } //chr_changed
 
-		 if (brec->start<prev_pos) GError("%s\nread %s found at position %d on %s when prev_pos=%d\n",
+		 if ((int)brec->start<prev_pos) GError("%s\nread %s found at position %d on %s when prev_pos=%d\n",
 			   ERR_BAM_SORT, brec->name(), brec->start, refseqName, prev_pos);
 		 prev_pos=brec->start;
 		 if (usgbundle) {
@@ -937,7 +937,7 @@ if (ballgown)
 		if (getNextReadAln(bamreader, brec, prev_pos, xstrand, chr_changed, skipAln)) {
 			if (skipAln) continue;
 			///// <> signal we should start a new bundle? 
-			if (!chr_changed && currentend>0 && brec->start>currentend+(int)runoffdist) {
+			if (!chr_changed && currentend>0 && (int)brec->start > currentend+(int)runoffdist) {
 				new_bundle=true;
 			}
 		} // one alignment read

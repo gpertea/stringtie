@@ -9,7 +9,6 @@
 #define USGREAD_H_
 #include "GVec.hh"
 
-
 typedef int SG_getChrIDFunc(const char* chr);
 
 enum SGNodeType {
@@ -27,7 +26,6 @@ struct SGJxLink {
     uint count;
     SGNode* jx; // Link to the node at position pos in this bundle
 };
-
 
 // Structure for representing a node in the splicing graph
 struct SGNode {
@@ -98,8 +96,9 @@ struct SGBundle: public GSeg {
     char chr[192]; //contig/chr name
     double avg_cov=0;  // average bundle coverage
     GList<SGNode> nodes; // nodes in this bundle
+	GVec<int> tstarts; // indices of tstart nodes
     SGBundle():nodes(true, true) {} // nodes are owned and sorted
-    void clear() { nodes.Clear(); start=end=0; id=-1; chr[0]=0; avg_cov=0; }
+    void clear() { nodes.Clear();  tstarts.Clear(); start=end=0; id=-1; chr[0]=0; avg_cov=0; }
     void setup(uint _start, uint _end, int _id, const char* _chr, double cov=0) {
     	start=_start; end=_end; id=_id;avg_cov=cov;
     	int slen=strlen(_chr);
@@ -159,6 +158,7 @@ class SGReader {
     	   numtok=strsplit(line, tokens, '\t');
     	   SGNode* node=new SGNode(tokens);
     	   int bidx=bundle.nodes.Add(node);
+		   if (node->type==TSTART) bundle.tstarts.Add(bidx);
     	   node->bidx=bidx; // keep track of index in bundle.nodes array
        }
        //2nd pass to update j-node jxLinks pointers
