@@ -824,14 +824,15 @@ int fileExists(const char* fname) {
   // Attempt to get the path attributes
   int fs = stat(fname,&stFileInfo);
   if (fs == 0) {
-      r=3;
       // We were able to get the file attributes
-      // so the path exists
+      // so the path exists, but could be a synlink or something else
+      r=3; //returns 3 for any existing filetable node which is not
+            //a regular file or a directory
       if (S_ISREG (stFileInfo.st_mode)) {
-         r=2;
+         r=2; //return 2 for regular files
          }
       if (S_ISDIR (stFileInfo.st_mode)) {
-          r=1;
+          r=1; //return 1 for directories
           }
       }
   return r;

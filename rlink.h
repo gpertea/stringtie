@@ -8,7 +8,7 @@
 #include "time.h"
 #include "tablemaker.h"
 #include "GHashMap.hh"
-//#include "cds.h"
+#include "usgread.h"
 
 #define MAX_NODE 1000000
 #define KMER 31
@@ -690,6 +690,7 @@ struct BundleData {
  GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
  GPVec<GffObj> keepguides;
+ SGBundle* usgbundle=nullptr;
  GPVec<GPtFeature> ptfs; //point features for this bundle
  GList<CPrediction> pred;
  RC_BundleData* rc_data;
@@ -698,7 +699,7 @@ struct BundleData {
 		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
 		 refseq(), gseq(NULL), readlist(false,true), //bpcov(1024),
 		 junction(true, true, true),
-		 keepguides(false), ptfs(false), pred(false), rc_data(NULL) {
+		 keepguides(false), usgbundle(nullptr), ptfs(false), pred(false), rc_data(NULL) {
 	 for(int i=0;i<3;i++) 	bpcov[i].setCapacity(4096);
  }
 
@@ -754,9 +755,11 @@ struct BundleData {
 	frag_len=0;
 	sum_cov=0;
 	covflags=0;
+	delete usgbundle;
 	delete rc_data;
 	GFREE(gseq);
 	rc_data=NULL;
+	usgbundle=nullptr;
  }
 
  ~BundleData() {

@@ -95,17 +95,17 @@ struct SGNode {
 struct SGBundle: public GSeg {
     int id=-1;   // bundle number
     //int chrID=-1; // id of chromosome
-    char chr[128]; //contig/chr name
+    char chr[192]; //contig/chr name
     double avg_cov=0;  // average bundle coverage
     GList<SGNode> nodes; // nodes in this bundle
-    SGBundle():nodes(true, true) {}
+    SGBundle():nodes(true, true) {} // nodes are owned and sorted
     void clear() { nodes.Clear(); start=end=0; id=-1; chr[0]=0; avg_cov=0; }
     void setup(uint _start, uint _end, int _id, const char* _chr, double cov=0) {
     	start=_start; end=_end; id=_id;avg_cov=cov;
     	int slen=strlen(_chr);
-    	if (slen>127) GMessage("Warning: reference name for usg bundle %d is too long (%s). Truncated.\n",
+    	if (slen>191) GMessage("Warning: reference name for usg bundle %d is too long (%s). Truncated.\n",
     			_id, _chr);
-    	slen=GMIN(slen,127);
+    	slen=GMIN(slen,191);
     	strncpy(chr, _chr, slen);
     	chr[slen]=0;
     }
@@ -171,17 +171,11 @@ class SGReader {
                        int fidx=-1;
                        if (bundle.nodes.Found(&findnode, fidx)) {
                     	      link.jx=bundle.nodes[fidx];
-                    	      //FIXME: should check around for multiple entries of the same type with the same coordinate?
+                    	      //TODO: should we check around for multiple entries of the same type with the same coordinate?
                           } else {
                     		   GMessage("Warning: no matching jx found for link %d %c of jx %d in bundle %d\n",
                     				   link.pos, link.strand, node->position, bundle.id);
                     	  }
-                       /* for (int k = 0; k < bundle.nodes.Count(); ++k) {
-                           if (bundle.nodes[k]->position == link.pos) {
-                               link.jx = bundle.nodes[k];
-                               break;
-                           }
-                       }*/
                    }
                }
            }
