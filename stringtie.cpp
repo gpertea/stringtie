@@ -1573,9 +1573,15 @@ void processBundle(BundleData* bundle) {
 		GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
+		GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count());
+		if (bundle->usgbundle) {
+			// write some USG bundle stats
+			GMessage(", USG: %d nodes (%d src)", bundle->usgbundle->nodes.Count(), 
+							bundle->usgbundle->tstarts.Count());
+		}
+		GMessage("] processing...\n");
 	#ifdef GMEMTRACE
 			double vm,rsm;
 			get_mem_usage(vm, rsm);
