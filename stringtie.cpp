@@ -1,7 +1,7 @@
 //#define GFF_DEBUG 1 //debugging guides loading
 #include "rlink.h"
 #include "tmerge.h"
-#include "usgread.h"
+// #include "usgread.h" this was already included in rlink.h
 #ifndef NOTHREADS
 #include "GThreads.h"
 #endif

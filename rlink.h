@@ -783,5 +783,7 @@ void printGff3Header(FILE* f, GArgs& args);
 
 void printTime(FILE* f);
 
+float get_cov(int s,uint start,uint end,GVec<float>* bpcov);
+
 
 #endif
