@@ -563,6 +563,8 @@ struct CJunction:public GSeg {
 	char guide_match; //exact match of a ref intron?
 	char consleft; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
 	char consright; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
+	uint usg_start; // matching index of the jstart node in usgbunfle, -1 if not present
+	uint usg_end; // matching index of the jstart node in usgbunfle, -1 if not present
 	double nreads;
 	double nreads_good;
 	double leftsupport;
@@ -570,7 +572,7 @@ struct CJunction:public GSeg {
 	double nm; // number of reads with a high nm (high mismatch)
 	double mm; // number of reads that support a junction with both anchors bigger than longintronanchor
 	CJunction(int s=0,int e=0, char _strand=0):GSeg(s,e),
-			strand(_strand), guide_match(0), consleft(-1), consright(-1),nreads(0),nreads_good(0),
+			strand(_strand), guide_match(0), consleft(-1), consright(-1),usg_start(-1),usg_end(-1),nreads(0),nreads_good(0),
 			leftsupport(0),rightsupport(0),nm(0),mm(0) {}
 	bool operator<(CJunction& b) {
 		if (start<b.start) return true;
