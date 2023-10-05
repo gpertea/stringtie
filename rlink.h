@@ -240,6 +240,7 @@ struct CGroup:public GSeg {
 			multi(_multi), neg_prop(_neg_prop),next_gr(_next_gr) { }
 };
 
+
 struct CMerge {
 	GStr name;
 	GVec<int> fidx; // file indices for the transcripts in the merge
@@ -787,5 +788,6 @@ void printTime(FILE* f);
 
 float get_cov(int s,uint start,uint end,GVec<float>* bpcov);
 
+void add_read_to_ugroup(int n,GList<CReadAln>& readlist,SGBundle* ubundle,GVec<int> &read2unode,GPVec<UGroup> *unode2ugroup);
 
 #endif

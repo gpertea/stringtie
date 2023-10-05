@@ -183,4 +183,23 @@ class SGReader {
 	}
 };
 
+
+struct UNode:public GSeg { // a universal graph "node" -> links together several entries in the USG bundle
+	SGNode *ustart; // start node in bundle
+	SGNode *uend; // end node in bundle
+	float cov_sum; // read coverage from sample
+	float multi; // proportion of multi-mapped reads
+	float neg_prop; // proportion of negative reads assigned to group out of all positives and negatives
+	UNode(int rstart=0, int rend=0, SGNode *u_start=NULL, SGNode *u_end=NULL, float _cov_sum=0,
+			float _multi=0,float _neg_prop=0): GSeg(rstart, rend), ustart(u_start),uend(u_end),cov_sum(_cov_sum),
+			multi(_multi), neg_prop(_neg_prop) { }
+};
+
+struct UGroup: public GSeg { // universal group -> links several UNode's together that would belong to the same UGraph
+	UGroup *ulk; // link to next ugroup
+	GPVec<UNode> unode;
+	UGroup(int rstart=0, int rend=0, UGroup *_ulk=NULL): GSeg(rstart, rend), ulk(_ulk),unode(true) { }
+};
+
+
 #endif /* USGREAD_H_ */
