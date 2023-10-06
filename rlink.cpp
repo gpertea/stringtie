@@ -2350,7 +2350,7 @@ inline int edge(int min, int max, int gno) {
 GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec parents,int gno, GVec<bool>& visit,
 		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag, int &edgeno,GIntHash<int> **gpos,int &lastgpos){
 
-	//fprintf(stderr,"Traverse node %d\n",node->nodeid);
+	//fprintf(stderr,"Traverse node %d gno=%d\n",node->nodeid,gno);
 
 	if(visit[node->nodeid]) {
 		node->parentpat = node->parentpat | parents;
@@ -2455,11 +2455,11 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 				transfrag[s][g].Last()->longread=true;
 			n++;
 	    }
-		/*
-		fprintf(stderr,"Add %d children of node %d (%d-%d): ",n,node->nodeid,node->start,node->end);
+
+		/*fprintf(stderr,"Add %d children of node %d (%d-%d): ",n,node->nodeid,node->start,node->end);
 		for(int i=0;i<n;i++) fprintf(stderr," %d",node->child[i]);
-		fprintf(stderr,"\n");
-		*/
+		fprintf(stderr,"\n");*/
+
 
 		//edgeno+=n; // this will have to be deleted in the end; now I put it so that I can check equivalence with the one computed when creating the graph
 
@@ -2480,6 +2480,13 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 				node->childpat[*pos]=1; // add edge from node to child to the set of node children
 			}
 			else {
+
+				/*fprintf(stderr,"Add %d children of node %d (%d-%d): ",n,node->nodeid,node->start,node->end);
+				for(int k=0;k<n;k++) fprintf(stderr," %d",node->child[k]);
+				fprintf(stderr,"\n");
+				fprintf(stderr,"offending child %d:%d-%d lastgpos=%d\n",node->child[i],no2gnode[s][g][node->child[i]]->start,no2gnode[s][g][node->child[i]]->end,lastgpos);
+				*/
+
 				gpos[s][g].Add(key,lastgpos);
 				childparents[lastgpos]=1;
 				node->childpat[lastgpos]=1;
@@ -12896,7 +12903,7 @@ bool guide_exon_overlap(GPVec<GffObj>& guides,int sno,uint start,uint end) {
 	if(sno==2) strand='+';
 	else if(sno==0) strand='-';
 
-	for(int g=0;g<guides.Count();g++) {
+	for(int g=0;g<guides.Count();g++) if(((RC_TData *)(guides[g]->uptr))->in_bundle>=2 ){
 		if((sno==1 || guides[g]->strand==strand) && guides[g]->overlap(start,end)) { // guide overlaps than look at the exons
 			for(int i=0;i<guides[g]->exons.Count();i++) {
 				if(end<guides[g]->exons[i]->start) break;  // there won't be any further overlap
@@ -13100,6 +13107,9 @@ int build_graphs(BundleData* bdata) {
 
 		//if(eonly)
 		for(int g=0;g<guides.Count();g++) {
+
+			//fprintf(stderr,"Look to add guide g=%d start %d-%d and end %d-%d\n",g,guides[g]->start,guides[g]->exons[0]->end,guides[g]->end,guides[g]->exons.Last()->start);
+
 			guidepred.cAdd(-1);
 			bool covered=true;
 			RC_TData* tdata=(RC_TData*)(guides[g]->uptr);
@@ -13132,7 +13142,7 @@ int build_graphs(BundleData* bdata) {
 				if(guides[g]->strand=='+') s=1; // guide on positive strand
 				else if(guides[g]->strand=='-') s=0; // guide on negative strand
 
-				//fprintf(stderr,"Look to add guide g=%d start %d-%d and end %d-%d on strand %d\n",g,guides[g]->start,guides[g]->exons[0]->end,guides[g]->end,guides[g]->exons.Last()->start,s);
+				//fprintf(stderr,"Covered guide g=%d start %d-%d and end %d-%d on strand %d\n",g,guides[g]->start,guides[g]->exons[0]->end,guides[g]->end,guides[g]->exons.Last()->start,s);
 
 				int uses=s;
 				if(s<0) uses=0;
@@ -14183,7 +14193,7 @@ int build_graphs(BundleData* bdata) {
 
 	if(c_out || (bundle[1].Count() && bnode[1].Count())) // coverage is needed
 		for(int g=0;g<guides.Count();g++) {
-			//fprintf(stderr,"consider guide %d\n",g);
+			//fprintf(stderr,"consider guide %d:%d-%d\n",g,guides[g]->start,guides[g]->end);
 			int s=0;
 			if(guides[g]->strand=='+') s=2;
 			if((c_out && !get_covered(guides[g],bundle[s],bnode[s],junction,NULL,0)) ||
@@ -14429,7 +14439,7 @@ int build_graphs(BundleData* bdata) {
     								bundle[sno][b]->len,nolap);
     					}
     				}
-    				*/
+					*/
 
     				// here I can add something in stringtie to lower the mintranscript len if there are guides?
 
