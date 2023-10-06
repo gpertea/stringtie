@@ -11954,10 +11954,11 @@ int find_cguidepat(GBitVec& pat,GVec<CTrGuidePat>& patvec) {
 	return(-1);
 }
 
-int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GVec<CGuide>& guidetrf,int& geneno,
-		int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred, BundleData *bdata) {
+void guides_pushmaxflow_onestep(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GVec<CGuide>& guidetrf,int& geneno,
+		int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred,
+		BundleData *bdata,GVec<int> &printed_guides) {
 
-	int maxi=1;
+	//int maxi=1;
 	int ng=guidetrf.Count();
 
 	if(ng==1) { // if only one guide I do not need to do the 2 pass
@@ -11979,9 +11980,12 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 
 				store_transcript(pred,guidetrf[0].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,false,bdata,guides[guidetrf[0].g]);
 				//if(eonly) { // this is not correct because it might have been assigned before
-					guidepred[guidetrf[0].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
+				guidepred[guidetrf[0].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
 					//fprintf(stderr,"guidepred[%d]=%d\n",guidetrf[0].g,guidepred[guidetrf[0].g]);
 				//}
+
+				if(!eonly && guides[guidetrf[0].g]->exons.Count()>1) printed_guides.cAdd(0); // guidetrf[0] was printed
+
 			}
 			else {
 				update_guide_pred(pred,guidepred[guidetrf[0].g],guidetrf[0].trf->nodes,nodeflux,nodecov,no2gnode,gno,true);
@@ -12045,7 +12049,7 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 				if(guidepred[guidetrf[g].g]==-1) {
 					store_transcript(pred,guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,false,bdata,guides[guidetrf[g].g]);
 					//if(eonly) {
-						guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
+					guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
 						//fprintf(stderr,"2 guidepred[%d]=%d\n",guidetrf[g].g,guidepred[guidetrf[g].g]);
 						//}
 
@@ -12060,6 +12064,8 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 				  	  	  }
 						}
 						 */
+
+					if(!eonly && guides[guidetrf[g].g]->exons.Count()>1) printed_guides.cAdd(g); // guidetrf[0] was printed
 				}
 				else {
 					update_guide_pred(pred,guidepred[guidetrf[g].g],guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,gno,true);
@@ -12092,7 +12098,7 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 						if(guidepred[guidetrf[g].g]==-1) {
 							store_transcript(pred,guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,geneno,first,s,gno,gpos,include,pathpat,false,bdata,guides[guidetrf[g].g]);
 							//if(eonly) {
-								guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
+							guidepred[guidetrf[g].g]=pred.Count()-1; // NEED TO TEST: if this doesn't work for single genes I might want to recombine with the previous prediction in store_transcript
 								//fprintf(stderr,"2 guidepred[%d]=%d\n",guidetrf[g].g,guidepred[guidetrf[g].g]);
 							//}
 						}
@@ -12106,7 +12112,52 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 		}
 
 	}
+}
 
+void create_guide_nascent(GVec<CGuide>& nascent,int g,GVec<CGuide>& guidetrf,GPVec<GffObj>& guides,int gno,int edgeno,
+		GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode) {
+
+	char s=0; // unknown strand
+	if(guides[guidetrf[g].g]->strand=='+') s=1; // guide on positive strand
+	else if(guides[guidetrf[g].g]->strand=='-') s=-1; // guide on negative strand
+
+	if(!s) return; // if there is no strand I do not know what direction to process
+
+	int n=0; // next nascent to be added
+
+	for(int i=1;i<guidetrf[g].trf->nodes.Count();i++) {
+		if(guidetrf[g].trf->nodes[i]>guidetrf[g].trf->nodes[i-1]) { // only in this case I might have nascents - otherwise no node was created in between these two, which means there is no coverage to eliminate here
+			if(s>0) { // forward transcript
+				CTransfrag *tnascent=NULL;
+
+			}
+			else { // reverse transcript -> same as before but the direction of the nascent transcript is different
+
+			}
+		}
+	}
+
+}
+
+int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,
+		GVec<CGuide>& guidetrf,int& geneno,int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,
+		bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred, BundleData *bdata) {
+
+	GVec<int> printed_guides; // remembers the multi-exons guidetrf's that were printed here
+
+	guides_pushmaxflow_onestep(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,s,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,printed_guides);
+
+	if(!eonly && printed_guides.Count()>1) { // generate nascent transcripts
+		GVec<CGuide> nascent;
+		for(int i=0;i<printed_guides.Count();i++) {
+			create_guide_nascent(nascent,printed_guides[i],guidetrf,guides,gno,edgeno,gpos,no2gnode);
+		}
+		if(nascent.Count()>0) {
+
+		}
+	}
+
+	int maxi=1;
 	// Node coverages:
 	for(int i=1;i<gno-1;i++)
 		if(nodecov[i]>nodecov[maxi]) maxi=i;
@@ -12575,6 +12626,8 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 
 		maxi=0;
 	}
+
+	return(maxi);
 
 	return(maxi);
 }
@@ -13886,7 +13939,7 @@ int build_graphs(BundleData* bdata) {
 					//GStr bstart((int)lastgroup->end);
 					//GStr bend((int)procgroup->start);
 					if(!boundaryleft[lastgroup->end] && !boundaryright[procgroup->start] && (procgroup->start-lastgroup->end<=bundledist ||
-			    				(guides.Count()  && guide_exon_overlap(guides,sno,lastgroup->end,procgroup->start)))) {
+			    				(guides.Count()  && guide_exon_overlap(guides,sno,lastgroup->end,procgroup->start)))) { // I might consider separating the guides here and increasing the edges for that case
 
 			    			//fprintf(stderr,"sno=%d merge groups btw %d and %d dist=%d\n",sno,lastgroup->end,procgroup->start,procgroup->start-lastgroup->end);
 
