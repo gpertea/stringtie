@@ -12122,19 +12122,390 @@ void create_guide_nascent(GVec<CGuide>& nascent,int g,GVec<CGuide>& guidetrf,GPV
 	else if(guides[guidetrf[g].g]->strand=='-') s=-1; // guide on negative strand
 
 	if(!s) return; // if there is no strand I do not know what direction to process
+	int n=0;
 
-	int n=0; // next nascent to be added
-
-	for(int i=1;i<guidetrf[g].trf->nodes.Count();i++) {
-		if(guidetrf[g].trf->nodes[i]>guidetrf[g].trf->nodes[i-1]) { // only in this case I might have nascents - otherwise no node was created in between these two, which means there is no coverage to eliminate here
-			if(s>0) { // forward transcript
+	for(int i=1;i<guidetrf[g].trf->nodes.Count();i++) if(guidetrf[g].trf->nodes[i]>guidetrf[g].trf->nodes[i-1]) { // only in this case I might have nascents - otherwise no node was created in between these two, which means there is no coverage to eliminate here
+		if(s>0) { // forward transcript
+			if(no2gnode[guidetrf[g].trf->nodes[i-1]]->end+1==no2gnode[guidetrf[g].trf->nodes[i-1]+1]->start) { // first check if there are nodes to add to nascent, otherwise do not bother
 				CTransfrag *tnascent=NULL;
+				GBitVec nascpat(gno+edgeno);
+				GVec<int> nodes;
+				for(int j=0;j<i;j++) { // nodes before stay the same
+					nodes.Add(guidetrf[g].trf->nodes[j]);
+					nascpat[guidetrf[g].trf->nodes[j]]=1;
+					if(j) {
+						int *pos=gpos[edge(guidetrf[g].trf->nodes[j-1],guidetrf[g].trf->nodes[j],gno)];
+						if(pos) nascpat[*pos]=1;
+					}
+				}
+				for(int j=guidetrf[g].trf->nodes[i-1]+1;j<guidetrf[g].trf->nodes[i];j++) {
+					if(no2gnode[j-1]->end+1==no2gnode[j]->start) { // as long as I have contiguous nodes
+						nodes.Add(j);
+						nascpat[j]=1;
+						int *pos=gpos[edge(j-1,j,gno)];
+						if(pos) nascpat[*pos]=1;
+					}
+					else break;
+				}
+				tnascent=new CTransfrag(nodes,nascpat);
 
+				if(no2gnode[nodes.Last()]->end+1==no2gnode[guidetrf[g].trf->nodes[i]]->start) // last node is right before the next one in guide
+					tnascent->guide=1; // mark that it's continuous
+
+				CGuide newnasc(tnascent,guidetrf[g].g);
+				nascent.Add(newnasc);
 			}
-			else { // reverse transcript -> same as before but the direction of the nascent transcript is different
+		}
+		else { // reverse transcript -> same as before but the direction of the nascent transcript is different
+			if(no2gnode[guidetrf[g].trf->nodes[i]-1]->end+1==no2gnode[guidetrf[g].trf->nodes[i]]->start) { // first check if there are nodes to add to nascent, otherwise do not bother
+				CTransfrag *tnascent=NULL;
+				GBitVec nascpat(gno+edgeno);
+				GVec<int> nodes;
+
+				int j=guidetrf[g].trf->nodes[i]-1;
+				while(j-1>guidetrf[g].trf->nodes[i-1]) {
+					if(no2gnode[j-1]->end+1==no2gnode[j]->start) { // as long as I have contiguous nodes
+						j--;
+					}
+					else break;
+				}
+
+				while(j<guidetrf[g].trf->nodes[i]) {
+					nodes.Add(j);
+					nascpat[j]=1;
+					int *pos=gpos[edge(j,j+1,gno)];
+					if(pos) nascpat[*pos]=1;
+					j++;
+				}
+
+				for(int j=i;j<guidetrf[g].trf->nodes.Count();j++) { // nodes before stay the same
+					nodes.Add(guidetrf[g].trf->nodes[j]);
+					nascpat[guidetrf[g].trf->nodes[j]]=1;
+					if(j<guidetrf[g].trf->nodes.Count()-1) {
+						int *pos=gpos[edge(guidetrf[g].trf->nodes[j],guidetrf[g].trf->nodes[j+1],gno)];
+						if(pos) nascpat[*pos]=1;
+					}
+				}
+
+				tnascent=new CTransfrag(nodes,nascpat);
+
+				if(no2gnode[nodes[0]]->start==no2gnode[guidetrf[g].trf->nodes[i-1]]->end+1) // last node is right before the next one in guide
+					tnascent->guide=1; // mark that it's continuous
+
+				CGuide newnasc(tnascent,guidetrf[g].g);
+				nascent.Add(newnasc);
+			}
+		}
+	}
+
+}
+
+
+float nascent_max_flow(int gno,int sno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,
+		GVec<float>& nodeflux,GBitVec& pathpat, GIntHash<int> &gpos,float lastcov) { // lnode is the last node in path not in nascent
+
+	// if sno<0 then first node needs to go back to source
+	// if sno>0 then last node needs to go back to sink
+
+
+	int n=path.Count();
+	GVec<int> node2path;
+	node2path.Resize(gno,-1);
+	for(int i=0;i<n;i++) {
+		node2path[path[i]]=i;
+		nodeflux.cAdd(0.0);
+	}
+	GVec<float> capacityleft;   // how many transcripts compatible to path enter node
+	GVec<float> capacityright;  // how many transcripts compatible to path exit node
+	capacityleft.Resize(n);
+	capacityright.Resize(n);
+	GVec<float> sumleft;        // how many transcripts enter node
+	GVec<float> sumright;       // how many transcripts exit node
+	sumleft.Resize(n);
+	sumright.Resize(n);
+
+	//bool full=true;
+	//if(longreads && path.Count()>3) full=false;
+
+	/*
+	{ // DEBUG ONLY
+		//printTime(stderr);
+		fprintf(stderr,"Start push max flow algorithm for path ");
+		//printBitVec(pathpat);
+		fprintf(stderr," :");
+		for(int i=0;i<n;i++) fprintf(stderr," %d:%d",i,path[i]);
+		fprintf(stderr,"\n");
+		//fprintf(stderr,"Used transcripts:");
+		//for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d(%f)",i,transfrag[i]->abundance);
+		//fprintf(stderr,"\n");
+	}
+	*/
+
+	// compute capacities and sums for all nodes
+	for(int i=1;i<n-1;i++) { // ignore first and last node
+		int nt=no2gnode[path[i]]->trf.Count(); // number of transcripts in node i in path
+		for(int j=0;j<nt;j++) {
+			int t=no2gnode[path[i]]->trf[j];
+			if(transfrag[t]->abundance) {
+				if(istranscript[t] || ((pathpat & transfrag[t]->pattern)==transfrag[t]->pattern)) { // transcript on path
+					istranscript[t]=1;
+
+					//fprintf(stderr,"istranscript[%d] with abund=%f and path[%d]=%d and nodes[0]=%d and nodes[last]=%d\n",t,transfrag[t]->abundance,i,path[i],transfrag[t]->nodes[0],transfrag[t]->nodes.Last());
+
+					if(i==1 || transfrag[t]->nodes[0]==path[i]) { // first time I encounter transfrag I have to set what abundance to use
+						if(!transfrag[t]->real) { // if I still didn't solve transfrag
+							transfrag[t]->usepath=-1;
+							for(int p=0;p<transfrag[t]->path.Count();p++) {
+								int *pos=gpos[edge(transfrag[t]->path[p].node,transfrag[t]->path[p].contnode,gno)];
+								if(pos && pathpat[*pos]) {
+									transfrag[t]->usepath=p; // this is path dependent
+									break;
+								}
+							}
+						}
+					}
+
+
+					if(transfrag[t]->nodes[0]<path[i]) { // transfrag starts before this node
+						sumleft[i]+=transfrag[t]->abundance;
+						if(transfrag[t]->real) capacityleft[i]+=transfrag[t]->abundance;
+						else if(transfrag[t]->usepath>-1 && int(transfrag[t]->usepath)<transfrag[t]->path.Count()) { //TODO: this crashes with intv.gtf guides -> to fix
+							capacityleft[i]+=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+						}
+
+						//fprintf(stderr,"add transfrag t=%d i=%d sumleft=%f capacityleft=%f\n",t,i,sumleft[i],capacityleft[i]);
+					}
+					if(transfrag[t]->nodes.Last()>path[i]) { // transfrag ends after this node
+						sumright[i]+=transfrag[t]->abundance;
+						if(transfrag[t]->real) capacityright[i]+=transfrag[t]->abundance;
+						else if(transfrag[t]->usepath>-1 && int(transfrag[t]->usepath)<transfrag[t]->path.Count())
+							capacityright[i]+=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+						//fprintf(stderr,"add transfrag t=%d i=%d sumright=%f capacityright=%f\n",t,i,sumright[i],capacityright[i]);
+					}
+				}
+				else { // transfrag not on path
+					if(path[i]>transfrag[t]->nodes[0]) sumleft[i]+=transfrag[t]->abundance;
+					if(path[i]<transfrag[t]->nodes.Last()) sumright[i]+=transfrag[t]->abundance;
+				}
+			}
+		}
+
+		/*
+		{ // DEBUG ONLY
+			fprintf(stderr,"Node %d LEFT: capacity=%f total=%f ",path[i],capacityleft[i],sumleft[i]);
+			if(sumleft[i]) fprintf(stderr,"perc=%f ",capacityleft[i]/sumleft[i]);
+			else fprintf(stderr,"perc=n/a ");
+			fprintf(stderr,"RIGHT: capacity=%f total=%f ",capacityright[i],sumright[i]);
+			if(sumright[i]) fprintf(stderr,"perc=%f\n",capacityright[i]/sumright[i]);
+			else fprintf(stderr,"perc=n/a\n");
+		}
+		*/
+
+		if(!capacityleft[i]) return(0);  // there is no transfrag left compatible with path
+		if(!capacityright[i]) return(0);
+
+	}
+
+	if(sno>0) { // nascent on forward strand
+		if(no2gnode[path[n-1]]->end+1==no2gnode[lnode]->start) { // I need to adjust capacityright[n-2] depending on how many transcripts are entering lnode
+			float prop=0;
+			int nt=no2gnode[path[n-1]]->trf.Count(); // number of transcripts in node i in path
+			for(int j=0;j<nt;j++) {
+				int t=no2gnode[path[n-1]]->trf[j];
+				if(transfrag[t]->abundance) {
+					if(transfrag[t]->nodes.Last()>path[n-1]) { // transfrag ends after this node
+
+
+
+							if(istranscript[t] || ((pathpat & transfrag[t]->pattern)==transfrag[t]->pattern)) { // transcript on path
+								istranscript[t]=1;
+
+								//fprintf(stderr,"istranscript[%d] with abund=%f and path[%d]=%d and nodes[0]=%d and nodes[last]=%d\n",t,transfrag[t]->abundance,i,path[i],transfrag[t]->nodes[0],transfrag[t]->nodes.Last());
+
+								if(i==1 || transfrag[t]->nodes[0]==path[i]) { // first time I encounter transfrag I have to set what abundance to use
+									if(!transfrag[t]->real) { // if I still didn't solve transfrag
+										transfrag[t]->usepath=-1;
+										for(int p=0;p<transfrag[t]->path.Count();p++) {
+											int *pos=gpos[edge(transfrag[t]->path[p].node,transfrag[t]->path[p].contnode,gno)];
+											if(pos && pathpat[*pos]) {
+												transfrag[t]->usepath=p; // this is path dependent
+												break;
+											}
+										}
+									}
+								}
+
+
+								if(transfrag[t]->nodes[0]<path[i]) { // transfrag starts before this node
+									sumleft[i]+=transfrag[t]->abundance;
+									if(transfrag[t]->real) capacityleft[i]+=transfrag[t]->abundance;
+									else if(transfrag[t]->usepath>-1 && int(transfrag[t]->usepath)<transfrag[t]->path.Count()) { //TODO: this crashes with intv.gtf guides -> to fix
+										capacityleft[i]+=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+									}
+
+									//fprintf(stderr,"add transfrag t=%d i=%d sumleft=%f capacityleft=%f\n",t,i,sumleft[i],capacityleft[i]);
+								}
+								if(transfrag[t]->nodes.Last()>path[i]) { // transfrag ends after this node
+									sumright[i]+=transfrag[t]->abundance;
+									if(transfrag[t]->real) capacityright[i]+=transfrag[t]->abundance;
+									else if(transfrag[t]->usepath>-1 && int(transfrag[t]->usepath)<transfrag[t]->path.Count())
+										capacityright[i]+=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+									//fprintf(stderr,"add transfrag t=%d i=%d sumright=%f capacityright=%f\n",t,i,sumright[i],capacityright[i]);
+								}
+		}
+	}
+
+
+	//if(!full) return(0);
+
+	/*
+	{ // DEBUG ONLY
+		for(int i=1;i<n-1;i++) {
+			fprintf(stderr,"Node %d LEFT: capacity=%f total=%f ",path[i],capacityleft[i],sumleft[i]);
+			if(sumleft[i]) fprintf(stderr,"perc=%f ",capacityleft[i]/sumleft[i]);
+			else fprintf(stderr,"perc=n/a ");
+			fprintf(stderr,"RIGHT: capacity=%f total=%f ",capacityright[i],sumright[i]);
+			if(sumright[i]) fprintf(stderr,"perc=%f\n",capacityright[i]/sumright[i]);
+			else fprintf(stderr,"perc=n/a\n");
+		}
+		fprintf(stderr,"Used transcripts:");
+		for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d(%f)",i,transfrag[i]->abundance);
+		fprintf(stderr,"\n");
+	}
+	*/
+
+	// compute flow
+	float prevflow=capacityleft[1];
+	for(int i=1;i<n-1;i++) {
+		float percleft=prevflow/sumleft[i];
+		float percright=capacityright[i]/sumright[i];
+		if(percright>percleft) { // more transfrags leave node
+			percright=percleft;
+		}
+		prevflow=percright*sumright[i];
+	}
+	if(!prevflow) return(0);
+
+	for(int i=n-2;i>0;i--) {
+		//fprintf(stderr,"i=%d sumright=%f prevflow=%f\n",i,sumright[i],prevflow);
+		nodeflux[i]=prevflow/sumright[i];
+		//fprintf(stderr,"nodeflux=%f\n",nodeflux[i]);
+		capacityright[i]=prevflow;
+		prevflow=nodeflux[i]*sumleft[i];
+		//fprintf(stderr,"i=%d sumright=%f sumleft=%f prevflow=%f capacityright=%f nodeflux=%f\n",i,sumright[i],sumleft[i],prevflow,capacityright[i],nodeflux[i]);
+		//capacityleft[i]=prevflow; // I don't use this
+	}
+
+	// * here I don't care what node I treat first
+	for(int i=1;i<n-1;i++) if(capacityright[i]){
+		int nt=no2gnode[path[i]]->trf.Count();
+		for(int j=0;j<nt;j++) {
+			int t=no2gnode[path[i]]->trf[j];
+			if(istranscript[t] && transfrag[t]->abundance) {
+
+				float trabundance=transfrag[t]->abundance;
+				if(!transfrag[t]->real) {
+					if(transfrag[t]->usepath>-1 && int(transfrag[t]->usepath)<transfrag[t]->path.Count())
+						trabundance=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+					else trabundance=0;
+				}
+
+				if(trabundance && transfrag[t]->nodes[0]==path[i]) { // transfrag starts at this node
+					if(capacityright[i]>trabundance) {
+						//fprintf(stderr,"Update capacity of transfrag[%d] with value=%f to 0\n",t,transfrag[t]->abundance);
+						capacityright[i]-=trabundance;
+						int n2=node2path[transfrag[t]->nodes.Last()];
+						for(int k=i+1;k<n2;k++) {
+							capacityright[k]-=trabundance;
+						}
+						transfrag[t]->abundance-=trabundance;
+						if(transfrag[t]->abundance<epsilon) transfrag[t]->abundance=0;
+						else if(!transfrag[t]->real) {
+							transfrag[t]->path[int(transfrag[t]->usepath)].abundance=0;
+							if(transfrag[t]->path.Count()-1 < 2) transfrag[t]->real=true;
+							else {
+								int np=0;
+								for(int p=0;p<transfrag[t]->path.Count();p++)
+									if(transfrag[t]->path[int(transfrag[t]->usepath)].abundance) np++;
+								if(np<2) transfrag[t]->real=true;
+							}
+						}
+					}
+					else {
+						//fprintf(stderr,"Update capacity of transfrag[%d] with value=%f to %f\n",t,transfrag[t]->abundance,transfrag[t]->abundance-capacityright[i]);
+						transfrag[t]->abundance-=capacityright[i];
+						if(transfrag[t]->abundance<epsilon) {
+							transfrag[t]->abundance=0;
+						}
+						else if(!transfrag[t]->real) {
+							//transfrag[t]->path[int(transfrag[t]->usepath)].abundance-=capacityright[i]; // not needed anymore because this stores proportions not actual abundances
+							//if(transfrag[t]->path[int(transfrag[t]->usepath)].abundance<epsilon) {
+							if(transfrag[t]->path[int(transfrag[t]->usepath)].abundance*transfrag[t]->abundance-capacityright[i]<epsilon) {
+								transfrag[t]->path[int(transfrag[t]->usepath)].abundance=0;
+								if(transfrag[t]->path.Count()-1 < 2) transfrag[t]->real=true;
+								else {
+									int np=0;
+									for(int p=0;p<transfrag[t]->path.Count();p++)
+										if(transfrag[t]->path[int(transfrag[t]->usepath)].abundance) np++;
+									if(np<2) transfrag[t]->real=true;
+								}
+							}
+						}
+
+						int n2=node2path[transfrag[t]->nodes.Last()];
+						for(int k=i+1;k<n2;k++) {
+							capacityright[k]-=capacityright[i];
+						}
+						capacityright[i]=0;
+						break;
+					}
+				}
+
 
 			}
 		}
+	}
+
+	// I only have to deal with source transfrag
+	int nt=no2gnode[path[0]]->trf.Count();
+	for(int j=0;j<nt;j++) {
+		int t=no2gnode[path[0]]->trf[j];
+		if(istranscript[t] && transfrag[t]->abundance) {
+			//fprintf(stderr,"Update capacity of transfrag[%d] with value=%f to %f\n",t,transfrag[t]->abundance,transfrag[t]->abundance-prevflow);
+			transfrag[t]->abundance-=prevflow;
+			if(transfrag[t]->abundance<epsilon) transfrag[t]->abundance=0;
+			break; // there is no point in updating more than one transfrag from source
+		}
+	}
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Flow:");
+		for(int i=0;i<n;i++)
+			fprintf(stderr,"Used %f of node %d[%d]\n",nodeflux[i],i,path[i]);
+		fprintf(stderr,"\nTranscript abundances");
+		for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d(%f)",i,transfrag[i]->abundance);
+		fprintf(stderr,"\n");
+	}
+	*/
+
+	return(nodeflux[1]);
+
+}
+
+
+
+
+
+
+void remove_nascent_transcription(GVec<CGuide>& nascent,int gno,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,BundleData *bdata,char *guidetr=NULL) {
+
+	GBitVec istranscript(transfrag.Count());
+	for(int i=0;i<nascent.Count();i++) {
+
+
+		istranscript.reset();
+
 	}
 
 }
@@ -12149,11 +12520,10 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 
 	if(!eonly && printed_guides.Count()>1) { // generate nascent transcripts
 		GVec<CGuide> nascent;
-		for(int i=0;i<printed_guides.Count();i++) {
+		for(int i=printed_guides.Count()-1;i>=0;i--) { // from the most abundant to the least
 			create_guide_nascent(nascent,printed_guides[i],guidetrf,guides,gno,edgeno,gpos,no2gnode);
-		}
-		if(nascent.Count()>0) {
-
+			if(nascent.Count()>0)  // if nascents are present -> update abundances
+				remove_nascent_transcription(nascent,gno,transfrag,no2gnode,bdata,guides[i]->getID());
 		}
 	}
 
