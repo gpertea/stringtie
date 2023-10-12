@@ -11955,7 +11955,7 @@ int find_cguidepat(GBitVec& pat,GVec<CTrGuidePat>& patvec) {
 	return(-1);
 }
 
-void guides_pushmaxflow_onestep(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GVec<CGuide>& guidetrf,int& geneno,
+void guides_pushmaxflow_onestep(int gno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GVec<CGuide>& guidetrf,int& geneno,
 		int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred,
 		BundleData *bdata,GVec<int> &printed_guides) {
 
@@ -12123,9 +12123,17 @@ int create_guide_nascent(GVec<CGuide>& nascent,int g,GVec<CGuide>& guidetrf,GPVe
 	else if(guides[guidetrf[g].g]->strand=='-') s=-1; // guide on negative strand
 
 	if(!s) return(s); // if there is no strand I do not know what direction to process
-	int n=0;
 
-	for(int i=1;i<guidetrf[g].trf->nodes.Count();i++) if(guidetrf[g].trf->nodes[i]>guidetrf[g].trf->nodes[i-1]) { // only in this case I might have nascents - otherwise no node was created in between these two, which means there is no coverage to eliminate here
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"\nCreate nascents for guide:\n");
+		for(int i=0;i<guidetrf[g].trf->nodes.Count();i++) fprintf(stderr,"%d:%d:%d-%d ",i,guidetrf[g].trf->nodes[i],no2gnode[guidetrf[g].trf->nodes[i]]->start,no2gnode[guidetrf[g].trf->nodes[i]]->end);
+		for(int i=0;i<guidetrf[g].trf->nodes.Count();i++) fprintf(stderr,"%d:%d ",i,guidetrf[g].trf->nodes[i]);
+		fprintf(stderr,"\n");
+	}
+	*/
+
+	for(int i=2;i<guidetrf[g].trf->nodes.Count()-1;i++) if(guidetrf[g].trf->nodes[i]>guidetrf[g].trf->nodes[i-1]) { // only in this case I might have nascents - otherwise no node was created in between these two, which means there is no coverage to eliminate here
 		if(s>0) { // forward transcript
 			if(no2gnode[guidetrf[g].trf->nodes[i-1]]->end+1==no2gnode[guidetrf[g].trf->nodes[i-1]+1]->start) { // first check if there are nodes to add to nascent, otherwise do not bother
 				CTransfrag *tnascent=NULL;
@@ -12232,7 +12240,7 @@ float nascent_max_flow(int gno,int sno,GVec<int>& path,GBitVec& istranscript,GPV
 	/*
 	{ // DEBUG ONLY
 		//printTime(stderr);
-		fprintf(stderr,"Start push max flow algorithm for path ");
+		fprintf(stderr,"gno=%d Start push max flow algorithm for path ",gno);
 		//printBitVec(pathpat);
 		fprintf(stderr," :");
 		for(int i=0;i<n;i++) fprintf(stderr," %d:%d",i,path[i]);
@@ -12244,7 +12252,7 @@ float nascent_max_flow(int gno,int sno,GVec<int>& path,GBitVec& istranscript,GPV
 	*/
 
 	// compute capacities and sums for all nodes
-	for(int i=0;i<n;i++) if(path[i]!=0 && path[i]!=gno) { // don't ignore first and last node as in normal case but make sure to treat them special
+	for(int i=0;i<n;i++) if(path[i]!=0 && path[i]!=gno-1) { // don't ignore first and last node as in normal case but make sure to treat them special
 
 		float prop=0;
 
@@ -12479,13 +12487,147 @@ float nascent_max_flow(int gno,int sno,GVec<int>& path,GBitVec& istranscript,GPV
 
 }
 
+// ns = nascent number
+void print_nascent_transcript(int ns,GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
+	GPVec<CGraphnode>& no2gnode,int strand, BundleData *bdata=NULL,GffObj* t=NULL) {
 
+	float cov=0;
+	int len=0;
+	CGraphnode *prevnode=NULL;
+	GVec<GSeg> exons;
+	GVec<float> exoncov;
+	float excov=0;
 
+	uint refstart=0;
+	if(bdata) refstart=(uint)bdata->start;
+
+	/*
+		fprintf(stderr,"print nascent transcript path[0]=%d",path[0]);
+		if(t) fprintf(stderr," with id=%s",t->getID());
+		fprintf(stderr,"\n");
+	 */
+
+	int s=0;
+	if(!path[0]) s=1;
+
+	bool firstex=true;
+	bool lastex=false;
+
+	for(int i=s;i<path.Count()-1;i++) {
+
+		CGraphnode *node=no2gnode[path[i]];
+
+		// moved this one before the usedcov computation since that one wasn't used
+		if(t && (node->end<t->start || lastex)) { // I am skipping the nodes that do not overlap the guide so that I don't add them up to coverage
+			prevnode=node; continue;
+		}
+
+		// push
+		float usedcov=nodecov[path[i]]*nodeflux[i]*(node->end-node->start+1);
+		//fprintf(stderr,"usedcov=%f for nodecov[path[%d]]=%f nodeflux[%d]=%f node->end=%d node->start=%d\n",usedcov,i,nodecov[path[i]],i,nodeflux[i],node->end,node->start);
+
+		uint nodestart=node->start;
+		uint nodeend=node->end;
+
+		if(t) { // I am adjusting the start/end of the exon but shouldn't I also adjust the coverage? -> I added two ifs below
+			float firstprop=0;
+			float lastprop=0;
+			if(firstex) {
+				if(strand && nodestart<t->start && bdata) { // adjustment is only needed for forward nascent
+
+					float rightcov=0;
+
+					// cummulative bpcov
+					float leftcov=get_cov(2*strand,node->start-refstart,t->start-1-refstart,bdata->bpcov);
+					if(node->end>t->start) rightcov=get_cov(2*strand,t->start-refstart,node->end-refstart,bdata->bpcov);
+
+					if(leftcov) firstprop=leftcov/(leftcov+rightcov);
+				}
+				nodestart=t->start;
+			}
+			if(!strand && (t->end<=nodeend || i==path.Count()-2)) { // only adjust end for reverse nascent
+				lastex=true;
+				if(t->end<node->end && bdata) {
+					//usedcov*=(t->end-nodestart+1)/(nodeend-nodestart+1); // this way I am keeping coverage proportions right
+					float leftcov=0;
+
+					// cummulative bpcov
+					if(node->start<t->end) {
+						leftcov=get_cov(2*strand,node->start-refstart,t->end-refstart,bdata->bpcov);
+					}
+					float rightcov=get_cov(2*strand,t->end+1-refstart,node->end-refstart,bdata->bpcov);
+
+					if(rightcov) lastprop=rightcov/(leftcov+rightcov);
+				}
+				nodeend=t->end;
+			}
+			if(firstprop || lastprop) {
+				usedcov-=(firstprop +lastprop)*usedcov;
+				nodeflux[i]*=(1-firstprop-lastprop);
+			}
+		}
+
+		nodecov[path[i]]*=(1-nodeflux[i]); // don't allow this to be less than 0
+
+		if(!prevnode || firstex || node->start>prevnode->end+1) { // this is a new exon
+			if(prevnode && !firstex) { // compute exon coverage
+				excov/=exons.Last().end-exons.Last().start+1;
+				exoncov.Add(excov);
+				excov=0;
+			}
+			GSeg exon(nodestart,nodeend);
+			exons.Add(exon);
+			firstex=false;
+		}
+		else if(!firstex) exons.Last().end=nodeend;
+
+		len+=nodeend-nodestart+1;
+
+		cov+=usedcov;
+		excov+=usedcov;
+
+		//if(node->cov) fragno+=node->frag*usedcov/node->cov;
+
+		prevnode=node;
+	}
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Predicted nascent transcript cov=%f usedcov=%f len=%d path.count=%d ",cov/len, cov,len,path.Count());
+		fprintf(stderr,"and exons cov:");
+		for(int e=0;e<exons.Count();e++) fprintf(stderr," %d-%d",exons[e].start,exons[e].end);
+		fprintf(stderr,"\n");
+		if(t) fprintf(stderr,"Ref_id=%s\n",t->getID());
+	}
+	*/
+
+	// Add last exon coverage
+	if(prevnode) { // compute exon coverage
+		excov/=exons.Last().end-exons.Last().start+1;
+		exoncov.Add(excov);
+	}
+	if(len) cov/=len;
+
+	if(cov>epsilon) { // print nascent
+		char sign='-';
+		if(strand) { sign='+';}
+
+		GStr trid("NASCENT");if(t) { trid+='_';trid+=t->getGeneID();} trid+='_';trid+=ns;
+
+		fprintf(stderr,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\ttranscript_id \"%s\"; cov \"%.6f\";\n",bdata->refseq.chars(),
+			exons[0].start,exons.Last().end,sign,trid.chars(),cov);
+
+		for(int j=0;j<exons.Count();j++)
+			fprintf(stderr,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\ttranscript_id \"%s\"; exon_number \"%d\"; cov \"%.6f\";\n",
+					bdata->refseq.chars(),exons[j].start,exons[j].end,sign,trid.chars(),j+1,exoncov[j]); // maybe add exon coverage here
+	}
+
+}
 
 
 
 void remove_nascent_transcription(GVec<CGuide>& nascent,int gno,int sno,GPVec<CTransfrag>& transfrag,
-		GPVec<CGraphnode>& no2gnode,GIntHash<int>& gpos,GVec<float>& nodecov,char *guidetr=NULL) {
+		GPVec<CGraphnode>& no2gnode,GIntHash<int>& gpos,GVec<float>& nodecov,BundleData *bdata=NULL,GffObj* t=NULL) {
 
 	GBitVec istranscript(transfrag.Count());
 	for(int i=0;i<nascent.Count();i++) {
@@ -12495,12 +12637,14 @@ void remove_nascent_transcription(GVec<CGuide>& nascent,int gno,int sno,GPVec<CT
 		istranscript.reset();
 
 		if(flux>epsilon) {
-			print_nascent_transcript(nascent[i].trf->nodes,nodeflux,nodecov,no2gnode,sno,gno,gpos,guidetr);
+			print_nascent_transcript(i+1,nascent[i].trf->nodes,nodeflux,nodecov,no2gnode,(sno+1)/2,bdata,t);
 		}
 
 	}
 
 	// do some nascent clean-up
+	for(int i=0;i<nascent.Count();i++) delete nascent[i].trf;
+	nascent.Resize(0);
 
 }
 
@@ -12510,14 +12654,16 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 
 	GVec<int> printed_guides; // remembers the multi-exons guidetrf's that were printed here
 
-	guides_pushmaxflow_onestep(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,s,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,printed_guides);
+	guides_pushmaxflow_onestep(gno,gpos,no2gnode,transfrag,guidetrf,geneno,s,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,printed_guides);
+
+	fprintf(stderr,"%d guides generated in %d predictions\n",printed_guides.Count(),pred.Count());
 
 	if(!eonly && isnascent && printed_guides.Count()>1) { // generate nascent transcripts
 		GVec<CGuide> nascent;
 		for(int i=printed_guides.Count()-1;i>=0;i--) { // from the most abundant to the least
 			int s=create_guide_nascent(nascent,printed_guides[i],guidetrf,guides,gno,edgeno,gpos,no2gnode);
 			if(nascent.Count()>0)  // if nascents are present -> update abundances
-				remove_nascent_transcription(nascent,gno,s,transfrag,no2gnode,gpos,nodecov,guides[i]->getID());
+				remove_nascent_transcription(nascent,gno,s,transfrag,no2gnode,gpos,nodecov,bdata,guides[guidetrf[i].g]);
 		}
 	}
 
@@ -12993,7 +13139,6 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 
 	return(maxi);
 
-	return(maxi);
 }
 
 bool transcript_cont_path(GVec<int>& path,CTransfrag *transfrag, int &ni,GVec<int>& alltr,int t) {
@@ -16874,6 +17019,9 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	if(bundledist>runoffdist) runoffdist=bundledist;
 
 	int npred=pred.Count();
+
+	fprintf(stderr,"There are %d pred in print_predcluster\n",npred);
+
 	GVec<bool> overlap;
 	overlap.Resize(npred*npred-npred);
 
@@ -17075,7 +17223,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			}
 			if(eliminate) {
 				pred[n]->flag=false;
-				//fprintf(stderr,"falseflag: incomplete pred[%d]\n",n);
+				fprintf(stderr,"falseflag: incomplete pred[%d]\n",n);
 			}
 		}
 	}
@@ -17101,18 +17249,19 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				  //fprintf(stderr,"overlap\n");
 					if(!pred[n2]->t_eq) { // this is not a known gene -> only then I can eliminate it
 						if(pred[n1]->t_eq && pred[n2]->cov<ERROR_PERC*pred[n1]->cov) { // more strict about novel predictions if annotation is available
+							fprintf(stderr,"Pred %d eliminated due to low percent coverage from prediction %d",n2,n1);
 							pred[n2]->flag=false;
 							continue;
 						}
 						uint anchor=longintronanchor;
 						if(pred[n2]->tlen<0 && pred[n2]->cov>readthr) anchor=junctionsupport;
 						if(pred[n2]->exons[0].len()<anchor || pred[n2]->exons.Last().len()<anchor) { // VAR8: leave this one out
-							//fprintf(stderr,"falseflag: pred[%d] n2=%d has low first/last exon\n",n2,n2);
+							fprintf(stderr,"falseflag: pred[%d] n2=%d has low first/last exon\n",n2,n2);
 							pred[n2]->flag=false;
 						}
 						else if(retainedintron(pred,n1,n2,lowintron)) {
 							//if(ret>1 || pred[n2]->cov<ERROR_PERC*pred[n1]->cov) {
-							//fprintf(stderr,"falseflag: pred[%d] n2=%d has low intron coverage\n",n2,n2);
+							fprintf(stderr,"falseflag: pred[%d] n2=%d has low intron coverage\n",n2,n2);
 							pred[n2]->flag=false;
 							//}
 						}
@@ -17120,12 +17269,12 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 							//fprintf(stderr,"diff strand\n");
 							if(pred[n2]->exons.Count()==1 || (pred[n1]->tlen<0 && pred[n2]->tlen>0 && pred[n2]->cov<1/ERROR_PERC)) { // why was I restricting it to single exons?
-								//fprintf(stderr,"falseflag: ...strand elmination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
+								fprintf(stderr,"falseflag: ...strand elmination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
 								pred[n2]->flag=false;
 							}
 							else if(!pred[n1]->t_eq && pred[n1]->exons.Count()==1) {
 								if(pred[n1]->cov < pred[n2]->cov+singlethr) {
-									//fprintf(stderr,"flaseflag: pred[%d] n1=%d with 1 exon eliminated by n2=%d\n",n1,n1,n2);
+									fprintf(stderr,"flaseflag: pred[%d] n1=%d with 1 exon eliminated by n2=%d\n",n1,n1,n2);
 									pred[n1]->flag=false;
 									break;
 								}
@@ -17136,7 +17285,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 								    }*/
 							}
 							else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) {
-								//fprintf(stderr,"falseflag: pred[%d] n2=%d is included in n1=%d\n",n2,n2,n1);
+								fprintf(stderr,"falseflag: pred[%d] n2=%d is included in n1=%d\n",n2,n2,n1);
 								pred[n2]->flag=false;
 							}
 							else if(pred[n2]->tlen>0 && !mixedMode){
@@ -17150,7 +17299,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    						}
 	    						if(lowcov) {
 	    							pred[n2]->flag=false;
-	    							//fprintf(stderr,"falseflag: pred[%d] n2=%d has lowcov\n",n2,n2);
+	    							fprintf(stderr,"falseflag: pred[%d] n2=%d has lowcov\n",n2,n2);
 	    						}
 	    					}
 
@@ -17158,32 +17307,32 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    				//else if(pred[n2]->cov<isofrac*pred[n1]->cov) pred[n2]->flag=false;  // I am only considering inclusions here since this might change allocations
 	    				else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && pred[n1]->cov>pred[n2]->cov*DROP && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) {
 	    					pred[n2]->flag=false;
-	    					//fprintf(stderr,"falseflag: ...included elmination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
+	    					fprintf(stderr,"falseflag: ...included elmination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
 	    				}
 	    				else if(!pred[n1]->t_eq && n1 && ((pred[n1]->tlen>0 && pred[n1]->exons.Count()<=2 && pred[n2]->cov>lowisofrac*pred[n1]->cov) || pred[n1]->cov < pred[n2]->cov+singlethr) && pred[n1]->exons.Count()<pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
 	    					pred[n1]->flag=false;
-	    					//fprintf(stderr,"falseflag: ...included elmination of pred[%d] n1=%d by n2=%d\n",n1,n1,n2);
+	    					fprintf(stderr,"falseflag: ...included elmination of pred[%d] n1=%d by n2=%d\n",n1,n1,n2);
 	    					break;
 	    				}
 	    			}
 	    			else if(!pred[n1]->t_eq && n1 && ((pred[n1]->tlen>0 && pred[n1]->exons.Count()<=2 && pred[n2]->cov>lowisofrac*pred[n1]->cov) || pred[n1]->cov < pred[n2]->cov+singlethr) && pred[n1]->exons.Count()<=pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
-	    				//fprintf(stderr,"falseflag: ...included elmination of pred[%d] n1=%d(%f) by n2=%d(%f)\n",n1,n1,pred[n1]->cov,n2,pred[n2]->cov);
+	    				fprintf(stderr,"falseflag: ...included elmination of pred[%d] n1=%d(%f) by n2=%d(%f)\n",n1,n1,pred[n1]->cov,n2,pred[n2]->cov);
 	    				pred[n1]->flag=false;
 	    				break;
 	    			}
 	    			else if(pred[n2]->tlen<0 && !pred[n2]->t_eq && pred[n2]->cov < DROP && pred[n2]->exons.Count()<=pred[n1]->exons.Count() && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov,false)) {
 	    				pred[n2]->flag=false;
-	    				//fprintf(stderr,"falseflag: pred[%d] n2=%d is included in n1=%d\n",n2,n2,n1);
+	    				fprintf(stderr,"falseflag: pred[%d] n2=%d is included in n1=%d\n",n2,n2,n1);
 	    			}
 	    		}
 	    		//else if(!pred[n2]->t_eq && pred[n2]->exons.Count()==1 && pred[n2]->cov<DROP*pred[n1]->cov && pred[n1]->start<pred[n2]->start && pred[n2]->end<pred[n1]->end) {
 	    		else if(!pred[n2]->t_eq && pred[n2]->exons.Count()==1 && ((pred[n2]->tlen>0 && pred[n2]->cov<pred[n1]->cov) || pred[n2]->cov<isofrac*pred[n1]->cov) && pred[n1]->start<=pred[n2]->start && pred[n2]->end<=pred[n1]->end) {
-	    			//fprintf(stderr,"falseflag: ...single exon elmination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
+	    			fprintf(stderr,"falseflag: ...single exon elmination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
 	    			pred[n2]->flag=false; // delete intronic prediction if single exon and at realtively low coverage
 	    		}
 	    		else if(pred[n1]->tlen>0) {
 	    			if(!pred[n1]->t_eq && pred[n1]->exons.Count()==1 && pred[n1]->cov<pred[n2]->cov && pred[n2]->start<=pred[n1]->start && pred[n1]->end<=pred[n2]->end) {
-	    				//fprintf(stderr,"falseflag: ...single exon elmination of pred[%d] n1=%d by n2=%d\n",n1, n1,n2);
+	    				fprintf(stderr,"falseflag: ...single exon elmination of pred[%d] n1=%d by n2=%d\n",n1, n1,n2);
 	    				pred[n1]->flag=false;
 	    				break;
 	    			}
@@ -17195,26 +17344,32 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    					if(m>M) { m=bettercov[n2][p]; M=n1;}
 	    					if(!overlap[npred*m+M]) {
 	    						pred[n2]->flag=false;
-	    						//fprintf(stderr,"falseflag: pred[%d] eliminated because of overlap to %d and %d\n",n2,m,M);
+	    						fprintf(stderr,"falseflag: pred[%d] eliminated because of overlap to %d and %d\n",n2,m,M);
 	    						break;
 	    					}
 	    				}
 	    				if(pred[n2]->flag) {
 	    						if((mixedMode || pred[n1]->strand==pred[n2]->strand) && ((mixedMode && pred[n2]->cov<singlethr) || pred[n2]->cov<pred[n1]->cov*ERROR_PERC) && pred[n1]->start<=pred[n2]->start && pred[n2]->end<=pred[n1]->end && intronic(pred,n2,n1)) { // n2 is an intronic prediction to n1
-							  //fprintf(stderr,"falseflag: eliminate pred[%d] is intronic into pred[%d]\n",n2,n1);
-	    						pred[n2]->flag=false;
-	    					}
-	    					else bettercov[n2].Add(n1);
+	    							fprintf(stderr,"falseflag: eliminate pred[%d] is intronic into pred[%d]\n",n2,n1);
+	    							pred[n2]->flag=false;
+	    						}
+	    						else bettercov[n2].Add(n1);
 	    				}
 	    			}
 	    				else if(mixedMode && pred[n2]->strand!=pred[n1]->strand && pred[n2]->cov<singlethr) {
-	    					if(pred[n1]->start<=pred[n2]->end && pred[n2]->start<=pred[n1]->end) pred[n2]->flag=false; // antisense short read overlap
+	    					if(pred[n1]->start<=pred[n2]->end && pred[n2]->start<=pred[n1]->end) {
+	    						fprintf(stderr,"falseflag: eliminate pred[%d] in mixmode being single into pred[%d]\n",n2,n1);
+	    						pred[n2]->flag=false; // antisense short read overlap
+	    					}
 	    				}
 	    		}
 	    		}
 	    		else if(pred[n2]->tlen>0  && !pred[n2]->t_eq ) { // && pred[n2]->strand!=pred[n1]->strand){ // now pred[n1]->tlen<0; n1 & n2 are antisense
 	    			if(pred[n1]->start<=pred[n2]->end && pred[n2]->start<=pred[n1]->end) {// n1 & n2 overlap but not within the exons
-	    				if(pred[n2]->cov<1/ERROR_PERC || (pred[n2]->strand==pred[n1]->strand && pred[n2]->cov<ERROR_PERC*pred[n1]->cov)) pred[n2]->flag=false; // mixed mode doesn't accept low covered anti-senses
+	    				if(pred[n2]->cov<1/ERROR_PERC || (pred[n2]->strand==pred[n1]->strand && pred[n2]->cov<ERROR_PERC*pred[n1]->cov)) {
+	    					fprintf(stderr,"falseflag: eliminate pred[%d] due to very low coverage from pred[%d]\n",n2,n1);
+	    					pred[n2]->flag=false; // mixed mode doesn't accept low covered anti-senses
+	    				}
 	    			}
 	    		}
 	    		//if(!pred[n1]->flag) fprintf(stderr,"pred[%d] eliminated\n",n1);
@@ -17360,7 +17515,10 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 						  pred[n]->exoncov[e]+=exoncov;
 						  if(mixedMode && exord.Count()==1) {
 						    if(pred[n]->exons.Count()==1 && pred[n]->cov<singlethr/DROP) pred[n]->flag=false; // stricter criteria for random single exon short-read genes
-						    else if(pred[n]->exons.Count()==2 && pred[n]->cov<singlethr*DROP) pred[n]->flag=false; // stricter criteria for random two-exon short-read genes
+						    else if(pred[n]->exons.Count()==2 && pred[n]->cov<singlethr*DROP) {
+						    	pred[n]->flag=false; // stricter criteria for random two-exon short-read genes
+						    	fprintf(stderr,"falseflag: eliminate pred[%d] as random two exon short gene\n",n);
+						    }
 						  }
 						  shortmax=true;
 						}
@@ -17384,7 +17542,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 									(pred[n]->exons.Count()==1 && pred[n]->cov<usedcov) || pred[n]->cov<1 ||
 									(pred[n]->exons.Count()==2 && (pred[n]->cov<lowcov || (pred[n]->geneno>=0 && pred[n]->cov<ERROR_PERC*usedcov))))) {
 								adjust=true;
-								//fprintf(stderr,"flaseflag: pred[%d] has low cov=%f percentage from usedcoverage=%f < %f\n",n,pred[n]->cov,usedcov,allowedfrac*usedcov);
+								fprintf(stderr,"flaseflag: pred[%d] has low cov=%f percentage from usedcoverage=%f < %f\n",n,pred[n]->cov,usedcov,allowedfrac*usedcov);
 								pred[n]->flag=false;
 							}
 							else {
@@ -17419,7 +17577,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 						if(pred[n]->cov<1 || (pred[n]->exons.Count()==1 && pred[n]->cov<singlethr)) {
 							//if(pred[n]->cov<readthr || (pred[n]->exons.Count()==1 && pred[n]->cov<singlethr) ) {
 							pred[n]->flag=false;
-							//fprintf(stderr,"falseflag: pred[%d]->cov=%f eliminated due to low coverage\n",n,pred[n]->cov);
+							fprintf(stderr,"falseflag: pred[%d]->cov=%f eliminated due to low coverage\n",n,pred[n]->cov);
 							adjust=true;
 						}
 					}
@@ -17448,14 +17606,14 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 					float exoncov=get_cov(1,pred[p]->exons.Last().start-bundleData->start,pred[p]->exons.Last().end-bundleData->start,bpcov);
 					if(pred[i]->cov<exoncov+singlethr) {
 						pred[i]->flag=false;
-						//fprintf(stderr,"falseflag: elim pred[%d] as possible polymerase runoff\n",i);
+						fprintf(stderr,"falseflag: elim pred[%d] as possible polymerase runoff\n",i);
 					}
 				}
 				if(pred[i]->flag && c<npred && pred[c]->exons.Count()>1 && pred[i]->end+runoff>=pred[c]->start) { // next prediction is nearby
 					float exoncov=get_cov(1,pred[c]->exons[0].start-bundleData->start,pred[c]->exons[0].end-bundleData->start,bpcov);
 					if(pred[i]->cov<exoncov+singlethr) {
 						pred[i]->flag=false;
-						//fprintf(stderr,"falseflag: elim pred[%d] as possible polymerase runoff\n",i);
+						fprintf(stderr,"falseflag: elim pred[%d] as possible polymerase runoff\n",i);
 					}
 				}
 			//}
@@ -17477,7 +17635,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
 		//if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
 			pred[i]->flag=false;
-			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
+			fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f under 1\n",i,pred[i]->cov);
 			continue;
 		}
 		//fprintf(stderr,"check pred i=%d with end=%d and next start=%d\n",i,pred[i]->end,pred[i+1]->start);
@@ -17489,7 +17647,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			if(pred[j]->flag && pred[i]->strand==pred[j]->strand && overlap[npred*i+j]) {
 				if(!pred[j]->t_eq && pred[j]->cov<readthr) {
 					pred[j]->flag=false;
-					//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
+					fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
 					j++;
 					continue;
 				}
@@ -17532,7 +17690,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	for(int n=0;n<npred;n++) if(pred[n]->flag){
 
-		/*
+
 		{ // DEBUG ONLY
 			  fprintf(stderr,"\nprint prediction %d with cov=%f len=%d",n,pred[n]->cov,pred[n]->tlen);
 			  if(pred[n]->flag) fprintf(stderr," with true flag");
@@ -17540,7 +17698,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			  for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," cov=%f len=%d",pred[n]->exoncov[i],pred[n]->exons[i].len());
 			  fprintf(stderr,"\n");
 		}
-		*/
+
 
 
 		transcripts[genes[n]]++;
@@ -17917,7 +18075,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	// print transcripts including the necessary isoform fraction cleanings
 	GList<CPrediction>& pred = bundleData->pred;
 
-	/*
+
 	{ // DEBUG ONLY
 		fprintf(stderr,"Pred set before sorting:\n");
 		for(int i=0;i<pred.Count();i++) {
@@ -17928,7 +18086,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		}
 		fprintf(stderr,"\n");
 	}
-	*/
+
 
 	int npred=pred.Count();
 
