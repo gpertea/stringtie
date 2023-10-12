@@ -12591,15 +12591,15 @@ void print_nascent_transcript(int ns,GVec<int>& path,GVec<float>& nodeflux,GVec<
 		prevnode=node;
 	}
 
-	/*
+
 	{ // DEBUG ONLY
-		fprintf(stderr,"Predicted nascent transcript cov=%f usedcov=%f len=%d path.count=%d ",cov/len, cov,len,path.Count());
+		fprintf(stderr,"Predicted nascent transcript NASCENT_%s_%d cov=%f usedcov=%f len=%d path.count=%d ",t->getID(),ns,cov/len, cov,len,path.Count());
 		fprintf(stderr,"and exons cov:");
 		for(int e=0;e<exons.Count();e++) fprintf(stderr," %d-%d",exons[e].start,exons[e].end);
 		fprintf(stderr,"\n");
 		if(t) fprintf(stderr,"Ref_id=%s\n",t->getID());
 	}
-	*/
+
 
 	// Add last exon coverage
 	if(prevnode) { // compute exon coverage
@@ -17695,6 +17695,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			  fprintf(stderr,"\nprint prediction %d with cov=%f len=%d",n,pred[n]->cov,pred[n]->tlen);
 			  if(pred[n]->flag) fprintf(stderr," with true flag");
 			  fprintf(stderr," with geneno=%d and exons:",pred[n]->geneno);
+			  for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," %d-%d",pred[n]->exons[i].start,pred[n]->exons[i].end);
 			  for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," cov=%f len=%d",pred[n]->exoncov[i],pred[n]->exons[i].len());
 			  fprintf(stderr,"\n");
 		}
