@@ -102,6 +102,7 @@ the following options are available:\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
 /*
+ --isnascent prints nascent transcripts to stderr
  -C output a file with reference transcripts that are covered by reads\n\
  -U unitigs are treated as reads and not as guides \n\ \\ not used now
  -d disable adaptive read coverage mode (default: yes)\n\
@@ -203,6 +204,7 @@ bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
 
 bool mixedMode = false; // both short and long read data alignments are provided
+bool isnascent=false;
 
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -311,7 +313,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;mix;isnascent;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
    "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -1006,6 +1008,8 @@ void processOptions(GArgs& args) {
 		 bundledist=0;
 		 //isofrac=0.02; // allow mixedMode to be more conservative
 	 }
+
+	 isnascent=(args.getOpt("isnascent")!=NULL);
 
 	if (args.getOpt("conservative")) {
 	  isofrac=0.05;
