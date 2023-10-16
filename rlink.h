@@ -283,16 +283,17 @@ struct CPrediction:public GSeg {
 	//float frag; // counted number of fragments associated with prediction
 	int tlen;
 	bool flag;
+	CPrediction* linkpred; // for nascent RNAs prediction of transcript that it is linked to
 	GVec<GSeg> exons;
 	GVec<float> exoncov;
 	GStr mergename;
 	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
-	int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
+	int _len=0,bool f=true, CPrediction* lp=NULL):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
 	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
-			tlen(_len),flag(f),exons(),exoncov(),mergename() {}
+			tlen(_len),flag(f),linkpred(lp),exons(),exoncov(),mergename() {}
 	void init(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
-	          int _len=0) {
+	          int _len=0,bool f=true, CPrediction* lp=NULL) {
 		geneno=_geneno;
 		t_eq=guide;
 		start=gstart;
@@ -300,7 +301,8 @@ struct CPrediction:public GSeg {
 		cov=_cov;
 		strand=_strand;
 		tlen=_len;
-		flag=true;
+		flag=f;
+		linkpred=lp;
 		exons.Clear();
 		exoncov.Clear();
 		mergename.clear();
@@ -308,7 +310,7 @@ struct CPrediction:public GSeg {
 
 	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
 //			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
-			t_eq(c.t_eq), cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), flag(c.flag),
+			t_eq(c.t_eq), cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), flag(c.flag),linkpred(c.linkpred),
 	      exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename) {}
 	~CPrediction() { //GFREE(id);
 		}
