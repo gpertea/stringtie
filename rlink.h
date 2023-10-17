@@ -283,7 +283,7 @@ struct CPrediction:public GSeg {
 	//float frag; // counted number of fragments associated with prediction
 	int tlen;
 	bool flag;
-	CPrediction* linkpred; // for nascent RNAs prediction of transcript that it is linked to
+	CPrediction* linkpred; // for nascent RNAs prediction of transcript that it is linked to and viceversa
 	GVec<GSeg> exons;
 	GVec<float> exoncov;
 	GStr mergename;
