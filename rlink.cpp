@@ -17047,6 +17047,23 @@ void printGff3Header(FILE* f, GArgs& args) {
   fprintf(f, "##gff-version 3\n");
 }
 
+int predstartCmp(const pointer p1, const pointer p2) {
+	CPrediction *a=(CPrediction*)p1;
+	CPrediction *b=(CPrediction*)p2;
+
+	if(a->mergename=='n' && b->mergename!='n') return 1; // nascents are at the end
+	if(a->mergename!='n' && b->mergename=='n') return -1;
+
+	if(a->start < b->start) return -1; // order based on start
+	if(a->start > b->start) return 1;
+
+	// same start
+	if(a->end < b->end) return -1; // order based on start
+	if(a->end > b->end) return 1;
+
+	return 0;
+}
+
 int predCmp(const pointer p1, const pointer p2) {
 	CPrediction *a=(CPrediction*)p1;
 	CPrediction *b=(CPrediction*)p2;
@@ -17477,6 +17494,12 @@ void update_overlap(GList<CPrediction>& pred,int p,int e,GVec<CExon>& node,GVec<
 
 CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,float c,GList<CPrediction>& pred,GVec<bool>& overlap) {
 
+	/*
+	fprintf(stderr,"Add exon %d-%d to maxint ",start,end);
+	if(maxint) fprintf(stderr," starting at %d-%d",maxint->start,maxint->end);
+	fprintf(stderr,"\n");
+	*/
+
 	CMaxIntv *prevmaxint=NULL;
 	while(maxint && start>maxint->end) {
 		prevmaxint=maxint;
@@ -17599,10 +17622,13 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	if(longreads) runoffdist=0;
 	if(bundledist>runoffdist) runoffdist=bundledist;
 
+	//pred.Sort();
+	pred.setSorted(predstartCmp);
+
 	int npred=pred.Count();
 	while(npred>0 && pred[npred-1]->mergename=='n') npred--;
 
-	//fprintf(stderr,"There are %d pred in print_predcluster\n",npred);
+	//fprintf(stderr,"There are %d pred in print_predcluster predcount=%d\n",npred,pred.Count());
 
 	GVec<bool> overlap;
 	overlap.Resize(npred*npred-npred);
@@ -17694,6 +17720,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				  }
 			  }
 		nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,excov,pred,overlap); // per bp coverage
+		//fprintf(stderr,"nextmaxint:%d-%d\n",nextmaxint->start,nextmaxint->end);
 		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,pred[0]->exoncov[j]*pred[0]->exons[j].len(),pred,overlap); // per read coverage
 		//pred[0]->exoncov[j]=0;
 	}
@@ -17722,6 +17749,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		CPred p(n,abs(pred[n]->tlen)*pred[n]->cov); // priority based on number of bases covered
 		predord.Add(p);
 		nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,excov,pred,overlap); // per bp coverage
+		//fprintf(stderr,"nextmaxint:%d-%d\n",nextmaxint->start,nextmaxint->end);
 		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,pred[n]->exoncov[0]*pred[n]->exons[0].len(),pred,overlap); // read coverage
 		//pred[n]->exoncov[0]=0;
 		intron.clear();
@@ -17772,6 +17800,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			  }
 			}
 			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,excov,pred,overlap); // per bp coverage
+			//fprintf(stderr,"nextmaxint:%d-%d\n",nextmaxint->start,nextmaxint->end);
 			//nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,pred[n]->exoncov[j]*pred[n]->exons[j].len(),pred,overlap); // read coverage
 			//pred[n]->exoncov[j]=0;
 		}
@@ -18235,8 +18264,8 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	  if(pred[i]->flag) {
 		 //TODO: this eliminates e.g. 0.98 cov prediction based on long read that otherwise covers all the junctions!
 		 //  =>  implement a jcov metric (junction coverage) which should supersede base coverage ?
-		if ((pred[i]->cov<1 ||
-				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr))))) {
+		if (pred[i]->cov<1 ||
+				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
 		//if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
 			pred[i]->flag=false;
 			if(pred[i]->linkpred) pred[i]->linkpred->flag=false;
@@ -18749,7 +18778,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	*/
 
 	int npred=pred.Count();
-	//int npred_all=npred;
 
 	pred.setSorted(predCmp);
 
@@ -19107,33 +19135,33 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 		for(int n=0;n<npred;n++) {
 
-			//fprintf(stderr,"pred[%d] falseflag=%d reflink_cnt=%d\n",n,pred[n]->flag,reflink[n].Count());
-			if(pred[n]->flag) {
+		  //fprintf(stderr,"pred[%d] falseflag=%d reflink_cnt=%d\n",n,pred[n]->flag,reflink[n].Count());
+			if(pred[n]) {
 				if(reflink[n].Count()) {
-					int mindist=100000;
-					float sumcov=0;
-					uint start=0;
+				int mindist=100000;
+				float sumcov=0;
+				uint start=0;
+				for(int i=0;i<reflink[n].Count();i++) {
+					int ri=reflink[n][i];
+					//fprintf(stderr,"pred[%d] is linked to pred[%d]\n",n,ri);
+					if(pred[ri]) {
+						int d;
+						if(pred[ri]->start<pred[n]->start) d= pred[n]->start-pred[ri]->end;
+						else d=pred[ri]->start-pred[n]->end;
+						if(d<mindist) {
+							mindist=d;
+							sumcov=pred[ri]->cov;
+							start=pred[ri]->start;
+						}
+						else if(d==mindist) sumcov+=pred[ri]->cov;
+					}
+				}
+				if(sumcov) {
 					for(int i=0;i<reflink[n].Count();i++) {
 						int ri=reflink[n][i];
-						//fprintf(stderr,"pred[%d] is linked to pred[%d]\n",n,ri);
-						if(pred[ri]->flag) {
-							int d;
-							if(pred[ri]->start<pred[n]->start) d= pred[n]->start-pred[ri]->end;
-							else d=pred[ri]->start-pred[n]->end;
-							if(d<mindist) {
-								mindist=d;
-								sumcov=pred[ri]->cov;
-								start=pred[ri]->start;
-							}
-							else if(d==mindist) sumcov+=pred[ri]->cov;
-						}
+						if(pred[ri] && pred[ri]->start==start) add_pred(pred,ri,n,pred[n]->cov*pred[ri]->cov/sumcov);
 					}
-					if(sumcov) {
-						for(int i=0;i<reflink[n].Count();i++) {
-							int ri=reflink[n][i];
-							if(pred[ri] && pred[ri]->start==start) add_pred(pred,ri,n,pred[n]->cov*pred[ri]->cov/sumcov);
-						}
-						// now replace pred[y] with null
+					// now replace pred[y] with null
 						//fprintf(stderr,"Replace pred[%d] with null\n",n);
 						//fprintf(stderr,"1 delete pred %d\n",n);
 						CPrediction *p=pred[n];
@@ -19155,7 +19183,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			}
 		}
 		pred.Pack();
-		//pred.setSorted(predCmp);
 		//pred.Sort();
 		npred=pred.Count();
 		while(npred>0 && pred[npred-1]->mergename=='n') npred--;
@@ -19603,7 +19630,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	if(preddel) {
 		pred.Pack();
 		//pred.Sort();
-		//pred.setSorted(predCmp);
 		npred=pred.Count();
 		while(npred>0 && pred[npred-1]->mergename=='n') npred--;
 	}
