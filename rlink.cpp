@@ -19228,13 +19228,13 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 								}
 								pred[m]->geneno=-abs(pred[m]->geneno);
 							}
-							if(pred[n]->linkpred) { // pred[n] has nascent
+							/*if(pred[n]->linkpred) { // pred[n] has nascent
 								if(pred[m]->linkpred) {
 									//if(pred[m]->mergename!='n') { // both genes have nascents; add nascent to this gene
 									CPrediction *nPm=pred[m]->linkpred;
 									CPrediction *nPn=pred[n]->linkpred;
 									nPm->cov+=nPn->cov;
-									for(int k=0;k<nPm->exons.Count();k++) {
+									for(int k=0;k<nPm->exons.Count();k++) { // does not work because nPn and nPm can have different exons -> might want to change this
 										nPm->exoncov[k]+=nPn->exoncov[k];
 									}
 									//}
@@ -19245,7 +19245,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 									pred[n]->linkpred->linkpred=pred[m];
 									pred[n]->linkpred=NULL;
 								}
-							}
+							}*/
 							//pred[m]->tlen=abs(pred[m]->tlen); // make sure the prediction is conserved as it is
 							ndel=true;
 							break;
@@ -19318,7 +19318,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 								pred[m]->exoncov[k]+=pred[n]->exoncov[k];
 							}
 
-							if(pred[n]->linkpred) { // pred[n] has nascent
+							/*if(pred[n]->linkpred) { // pred[n] has nascent
 								if(pred[m]->linkpred) {
 									//if(pred[m]->mergename!='n') { // both genes have nascents; add nascent to this gene
 									CPrediction *nPm=pred[m]->linkpred;
@@ -19335,7 +19335,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 									pred[n]->linkpred->linkpred=pred[m];
 									pred[n]->linkpred=NULL;
 								}
-							}
+							}*/
 						}
 						ndel=true;
 						break;
