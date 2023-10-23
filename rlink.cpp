@@ -13799,6 +13799,24 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 	}
 
 
+	GVec<float> abundleft;
+	GVec<float> abundright;
+    if(isnascent) { // clean up some nascents first in the error_percent range
+    	for(int i=0;i<gno;i++) {
+    		abundleft.cAdd(0.0);
+    		abundright.cAdd(0.0);
+    		if(i) {
+    			if(i>1 && no2gnode[i-1]->end+1==no2gnode[i]->start) {
+    				abundleft.Last()=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i]->start,no2gnode[i]->start,bdata->bpcov);
+    			}
+    			if(i<gno-2 && no2gnode[i]->end+1==no2gnode[i+1]->start) {
+    				abundright.Last()=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i]->end,no2gnode[i]->end,bdata->bpcov);
+    			}
+    		}
+    	}
+    }
+
+
 	// process in and out coverages for each node
 	int maxi=0; // node with maximum coverage
 	GVec<float> nodecov; // node coverages
@@ -13807,17 +13825,42 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 		CGraphnode *inode=no2gnode[i]; // this is here only because of the DEBUG option below
 		nodecov.cAdd(0.0);
 
+
 		if(i) { // for all nodes but the source
+
+			float allowedleft=0;
+			float allowedright=0;
+			if(isnascent) {
+				if(i>1 && no2gnode[i-1]->end+1==inode->start) {
+					allowedleft=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i]->start,no2gnode[i]->start,bdata->bpcov);
+				}
+				if(i<gno-2 && inode->end+1==no2gnode[i+1]->start) {
+					allowedright=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i]->end,no2gnode[i]->end,bdata->bpcov);
+				}
+			}
+
 
 		    if(i<gno-1 && inode->len()) nodecov[i]=inode->cov/inode->len(); // sink also has 0 coverage
 		    if(nodecov[i]>nodecov[maxi]) maxi=i;
 		    int nn=inode->trf.Count();
+
 		    float abundin=0;
 		    float abundout=0;
 		    float abundthrough=0;
 		    for(int j=0;j<nn;j++){
 		    	int t=inode->trf[j];
+
 		    	if(transfrag[t]->nodes.Last()==i) { // transfrag ends at this node (in transfrag)
+		    		if(isnascent && transfrag[t]->nodes[0]==i-1 && allowedleft) {
+		    			if(transfrag[t]->abundance>allowedleft) {
+		    				transfrag[t]->abundance-=allowedleft;
+		    				allowedleft=0;
+		    			}
+		    			else {
+		    				transfrag[t]->abundance=0;
+		    				allowedleft-=transfrag[t]->abundance;
+		    			}
+		    		}
 		    		abundin+=transfrag[t]->abundance;
 		    	}
 		    	else if(transfrag[t]->nodes[0]==i) { // transfrag starts at this node (out transfrag)
