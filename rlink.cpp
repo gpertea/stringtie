@@ -164,7 +164,7 @@ void add_read_to_cov(GList<CReadAln>& rd,int n,GVec<float> *bpcov,int refstart) 
 					if(sno==1) strand=snop;
 					else if(snop!=1) strand=1;
 				}
-				cov_edge_add(bpcov,strand,start-refstart,end-refstart+1,rd[n]->pair_count[i]);
+				cov_edge_add(bpcov,strand,start-refstart,end-refstart+1,rd[n]->pair_count[i]); // both the read and it's pair are added here; if pairs overlap then bpcov only counts one coverage not both
 			}
 		}
 	}
@@ -11655,7 +11655,7 @@ float nascent2max_flow(int gno,int sno,CTransfrag *nascent,GBitVec& istranscript
 				else {
 					if(i==n-1) {
 						if(transfrag[t]->nodes.Last()==gno) istranscript[t]=1;
-						else if(transfrag[t]->nodes.Last()>nascent->nodes[i]) prop+=transfrag[t]->abundance;
+						else if(transfrag[t]->nodes.Last()>nascent->nodes[i]) prop+=transfrag[t]->abundance; // abundance of transfrags extending past the last node of nascent
 					}
 				}
 
@@ -11716,12 +11716,12 @@ float nascent2max_flow(int gno,int sno,CTransfrag *nascent,GBitVec& istranscript
 
 		if(!sno) {
 			if(!i) {
-				float extracov=(no2gnode[nascent->nodes[0]]->cov-prop)/no2gnode[nascent->nodes[0]]->len();
+				float extracov=no2gnode[nascent->nodes[0]]->cov/no2gnode[nascent->nodes[0]]->len()-prop; // modif 2 -> good improvement
 				if(extracov> capacityleft[i]) capacityleft[i]=extracov;
 			}
 		}
 		else if(i==n-1) {
-			float extracov=(no2gnode[nascent->nodes[i]]->cov-prop)/no2gnode[nascent->nodes[i]]->len();
+			float extracov=no2gnode[nascent->nodes[i]]->cov/no2gnode[nascent->nodes[i]]->len()-prop; //modif 2 -> good improvement
 			if(extracov> capacityright[i]) capacityright[i]=extracov;
 		}
 
@@ -13798,25 +13798,6 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 		return(geneno);
 	}
 
-
-	GVec<float> abundleft;
-	GVec<float> abundright;
-    if(isnascent) { // clean up some nascents first in the error_percent range
-    	for(int i=0;i<gno;i++) {
-    		abundleft.cAdd(0.0);
-    		abundright.cAdd(0.0);
-    		if(i) {
-    			if(i>1 && no2gnode[i-1]->end+1==no2gnode[i]->start) {
-    				abundleft.Last()=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i]->start,no2gnode[i]->start,bdata->bpcov);
-    			}
-    			if(i<gno-2 && no2gnode[i]->end+1==no2gnode[i+1]->start) {
-    				abundright.Last()=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i]->end,no2gnode[i]->end,bdata->bpcov);
-    			}
-    		}
-    	}
-    }
-
-
 	// process in and out coverages for each node
 	int maxi=0; // node with maximum coverage
 	GVec<float> nodecov; // node coverages
@@ -13828,15 +13809,21 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 
 		if(i) { // for all nodes but the source
 
-			float allowedleft=0;
-			float allowedright=0;
-			if(isnascent) {
-				if(i>1 && no2gnode[i-1]->end+1==inode->start) {
-					allowedleft=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i]->start,no2gnode[i]->start,bdata->bpcov);
+			float abundnasc=0;
+			if(isnascent && i<gno-2 && inode->end+1==no2gnode[i+1]->start) { // continuous nodes
+
+				if(inode->child.Count()>2 || no2gnode[i+1]->parent.Count()>2 ||
+						(inode->child.Count()>1 && !inode->childpat[gno-1]) || (no2gnode[i+1]->parent.Count()>2 && !no2gnode[i+1]->parentpat[0])) { // if there are junctions to clean-up here: modif 3
+
+					// also maybe only do a clean-up when there is not a high coverage continuity (like a drop in 90% only)
+
+					float abundleft=ERROR_PERC*get_cov_sign(2*strand,inode->end-bdata->start,inode->end-bdata->start,bdata->bpcov);
+					float abundright=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i+1]->start-bdata->start,no2gnode[i+1]->start-bdata->start,bdata->bpcov);
+
+					abundnasc=abundleft>abundright?abundleft:abundright;
+					//fprintf(stderr,"node %d: abund[%d]=%.1f abund[%d]=%.1f abundnasc=%f\n",i,inode->end,abundleft,no2gnode[i+1]->start,abundright,abundnasc);
 				}
-				if(i<gno-2 && inode->end+1==no2gnode[i+1]->start) {
-					allowedright=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i]->end,no2gnode[i]->end,bdata->bpcov);
-				}
+
 			}
 
 
@@ -13851,19 +13838,22 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 		    	int t=inode->trf[j];
 
 		    	if(transfrag[t]->nodes.Last()==i) { // transfrag ends at this node (in transfrag)
-		    		if(isnascent && transfrag[t]->nodes[0]==i-1 && allowedleft) {
-		    			if(transfrag[t]->abundance>allowedleft) {
-		    				transfrag[t]->abundance-=allowedleft;
-		    				allowedleft=0;
-		    			}
-		    			else {
-		    				transfrag[t]->abundance=0;
-		    				allowedleft-=transfrag[t]->abundance;
-		    			}
-		    		}
 		    		abundin+=transfrag[t]->abundance;
 		    	}
 		    	else if(transfrag[t]->nodes[0]==i) { // transfrag starts at this node (out transfrag)
+		    		if(isnascent && transfrag[t]->nodes.Last()==i+1 && abundnasc>0) {
+
+		    			//fprintf(stderr,"found nascent transcript with abund=%.1f\n",transfrag[t]->abundance);
+
+		    			if(transfrag[t]->abundance>abundnasc) {
+		    				transfrag[t]->abundance-=abundnasc;
+		    				abundnasc=0;
+		    			}
+		    			else {
+		    				transfrag[t]->abundance=0;
+		    				abundnasc-=transfrag[t]->abundance;
+		    			}
+		    		}
 		    		abundout+=transfrag[t]->abundance;
 		    	}
 		    	else if(transfrag[t]->pattern[i]) { // through transfrag (here I checked that the transfrag clearly goes through the node)
