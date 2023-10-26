@@ -5829,22 +5829,27 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 	// add edges between disconnected parent-child nodes
 	for(int t=0;t<transfrag.Count();t++) allpat=allpat | transfrag[t]->pattern;
 
-	GVec<float> abundleft;
+	// modif 8
+	/*GVec<float> abundleft;
 	GVec<float> abundright;
+
 
 	if(isnascent) {
 		abundleft.cAdd(0.0);
 		abundright.cAdd(0.0);
-	}
+	}*/
+
 
 	for(int i=1;i<gno-1;i++) { // for all nodes check if there is a connection to child
 		CGraphnode *n=no2gnode[i];
-		if(isnascent) {
+		// * modif 8
+		/*if(isnascent) {
 			float abund=ERROR_PERC*get_cov_sign(2*s,n->start-bdata->start,n->start-bdata->start,bdata->bpcov);
 			abundleft.Add(abund);
 			abund=ERROR_PERC*get_cov_sign(2*s,n->end-bdata->start,n->end-bdata->start,bdata->bpcov);
 			abundright.Add(abund);
-		}
+		}*/
+
 		for(int c=0;c<n->child.Count();c++) {
 			int *pos=gpos[edge(i,n->child[c],gno)];
 			if(pos && !allpat[*pos]) {
@@ -5862,10 +5867,12 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 		}
 	}
 
+	// * modif 8
 	if(isnascent) { // this is the abundance for the sink
 		abundleft.cAdd(0.0);
 		abundright.cAdd(0.0);
 	}
+
 
 	// sort transfrag with smallest being the one that has the most nodes, and ties are decided by the abundance (largest abundance first); last transfrags all have 1 node
 	if(trsort)
@@ -5890,6 +5897,26 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 	}
 	*/
 
+
+	// set source-to-child transfrag abundances: optional in order not to keep these abundances too low:
+	// update the abundances of the transfrags coming in from source and going to a node that doesn't have other parents than source
+	// * this part was removed to improve performance
+	CGraphnode *source=no2gnode[0];
+	for(int i=0;i<source->child.Count();i++) {
+		float abundance=0;
+		int t0=-1;
+		if(no2gnode[source->child[i]]->parent.Count()==1 && !no2gnode[source->child[i]]->parent[0]) { // source is the only parent of node
+			for(int j=0;j<no2gnode[source->child[i]]->trf.Count();j++) {
+				int t=no2gnode[source->child[i]]->trf[j];
+				if(transfrag[t]->nodes.Last()==source->child[i]) t0=t;
+				else abundance+=transfrag[t]->abundance;
+			}
+			if(t0>-1 && transfrag[t0]->abundance) { // found transfrag from source to node and the transfrag wasn't deleted
+				transfrag[t0]->abundance=abundance;
+			}
+		}
+	}
+	// */
 
 	GVec<int> incompletetrf; //remembers incomplete transfrags (the ones that don't have edges between two consecutive nodes
 
@@ -5922,10 +5949,12 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 					if(transfrag[t1]->nodes[n]!=1+transfrag[t1]->nodes[n-1] || no2gnode[transfrag[t1]->nodes[n]]->start-1!=no2gnode[transfrag[t1]->nodes[n-1]]->end) {
 						nosplice=false;
 					}
+					// * modif 8
 					else if(isnascent) {
 						if(abundright[transfrag[t1]->nodes[n-1]]>maxrightabund) maxrightabund=abundright[transfrag[t1]->nodes[n-1]];
 						if(abundleft[transfrag[t1]->nodes[n]]>maxleftabund) maxleftabund=abundleft[transfrag[t1]->nodes[n]];
 					}
+
 				}
 
 				if(n && n<transfrag[t1]->nodes.Count()-1) {// not first or last node
@@ -5962,8 +5991,15 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			if(incomplete) incompletetrf.Add(t1);
 			else transfrag[t1]->real=true;
 
-			if(isnascent && nosplice && transfrag[t1]->nodes[0] && transfrag[t1]->nodes.Last()!=gno-1) {
+			fprintf(stderr,"Trf[%d] n1=%d nosplice=%d abundleft[%d]=%.1f abundright[%d]=%.1f\n",t1,n1,nosplice,
+									transfrag[t1]->nodes[0],abundright[transfrag[t1]->nodes[0]],transfrag[t1]->nodes.Last(),abundleft[transfrag[t1]->nodes.Last()]);
+
+			//if(isnascent && nosplice && transfrag[t1]->nodes[0] && transfrag[t1]->nodes.Last()!=gno-1) { // modif 7
+			// * modif 8
+			if(isnascent && nosplice && n1==2 && transfrag[t1]->nodes[0] && transfrag[t1]->nodes.Last()!=gno-1) {
 				float abund=maxleftabund>maxrightabund?maxleftabund:maxrightabund;
+				fprintf(stderr,"Trf[%d] abund=%.1f maxleftabund=%.1f maxrightabund=%.1f abundright[%d]=%.1f abundleft[%d]=%.1f\n",t1,abund,maxleftabund,maxrightabund,
+						transfrag[t1]->nodes[0],abundright[transfrag[t1]->nodes[0]],transfrag[t1]->nodes.Last(),abundleft[transfrag[t1]->nodes.Last()]);
 				if(abund) {
 					if(transfrag[t1]->abundance<abund) abund=transfrag[t1]->abundance;
 					transfrag[t1]->abundance-=abund;
@@ -5973,6 +6009,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 					}
 				}
 			}
+
 
 		}
 		//else if(longreads) no2gnode[n1]->trf.Add(t1);
@@ -5991,25 +6028,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 	}
 
 
-	// set source-to-child transfrag abundances: optional in order not to keep these abundances too low:
-	// update the abundances of the transfrags coming in from source and going to a node that doesn't have other parents than source
-	// * this part was removed to improve performance
-	CGraphnode *source=no2gnode[0];
-	for(int i=0;i<source->child.Count();i++) {
-		float abundance=0;
-		int t0=-1;
-		if(no2gnode[source->child[i]]->parent.Count()==1 && !no2gnode[source->child[i]]->parent[0]) { // source is the only parent of node
-			for(int j=0;j<no2gnode[source->child[i]]->trf.Count();j++) {
-				int t=no2gnode[source->child[i]]->trf[j];
-				if(transfrag[t]->nodes.Last()==source->child[i]) t0=t;
-				else abundance+=transfrag[t]->abundance;
-			}
-			if(t0>-1 && transfrag[t0]->abundance) { // found transfrag from source to node and the transfrag wasn't deleted
-				transfrag[t0]->abundance=abundance;
-			}
-		}
-	}
-	// */
+
 
 	for(int t=0;t<incompletetrf.Count();t++)
 		transfrag[incompletetrf[t]]->real=trf_real(incompletetrf[t],no2gnode,transfrag,gpos,gno);
@@ -12061,12 +12080,12 @@ float nascent3max_flow(int gno,int sno,CTransfrag *nascent,GBitVec& istranscript
 
 		if(!sno) {
 			if(!i) {
-				float extracov=no2gnode[nascent->nodes[0]]->cov/no2gnode[nascent->nodes[0]]->len()-prop; // modif 2 -> good improvement
+				float extracov=no2gnode[nascent->nodes[0]]->cov/no2gnode[nascent->nodes[0]]->len()-prop; // modif 6 (on top of 2) -> good improvement
 				if(extracov> capacityleft[i]) capacityleft[i]=extracov;
 			}
 		}
 		else if(i==n-1) {
-			float extracov=no2gnode[nascent->nodes[i]]->cov/no2gnode[nascent->nodes[i]]->len()-prop; //modif 2 -> good improvement
+			float extracov=no2gnode[nascent->nodes[i]]->cov/no2gnode[nascent->nodes[i]]->len()-prop; //modif 6 (on top of 2) -> good improvement
 			if(extracov> capacityright[i]) capacityright[i]=extracov;
 		}
 
@@ -14148,6 +14167,15 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 	int maxi=0; // node with maximum coverage
 	GVec<float> nodecov; // node coverages
 
+	GVec<float> abundleft;
+	GVec<float> abundright;
+
+
+	if(isnascent) {
+		abundleft.cAdd(0.0);
+		abundright.cAdd(0.0);
+	}
+
 	for(int i=0;i<gno;i++) {
 		CGraphnode *inode=no2gnode[i]; // this is here only because of the DEBUG option below
 		nodecov.cAdd(0.0);
@@ -14158,8 +14186,8 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 		    int nn=inode->trf.Count();
 
 		    // modif 2
-			/*float abundnasc=0;
-			  if(isnascent && i<gno-2 && inode->end+1==no2gnode[i+1]->start) { // continuous nodes
+		    float abundnasc=0;
+		    if(isnascent && i<gno-2 && inode->end+1==no2gnode[i+1]->start) { // continuous nodes
 
 				// modif 4 -- this was much worse actually
 				// *4 float abundleft=0;
@@ -14182,13 +14210,17 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 				// also maybe only do a clean-up when there is not a high coverage continuity (like a drop in 90% only)
 
 				// this was in version 2,3
-				float abundleft=ERROR_PERC*get_cov_sign(2*strand,inode->end-bdata->start,inode->end-bdata->start,bdata->bpcov);
-				float abundright=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i+1]->start-bdata->start,no2gnode[i+1]->start-bdata->start,bdata->bpcov);
+				float abund=ERROR_PERC*get_cov_sign(2*strand,inode->end-bdata->start,inode->end-bdata->start,bdata->bpcov);
+				abundleft.Add(abund);
+				abund=ERROR_PERC*get_cov_sign(2*strand,no2gnode[i+1]->start-bdata->start,no2gnode[i+1]->start-bdata->start,bdata->bpcov);
+				abundright.Add(abund);
 
-				abundnasc=abundleft>abundright?abundleft:abundright;
+				// modif 2
+				/*abundnasc=abundleft>abundright?abundleft:abundright;*/
+
 				fprintf(stderr,"node %d: abund[%d]=%.1f abund[%d]=%.1f abundnasc=%f\n",i,inode->end,abundleft,no2gnode[i+1]->start,abundright,abundnasc);
 
-			}*/
+			}
 
 
 		    if(i<gno-1 && inode->len()) nodecov[i]=inode->cov/inode->len(); // sink also has 0 coverage
@@ -14198,41 +14230,46 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 		    float abundin=0;
 		    float abundout=0;
 		    float abundthrough=0;
-		    for(int j=0;j<nn;j++){
+		    for(int j=nn;j>=0;j--){
 		    	int t=inode->trf[j];
-		    	/*fprintf(stderr,"Trf abund=%.2f:",transfrag[t]->abundance);
-		    	for(int k=0;k<transfrag[t]->nodes.Count();k++) fprintf(stderr," %d",transfrag[t]->nodes[k]);
-		    	fprintf(stderr,"\n");*/
-
 		    	if(transfrag[t]->nodes.Last()==i) { // transfrag ends at this node (in transfrag)
 		    		abundin+=transfrag[t]->abundance;
 		    	}
 		    	else if(transfrag[t]->nodes[0]==i) { // transfrag starts at this node (out transfrag)
-		    		// modif 2
-		    		/*if(isnascent && transfrag[t]->nodes.Last()==i+1 && abundnasc>0) {
+		    		if(isnascent) {
+		    			//fprintf(stderr,"found nascent transcript with abund=%.1f\n",transfrag[t]->abundance);
 
-		    			fprintf(stderr,"found nascent transcript with abund=%.1f\n",transfrag[t]->abundance);
+		    			if(transfrag[t]->nodes.Last()==i+1 && abundnasc>0) {
+			    			// modif 2
+		    				/*if(transfrag[t]->abundance>abundnasc) {
+		    					transfrag[t]->abundance-=abundnasc;
+		    					abundnasc=0;
+		    				}
+		    				else {
+		    					transfrag[t]->abundance=0;
+		    					abundnasc-=transfrag[t]->abundance;
+		    				}*/
 
-		    			if(transfrag[t]->abundance>abundnasc) {
-		    				transfrag[t]->abundance-=abundnasc;
-		    				abundnasc=0;
 		    			}
-		    			else {
-		    				transfrag[t]->abundance=0;
-		    				abundnasc-=transfrag[t]->abundance;
-		    			}
-		    		}*/
+
+		    		}
 		    		abundout+=transfrag[t]->abundance;
 		    	}
 		    	else if(transfrag[t]->pattern[i]) { // through transfrag (here I checked that the transfrag clearly goes through the node)
 		    		abundthrough+=transfrag[t]->abundance;
 		    	}
+		    	fprintf(stderr,"Trf[%d:%d:%d] abund=%.2f:",t,i,j,transfrag[t]->abundance);
+		    	for(int k=0;k<transfrag[t]->nodes.Count();k++) fprintf(stderr," %d",transfrag[t]->nodes[k]);
+		    	fprintf(stderr,"\n");
+
+
 		    }
 
 		    if(abundin) inode->rate=abundout/abundin;
 		    if(abundout) inode->capacity=abundout+abundthrough; // node capacity tells me how much of that node coverage I can use given how many transfrags leave the node
 		    else inode->capacity=abundin+abundthrough;
 		} // end if i
+
 
 		/*
 		{ // DEBUG ONLY
