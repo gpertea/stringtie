@@ -494,9 +494,10 @@ struct CSegCov:public GSeg {
 
 struct CMaxIntv:public GSeg {
 	GVec<CExon> node;
+	float cov;
 	CMaxIntv *next; // next interval;
-	CMaxIntv(uint start=0,uint end=0):GSeg(start,end),node(),next(NULL) {}
-	CMaxIntv(GVec<CExon>& _node,uint start,uint end,CMaxIntv *_next=NULL):GSeg(start,end),node(_node),next(_next) {}
+	CMaxIntv(uint start=0,uint end=0):GSeg(start,end),node(),cov(0.0),next(NULL) {}
+	CMaxIntv(GVec<CExon>& _node,uint start,uint end,float _cov=0.0,CMaxIntv *_next=NULL):GSeg(start,end),node(_node),cov(_cov),next(_next) {}
 };
 
 struct GInterval {

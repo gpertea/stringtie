@@ -12407,7 +12407,7 @@ int store_nascent2transcript(GList<CPrediction>& pred,int pn,int lp, int& geneno
 	int nstart=nascent->longstart;
 	int nend=nascent->longend;
 
-	GSeg exon(no2gnode[nstart]->end+1,no2gnode[nend]->start-1);
+	GSeg exon(no2gnode[nstart]->end+1,no2gnode[nend]->start-1); // assign full intron as nascent
 	float excov=0;
 
 	int s=0;
@@ -18055,7 +18055,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 		else { // end>=maxint->start --> there is overlap
 
 			if(maxint->start<start) { // some region of maxint comes before exon
-				nextmaxint=new CMaxIntv(maxint->node,start,maxint->end,maxint->next);
+				nextmaxint=new CMaxIntv(maxint->node,start,maxint->end,0,maxint->next);
 				maxint->next=nextmaxint;
 				maxint->end=start-1;
 			}
@@ -18072,7 +18072,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 			nextmaxint->node.Add(ex);
 
 			if(end<nextmaxint->end) { // nextmaxint now ends where previous maxint ended
-				maxint=new CMaxIntv(nextmaxint->node,end+1,nextmaxint->end,nextmaxint->next);
+				maxint=new CMaxIntv(nextmaxint->node,end+1,nextmaxint->end,0,nextmaxint->next);
 				nextmaxint->end=end;
 				maxint->node.Pop();
 				nextmaxint->next=maxint;
@@ -18101,7 +18101,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 					maxint->next=newintv;
 				}
 				else if(end<maxint->end) {
-					CMaxIntv *newintv=new CMaxIntv(maxint->node,end+1,maxint->end,maxint->next);
+					CMaxIntv *newintv=new CMaxIntv(maxint->node,end+1,maxint->end,0,maxint->next);
 					newintv->node.Pop();
 					maxint->next=newintv;
 					maxint->end=end;
@@ -18128,7 +18128,7 @@ bool intronic(GList<CPrediction>& pred,int m,int M) {
 
 	if(pred[m]->start<=pred[M]->exons[i-1].end) {
 		int len=pred[M]->exons[i-1].end-pred[m]->start+1;
-		if(len>ERROR_PERC*abs(pred[m]->tlen)) return false; // overlap too big for prediction to be considered intronic
+		if(len>ERROR_PERC*abs(pred[m]->tlen)) return false; // overlap too big for prediction to be con
 	}
 	if(pred[m]->end>=pred[M]->exons[i].start) {
 		int len=pred[m]->end-pred[M]->exons[i].start+1;
@@ -18349,6 +18349,20 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		}
 		*/
 
+	}
+
+	{ // DEBUG ONLY
+		fprintf(stderr,"Maxint created:\n");
+		CMaxIntv *intv=maxint;
+		int k=0;
+		while(intv) {
+			k++;
+			float intvcov=get_cov(1,intv->start-bundleData->start,intv->end-bundleData->start,bpcov)/intv->len();
+			fprintf(stderr,"intv[%d] %d-%d with cov=%.1f from pred:",k,intv->start,intv->end,intvcov);
+			for(int i=0;i<intv->node.Count();i++) fprintf(stderr," %d%c[%d]",intv->node[i].predno,pred[intv->node[i].predno]->strand,intv->node[i].exonno);
+			fprintf(stderr,"\n");
+			intv=intv->next;
+		}
 	}
 
 	if(checkincomplete) {
@@ -18640,7 +18654,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	}
 	else { // recompute coverages -> mostly for short reads; long reads should be more reliable in the way coverages are estimated
 		bool adjust=true;
-		while(adjust) { // by here I eliminated inclusions and intronic single exons
+		while(adjust) { // by here I eliminated inclusions and intronic single exons -> not necessarily if they bpassed cetain thresholds
 			adjust=false;
 
 			for(int n=0;n<npred;n++) if(pred[n]->flag) {
@@ -18666,7 +18680,11 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 					}
 
 					if(covsum) {
-						float totalcov=get_cov(1,nextmaxint->start-bundleData->start,nextmaxint->end-bundleData->start,bpcov);
+						float totalcov=nextmaxint->cov;
+						if(!totalcov) {
+							totalcov=get_cov(1,nextmaxint->start-bundleData->start,nextmaxint->end-bundleData->start,bpcov);
+							nextmaxint->cov=totalcov;
+						}
 						exord.Sort(predordCmp); // sort exons from the most highest coverage to lowest
 						int i=exord[0].predno;
 						int n=nextmaxint->node[i].predno;
@@ -18752,6 +18770,90 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 					//predord[p].cov=pred[n]->cov;
 					//fprintf(stderr,"coverage of pred[%d]=%f\n",n,pred[n]->cov);
 				}
+			}
+
+
+			if(isnascent && !adjust) { // check for readthrough predictions and predictions inside introns modif 17
+
+
+				{ // DEBUG ONLY
+					fprintf(stderr,"Maxint after clean-up:\n");
+					CMaxIntv *intv=maxint;
+					int k=0;
+					while(intv) {
+						bool isfalse=true;
+						for(int i=0;i<intv->node.Count();i++) if(pred[intv->node[i].predno]->flag) { isfalse=false;break;}
+						if(!isfalse) {
+							k++;
+							float intvcov=get_cov(1,intv->start-bundleData->start,intv->end-bundleData->start,bpcov)/intv->len();
+							fprintf(stderr,"intv[%d] %d-%d with cov=%.1f from pred:",k,intv->start,intv->end,intvcov);
+							for(int i=0;i<intv->node.Count();i++) if(pred[intv->node[i].predno]->flag) fprintf(stderr," %d%c[%d]",intv->node[i].predno,pred[intv->node[i].predno]->strand,intv->node[i].exonno);
+							fprintf(stderr,"\n");
+						}
+						intv=intv->next;
+					}
+				}
+
+
+				CMaxIntv *intv=maxint;
+				for(int i=0;i<npred;i++) if(pred[i]->flag) {
+					fprintf(stderr,"check pred[%d]\n",i);
+					while(intv->end<pred[i]->start) intv=intv->next;
+					CMaxIntv *pintv=intv;
+					uint laststop=pred[i]->end;
+					for(int j=i+1;j<npred;j++) if(pred[j]->flag) {
+						if(pred[j]->start>pred[i]->end) break;
+						if(overlap[i*npred+j]) { // j overlaps i
+							while(pintv->end<pred[j]->start) pintv=pintv->next;
+							if(pred[i]->cov<ERROR_PERC*pred[j]->cov) { // pred[j] has much higher coverage -> pred[i] might be a readthrough
+								if(pred[j]->start>laststop) {
+									fprintf(stderr,"...pred i=%d eliminated due to pred j=%d\n",i,j);
+									pred[i]->flag=false;
+									adjust=true;
+									break;
+								}
+								else if(pred[j]->end<laststop) {
+									laststop=pred[j]->end;
+									fprintf(stderr,"...set last stop at %d due to prediction %d\n",laststop,j);
+								}
+							}
+							else if(pred[j]->cov<ERROR_PERC*pred[i]->cov) { // pred[j] might be a readthrough
+								for(int k=j+1;k<npred;k++) if(pred[k]->flag){
+									if(pred[k]->start>pred[j]->end) break;
+									if(pred[k]->start>pred[i]->end && pred[j]->cov<ERROR_PERC*pred[k]->cov) {
+										fprintf(stderr,"...pred j=%d eliminated due to pred i=%d and k=%d\n",j,i,k);
+										pred[j]->flag=false;
+										adjust=true;
+										break;
+									}
+								}
+							}
+						}
+						else if(pred[j]->exons.Count()<=2) { // pred[j] is intronic modif 18
+							if(!pintv->cov) {
+								pintv->cov=get_cov(1,pintv->start-bundleData->start,pintv->end-bundleData->start,bpcov);
+							}
+							if(pred[j]->cov<lowisofrac*pintv->cov/pred[j]->exons.Count()) {pred[j]->flag=false; adjust=true;}
+							else { // try to find next interval for prediction i
+								CMaxIntv *aintv=pintv;
+								while(aintv->start<=pred[j]->end) aintv=aintv->next;
+								while(aintv->start<pred[i]->end) {
+									for(int k=0;k<aintv->node.Count();k++) {
+										if(aintv->node[k].predno==i) {
+											if(!aintv->cov) {
+												aintv->cov=get_cov(1,aintv->start-bundleData->start,aintv->end-bundleData->start,bpcov);
+											}
+											if(pred[j]->cov<lowisofrac*aintv->cov/pred[j]->exons.Count()) {pred[j]->flag=false; adjust=true;}
+											break;
+										}
+									}
+									aintv=aintv->next;
+								}
+							}
+						}
+					} // end pred[j]
+				} // end pred[i]
+
 			}
 		}
 	}
@@ -18858,7 +18960,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	for(int n=0;n<npred;n++) if(pred[n]->flag) {
 
-		/*
+
 		{ // DEBUG ONLY
 			  fprintf(stderr,"\nprint prediction %d with cov=%f len=%d",n,pred[n]->cov,pred[n]->tlen);
 				if(pred[n]->t_eq) fprintf(stderr," refid=%s",pred[n]->t_eq->getID());
@@ -18868,7 +18970,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			  for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," cov=%f len=%d",pred[n]->exoncov[i],pred[n]->exons[i].len());
 			  fprintf(stderr,"\n");
 		}
-		*/
+
 
 		transcripts[genes[n]]++;
 		pred[n]->geneno=genes[n]+geneno+1;
@@ -20168,7 +20270,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	}
 	//}
 
-	/*
+
     { // DEBUG ONLY
     	fprintf(stderr,"Before predcluster:\n");
 		for(int i=0;i<npred;i++) {
@@ -20186,7 +20288,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
     	}
 		fprintf(stderr,"\n");
     }
-    */
+
 
 	if(npred) geneno=print_predcluster(pred,geneno,refname,refgene,hashgene,predgene,bundleData,incomplete);
 
