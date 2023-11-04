@@ -545,8 +545,8 @@ struct GEdge { // guide edge
 struct CGraphnode:public GSeg {
 	int nodeid;
 	float cov;
-	float capacity; // sum of all transcripts abundances exiting and through node
-	float rate; // conversion rate between in and out transfrags of node
+	float abundin; //sum of all transfrags entering node
+	float abundout; //sum of all transfrags exiting node
 	//float frag; // number of fragments included in node
 	GVec<int> child;
 	GVec<int> parent;
@@ -556,8 +556,8 @@ struct CGraphnode:public GSeg {
 	bool hardstart:1; // verified/strong start
 	bool hardend:1;	// verified/strong end
 	//CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float cap=0,float r=0,float f=0):GSeg(s,e),nodeid(id),cov(nodecov),capacity(cap),rate(r),frag(f),child(),parent(),childpat(),parentpat(),trf(){}
-	CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float cap=0,float r=0):GSeg(s,e),
-			nodeid(id),cov(nodecov),capacity(cap),rate(r),child(),parent(),childpat(),parentpat(),trf(),hardstart(false),hardend(false){}
+	CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float in=0,float out=0):GSeg(s,e),
+			nodeid(id),cov(nodecov),abundin(in),abundout(out),child(),parent(),childpat(),parentpat(),trf(),hardstart(false),hardend(false){}
 };
 
 // # 0: strand; 1: start; 2: end; 3: nreads; 4: nreads_good;
