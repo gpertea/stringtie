@@ -6021,6 +6021,23 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 	}
 	// */
 
+	// update the abundances of the nodes going to sink based on the abundance of the sink // modif 23
+	CGraphnode *sink=no2gnode[gno-1];
+	for(int i=0;i<sink->parent.Count();i++) {
+		float abundance=0;
+		int t0=-1;
+		int nn=no2gnode[sink->parent[i]]->trf.Count();
+		for(int j=0;j<nn;j++){
+			int t=no2gnode[sink->parent[i]]->trf[j];
+			if(transfrag[t]->nodes.Last()==gno-1) t0=t;
+			else abundance+=transfrag[t]->abundance;
+		}
+		if(t0>-1 && transfrag[t0]->abundance && transfrag[t0]->abundance<=1) {
+			transfrag[t0]->abundance=no2gnode[sink->parent[i]]->cov/no2gnode[sink->parent[i]]->len()-abundance;
+			if(transfrag[t0]->abundance<1) transfrag[t0]->abundance=1;
+		}
+	}
+
 }
 
 
