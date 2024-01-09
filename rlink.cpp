@@ -12888,7 +12888,7 @@ void guides_pushmaxflow_onestep(int gno,GIntHash<int>& gpos,GPVec<CGraphnode>& n
 							//}
 						}
 						else {
-							update_guide_pred(pred,guidepred[guidetrf[g].g],guidetrf[0].trf->nodes,nodeflux,nodecov,no2gnode,gno,true);
+							update_guide_pred(pred,guidepred[guidetrf[g].g],guidetrf[g].trf->nodes,nodeflux,nodecov,no2gnode,gno,true);
 						}
 						//nodeflux.Clear();
 					}
@@ -13632,7 +13632,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 			if(i<gno-2) {
 
 				if(isnascent && inode->end+1==no2gnode[i+1]->start && !guidetrf.Count()) { // modif 19
-				//if(isnascent && inode->end+1==no2gnode[i+1]->start) {  // modif 22
+				//if(isnascent && inode->end+1==no2gnode[i+1]->start) {  // modif 22,24,25
 					//if(inode->child.Count()>2 || !inode->childpat[gno-1])
 						continuous=true;
 				}
@@ -18589,7 +18589,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		 //TODO: this eliminates e.g. 0.98 cov prediction based on long read that otherwise covers all the junctions!
 		 //  =>  implement a jcov metric (junction coverage) which should supersede base coverage ?
 		//if (pred[i]->cov<1 ||
-		//		(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) { // modif 21
+			//	(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) { // modif 21,25
 		if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) { // modif 19
 			pred[i]->flag=false;
 			if(pred[i]->linkpred) pred[i]->linkpred->flag=false;
