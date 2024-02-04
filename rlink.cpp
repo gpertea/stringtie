@@ -15689,41 +15689,6 @@ int build_graphs(BundleData* bdata) {
     				process_transfrags(s,graphno[s][b],edgeno[s][b],no2gnode[s][b],transfrag[s][b],tr2no[s][b],gpos[s][b],guidetrf,pred,trflong,bdata,abundleft,abundright);
     				//get_trf_long(graphno[s][b],edgeno[s][b], gpos[s][b],no2gnode[s][b],transfrag[s][b],geneno,s,pred,trflong);
 
-    				/*
-    				{ //DEBUG ONLY
-    					//printTime(stderr);
-    					fprintf(stderr,"There are %d nodes for graph[%d][%d]:\n",graphno[s][b],s,b);
-    					for(int i=0;i<graphno[s][b];i++) {
-    						fprintf(stderr,"%d (%d-%d): %f len=%d cov=%f",i,no2gnode[s][b][i]->start,no2gnode[s][b][i]->end,no2gnode[s][b][i]->cov,no2gnode[s][b][i]->len(),no2gnode[s][b][i]->cov/no2gnode[s][b][i]->len());
-    						fprintf(stderr," parents:");
-    						for(int j=0;j<no2gnode[s][b][i]->parent.Count();j++) fprintf(stderr," %d",no2gnode[s][b][i]->parent[j]);
-    						fprintf(stderr," children:");
-    						for(int j=0;j<no2gnode[s][b][i]->child.Count();j++) fprintf(stderr," %d",no2gnode[s][b][i]->child[j]);
-    						fprintf(stderr," trf=");
-    						for(int j=0;j<no2gnode[s][b][i]->trf.Count();j++) fprintf(stderr," %d",no2gnode[s][b][i]->trf[j]);
-    						fprintf(stderr,"\n");
-    					}
-    					fprintf(stderr,"There are %d transfrags[%d][%d]:\n",transfrag[s][b].Count(),s,b);
-    					for(int t=0;t<transfrag[s][b].Count();t++) {
-    						fprintf(stderr,"%d: ",t);
-    						//printBitVec(transfrag[s][b][t]->pattern);
-    						fprintf(stderr," %f(%f) long=%d short=%d nodes=%d",transfrag[s][b][t]->abundance,transfrag[s][b][t]->srabund, transfrag[s][b][t]->longread,transfrag[s][b][t]->shortread,transfrag[s][b][t]->nodes.Count());
-    						for(int i=0;i<transfrag[s][b][t]->nodes.Count();i++) fprintf(stderr," %d",transfrag[s][b][t]->nodes[i]);
-    						if(!transfrag[s][b][t]->abundance) fprintf(stderr," *");
-    						fprintf(stderr,"\n");
-    					}
-
-    				}
-    				*/
-
-/*
-#ifdef GMEMTRACE
-    				double vm,rsm;
-    				get_mem_usage(vm, rsm);
-    				GMessage("\t\tM(after process_transfrags):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
-#endif
-*/
-
     				//fprintf(stderr,"guidetrf no=%d\n",guidetrf.Count());
 
     				//if(!longreads) {
@@ -15732,23 +15697,6 @@ int build_graphs(BundleData* bdata) {
     						geneno,s,guidetrf,guides,guidepred,bdata,trflong,abundleft,abundright);
     				//}
     				for(int g=0;g<guidetrf.Count();g++) delete guidetrf[g].trf;
-
-
-    				/*
-    				{ //DEBUG ONLY
-    					printTime(stderr);
-    					fprintf(stderr,"Processed transcripts for s=%d b=%d\n",s,b);
-    				}
-    				*/
-
-/*
-#ifdef GMEMTRACE
-    				//double vm,rsm;
-    				get_mem_usage(vm, rsm);
-    				GMessage("\t\tM(after processed transcripts):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
-#endif
-*/
-
 
     			}
     			// clean up what can be cleaned
@@ -15774,25 +15722,6 @@ int build_graphs(BundleData* bdata) {
     		bnode[sno].Clear();
     	}
     }
-
-/*
-#ifdef GMEMTRACE
-    //double vm,rsm;
-    get_mem_usage(vm, rsm);
-	GMessage("\t\tM(e):build_graphs memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
-#endif
-*/
-
-    /*
-    { // DEBUG ONLY
-    	for(int i=0;i<pred.Count();i++) {
-    		if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
-    		fprintf(stderr,"pred[%d] (cov=%f,strand=%c):",i,pred[i]->cov,pred[i]->strand);
-    		for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
-    		fprintf(stderr,"\n");
-    	}
-    }
-    */
 
     // don't forget to clean up the allocated data here
     return(geneno);
@@ -15873,7 +15802,6 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 
 		CReadAln & rd=*(readlist[n]);
 		/* 	// if I want to eliminate transcripts that have very bad junctions this is the code to do it
-
 		bool keep=true;
 		if(rd.tinfo->g==-1) { // if this is not a guide
 			int i=0;

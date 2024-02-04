@@ -43,6 +43,7 @@ const float lowisofrac=0.02;
 
 const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
+extern bool genNascent; // generate nascent synthetic transcripts
 extern bool mergeMode;
 extern bool forceBAM; //for stdin alignment data
 

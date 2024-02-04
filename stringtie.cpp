@@ -65,6 +65,7 @@ Options:\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
+ -N/--nasc : generate synthetic nascent transcripts for every guide\n\
  -E define window around possibly erroneous splice sites from long reads to\n\
     look out for correct splice sites (default: 25)\n\
  -B enable output of Ballgown table files which will be created in the\n\
@@ -202,6 +203,7 @@ bool ballgown=false;
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
+bool genNascent = false; //-N/--nasc : internally generate synthetic nascent transcripts
 
 bool mixedMode = false; // both short and long read data alignments are provided
 bool isnascent=false;
@@ -313,8 +315,8 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;isnascent;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
-   "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
+   "debug;help;version;viral;conservative;mix;isnascent;nasc;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "exclude=zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
  processOptions(args);
@@ -1035,6 +1037,10 @@ void processOptions(GArgs& args) {
 	 mergeMode=(args.getOpt("merge")!=NULL);
 	 if(mergeMode) {
 		 longreads=false; // these are not longreads
+	 }
+	 // get genNascent option from -N or --nasc
+	 if (args.getOpt('N') || args.getOpt("nasc")) {
+		 genNascent=true;
 	 }
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
 	 //adaptive=!(args.getOpt('d')!=NULL);
