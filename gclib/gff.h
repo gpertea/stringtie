@@ -724,6 +724,7 @@ class GffObj:public GSeg {
     	                                  //deallocated when GffReader is destroyed
     	  bool flag_FINALIZED         :1; //if finalize() was already called for this GffObj
     	  unsigned int gff_level      :4; //hierarchical level (0..15)
+        unsigned int flag_USER_FLAGS :8; //user flags for setUserFlag() and getUserFlag()
       };
    };
    //-- friends:
@@ -776,6 +777,9 @@ public:
   void isGeneSegment(bool v) {flag_GENE_SEGMENT=v; }
   bool promotedChildren() { return flag_CHILDREN_PROMOTED; }
   void promotedChildren(bool v) { flag_CHILDREN_PROMOTED=v; }
+  // user flags are given as 8 bits bitmasks
+  void setUserFlag(byte fmask) {flag_USER_FLAGS |= fmask; }
+  bool getUserFlag(byte fmask) { return (flag_USER_FLAGS & fmask); }
   void setLevel(byte v) { gff_level=v; }
   byte getLevel() { return gff_level; }
   byte incLevel() { gff_level++; return gff_level; }
