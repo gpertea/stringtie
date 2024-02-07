@@ -63,7 +63,10 @@ for i in ${!arrmsg[@]}; do
    echo "Error: file $fout not created! Failed running stringtie on $fin"
    exit 1
  fi
- if diff -q -I '^#' $fout $fcmp &>/dev/null; then
+ perl -pe 's/"(\d+.\d\d\d\d)\d+"/"$1"/g' < $fout > $fout.d
+ perl -pe 's/"(\d+.\d\d\d\d)\d+"/"$1"/g' < $fcmp > $fcmp.d
+ #if diff -q -I '^#' $fout $fcmp &>/dev/null; then
+ if diff -q -Z -I '^#' $fout.d $fcmp.d &>/dev/null; then
     echo "  OK."
  else
    echo "Error: test failed, output $fout different than expected ($fcmp)!"

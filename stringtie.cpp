@@ -946,7 +946,6 @@ if(!mergeMode) {
 		if(geneabundance) fclose(g_out);
 		GFREE(linebuf);
 		if (!keepTempFiles) {
-			GMessage("Removing temporary file: %s\n", tmpfname.chars());
 			int rv=remove(tmpfname.chars());
 			if (rv) {
 				perror(tmpfname.chars());
