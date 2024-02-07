@@ -50,12 +50,22 @@ extern bool debugMode;
 
 extern bool genNascent; // generate nascent synthetic transcripts for each bundle
 
+void setTxSynNasc(GffObj* t, bool set=true); // set/clear the synthetic nascent RNA flag
+bool isTxSynNasc(GffObj* t); // check if a transcript is a synthetic nascent RNA
+//TODO: set/getBundleFlag - should set/get  (RC_TData*)(keepguides[i]->uptr)->in_bundle
+//        1 = default, 2 = every intron covered by a read, 3 = stored to be printed
+byte getGuideStatus(GffObj* t);
+void setGuideStatus(GffObj* t, byte status);
+
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
-  GList<GffObj> rnas; //all transcripts on this genomic seq
-  int gseq_id;
-  const char* gseq_name;
-  GRefData(int gid=-1):rnas(false,true,false),gseq_id(gid),gseq_name(NULL) {
+  GList<GffObj> rnas; //all guides on this genomic seq; they are added in order as sorted in GffReader
+  GList<GffObj> synrnas; //just keep track/store of synthetic nascent transcripts generated on this chr
+  int gseq_id; //chromosome index in GffObj::names->gseqs
+  const char* gseq_name; //chromosome name
+                          // rnas list: unsorted, dealloc on free, duplicates allowed
+  GRefData(int gid=-1):rnas(false, true, false), synrnas(false, true, false),
+                       gseq_id(gid),gseq_name(NULL) {
     gseq_id=gid;
     if (gseq_id>=0)
        gseq_name=GffObj::names->gseqs.getName(gseq_id);
@@ -72,10 +82,10 @@ struct GRefData {
         if (gffr->gseqtable[gseq_id]==NULL)
             GError("Error: invalid genomic sequence data (%s)!\n",gseq_name);
         rnas.setCapacity(gffr->gseqtable[gseq_id]->fcount);
+		if (genNascent) synrnas.setCapacity(gffr->gseqtable[gseq_id]->fcount);
      }
      rnas.Add(t);
-     t->isUsed(true);
-     //setLocus(t); //use the GRefLocus::mexons to quickly find an overlap with existing loci, or create a new one
+     t->isUsed(true); //mark as used, to prevent deletion in GffReader destructor by gflst::freeUnused()
   }
 
   bool operator==(GRefData& d){
@@ -85,6 +95,7 @@ struct GRefData {
     return (gseq_id<d.gseq_id);
   }
 };
+
 
 
 struct CBundlenode:public GSeg {
@@ -669,10 +680,10 @@ struct BundleData {
  GList<CReadAln> readlist;
  GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
- GPVec<GffObj> keepguides;
+ GPVec<GffObj> keepguides; //list of guides in this bundle (+ synthetic nascents if genNascent) 
  GPVec<GPtFeature> ptfs; //point features for this bundle
  GList<CPrediction> pred;
- RC_BundleData* rc_data;
+ RC_BundleData* rc_data; // read count data for this bundle
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 numreads(0),
 		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
@@ -689,8 +700,9 @@ struct BundleData {
 	 //refseq=ref;
 	 //tag all these guides
 	 for (int i=0;i<this->keepguides.Count();++i) {
-		 RC_TData* tdata=(RC_TData*)(keepguides[i]->uptr);
-		 tdata->in_bundle=1;
+		 //RC_TData* tdata=(RC_TData*)(keepguides[i]->uptr);
+		 //tdata->in_bundle=1;
+		 setGuideStatus(keepguides[i],1);
 	 }
 	 status=BUNDLE_STATUS_READY;
  }

@@ -8969,8 +8969,9 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 		float gcov=cov;
 
 		if (t && t->uptr) {
-			RC_TData &td = *(RC_TData*) (t->uptr);
-			td.in_bundle=3;
+			//RC_TData &td = *(RC_TData*) (t->uptr);
+			//td.in_bundle=3;
+			setGuideStatus(t, 3);
 			//fprintf(stderr,"st guide %s is stored\n",t->getID());
 		}
 
@@ -9079,10 +9080,12 @@ int store_guide_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>&
 	if(longreads) p->tlen=-p->tlen;
 	pred.Add(p);
 
-	if (t && t->uptr) {
-		RC_TData &td = *(RC_TData*) (t->uptr);
-		td.in_bundle=3;
-		//fprintf(stderr,"sg guide %s is stored\n",t->getID());
+	//if (t && t->uptr) {
+	//	RC_TData &td = *(RC_TData*) (t->uptr);
+	//	td.in_bundle=3;
+	if (t) {
+	    setGuideStatus(t, 3);
+	    //fprintf(stderr,"st guide %s is stored\n",t->getID());
 	}
 
 	update_guide_pred(pred,np,path,nodeflux,nodecov,no2gnode,gno,update);
@@ -9829,10 +9832,12 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 GffObj *g=NULL;
 						 if(transfrag[t]->guide) {
 							 g=guides[int(transfrag[t]->guide-1)];
-							 if (g && g->uptr) {
+							 /* if (g && g->uptr) {
 								 RC_TData &td = *(RC_TData*) (g->uptr);
-								 td.in_bundle=3;
-								 //fprintf(stderr,"sg guide %s is stored\n",g->getID());
+								 td.in_bundle=3; */
+							 if (g) {
+								setGuideStatus(g, 3);	 
+								//fprintf(stderr,"sg guide %s is stored\n",g->getID());
 							 }
 						 }
 
@@ -9987,10 +9992,12 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 GffObj *g=NULL;
 						 if(transfrag[t]->guide) {
 							 g=guides[int(transfrag[t]->guide-1)];
-							 if (g && g->uptr) {
+							 /* if (g && g->uptr) {
 								 RC_TData &td = *(RC_TData*) (g->uptr);
-								 td.in_bundle=3;
-								 //fprintf(stderr,"sg guide %s is stored\n",g->getID());
+								 td.in_bundle=3; */
+							 if (g) {
+								setGuideStatus(g, 3);	 
+								//fprintf(stderr,"sg guide %s is stored\n",g->getID());
 							 }
 						 }
 						 //fprintf(stderr,"2 Store prediction %d:%d-%d  with len=%d and abundance=%f startpoint=%d endpoint=%d\n",pred.Count(),exons[0].start ,exons.Last().end,len,cov/len,startpoint,endpoint);
@@ -10358,12 +10365,14 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 					 //fprintf(stderr,"Store prediction %d  with abundance=%f len=%d\n",pred.Count(),cov/len,len);
 					 GffObj *g=NULL;
 					 if(transfrag[t]->guide) {
-						 g=guides[int(transfrag[t]->guide-1)];
-						 if (g && g->uptr) {
-							 RC_TData &td = *(RC_TData*) (g->uptr);
-							 td.in_bundle=3;
-							 //fprintf(stderr,"sg guide %s is stored\n",g->getID());
-						 }
+						g=guides[int(transfrag[t]->guide-1)];
+						/* if (g && g->uptr) {
+							RC_TData &td = *(RC_TData*) (g->uptr);
+							td.in_bundle=3; */
+						if (g) {
+						    setGuideStatus(g, 3);	 
+						    //fprintf(stderr,"sg guide %s is stored\n",g->getID());
+						}
 					 }
 					 if(!eonly || g) {
 						 /*fprintf(stderr,"1 Store prediction %d  with abundance=%f len=%d and exons:",pred.Count(),cov/len,len);
@@ -10498,10 +10507,12 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 				 GffObj *g=NULL;
 				 if(transfrag[t]->guide) {
 					 g=guides[int(transfrag[t]->guide-1)];
-					 if (g && g->uptr) {
-						 RC_TData &td = *(RC_TData*) (g->uptr);
-						 td.in_bundle=3;
-						 //fprintf(stderr,"sg guide %s is stored\n",g->getID());
+					 /* if (g && g->uptr) {
+							 RC_TData &td = *(RC_TData*) (g->uptr);
+							 td.in_bundle=3; */
+					 if (g) {
+							setGuideStatus(g, 3);	 
+							//fprintf(stderr,"sg guide %s is stored\n",g->getID());
 					 }
 				 }
 				 //fprintf(stderr,"2 Store prediction %d:%d-%d  with len=%d and abundance=%f\n",pred.Count(),exons[0].start ,exons.Last().end,len,cov/len);
@@ -12198,7 +12209,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 	// find guides' patterns
 	for(int g=0;g<guides.Count();g++) {
 		//fprintf(stderr,"Consider guide[%d out of %d] %s in_bundle=%d\n",g,guides.Count(),guides[g]->getID(),((RC_TData*)(guides[g]->uptr))->in_bundle);
-		if((guides[g]->strand==strand || guides[g]->strand=='.') && ((RC_TData*)(guides[g]->uptr))->in_bundle>=2 && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
+		if((guides[g]->strand==strand || guides[g]->strand=='.') && getGuideStatus(guides[g])>=2 && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
 			CTransfrag *trguide=find_guide_pat(guides[g],no2gnode,gno,edgeno,gpos);
 			if(trguide) { // the guide can be found among the graph nodes
 				/*if(longreads) { // do not allow guide to be too far away from start/end of the transfrag
@@ -14001,20 +14012,20 @@ bool guide_exon_overlap(GPVec<GffObj>& guides,int sno,uint start,uint end) {
 	if(sno==2) strand='+';
 	else if(sno==0) strand='-';
 
-	for(int g=0;g<guides.Count();g++) if(((RC_TData *)(guides[g]->uptr))->in_bundle>=2 ){
-		if((sno==1 || guides[g]->strand==strand) && guides[g]->overlap(start,end)) { // guide overlaps than look at the exons
-			for(int i=0;i<guides[g]->exons.Count();i++) {
-				if(end<guides[g]->exons[i]->start) break;  // there won't be any further overlap
-				if(start<guides[g]->exons[i]->start) break;	// overlap is before start of exon
-				if(end<=guides[g]->exons[i]->end) {
-
-					//fprintf(stderr,"overlap btw %d-%d and exon %d-%d of guide %s\n",start,end,guides[g]->exons[i]->start,guides[g]->exons[i]->end,guides[g]->getID());
-
-					return true; // start is biger than exon start
+	for(int g=0;g<guides.Count();g++) 
+	  //if (((RC_TData *)(guides[g]->uptr))->in_bundle>=2 ) {
+		if (getGuideStatus(guides[g])>=2) {
+			if((sno==1 || guides[g]->strand==strand) && guides[g]->overlap(start,end)) { // guide overlaps than look at the exons
+				for(int i=0;i<guides[g]->exons.Count();i++) {
+					if(end<guides[g]->exons[i]->start) break;  // there won't be any further overlap
+					if(start<guides[g]->exons[i]->start) break;	// overlap is before start of exon
+					if(end<=guides[g]->exons[i]->end) {
+						//fprintf(stderr,"overlap btw %d-%d and exon %d-%d of guide %s\n",start,end,guides[g]->exons[i]->start,guides[g]->exons[i]->end,guides[g]->getID());
+						return true; // start is biger than exon start
+					}
 				}
 			}
-		}
-	}
+		} 
 
 	return false;
 }
@@ -14224,7 +14235,7 @@ int build_graphs(BundleData* bdata) {
 					}
 				}
 			}
-			else {
+			else { //use RC_TData::t_introns[]->rcount to determine if all introns are covered
 				for(int i=0;i<tdata->t_introns.Count();i++) {
 					if(!tdata->t_introns[i]->rcount) {
 						covered=false;
@@ -14233,9 +14244,9 @@ int build_graphs(BundleData* bdata) {
 				}
 			}
 
-			if(covered) {
-
-				tdata->in_bundle=2;
+			if(covered) { // all introns are covered by long or short reads
+				// tdata->in_bundle=2; 
+				setGuideStatus(guides[g], 2);
 				int s=-1; // unknown strand
 				if(guides[g]->strand=='+') s=1; // guide on positive strand
 				else if(guides[g]->strand=='-') s=0; // guide on negative strand
@@ -15359,7 +15370,8 @@ int build_graphs(BundleData* bdata) {
     				int glen=guides[g]->end-guides[g]->start+1;
     				if(glen && guides[g]->exons.Count()==1) {
     					RC_TData* tdata=(RC_TData*)(guides[g]->uptr);
-    					tdata->in_bundle=3;
+    					//tdata->in_bundle=3;
+						setGuideStatus(guides[g], 3);
     					float gcov=(tdata->t_exons[0])->movlcount/glen;
     					// if(cov<gcov) gcov=cov; WHY DO I DO THIS?? CHECK!!!
     					CPrediction *p=new CPrediction(geneno-1, guides[g], guides[g]->start, guides[g]->end, gcov, guides[g]->strand, glen);
@@ -15520,7 +15532,7 @@ int build_graphs(BundleData* bdata) {
     				while(cg<ng && guides[cg]->start<=bnode[sno][bundle[sno][b]->lastnodeid]->end) { // this are potential guides that might overlap the current bundle, and they might introduce extra edges
 
     					//fprintf(stderr,"...consider guide cg=%d with strand=%c and in_bundle=%d\n",cg,guides[cg]->strand,((RC_TData*)(guides[cg]->uptr))->in_bundle);
-    					if((guides[cg]->strand==strnd || guides[cg]->strand=='.') && ((RC_TData*)(guides[cg]->uptr))->in_bundle>=2) {
+    					if((guides[cg]->strand==strnd || guides[cg]->strand=='.') &&  getGuideStatus(guides[cg])>=2 ) { //((RC_TData*)(guides[cg]->uptr))->in_bundle>=2) {
     						//fprintf(stderr,"Add guide g=%d with start=%d end=%d\n",cg,guides[cg]->start,guides[cg]->end);
     						edgeno[s][b]+=2; // this is an overestimate: possibly I have both an extra source and an extra sink link
     						nolap++;
@@ -19347,7 +19359,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			if(guides[i]->exons.Count()>1 && longreads) isintronguide=true;
 
 			if (eonly) { // if eonly I need to print all guides that were not printed yet
-				if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
+				if (guides[i]->uptr && getGuideStatus(guides[i])<3) { // ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
 
 					fprintf(f_out,"1 %d %d %d 0.0\n",guides[i]->exons.Count()+1,guides[i]->covlen, ((RC_TData*)guides[i]->uptr)->t_id);
 					fprintf(f_out, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",refname.chars(),

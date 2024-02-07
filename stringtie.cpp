@@ -324,7 +324,7 @@ int main(int argc, char* argv[]) {
 	 */
  processOptions(args);
 
- GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
+ GVec<GRefData> refguides; // plain vector with guides loaded for each chromosome (if guided)
 
  GArray<GRefPtData> refpts(true, true); // sorted,unique array of refseq point-features data
 
@@ -398,7 +398,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		    			m->getFeatureName(), m->getID(), m->start, m->end);
 		    m->addExon(m->start, m->end); //should never happen!
 	   }
-	   //DONE: always keep a RC_TData pointer around, with additional info about guides
+	   //DONE: always create a RC_TData for each guide in uptr, with additional tx data
 	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
 	   m->uptr=tdata;
 	   guides_RC_tdata.Add(tdata);
@@ -407,7 +407,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		          c_intron_id, uintrons, guides_RC_introns);
 	   }
 	   GRefData& grefdata = refguides[m->gseq_id];
-	   grefdata.add(&gffr, m); //transcripts already sorted by location
+	   grefdata.add(&gffr, m); // add transcripts already sorted by location
    }
 	 if (verbose) {
 		 printTime(stderr);
@@ -1688,8 +1688,9 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 	 //gene_id abundances (0), accumulating coords
 	 for (int m=0;m<crefd.rnas.Count();++m) {
 		 GffObj &t = *crefd.rnas[m];
-		 RC_TData &td = *(RC_TData*) (t.uptr);
-		 if (td.in_bundle) {
+		 //RC_TData &td = *(RC_TData*) (t.uptr);
+		 //if (td.in_bundle) {
+		 if (getGuideStatus(&t)) {	
 			 if (gout && m==crefd.rnas.Count()-1)
 			 		writeUnbundledGenes(geneabs, crefd.gseq_name, gout);
 			 continue;

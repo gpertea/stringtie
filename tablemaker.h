@@ -1,10 +1,5 @@
-/*
- * tablemaker.h
- *
- *  Created on: Oct 26, 2014
- *      Author: gpertea
- */
-
+// tablemaker.h
+ 
 #ifndef TABLEMAKER_H_
 #define TABLEMAKER_H_
 #include <vector>
@@ -21,7 +16,7 @@ extern bool ballgown;
 void Ballgown_setupFiles(FILE* &f_tdata, FILE* &f_edata, FILE* &f_idata,
 	            FILE* &f_e2t, FILE* &f_i2t);
 
-struct RC_Feature { //exon or intron of a reference transcript
+struct RC_Feature { //read count data for exon or intron of a reference transcript
 	uint id; //feature id (>0), +1 to the index either in global guides_RC_exons/introns if ballgown,
 	         //                                 or in bundle_RC_exons/introns if not ballgown
 	GVec<uint> t_ids; //transcripts owning this feature
@@ -157,14 +152,16 @@ typedef map<uint, set<uint> >::iterator RC_Map2SetIt;
 */
 
 struct RC_TData { //storing RC data for a transcript
-	//only used with -B (full Ballgown data)
+    // uptr data block created for each guide, even those not used in a bundle
+	// but only fully used with -B (Ballgown Raw/Read Count data collection)
 	GffObj* ref_t;
 	uint t_id;
 	int l;
 	int r;
-	char in_bundle; // 1 if used by read bundles (present in keepguides),
-	                // 2 if all introns are covered by at least one read, 3 if it is stored to be printed
-	//GRefLocus* locus; //pointer to a locus info
+	// char in_bundle; // 1 if used in a bundle (guide added to keepguides, default value)
+	                // 2 if all introns are covered by at least one read, 
+					// 3 if it is stored to be printed
+			//NOTE: superseded by setGuideStatus/getGuideStatus(GffObj* t)
 	int eff_len;
 	double cov;
 	double fpkm;
@@ -176,8 +173,8 @@ struct RC_TData { //storing RC data for a transcript
 	void addFeature(int fl, int fr, GPVec<RC_Feature>& fvec, uint& f_id,
 			          GList<RC_Feature>& fset, GPVec<RC_Feature>& fdata,
 					  int& cache_idx);
-	RC_TData(GffObj& s, uint id=0):ref_t(&s), t_id(id), l(s.start), r(s.end),
-			in_bundle(0), eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
+	RC_TData(GffObj& s, uint id=0):ref_t(&s), t_id(id), l(s.start), r(s.end), //in_bundle(0), 
+	        eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
 			t_exons(false), t_introns(false) { //, e_idx_cache(-1), i_idx_cache(-1) {
 	}
 
@@ -310,7 +307,7 @@ struct RC_BundleData {
 		   g_introns.Add(tdata->t_introns[i]);
 	   }
 	}
-	else {
+	else { //no ballgown, but we still want to get exon and intron read coverage info
 		tdata->rc_addFeatures(c_exon_id, g_exons, *bundle_RC_exons,
 		        c_intron_id, g_introns, *bundle_RC_introns);
 	}

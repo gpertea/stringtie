@@ -1,5 +1,4 @@
-//#include "tablemaker.h"
-#include "rlink.h"
+#include "rlink.h" // this includes "tablemaker.h"
 #include <numeric>
 
 extern GStr ballgown_dir;
@@ -7,13 +6,40 @@ extern GStr ballgown_dir;
 int rc_cov_inc(int i) {
   return ++i;
 }
+const byte txNASCENT_FLAG=0x04;
+const byte txSTATUS_MASK=0x03; // 2 bits for bundle status, former RC_TData::in_bundle
+           // 1 if used in a bundle (guide added to keepguides, default value)
+	         // 2 if all introns are covered by at least one read 
+					 // 3 if it is stored to be printed
+byte getGuideStatus(GffObj* t) {
+  return t->getUserFlag(txSTATUS_MASK);
+}
+void setGuideStatus(GffObj* t, byte status) {
+  if (status>3) {
+    GError("Error: invalid status value %d set for transcript %s\n", status, t->getID());
+    exit(1);
+  }
+  t->setUserFlag(txSTATUS_MASK & status); // can be 1, 2 or 0 (clear)
+}
 
+// set/get synthetic nascent flag for a transcript
+void setTxSynNasc(GffObj* t, bool set) {
+      if (set) t->setUserFlag(txNASCENT_FLAG);
+      else t->clearUserFlag(txNASCENT_FLAG);
+}
+
+bool isTxSynNasc(GffObj* t) {
+      return t->getUserFlag(txNASCENT_FLAG);
+}
+
+// genNascent is included from rlink.h
 void BundleData::keepGuide(GffObj* t, GPVec<RC_TData>* rc_tdata,
 		 GPVec<RC_Feature>* rc_edata, GPVec<RC_Feature>* rc_idata) {
 	if (rc_data==NULL) {
 	  rc_init(t, rc_tdata, rc_edata, rc_idata);
 	}
 	keepguides.Add(t);
+
 	t->udata=(int)rc_data->addTranscript(*t);
 }
 
@@ -281,7 +307,7 @@ void rc_writeRC(GPVec<RC_TData>& RC_data,
  //i_id chr gstart gend rcount ucount mrcount
  rc_write_RCfeature(RC_data, RC_introns, f_idata, f_i2t);
 }
-
+// collect and prepare exons and introns for their raw counts storage etc. 
 void RC_TData::rc_addFeatures(uint& c_e_id, GList<RC_Feature>& exonSet, GPVec<RC_Feature>& exonTable,
                     uint& c_i_id, GList<RC_Feature>& intronSet, GPVec<RC_Feature>& intronTable) {
   GASSERT(ref_t);
