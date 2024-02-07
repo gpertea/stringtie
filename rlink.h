@@ -8,7 +8,6 @@
 #include "time.h"
 #include "tablemaker.h"
 #include "GHashMap.hh"
-//#include "cds.h"
 
 #define MAX_NODE 1000000
 #define KMER 31
@@ -43,12 +42,13 @@ const float lowisofrac=0.02;
 
 const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
-extern bool genNascent; // generate nascent synthetic transcripts
 extern bool mergeMode;
 extern bool forceBAM; //for stdin alignment data
 
 extern bool verbose;
 extern bool debugMode;
+
+extern bool genNascent; // generate nascent synthetic transcripts for each bundle
 
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
@@ -642,7 +642,6 @@ struct CTCov { //covered transcript info
 */
 
 // bundle data structure, holds all input data parsed from BAM file
-// - r216 regression
 struct BundleData {
  BundleStatus status;
  //int64_t bamStart; //start of bundle in BAM file

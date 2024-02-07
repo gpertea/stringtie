@@ -319,6 +319,9 @@ int main(int argc, char* argv[]) {
    "exclude=zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
+	/**
+	 * No code was selected, so no documentation can be generated.
+	 */
  processOptions(args);
 
  GVec<GRefData> refguides; // plain vector with transcripts for each chromosome
@@ -943,7 +946,11 @@ if(!mergeMode) {
 		if(geneabundance) fclose(g_out);
 		GFREE(linebuf);
 		if (!keepTempFiles) {
-			remove(tmpfname.chars());
+			GMessage("Removing temporary file: %s\n", tmpfname.chars());
+			int rv=remove(tmpfname.chars());
+			if (rv) {
+				perror(tmpfname.chars());
+			}
 		}
 	}
 	else {
@@ -960,7 +967,12 @@ if(!mergeMode) {
 
  if (!keepTempFiles) {
    tmp_path.chomp('/');
-   remove(tmp_path);
+   // check the results of remove() and show error if it fails
+   if (Grmdir(tmp_path.chars())) {
+	 GMessage("Error removing temporary directory: %s\n", tmp_path.chars());
+   }
+
+   
  }
 
 
@@ -1742,7 +1754,3 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 	 }
  }
 }
-
-
-
-
