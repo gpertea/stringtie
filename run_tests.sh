@@ -54,7 +54,9 @@ for i in ${!arrmsg[@]}; do
  fin=${arrins[$i]}.bam
  if [[ ${arrins[$i]} =~ ^mix ]]; then
    ins=( ${arrins[$i]} )
-   fin="${ins[0]}.bam ${ins[1]}.bam"
+   if [[ ${#ins[@]} -gt 1 ]]; then
+     fin="${ins[0]}.bam ${ins[1]}.bam"
+   fi
  fi
  echo "Running: ../stringtie ${arrparms[$i]} -o $fout $fin"
  ../stringtie ${arrparms[$i]} -o $fout $fin
