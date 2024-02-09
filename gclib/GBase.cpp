@@ -123,7 +123,7 @@ int Grmdir(const char *path) {
 #ifdef _WIN32
   return !RemoveDirectoryA(path);
 #else
-  return rmdir(path)
+  return rmdir(path);
 #endif
 }
 
