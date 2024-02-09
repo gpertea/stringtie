@@ -14,6 +14,8 @@ function unpack_test_data() {
      exit 1
   fi
   /bin/rm -f tests.tar.gz
+  
+  #cp tests_exp_out/*.gtf tests/ 2>/dev/null
 }
 
 #if [ ! -f tests/human-chr19_P.gff ]; then
@@ -24,19 +26,19 @@ function unpack_test_data() {
   else
     echo "..Downloading test data.."
     #use curl to fetch the tarball from a specific github release or branch
-    curl -sLO https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
+    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
     unpack_test_data
   fi
 # fi
 cd tests
 # array element format:
 # 
-arrins=("short_reads" "short_reads_and_superreads" "long_reads" "long_reads" \
-  "mix_short mix_long" "mix_short mix_long")
-arrparms=("" "" "-L" "-L -G human-chr19_P.gff" "--mix" "--mix -G mix_guides.gff")
-arrout=("short_reads" "short_reads_and_superreads" "long_reads" "long_reads_guided" \
-  "mix_reads" "mix_reads_guided")
-arrmsg=("Short reads"  "Short reads and super-reads" "Long reads" \
+arrins=("short_reads" "short_reads_and_superreads" "mix_short" "long_reads" \
+   "long_reads" "mix_short mix_long" "mix_short mix_long")
+arrparms=("" "" "-G mix_guides.gff" "-L" "-L -G human-chr19_P.gff" "--mix" "--mix -G mix_guides.gff")
+arrout=("short_reads" "short_reads_and_superreads" "short_guided" "long_reads" \
+       "long_reads_guided" "mix_reads" "mix_reads_guided")
+arrmsg=("Short reads"  "Short reads and super-reads" "Short reads with annotation guides" "Long reads" \
  "Long reads with annotation guides" "Mixed reads" "Mixed reads with annotation guides")
 for i in ${!arrmsg[@]}; do
  fout="${arrout[$i]}.out.gtf"
@@ -54,7 +56,7 @@ for i in ${!arrmsg[@]}; do
    ins=( ${arrins[$i]} )
    fin="${ins[0]}.bam ${ins[1]}.bam"
  fi
-
+ echo "Running: ../stringtie ${arrparms[$i]} -o $fout $fin"
  ../stringtie ${arrparms[$i]} -o $fout $fin
  if [ ! -f $fout ]; then
    echo "Error: file $fout not created! Failed running stringtie on $fin"
