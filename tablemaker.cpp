@@ -11,25 +11,25 @@ const byte txSTATUS_MASK=0x03; // 2 bits for bundle status, former RC_TData::in_
            // 1 if used in a bundle (guide added to keepguides, default value)
 	         // 2 if all introns are covered by at least one read 
 					 // 3 if it is stored to be printed
-byte getGuideStatus(GffObj* t) {
-  return t->getUserFlag(txSTATUS_MASK);
+GuideBundleStatus getGuideStatus(GffObj* t) {
+  return (GuideBundleStatus)t->getUserFlags(txSTATUS_MASK);
 }
-void setGuideStatus(GffObj* t, byte status) {
+void setGuideStatus(GffObj* t, GuideBundleStatus status) {
   if (status>3) {
     GError("Error: invalid status value %d set for transcript %s\n", status, t->getID());
     exit(1);
   }
-  t->setUserFlag(txSTATUS_MASK & status); // can be 1, 2 or 0 (clear)
+  t->setUserFlags(txSTATUS_MASK & status); // can be 1, 2 or 0 (clear)
 }
 
 // set/get synthetic nascent flag for a transcript
 void setTxSynNasc(GffObj* t, bool set) {
-      if (set) t->setUserFlag(txNASCENT_FLAG);
-      else t->clearUserFlag(txNASCENT_FLAG);
+      if (set) t->setUserFlags(txNASCENT_FLAG);
+      else t->clearUserFlags(txNASCENT_FLAG);
 }
 
 bool isTxSynNasc(GffObj* t) {
-      return t->getUserFlag(txNASCENT_FLAG);
+      return (bool)t->getUserFlags(txNASCENT_FLAG);
 }
 
 // genNascent is included from rlink.h

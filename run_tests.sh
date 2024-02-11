@@ -18,18 +18,17 @@ function unpack_test_data() {
   #cp tests_exp_out/*.gtf tests/ 2>/dev/null
 }
 
-#if [ ! -f tests/human-chr19_P.gff ]; then
-  if [ -f tests.tar.gz ]; then
-    #extract the tarball and rename the directory
-    echo "..Using existing ./tests.tar.gz"
-    unpack_test_data
-  else
-    echo "..Downloading test data.."
-    #use curl to fetch the tarball from a specific github release or branch
-    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
-    unpack_test_data
-  fi
-# fi
+
+#  if [ -f tests.tar.gz ]; then
+#    #extract the tarball and rename the directory
+#    echo "..Using existing ./tests.tar.gz"
+#    unpack_test_data
+#  else
+#    echo "..Downloading test data.."
+#    #use curl to fetch the tarball from a specific github release or branch
+#    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
+#    unpack_test_data
+#  fi
 cd tests
 # array element format:
 # 

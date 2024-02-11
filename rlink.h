@@ -52,10 +52,16 @@ extern bool genNascent; // generate nascent synthetic transcripts for each bundl
 
 void setTxSynNasc(GffObj* t, bool set=true); // set/clear the synthetic nascent RNA flag
 bool isTxSynNasc(GffObj* t); // check if a transcript is a synthetic nascent RNA
-//TODO: set/getBundleFlag - should set/get  (RC_TData*)(keepguides[i]->uptr)->in_bundle
+// set/getBundleFlag - should set/get  (RC_TData*)(keepguides[i]->uptr)->in_bundle
 //        1 = default, 2 = every intron covered by a read, 3 = stored to be printed
-byte getGuideStatus(GffObj* t);
-void setGuideStatus(GffObj* t, byte status);
+enum GuideBundleStatus {
+  GBST_UNSET = 0,
+  GBST_IN_BUNDLE,    // 1: added to bundle
+  GBST_ALL_INTR_COV, // 2: all introns covered by at least one read
+  GBST_STORED,     // 3: stored to be printed
+};
+GuideBundleStatus getGuideStatus(GffObj* t);
+void setGuideStatus(GffObj* t, GuideBundleStatus status);
 
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
@@ -702,7 +708,7 @@ struct BundleData {
 	 for (int i=0;i<this->keepguides.Count();++i) {
 		 //RC_TData* tdata=(RC_TData*)(keepguides[i]->uptr);
 		 //tdata->in_bundle=1;
-		 setGuideStatus(keepguides[i],1);
+		 setGuideStatus(keepguides[i], GBST_IN_BUNDLE);
 	 }
 	 status=BUNDLE_STATUS_READY;
  }

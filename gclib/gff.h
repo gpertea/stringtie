@@ -778,9 +778,9 @@ public:
   bool promotedChildren() { return flag_CHILDREN_PROMOTED; }
   void promotedChildren(bool v) { flag_CHILDREN_PROMOTED=v; }
   // user flags are given as 8 bits bitmasks
-  void setUserFlag(byte fmask) {flag_USER_FLAGS |= fmask; }
-  void clearUserFlag(byte fmask) {flag_USER_FLAGS &= ~fmask; }
-  bool getUserFlag(byte fmask) { return (flag_USER_FLAGS & fmask); }
+  void setUserFlags(byte fmask) {flag_USER_FLAGS |= fmask; }
+  void clearUserFlags(byte fmask) {flag_USER_FLAGS &= ~fmask; }
+  byte getUserFlags(byte fmask) { return (flag_USER_FLAGS & fmask); }
   void setLevel(byte v) { gff_level=v; }
   byte getLevel() { return gff_level; }
   byte incLevel() { gff_level++; return gff_level; }

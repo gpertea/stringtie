@@ -158,7 +158,7 @@ struct RC_TData { //storing RC data for a transcript
 	uint t_id;
 	int l;
 	int r;
-	// char in_bundle; // 1 if used in a bundle (guide added to keepguides, default value)
+	//char in_bundle; // 1 if used in a bundle (guide added to keepguides, default value)
 	                // 2 if all introns are covered by at least one read, 
 					// 3 if it is stored to be printed
 			//NOTE: superseded by setGuideStatus/getGuideStatus(GffObj* t)
