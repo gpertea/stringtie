@@ -464,7 +464,7 @@ if (ballgown)
 #define DEF_TSTACK_SIZE 8388608
  size_t defStackSize=DEF_TSTACK_SIZE;
 #ifdef _GTHREADS_POSIX_
- int tstackSize=GThread::defaultStackSize();
+ size_t tstackSize=GThread::defaultStackSize();
  if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  if (verbose) {
    if (tstackSize<defStackSize){
