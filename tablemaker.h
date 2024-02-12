@@ -155,7 +155,7 @@ struct RC_TData { //storing RC data for a transcript
     // uptr data block created for each guide, even those not used in a bundle
 	// but only fully used with -B (Ballgown Raw/Read Count data collection)
 	GffObj* ref_t;
-	uint t_id;
+	uint t_id; //index in the global RC_tdata table
 	int l;
 	int r;
 	//char in_bundle; // 1 if used in a bundle (guide added to keepguides, default value)
@@ -177,7 +177,7 @@ struct RC_TData { //storing RC data for a transcript
 	        eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
 			t_exons(false), t_introns(false) { //, e_idx_cache(-1), i_idx_cache(-1) {
 	}
-
+    
     bool operator<(const RC_TData& o) const {
     	if (l != o.l) return (l < o.l);
     	if (r != o.r) return (r < o.r);
@@ -243,6 +243,8 @@ struct RC_BundleData {
  //local exon/intron ids within the bundle
  uint c_exon_id;
  uint c_intron_id;
+
+ 
  //--
  RC_BundleData(int t_l=0, int t_r=0, GPVec<RC_TData>* rc_tdata=NULL,
 		 GPVec<RC_Feature>* rc_exons=NULL,GPVec<RC_Feature>* rc_introns=NULL):
@@ -275,7 +277,7 @@ struct RC_BundleData {
 		 delete bundle_RC_introns;
 	 }
  }
-
+ 
  uint addTranscript(GffObj& t) { //should return the guide index in *guides_RC_tdata
 	bool boundary_changed=false;
 	if (lmin==0 || lmin>(int)t.start) { lmin=t.start; boundary_changed=true; }

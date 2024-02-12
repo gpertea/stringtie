@@ -78,6 +78,12 @@ char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange=0); //generic 
 char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange=0);
 //single-exon transcript match test - returning '=', '~'  or 0
 
+
+bool txStructureMatch(GffObj& a, GffObj& b, double SET_tolerance=0.8); 
+// generic transcript match test: for MET: intron chain match only
+// for SET: overlap >=80% of the shorter transcript 
+
+
 //---
 // -- tracking exon/CDS segments from local mRNA to genome coordinates
 class GMapSeg:public GSeg {
@@ -826,7 +832,7 @@ public:
       if (sharedattrs) exons[0]->attrs=NULL;
       }
     }
-  GffObj(char* anid=NULL):GSeg(0,0), exons(true,true,false), cdss(NULL), children(1,false), gscore() {
+  GffObj(const char* anid=NULL):GSeg(0,0), exons(true,true,false), cdss(NULL), children(1,false), gscore() {
                                    //exons: sorted, free, non-unique
        gffID=NULL;
        uptr=NULL;
@@ -1019,6 +1025,12 @@ public:
    void setGeneID(const char* gene_id) {
         GFREE(geneID);
         if (gene_id) geneID=Gstrdup(gene_id);
+   }
+   void setID(const char* tid) {
+        if (tid) {
+          GFREE(gffID);
+          gffID=Gstrdup(gffID);
+        }
    }
    int addSeg(GffLine* gfline);
    int addSeg(int fnid, GffLine* gfline);

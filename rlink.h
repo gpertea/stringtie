@@ -50,8 +50,10 @@ extern bool debugMode;
 
 extern bool genNascent; // generate nascent synthetic transcripts for each bundle
 
-void setTxSynNasc(GffObj* t, bool set=true); // set/clear the synthetic nascent RNA flag
-bool isTxSynNasc(GffObj* t); // check if a transcript is a synthetic nascent RNA
+void setNascent(GffObj* t, byte v=1); // set/clear the synthetic nascent RNA flag
+//0 = not nascent, 1 = synthetic nascent, 2 = nascent replacing a guide
+byte isNascent(GffObj* t); // check if a transcript is a synthetic nascent RNA
+
 // set/getBundleFlag - should set/get  (RC_TData*)(keepguides[i]->uptr)->in_bundle
 //        1 = default, 2 = every intron covered by a read, 3 = stored to be printed
 enum GuideBundleStatus {
@@ -102,7 +104,12 @@ struct GRefData {
   }
 };
 
-
+struct Ref_RC_Data {
+     GRefData* refdata=nullptr;
+	 GPVec<RC_TData>*   rc_tdata=nullptr;
+	 GPVec<RC_Feature>* rc_edata =nullptr;
+	 GPVec<RC_Feature>* rc_idata = nullptr;
+ };
 
 struct CBundlenode:public GSeg {
 	float cov;
@@ -727,9 +734,8 @@ struct BundleData {
 	}
 	Not needed here, we update the coverage span as each transcript is added
  */
- void keepGuide(GffObj* scaff, GPVec<RC_TData>* rc_tdata=NULL,
-		 GPVec<RC_Feature>* rc_edata=NULL, GPVec<RC_Feature>* rc_idata=NULL);
-
+ void keepGuide(GffObj* scaff, Ref_RC_Data& ref_rc_data);
+ void generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc); //defined in tablemaker.cpp
  //bool evalReadAln(GSamRecord& brec, char& strand, int nh); //, int hi);
  bool evalReadAln(GReadAlnData& alndata, char& strand);
 

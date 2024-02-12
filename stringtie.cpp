@@ -336,6 +336,12 @@ int main(int argc, char* argv[]) {
  GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
 
  int bamcount=bamreader.start(); //setup and open input files
+
+
+ //TODO: TEST ONLY!
+ genNascent=true;
+ // ----
+
 #ifndef GFF_DEBUG
  if (bamcount<1) {
 	 GError("%sError: no input files provided!\n",USAGE);
@@ -371,7 +377,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 			   guidegff.chars());
    }
    refguides.setCount(refseqCount); //maximum gseqid
-   uint c_tid=0;
+   uint c_tid=0; //counter for all transcripts 
    uint c_exon_id=0;
    uint c_intron_id=0;
    GList<RC_Feature> uexons(true, false, true); //sorted, free items, unique
@@ -458,6 +464,11 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  int lastref_id=-1; //last seen gseq_id
  // int ncluster=0; used it for debug purposes only
 
+  Ref_RC_Data ref_rc; //will update ref_rc.refdata in loop
+  ref_rc.rc_tdata=&guides_RC_tdata;
+  ref_rc.rc_edata=&guides_RC_exons;
+  ref_rc.rc_idata=&guides_RC_introns;
+
  //Ballgown files
  FILE* f_tdata=NULL;
  FILE* f_edata=NULL;
@@ -514,6 +525,7 @@ if (ballgown)
 	 int nh=1;
 	 int hi=0;
 	 int gseq_id=lastref_id;  //current chr id
+     int bundle_last_kept_guide=-1;
 	 bool new_bundle=false;
 	 //delete brec;
 	 if ((brec=bamreader.next())!=NULL) {
@@ -609,7 +621,7 @@ if (ballgown)
 		 new_bundle=true; //fake a new start (end of last bundle)
 	 }
 
-	 if (new_bundle || chr_changed) {
+	if (new_bundle || chr_changed) { //read alignment starts a new bundle
 		 hashread.Clear();
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			// (readthr, junctionthr, mintranscriptlen are globals)
@@ -691,6 +703,7 @@ if (ballgown)
 				 if (refguides.Count()>gseq_id && refguides[gseq_id].rnas.Count()>0) {
 					 guides=&(refguides[gseq_id].rnas);
 					 ng=guides->Count();
+					 ref_rc.refdata=&refguides[gseq_id];
 				 }
 			 }
 			 if (havePtFeatures) {
@@ -736,23 +749,26 @@ if (ballgown)
 		 currentstart=pos;
 		 currentend=brec->end;
 		 if (guides) { //guided and guides!=NULL
+		    bundle_last_kept_guide=bundle->keepguides.Count();
 			 ng_start=ng_end+1;
 			 while (ng_start<ng && (int)(*guides)[ng_start]->end < pos) {
 				 // for now, skip guides which have no overlap with current read
 				 ng_start++;
 			 }
 			 int ng_ovl=ng_start;
-			 //add all guides overlapping the current read and other guides that overlap them
+			 //add all guides w/ overlap with current read, + other guides that overlap them, transitively
 			 while (ng_ovl<ng && (int)(*guides)[ng_ovl]->start<=currentend) { //while guide overlap
 				 if (currentstart>(int)(*guides)[ng_ovl]->start)
 					 currentstart=(*guides)[ng_ovl]->start;
 				 if (currentend<(int)(*guides)[ng_ovl]->end)
 					 currentend=(*guides)[ng_ovl]->end;
-				 if (ng_ovl==ng_start && ng_ovl>0) { //first time only, we have to check back all possible transitive guide overlaps
+				 if (ng_ovl==ng_start && ng_ovl>0) { 
+					// -- first time only, we have to check back all possible transitive guide overlaps
+
 					 //char* geneid=(*guides)[ng_ovlstart]->getGeneID();
 					 //if (geneid==NULL) geneid=(*guides)[ng_ovlstart]->getGeneName();
 					 //if (geneid && !bgeneids.hasKey(geneid))
-					 //  bgeneids.shkAdd(geneid, &ng); //whatever pointer to int
+					 //     bgeneids.shkAdd(geneid, &ng); 
 					 int g_back=ng_ovl; //start from the overlapping guide, going backwards
 					 int g_ovl_start=ng_ovl;
 					 while (g_back>ng_end+1) {
@@ -764,14 +780,13 @@ if (ballgown)
 								  currentstart=(int)(*guides)[g_back]->start;
 						 }
 					 } //while checking previous guides that could be pulled in this bundle
+					 //adding all guides that overlap the first added guide, in order
 					 for (int gb=g_ovl_start;gb<=ng_ovl;++gb) {
-						 bundle->keepGuide((*guides)[gb],
-								   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+						 bundle->keepGuide((*guides)[gb], ref_rc);
 					 }
-				 } //needed to check previous guides for overlaps
-				 else
-				    bundle->keepGuide((*guides)[ng_ovl],
-						   &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+				 } //for 1st guide overlap: needed to check previous guides for overlaps
+				 else // for the rest, just add the guide to the bundle
+				    bundle->keepGuide((*guides)[ng_ovl], ref_rc);
 				 ng_ovl++;
 			 } //while guide overlap
 			 ng_end=ng_ovl-1; //MUST update ng_end here, even if no overlaps were found
@@ -779,13 +794,13 @@ if (ballgown)
 		bundle->refseq=lastref;
 		bundle->start=currentstart;
 		bundle->end=currentend;
-	 } //<---- new bundle started
+	 } //<---- read alignment started a new bundle
 
-	 if (currentend<(int)brec->end) {
-		 //current read extends the bundle
+	 if (currentend<(int)brec->end) { //read alignments extends the current bundle		 
 		 //this might not happen if a longer guide had already been added to the bundle
 		 currentend=brec->end;
 		 if (guides) { //add any newly overlapping guides to bundle
+		    if (bundle_last_kept_guide<0) bundle_last_kept_guide=bundle->keepguides.Count();
 			 bool cend_changed;
 			 do {
 				 cend_changed=false;
@@ -793,9 +808,8 @@ if (ballgown)
 					 ++ng_end;
 					 //more transcripts overlapping this bundle?
 					 if ((int)(*guides)[ng_end]->end>=currentstart) {
-						 //it should really overlap the bundle
-						 bundle->keepGuide((*guides)[ng_end],
-								  &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+						 //no transitive overlap check here, guide must overlap the bundle
+						 bundle->keepGuide((*guides)[ng_end], ref_rc);
 						 if(currentend<(int)(*guides)[ng_end]->end) {
 							 currentend=(*guides)[ng_end]->end;
 							 cend_changed=true;
@@ -805,6 +819,8 @@ if (ballgown)
 			 } while (cend_changed);
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
+	 if (guides && genNascent && bundle_last_kept_guide>=0) 
+	     bundle->generateAllNascents(bundle_last_kept_guide, ref_rc);		       
 	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
      bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
      if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide

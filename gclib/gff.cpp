@@ -1010,6 +1010,10 @@ int GffObj::addExon(uint segstart, uint segend, int8_t exontype, char phase, Gff
 	} //exon overlap/adjacent check
    //new exon/CDS, not merged in a previous one
    GffExon* enew=new GffExon(segstart, segend, exontype, phase, exon_score.score, exon_score.precision);
+   if (segs==&exons && exons.Count()==0) {
+	   start=segstart;
+	   end=segend;
+   }
    int eidx=segs->Add(enew);
    if (eidx<0) {
     //this would actually be possible if the object is a "Gene" and "exons" are in fact isoforms
@@ -3186,6 +3190,38 @@ char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange) {
 		   return '=';
 	return '~';
 }
+
+bool txStructureMatch(GffObj& a, GffObj& b, double SET_tolerance) {
+    // Check if transcripts are on the same genomic sequence and overlap
+    if (a.gseq_id != b.gseq_id || !a.overlap(b.start, b.end)) {
+        return false; // No match if they are on different sequences or do not overlap
+    }
+    int exc = a.exons.Count();
+    if (exc != b.exons.Count())
+		return false; // No match if they have different exon counts	
+    // Check for multi-exon transcripts with identical intron chain structure
+    if (exc > 1) {
+        for (int i = 0; i < exc-1; ++i) { // Compare intron coordinates
+            if (a.exons[i]->end != b.exons[i]->end || 
+			    a.exons[i + 1]->start != b.exons[i + 1]->start) {
+                return false; // Intron chains do not match
+            }
+        }
+        return true; // All intron chains match
+    } else {
+        // Calculate overlap for single-exon transcripts
+        int ov_start = GMAX(a.start, b.start);
+        int ov_end = GMIN(a.end, b.end);
+        int ovlen = ov_end - ov_start + 1;
+        int shortest_span = GMIN(a.len(), b.len());
+        if (static_cast<double>(ovlen) / shortest_span >= SET_tolerance) {
+            return true; // Overlap meets or exceeds tolerance
+        }
+    }
+    return false; // Default case: no match
+}
+
+
 
 char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange) {
  //return '=' if boundaries match within tdelta distance,
