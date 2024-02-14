@@ -39,6 +39,8 @@ byte isNascent(GffObj* t) {
       return (v>>2);
 }
 
+
+
 // genNascent is included from rlink.h
 void BundleData::keepGuide(GffObj* t, Ref_RC_Data& ref_rc) {
 	if (rc_data==NULL) {
@@ -56,8 +58,52 @@ void BundleData::keepGuide(GffObj* t, Ref_RC_Data& ref_rc) {
 	t->udata=(int)rc_data->addTranscript(*t);
 }
 
+
+int txCompareProc(const pointer p1, const pointer p2) {
+  //const GffObj* a = static_cast<const GffObj*>(p1);
+  //const GffObj* b = static_cast<const GffObj*>(p2); 
+  GffObj* a = (GffObj*)p1;
+  GffObj* b = (GffObj*)p2;
+  // check chromosome and strand
+  if (a->gseq_id != b->gseq_id) return a->gseq_id < b->gseq_id ? -1 : 1;
+  if (a->strand != b->strand) return a->strand < b->strand ? -1 : 1;
+  // Compare intron chains by their start and end, regardless of exon count
+  int min_exon_count = GMIN(a->exons.Count(), b->exons.Count());
+    for (int i = 0; i < min_exon_count - 1; ++i) {
+        int a_intron_start = a->exons[i]->end + 1;
+        int a_intron_end = a->exons[i + 1]->start - 1;
+        int b_intron_start = b->exons[i]->end + 1;
+        int b_intron_end = b->exons[i + 1]->start - 1;
+
+        if (a_intron_start != b_intron_start) return a_intron_start < b_intron_start ? -1 : 1;
+        if (a_intron_end != b_intron_end) return a_intron_end < b_intron_end ? -1 : 1;
+    }
+    // After comparing all shared introns, decide based on who has more exons if not all were compared
+    if (a->exons.Count() != b->exons.Count()) {
+        return a->exons.Count() < b->exons.Count() ? -1 : 1;
+    }
+    // If they have the same number of exons and all compared introns are identical, they are considered equal
+    // This handles both single-exon transcripts without introns and multi-exon transcripts with identical intron structure
+    return 0;
+  return 0;
+}
+//single exon transcripts basic comparison/ordering function
+int seTxCompareProc(pointer* p1, pointer* p2) {
+  // check chromosome and strand
+  GffObj* a = (GffObj*)p1;
+  GffObj* b = (GffObj*)p2;
+  if (a->gseq_id != b->gseq_id) return a->gseq_id < b->gseq_id ? -1 : 1;
+  if (a->strand != b->strand) return a->strand < b->strand ? -1 : 1;
+  //first by start positions
+  if (a->start != b->start) return a->start < b->start ? -1 : 1;
+  // then by end positions
+  if (a->end != b->end) return a->end < b->end ? -1 : 1;
+  return 0; // they are equal
+}
+
 //generate all nascent transcripts for a guide
-void genTxNascents(GffObj &t, GPVec<GffObj>& tnlist, GPVec<GffObj>& guides) {
+//keep nascents in 2 lists: tnlist for multi-exon, setnlist for single-exon
+void genTxNascents(GffObj &t, GList<GffObj>& tnlist, GList<GffObj>& setnlist, GPVec<GffObj>& guides) {
     int n = t.exons.Count() - 1; // number of introns
     for (int i = 1; i <= n; ++i) {
         GffObj* nt = new GffObj(); // Create a new transcript
@@ -66,18 +112,62 @@ void genTxNascents(GffObj &t, GPVec<GffObj>& tnlist, GPVec<GffObj>& guides) {
         nt->subftype_id=gff_fid_exon;
         nt->gseq_id = t.gseq_id; // copying reference ID, strand, gene_id, gene_name, etc.
         nt->strand = t.strand;
-        for (int j = 0; j < i; ++j) {
-            // add i exons from t to nt
-            nt->addExon(t.exons[j]->start, t.exons[j]->end);
+        if (t.strand == '-') { // on the reverse strand, we need to add the exons in reverse order
+          for (int j=n; j>n-i;--j) {
+              nt->addExon(t.exons[j]->start, t.exons[j]->end);
+          }
+          // Extend the first exon of nt through the previous intron up to the start of the previous exon in t
+          nt->exons[0]->start = t.exons[n-i]->end + 1; 
+        } else { //forward strand, add exons in the same order as in t
+          for (int j = 0; j < i; ++j) {
+              // add i exons from t to nt
+              nt->addExon(t.exons[j]->start, t.exons[j]->end);
+          }
+          // Extend the last exon of nt through the next intron up to the start of the next exon in t
+          nt->exons.Last()->end = t.exons[i]->start-1;
         }
-        // Extend the last exon of nt through the next intron up to the start of the next exon in t
-        if (i < t.exons.Count()) { // Check to avoid accessing beyond the last exon
-            nt->exons.Last()->end = t.exons[i]->start-1; // Extend the end of the last exon of nt
-        }
+          
         bool keepNascent = true;
-        //TODO: we should check here for txStructureMatch() with any tx in guides 
+        //TODO: check here for txStructureMatch() with any tx in guides 
         //   set keepNascent to false if a matching guide is found
         //   or even replace the guide if we decide to keep the nascent instead !
+        if (nt->exons.Count() > 1) {
+            int fidx=-1;
+            if (tnlist.Found(nt, fidx)) { //uses special intron-chain comparison
+              if (tnlist[fidx]->covlen < nt->covlen) {
+                //TODO check this
+                delete tnlist[fidx]; //discard the old one
+                tnlist.Put(fidx, nt); //replace with the new one
+              } else { //TODO: check this
+                 keepNascent = false; // we already have a nascent with the same structure (intron chain)
+              }
+            }
+            else 
+               tnlist.Add(nt); // Add the new transcript to tnlist
+          } else { // single-exon nascent
+            int fidx=-1;
+            if (setnlist.Found(nt, fidx)) {
+              if (setnlist[fidx]->covlen < nt->covlen) {
+                //TODO check this
+                delete setnlist[fidx]; //discard the old one
+                setnlist.Put(fidx, nt); //replace with the new one
+              } else {
+                keepNascent = false; // we already have a nascent with the same structure (intron chain)
+              }
+            }
+            else {//TODO
+              //setnlist.Add(nt); // Add the new transcript to setnlist
+              for (int p = fidx; p < setnlist.Count(); ++p) {
+                   GffObj* ctx = setnlist[p];
+                   if (ctx->start > nt->end) 
+                        break; // further transcripts cannot overlap, so break the loop
+                   if (has80PercentOverlap(nt, ctx)) {
+                    // Found a transcript that overlaps with at least 80%
+                    // TODO Process this match as needed
+                   }
+              } //for p
+            }
+          } //single-exon nascent
         if (keepNascent) {
           GStr nid(t.getID());
           nid.appendfmt(".nasc%03d", i);
@@ -85,32 +175,31 @@ void genTxNascents(GffObj &t, GPVec<GffObj>& tnlist, GPVec<GffObj>& guides) {
           nt->setGeneName(t.getGeneName());
           nt->setID(nid.chars());
           setNascent(nt, 1); // Set the nascent flag
-          tnlist.Add(nt); // Add the new transcript to tnlist
         } else 
            delete nt; //discard this nascent transcript, matching guide found
-    }
+    } //for i 
 }
 
 void BundleData::generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc) {
-  GPVec<GffObj> oguides(keepguides); // copy list of pointers to guides
-  for (int i=from_guide_idx;i<oguides.Count();++i) {
-    GffObj* t=oguides[i];
+  //GPVec<GffObj> oguides(keepguides); // copy list of pointers to guides
+  // tnlist is a sorted list of nascent transcripts to be added to keepguides
+  GList<GffObj> tnlist(true, true); //list to collect all nascents in this bundle
+  tnlist.setSorted(txCompareProc);
+  GList<GffObj> setnlist(true, true); //list to collect all nascents in this bundle
+  setnlist.setSorted(seTxCompareProc);
+  for (int i=from_guide_idx;i<keepguides.Count();++i) {
+    GffObj* t=keepguides[i];
     if (t->exons.Count()<2) continue;
     GMessage("Generating %d nascents for %s\n", t->exons.Count()-1, t->getID());
-    GPVec<GffObj> tnlist(true); //list to add nascents to keepguides
-    genTxNascents(*t, tnlist, oguides);
-    // copy the nascent transcripts to keepguides
-    //   -- we have another chance here to not add those with txStructureMatch()
-    //      any keepguides, which may be previously added nascent transcripts
-     
-    for (int j=0;j<tnlist.Count();++j) {
-      //if we decided to keep this nascent, replace it with NULL in tnlist
-      // so it's not deleted when we clear tnlist
-      keepGuide(tnlist[j], ref_rc);
-      tnlist.Put(j, NULL);
-    }
-     
+    genTxNascents(*t, tnlist, setnlist, keepguides);
   }
+  //TODO add all nascents from tnlist and setnlist to keepguides
+  for (int i=0;i<tnlist.Count();++i) {
+    keepguides.Add(tnlist[i]);
+  } CHECK THIS
+  for (int i=0;i<setnlist.Count();++i) {
+    keepguides.Add(setnlist[i]);
+  }  
 }
 
 
