@@ -154,7 +154,7 @@ endif
 %.o : %.cpp
 	${CXX} ${CXXFLAGS} -c $< -o $@
 
-OBJS += rlink.o tablemaker.o tmerge.o
+OBJS += bundle.o rlink.o tablemaker.o tmerge.o
 
 all release static static-cpp debug: stringtie${EXE}
 memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
@@ -163,7 +163,8 @@ prof profile: stringtie${EXE}
 nothreads: stringtie${EXE}
 
 stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GSam.h
-rlink.o : rlink.h tablemaker.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
+rlink.o : rlink.h tablemaker.h bundle.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
+bundle.o : bundle.h rlink.h tablemaker.h $(GDIR)/GSam.h
 tmerge.o : rlink.h tmerge.h
 tablemaker.o : tablemaker.h rlink.h
 

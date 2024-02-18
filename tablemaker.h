@@ -466,5 +466,5 @@ struct RC_BundleData {
 }; //struct RC_BundleData
 
 void rc_update_exons(RC_BundleData& rc);
-
+void rc_updateExonCounts(const RC_ExonOvl& exonovl, int nh);
 #endif /* TABLEMAKER_H_ */

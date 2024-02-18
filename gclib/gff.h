@@ -1029,7 +1029,7 @@ public:
    void setID(const char* tid) {
         if (tid) {
           GFREE(gffID);
-          gffID=Gstrdup(gffID);
+          gffID=Gstrdup(tid);
         }
    }
    int addSeg(GffLine* gfline);
@@ -1058,7 +1058,7 @@ public:
    void printExonList(FILE* fout); //print comma delimited list of exon intervals
    void printCDSList(FILE* fout); //print comma delimited list of CDS intervals
 
-   void printBED(FILE* fout, bool cvtChars);
+   void printBED(FILE* fout, bool cvtChars=false);
        //print a BED-12 line + GFF3 attributes in 13th field
    void printSummary(FILE* fout=NULL);
 

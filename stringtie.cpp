@@ -1447,6 +1447,7 @@ void processBundle(BundleData* bundle) {
 		GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count());
+		bundle->printBundleGuides();
 	#ifdef GMEMTRACE
 			double vm,rsm;
 			get_mem_usage(vm, rsm);
