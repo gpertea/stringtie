@@ -12425,8 +12425,10 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 					if(thisend>guides[guidetrf[g].g]->start) {
 						rightcov+=get_cov(1,guides[guidetrf[g].g]->start-refstart,thisend-1-refstart,bdata->bpcov);
 					}
-
-					rightcov/=(thisend-guides[guidetrf[g].g]->start);
+					if ((thisend==guides[guidetrf[g].g]->start)) {
+						//GMessage("Error: thisend (%d) == guides[guidetrf[g].g]->start\n");
+					} else //FIXME: division by zero possible here!
+					   rightcov/=(thisend-guides[guidetrf[g].g]->start);
 				}
 
 				float maxabund=trthr;

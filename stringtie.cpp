@@ -339,7 +339,7 @@ int main(int argc, char* argv[]) {
 
 
  //TODO: TEST ONLY!
- genNascent=true;
+ //genNascent=true;
  // ----
 
 #ifndef GFF_DEBUG
@@ -1444,9 +1444,15 @@ void processBundle(BundleData* bundle) {
 		GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
+		if (genNascent) 
+		  GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides (%d nascent)] begins processing...\n",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
+                bundle->keepguides.Count(), bundle->numNascents);
+		else 
+		  GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count());
+
 		bundle->printBundleGuides();
 	#ifdef GMEMTRACE
 			double vm,rsm;

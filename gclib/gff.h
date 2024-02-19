@@ -79,10 +79,10 @@ char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange=0);
 //single-exon transcript match test - returning '=', '~'  or 0
 
 
-bool txStructureMatch(GffObj& a, GffObj& b, double SET_tolerance=0.8); 
+bool txStructureMatch(GffObj& a, GffObj& b, double se_tolerance=0.8, int me_range=10000); 
 // generic transcript match test: for MET: intron chain match only
-// for SET: overlap >=80% of the shorter transcript 
-
+// for single-exon tx: overlap >=80% of the shorter transcript (se_tolerance)
+// for multi-exon tx: terminal exons can differ <=10000 bases (me_range) 
 
 //---
 // -- tracking exon/CDS segments from local mRNA to genome coordinates
@@ -855,6 +855,42 @@ public:
        geneID=NULL;
        gene_name=NULL;
    }
+   //constructor to use when programatically creating a new transcript
+   // (not when loading from GFF/BED/GTF input!)
+   GffObj(bool newTranscript, const char* _id=nullptr, 
+          int refseq_id=-1, char _strand='+'):GSeg(0,0), 
+       exons(true,true,false), cdss(NULL), children(1,false), gscore() {
+                                   //exons: sorted, free, non-unique
+       gffID=NULL;
+       uptr=NULL;
+       ulink=NULL;
+       flags=0;
+       udata=0;
+       parent=NULL;
+       if (newTranscript) {
+          flag_IS_TRANSCRIPT=true;
+          ftype_id=gff_fid_transcript;
+          subftype_id=gff_fid_exon;
+          flag_FINALIZED=true; 
+
+       } else {
+          ftype_id=-1;
+          subftype_id=-1;
+       }
+       if (_id!=NULL) gffID=Gstrdup(_id);
+       gffnames_ref(names);
+       CDstart=0; // hasCDS <=> CDstart>0
+       CDend=0;
+       CDphase=0;
+       gseq_id=refseq_id;
+       track_id=-1;
+       strand=_strand;
+       attrs=NULL;
+       covlen=0;
+       geneID=NULL;
+       gene_name=NULL;
+   }
+
    ~GffObj() {
        GFREE(gffID);
        GFREE(gene_name);
@@ -1116,6 +1152,15 @@ class GSeqStat {
 
 int gfo_cmpByLoc(const pointer p1, const pointer p2);
 int gfo_cmpRefByID(const pointer p1, const pointer p2);
+
+//multi-exon transcripts basic comparison/ordering function
+// based on intron chain comparison - use only for lists with multiple multi-exon transcripts!
+int txCmpByIntrons(const pointer p1, const pointer p2);
+int txCmpByExons(const pointer p1, const pointer p2);
+
+//single-exon transcripts basic comparison/ordering function
+int seTxCompareProc(pointer* p1, pointer* p2);
+
 
 class GfList: public GList<GffObj> {
  public:

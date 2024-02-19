@@ -319,9 +319,10 @@ struct BundleData {
  GList<CReadAln> readlist;
  GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
- GPVec<GffObj> keepguides; //list of guides in this bundle (+ synthetic nascents if genNascent) 
+ GPVec<GffObj> keepguides; //list of guides in this bundle (+ synthetic nascents if genNascent)  
  GPVec<GPtFeature> ptfs; //point features for this bundle
  GList<CPrediction> pred;
+ int numNascents=0; //number of nascent transcripts generated for this bundle
  RC_BundleData* rc_data; // read count data for this bundle
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 numreads(0),
@@ -397,6 +398,7 @@ struct BundleData {
 	end=0;
 	status=BUNDLE_STATUS_CLEAR;
 	numreads=0;
+	numNascents=0;
 	num_fragments=0;
 	frag_len=0;
 	sum_cov=0;
