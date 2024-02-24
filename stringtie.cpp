@@ -315,7 +315,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;isnascent;nasc;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;mix;isnascent;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
    "exclude=zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -1038,7 +1038,13 @@ void processOptions(GArgs& args) {
 		 //isofrac=0.02; // allow mixedMode to be more conservative
 	 }
 
-	 isnascent=(args.getOpt("isnascent")!=NULL);
+
+	 // get genNascent option from -N or --isnascent
+	 if (args.getOpt('N') || args.getOpt("isnascent")) {
+		 genNascent=true; // this is not needed -> keep it for now but look to replace it with the next one later
+		 isnascent=true;
+	 }
+	 //isnascent=(args.getOpt("isnascent")!=NULL);
 
 	if (args.getOpt("conservative")) {
 	  isofrac=0.05;
@@ -1065,10 +1071,7 @@ void processOptions(GArgs& args) {
 	 if(mergeMode) {
 		 longreads=false; // these are not longreads
 	 }
-	 // get genNascent option from -N or --nasc
-	 if (args.getOpt('N') || args.getOpt("nasc")) {
-		 genNascent=true;
-	 }
+
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
 	 //adaptive=!(args.getOpt('d')!=NULL);
 	 verbose=(args.getOpt('v')!=NULL);

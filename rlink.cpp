@@ -12424,11 +12424,8 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 					// cummulative bpcov
 					if(thisend>guides[guidetrf[g].g]->start) {
 						rightcov+=get_cov(1,guides[guidetrf[g].g]->start-refstart,thisend-1-refstart,bdata->bpcov);
+						rightcov/=(thisend-guides[guidetrf[g].g]->start);
 					}
-					if ((thisend==guides[guidetrf[g].g]->start)) {
-						//GMessage("Error: thisend (%d) == guides[guidetrf[g].g]->start\n");
-					} else //FIXME: division by zero possible here!
-					   rightcov/=(thisend-guides[guidetrf[g].g]->start);
 				}
 
 				float maxabund=trthr;
@@ -13063,6 +13060,7 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 
 	//fprintf(stderr,"%d guides generated in %d predictions\n",printed_guides.Count(),pred.Count());
 
+	/* comment this for now see what happens
 	if(!eonly && isnascent && printed_guides.Count()>1) { // generate nascent transcripts
 		//for(int i=printed_guides.Count()-1;i>=0;i--) // from the most abundant to the least; TODO: try the other way too
 			//store_nascent_guide_rna(pred,printed_guides[i],guidetrf,guides,gno,edgeno,gpos,no2gnode,transfrag,pred,nodecov,bdata,geneno);
@@ -13074,6 +13072,7 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 				remove_nascent_transcription(pred,nascent,gno,s,transfrag,no2gnode,gpos,nodecov,geneno,guidepred[guidetrf[printed_guides[i]].g],guides[guidetrf[printed_guides[i]].g]);
 		}
 	}
+	*/
 
 	int maxi=1;
 	// Node coverages:
