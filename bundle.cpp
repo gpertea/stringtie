@@ -68,6 +68,7 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist, GPVec<GffObj>& guides) 
           }
           // Extend the first exon of nt through the previous intron up to the start of the previous exon in guide
           nt->exons[0]->start = guide.exons[n-i]->end + 1; 
+          nt->start = nt->exons[0]->start;
         } else { //forward strand, add exons in the same order as in guide
           for (int j = 0; j < i; ++j) {
               // add i exons from guide to nt
@@ -75,6 +76,7 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist, GPVec<GffObj>& guides) 
           }
           // Extend the last exon of nt through the next intron up to the start of the next exon in guide
           nt->exons.Last()->end = guide.exons[i]->start-1;
+          nt->end = nt->exons.Last()->end;
         }
           
         bool keepNascent = true;

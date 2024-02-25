@@ -1456,7 +1456,7 @@ void processBundle(BundleData* bundle) {
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count());
 
-		//bundle->printBundleGuides(); //debug only
+		bundle->printBundleGuides(); //debug only
 	#ifdef GMEMTRACE
 			double vm,rsm;
 			get_mem_usage(vm, rsm);
