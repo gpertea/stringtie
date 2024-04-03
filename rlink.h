@@ -95,7 +95,8 @@ struct CGuide {
 	//GffObj* t; // this is what I was using before but I need to store the guide index in guides instead
 	//CGuide(CTransfrag* _trf=NULL, GffObj* _t=NULL):trf(_trf),t(_t) {}
 	int g; // stores guide index in guides instead of the actual pointer
-	CGuide(CTransfrag* _trf=NULL, int _g=-1):trf(_trf),g(_g) {}
+	bool nascent:1;
+	CGuide(CTransfrag* _trf=NULL, int _g=-1,bool n=false):trf(_trf),g(_g),nascent(n) {}
 };
 
 struct CPartGuide {
