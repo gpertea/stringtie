@@ -18367,8 +18367,43 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 			CMaxIntv *pintv=intv;
 
-			//uint laststop=pred[i]->end;
-			for(int j=i+1;j<npred;j++) if(pred[j]->flag) {
+			if(pred[i]->t_eq) { // this is a guide -> I am more confident to eliminate intronic predictions
+
+				// eliminate intronic predictions that are under ERROR_PERC
+				for(int j=0;j<pred[i]->exons.Count()-1;j++) {
+
+					float err_covleft=ERROR_PERC*get_cov(1,pred[i]->exons[j].end-bundleData->start,pred[i]->exons[j].end-bundleData->start,bpcov); // coverage on the left exon
+					float err_covright=ERROR_PERC*get_cov(1,pred[i]->exons[j+1].start-bundleData->start,pred[i]->exons[j+1].start-bundleData->start,bpcov); // coverage on the right exon
+					//float err_cov= err_covleft<err_covright?err_covleft:err_covright;
+
+
+					while(pred[i]->exons[j].end>=pintv->start) {
+						pintv=pintv->next;
+					} // now pred[i]->exons[j].end<pintv->start
+
+
+					while(pintv->end<pred[i]->exons[j+1].start) { // while inside intron
+						if(pintv->cov<=0) {
+							pintv->cov=get_cov(1,pintv->start-bundleData->start,pintv->end-bundleData->start,bpcov);
+						}
+						float cov=pintv->cov/pintv->len();
+						if(cov<err_covleft || cov< err_covright) { // prediction in intronic interval with small coverage
+							for(int k=0;k<pintv->node.Count();k++) {
+								int p = pintv->node[k].predno;
+								if(!pred[p]->t_eq && pred[p]->flag) {
+									//float excov=pred[p]->cov*pred[p]->exons.Count(); // v12
+									//if(excov<err_cov) {
+										pred[p]->flag=false;
+									//}
+								}
+							}
+						}
+						pintv=pintv->next;
+					}
+				}
+				pintv=intv;
+			}
+			else for(int j=i+1;j<npred;j++) if(pred[j]->flag) {
 				if(pred[j]->start>pred[i]->end) break; // this ensures that pred[i] and pred[j] regions overlap
 				if(!overlap[i*npred+j] && !pred[j]->t_eq) { // pred[j] is intronic
 					float cov=0; // cov is the last cov in pintv that has pred[i] in it before pred[j]
@@ -18852,6 +18887,48 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 					//fprintf(stderr,"coverage of pred[%d]=%f\n",n,pred[n]->cov);
 				}
 			}
+
+			/*if(!adjust && isnascent) { // check for readthrough predictions and predictions inside introns
+
+				CMaxIntv *intv=maxint;
+				for(int i=0;i<npred;i++) if(pred[i]->flag) {
+					//fprintf(stderr,"check pred[%d]\n",i);
+					while(intv->end<pred[i]->start) intv=intv->next;
+
+					CMaxIntv *pintv=intv;
+
+					uint laststop=pred[i]->end;
+					for(int j=i+1;j<npred;j++) if(pred[j]->flag) {
+						if(pred[j]->start>pred[i]->end) break; // this ensures that pred[i] and pred[j] regions overlap
+						if(overlap[i*npred+j]) { // j overlaps i: consider readthroughs here
+							//fprintf(stderr,"...overlap pred j=%d\n",j);
+							while(pintv->end<pred[j]->start) pintv=pintv->next;
+							if(!pred[i]->t_eq && pred[i]->cov<ERROR_PERC*pred[j]->cov) { // pred[j] has much higher coverage -> pred[i] might be a readthrough modif 20: add /DROP
+								if(pred[j]->start>laststop) { // this can only happen if pred[i] already was smaller than a previous pred[j] that ended early
+									//fprintf(stderr,"...pred i=%d eliminated due to pred j=%d\n",i,j);
+									pred[i]->flag=false;
+									break;
+								}
+								else if(pred[j]->end<laststop) { // found a prediction that ended early and had much higher coverage
+									laststop=pred[j]->end;
+									//fprintf(stderr,"...set last stop at %d due to prediction %d\n",laststop,j);
+								}
+							}
+							else if(!pred[j]->t_eq && pred[j]->cov<ERROR_PERC*pred[i]->cov) { // pred[j] might be a readthrough modif 20: add /DROP
+								for(int k=j+1;k<npred;k++) if(pred[k]->flag){
+									if(pred[k]->start>pred[j]->end) break;
+									if(pred[k]->start>pred[i]->end && pred[j]->cov<ERROR_PERC*pred[k]->cov) { // modif 20: add /DROP
+										//fprintf(stderr,"...pred j=%d eliminated due to pred i=%d and k=%d\n",j,i,k);
+										pred[j]->flag=false;
+										break;
+									}
+								}
+							}
+						}
+					} // end pred[j]
+				} // end pred[i]
+
+			}*/
 		}
 	}
 
