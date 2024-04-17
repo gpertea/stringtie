@@ -51,6 +51,8 @@ extern bool retained_intron;
 extern FILE* f_out;
 extern GStr label;
 
+extern bool havePtFeatures; // if there is feature data to use
+
 static GStr _id("", 256); //to prevent repeated reallocation for each parsed read
 //not thread safe -- to only be used in processRead() as long as that's the unique producer
 
@@ -1650,14 +1652,15 @@ void find_trims_wsign(int refstart,int sno,uint start,uint end,GVec<float>* bpco
 	}
 }
 
-void find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,GVec<CTrimPoint> &trimpoint) {
+int find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,GVec<CTrimPoint> &trimpoint,GVec<CTrimPoint> &tstartend,int f) {
 
 // this procedure returns all trims it finds and stores them in trimpoint
 
 	//fprintf(stderr,"find all trims in region:%d-%d:%d\n",start,end,sno);
 
 	int len=end-start+1; // length of region where I look for trims
-	if(len<CHI_THR) return; // very short exon -> do not check
+	while(f<tstartend.Count() && tstartend[f].pos<start) f++;
+	if(len<CHI_THR) return(f); // very short exon -> do not check -- this will need to be improved to take into account the start/ends in thsi interval
 
 	//float localdrop=ERROR_PERC; // very sharp drop
 	float localdrop=ERROR_PERC/DROP;
@@ -1667,19 +1670,88 @@ void find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,
 		}
 		float lastdrop=localdrop;
 		for(uint i=start+longintronanchor;i<end-longintronanchor;i++) {
-			float covleft=get_cov_sign(sno,start-refstart,i-1-refstart,bpcov)/(i-start);
+			float covleft=get_cov_sign(sno,start-refstart,i-1-refstart,bpcov)/(i-start); // shouldn't this go to i?
 			float covright=get_cov_sign(sno,i-refstart,end-refstart,bpcov)/(end-i+1);
+
+			if(f<tstartend.Count() && tstartend[f].pos==i) {
+				uint p=i;
+				if(tstartend[f].start) p++;
+				CTrimPoint t(p,(abs(covright-covleft)+1)/DROP,tstartend[f].start);
+				trimpoint.Add(t);
+				lastdrop=0; // to force using this all the time
+				f++;
+			}
+			else {
+				if(covleft<covright) { // possible source trimming
+					//float thisdrop=(covleft+1)/(covright+1); // make sure I add one read to mitigate gaps in coverage
+					float thisdrop=covleft/covright; // make sure I add one read to mitigate gaps in coverage
+					//fprintf(stderr,"found source drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i+1);
+					if(thisdrop<localdrop) {
+						if(!trimpoint.Count() || (!trimpoint.Last().start && i+1-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
+							CTrimPoint t(i+1,(covright-covleft)/DROP,true);
+							trimpoint.Add(t);
+							lastdrop=thisdrop;
+						}
+						else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
+							lastdrop=thisdrop;
+							trimpoint.Last().pos=i+1;
+							trimpoint.Last().abundance=(covright-covleft)/DROP;
+							trimpoint.Last().start=true;
+						}
+					}
+				}
+				else if(covright!=covleft) { // possible sink trimming: covright<covleft here
+					float thisdrop=(covright+1)/(covleft+1);
+					//fprintf(stderr,"found sink drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i);
+					if(thisdrop<localdrop) {
+						if(!trimpoint.Count() || (trimpoint.Last().start && i-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
+							CTrimPoint t(i,(covleft-covright)/DROP,false);
+							trimpoint.Add(t);
+							lastdrop=thisdrop;
+						}
+						else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
+							lastdrop=thisdrop;
+							trimpoint.Last().pos=i;
+							trimpoint.Last().abundance=(covleft-covright)/DROP;
+							trimpoint.Last().start=false;
+						}
+					}
+				}
+			}
+		}
+		return(f);
+	}
+
+	GIntHash<bool> featnode;
+
+	// now len >= CHI_WIN
+	int winlen=CHI_WIN+CHI_THR;
+	float lastdrop=localdrop;
+
+	for(uint i=start+CHI_THR-1;i<start+winlen-1;i++) {
+		float covleft=get_cov_sign(sno,start-refstart,i-refstart,bpcov)/(i-start);
+		float covright=get_cov_sign(sno,i+1-refstart,i+winlen-refstart,bpcov)/winlen;
+
+		if(f<tstartend.Count() && tstartend[f].pos==i) {
+			uint p=i;
+			if(tstartend[f].start) p++;
+			CTrimPoint t(p,(abs(covright-covleft)+1)/DROP,tstartend[f].start);
+			featnode.Add(trimpoint.Count(),true);
+			trimpoint.Add(t);
+			lastdrop=0; // to force using this all the time
+			f++;
+		}
+		else {
 			if(covleft<covright) { // possible source trimming
-				//float thisdrop=(covleft+1)/(covright+1); // make sure I add one read to mitigate gaps in coverage
-				float thisdrop=covleft/covright; // make sure I add one read to mitigate gaps in coverage
-				//fprintf(stderr,"found source drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i+1);
-				if(thisdrop<localdrop) {
+				float thisdrop=covleft/covright;
+				//fprintf(stderr,"long found source drop=%f covleft=%f covright=%f at i=%d lastdrop=%f\n",thisdrop,covleft,covright,i+1,lastdrop);
+				if(thisdrop<localdrop) { // this drop passes threshold
 					if(!trimpoint.Count() || (!trimpoint.Last().start && i+1-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
 						CTrimPoint t(i+1,(covright-covleft)/DROP,true);
 						trimpoint.Add(t);
 						lastdrop=thisdrop;
 					}
-					else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
+					else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop; it also has to be smallest within a 50bp prevwindow
 						lastdrop=thisdrop;
 						trimpoint.Last().pos=i+1;
 						trimpoint.Last().abundance=(covright-covleft)/DROP;
@@ -1687,10 +1759,10 @@ void find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,
 					}
 				}
 			}
-			else if(covright!=covleft) { // possible sink trimming: covright<covleft here
-				float thisdrop=(covright+1)/(covleft+1);
-				//fprintf(stderr,"found sink drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i);
-				if(thisdrop<localdrop) {
+			else if(covleft!=covright) { // possible sink trimming: covright<covleft here
+				float thisdrop=covright/covleft;
+				//fprintf(stderr,"found sink drop=%f covleft=%f covright=%f at i=%d lastdrop=%f\n",thisdrop,covleft,covright,i,lastdrop);
+				if(thisdrop<localdrop) { // this drop passes threshold
 					if(!trimpoint.Count() || (trimpoint.Last().start && i-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
 						CTrimPoint t(i,(covleft-covright)/DROP,false);
 						trimpoint.Add(t);
@@ -1705,50 +1777,6 @@ void find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,
 				}
 			}
 		}
-		return;
-	}
-
-	// now len >= CHI_WIN
-	int winlen=CHI_WIN+CHI_THR;
-	float lastdrop=localdrop;
-
-	for(uint i=start+CHI_THR-1;i<start+winlen-1;i++) {
-		float covleft=get_cov_sign(sno,start-refstart,i-refstart,bpcov)/(i-start);
-		float covright=get_cov_sign(sno,i+1-refstart,i+winlen-refstart,bpcov)/winlen;
-		if(covleft<covright) { // possible source trimming
-			float thisdrop=covleft/covright;
-			//fprintf(stderr,"long found source drop=%f covleft=%f covright=%f at i=%d lastdrop=%f\n",thisdrop,covleft,covright,i+1,lastdrop);
-			if(thisdrop<localdrop) { // this drop passes threshold
-				if(!trimpoint.Count() || (!trimpoint.Last().start && i+1-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
-					CTrimPoint t(i+1,(covright-covleft)/DROP,true);
-					trimpoint.Add(t);
-					lastdrop=thisdrop;
-				}
-				else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop; it also has to be smallest within a 50bp prevwindow
-					lastdrop=thisdrop;
-					trimpoint.Last().pos=i+1;
-					trimpoint.Last().abundance=(covright-covleft)/DROP;
-					trimpoint.Last().start=true;
-				}
-			}
-		}
-		else if(covleft!=covright) { // possible sink trimming: covright<covleft here
-			float thisdrop=covright/covleft;
-			//fprintf(stderr,"found sink drop=%f covleft=%f covright=%f at i=%d lastdrop=%f\n",thisdrop,covleft,covright,i,lastdrop);
-			if(thisdrop<localdrop) { // this drop passes threshold
-				if(!trimpoint.Count() || (trimpoint.Last().start && i-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
-					CTrimPoint t(i,(covleft-covright)/DROP,false);
-					trimpoint.Add(t);
-					lastdrop=thisdrop;
-				}
-				else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
-					lastdrop=thisdrop;
-					trimpoint.Last().pos=i;
-					trimpoint.Last().abundance=(covleft-covright)/DROP;
-					trimpoint.Last().start=false;
-				}
-			}
-		}
 	}
 
 
@@ -1756,42 +1784,53 @@ void find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,
 	if(mixedMode) localdrop=DROP*DROP; // tolerate more for mixedMode
 	if(!trimpoint.Count()) lastdrop=localdrop;
 	len+=start-winlen;
-	for(int i=start+winlen-1;i<len;i++) {
+	for(uint i=start+winlen-1;i<(uint)len;i++) {
 		float covleft=get_cov_sign(sno,i-winlen+1-refstart,i-refstart,bpcov); // I add 1 bp coverage to all so I can avoid 0 coverages
 		float covright=get_cov_sign(sno,i+1-refstart,i+winlen-refstart,bpcov);
-		if(covleft<covright) { // possible source trimming
-			//float thisdrop=(covleft+winlen)/(covright+winlen); // one read is added in order to avoid gaps in coverage
-			float thisdrop=covleft/covright;
-			if(thisdrop<localdrop) { // this drop passes threshold
-				//fprintf(stderr,"first found source drop=%f covleft=%f covright=%f at i=%d window:%d-%d lastdrop=%f\n",thisdrop,covleft,covright,i+1,i-winlen+1,i+winlen,lastdrop);
-				if(!trimpoint.Count() || (!trimpoint.Last().start && i+1-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
-					CTrimPoint t(i+1,(covright-covleft)/(DROP*winlen),true);
-					trimpoint.Add(t);
-					lastdrop=thisdrop;
-				}
-				else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop; it also has to be smallest within a 50bp prevwindow
-					lastdrop=thisdrop;
-					trimpoint.Last().pos=i+1;
-					trimpoint.Last().abundance=(covright-covleft)/(DROP*winlen);
-					trimpoint.Last().start=true;
+		if(f<tstartend.Count() && tstartend[f].pos==i) {
+			uint p=i;
+			if(tstartend[f].start) p++;
+			CTrimPoint t(p,(abs(covright-covleft)+1)/DROP,tstartend[f].start);
+			featnode.Add(trimpoint.Count(),true);
+			trimpoint.Add(t);
+			lastdrop=0; // to force using this all the time
+			f++;
+		}
+		else {
+			if(covleft<covright) { // possible source trimming
+				//float thisdrop=(covleft+winlen)/(covright+winlen); // one read is added in order to avoid gaps in coverage
+				float thisdrop=covleft/covright;
+				if(thisdrop<localdrop) { // this drop passes threshold
+					//fprintf(stderr,"first found source drop=%f covleft=%f covright=%f at i=%d window:%d-%d lastdrop=%f\n",thisdrop,covleft,covright,i+1,i-winlen+1,i+winlen,lastdrop);
+					if(!trimpoint.Count() || (!trimpoint.Last().start && i+1-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
+						CTrimPoint t(i+1,(covright-covleft)/(DROP*winlen),true);
+						trimpoint.Add(t);
+						lastdrop=thisdrop;
+					}
+					else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop; it also has to be smallest within a 50bp prevwindow
+						lastdrop=thisdrop;
+						trimpoint.Last().pos=i+1;
+						trimpoint.Last().abundance=(covright-covleft)/(DROP*winlen);
+						trimpoint.Last().start=true;
+					}
 				}
 			}
-		}
-		else if(covleft!=covright) { // possible sink trimming: covright<covleft here
-			//float thisdrop=(covright+winlen)/(covleft+winlen); // one read is added in order to avoid gaps in coverage
-			float thisdrop=covright/covleft;
-			if(thisdrop<localdrop) { // this drop passes threshold
-				//fprintf(stderr,"found sink drop=%f covleft=%f covright=%f at i=%d window:%d-%d lastdrop=%f\n",thisdrop,covleft,covright,i,i-winlen+1,i+winlen,lastdrop);
-				if(!trimpoint.Count() || (trimpoint.Last().start && i-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
-					CTrimPoint t(i,(covleft-covright)/(DROP*winlen),false);
-					trimpoint.Add(t);
-					lastdrop=thisdrop;
-				}
-				else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
-					lastdrop=thisdrop;
-					trimpoint.Last().pos=i;
-					trimpoint.Last().abundance=(covleft-covright)/(DROP*winlen);
-					trimpoint.Last().start=false;
+			else if(covleft!=covright) { // possible sink trimming: covright<covleft here
+				//float thisdrop=(covright+winlen)/(covleft+winlen); // one read is added in order to avoid gaps in coverage
+				float thisdrop=covright/covleft;
+				if(thisdrop<localdrop) { // this drop passes threshold
+					//fprintf(stderr,"found sink drop=%f covleft=%f covright=%f at i=%d window:%d-%d lastdrop=%f\n",thisdrop,covleft,covright,i,i-winlen+1,i+winlen,lastdrop);
+					if(!trimpoint.Count() || (trimpoint.Last().start && i-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
+						CTrimPoint t(i,(covleft-covright)/(DROP*winlen),false);
+						trimpoint.Add(t);
+						lastdrop=thisdrop;
+					}
+					else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
+						lastdrop=thisdrop;
+						trimpoint.Last().pos=i;
+						trimpoint.Last().abundance=(covleft-covright)/(DROP*winlen);
+						trimpoint.Last().start=false;
+					}
 				}
 			}
 		}
@@ -1802,37 +1841,48 @@ void find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,
 	for(uint i=len;i<end-CHI_THR-1;i++) {
 		float covleft=get_cov_sign(sno,i-winlen+1-refstart,i-refstart,bpcov)/winlen;
 		float covright=get_cov_sign(sno,i+1-refstart,end-refstart,bpcov)/(end-i);
-		if(covleft<covright) { // possible source trimming
-			float thisdrop=covleft/covright;
-			//fprintf(stderr,"last found source drop=%f covleft=%f covright=%f at i=%d lastdrop=%f\n",thisdrop,covleft,covright,i+1,lastdrop);
-			if(thisdrop<localdrop) { // this drop passes threshold
-				if(!trimpoint.Count() || (!trimpoint.Last().start && i+1-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
-					CTrimPoint t(i+1,(covright-covleft)/DROP,true);
-					trimpoint.Add(t);
-					lastdrop=thisdrop;
-				}
-				else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop; it also has to be smallest within a 50bp prevwindow
-					lastdrop=thisdrop;
-					trimpoint.Last().pos=i+1;
-					trimpoint.Last().abundance=(covright-covleft)/DROP;
-					trimpoint.Last().start=true;
+		if(f<tstartend.Count() && tstartend[f].pos==i) {
+			uint p=i;
+			if(tstartend[f].start) p++;
+			CTrimPoint t(p,(abs(covright-covleft)+1)/DROP,tstartend[f].start);
+			featnode.Add(trimpoint.Count(),true);
+			trimpoint.Add(t);
+			lastdrop=0; // to force using this all the time
+			f++;
+		}
+		else {
+			if(covleft<covright) { // possible source trimming
+				float thisdrop=covleft/covright;
+				//fprintf(stderr,"last found source drop=%f covleft=%f covright=%f at i=%d lastdrop=%f\n",thisdrop,covleft,covright,i+1,lastdrop);
+				if(thisdrop<localdrop) { // this drop passes threshold
+					if(!trimpoint.Count() || (!trimpoint.Last().start && i+1-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
+						CTrimPoint t(i+1,(covright-covleft)/DROP,true);
+						trimpoint.Add(t);
+						lastdrop=thisdrop;
+					}
+					else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop; it also has to be smallest within a 50bp prevwindow
+						lastdrop=thisdrop;
+						trimpoint.Last().pos=i+1;
+						trimpoint.Last().abundance=(covright-covleft)/DROP;
+						trimpoint.Last().start=true;
+					}
 				}
 			}
-		}
-		else if(covleft!=covright) { // possible sink trimming: covright<covleft here
-			float thisdrop=covright/covleft;
-			//fprintf(stderr,"0.1 found sink drop=%f covleft=%f covright=%f at i=%d lastdrop=%f\n",thisdrop,covleft,covright,i,lastdrop);
-			if(thisdrop<localdrop) { // this drop passes threshold
-				if(!trimpoint.Count() || (trimpoint.Last().start && i-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
-					CTrimPoint t(i,(covleft-covright)/DROP,false);
-					trimpoint.Add(t);
-					lastdrop=thisdrop;
-				}
-				else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
-					lastdrop=thisdrop;
-					trimpoint.Last().pos=i;
-					trimpoint.Last().abundance=(covleft-covright)/DROP;
-					trimpoint.Last().start=false;
+			else if(covleft!=covright) { // possible sink trimming: covright<covleft here
+				float thisdrop=covright/covleft;
+				//fprintf(stderr,"0.1 found sink drop=%f covleft=%f covright=%f at i=%d lastdrop=%f\n",thisdrop,covleft,covright,i,lastdrop);
+				if(thisdrop<localdrop) { // this drop passes threshold
+					if(!trimpoint.Count() || (trimpoint.Last().start && i-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
+						CTrimPoint t(i,(covleft-covright)/DROP,false);
+						trimpoint.Add(t);
+						lastdrop=thisdrop;
+					}
+					else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
+						lastdrop=thisdrop;
+						trimpoint.Last().pos=i;
+						trimpoint.Last().abundance=(covleft-covright)/DROP;
+						trimpoint.Last().start=false;
+					}
 				}
 			}
 		}
@@ -1842,6 +1892,12 @@ void find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,
 	// I might adjust localdrop again here
 	uint laststart=start;
 	for(int i=0;i<trimpoint.Count();i++) {
+		if(featnode[i]) { // this is from the point feature file
+			trimpoint[i].pos=-trimpoint[i].pos;
+			laststart=(uint)(trimpoint[i].pos+1);
+			if(trimpoint[i].start) laststart--;
+			continue;
+		}
 		uint midpos=trimpoint[i].pos;
 		if(trimpoint[i].start) midpos--;
 		if(midpos-laststart>3*CHI_WIN) { laststart=midpos-3*CHI_WIN;} // do not consider a two big of a window
@@ -1896,6 +1952,7 @@ void find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,
 		fprintf(stderr,"\n");
 	}
 	*/
+	return(f);
 }
 
 CGraphnode *add_trim_to_graph(int s, int g,uint lastpos,CTrimPoint& mytrim,CGraphnode *graphnode,CGraphnode *source,CGraphnode *sink,GVec<float>& futuretr,
@@ -2279,10 +2336,10 @@ CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphno
 
 
 CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *graphnode,CGraphnode *source, CGraphnode *sink, GVec<float>* bpcov,
-		GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno) {
+		GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno,GVec<CTrimPoint> &tstartend,int &f) {
 
 	GVec<CTrimPoint> trimpoint;
-	find_all_trims(refstart,2*s,graphnode->start,newend,bpcov,trimpoint);
+	f=find_all_trims(refstart,2*s,graphnode->start,newend,bpcov,trimpoint,tstartend,f);
 	for(int i=0;i<trimpoint.Count();i++) if(trimpoint[i].pos){
 		if(trimpoint[i].start) { // source trim
 			graphnode->end=trimpoint[i].pos-1;
@@ -2879,7 +2936,7 @@ int prune_graph_nodes(int graphno,int s,int g,GVec<CGraphinfo> **bundle2graph, i
 int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bnode,
 		GList<CJunction>& junction,GList<CJunction>& ejunction,GVec<CGraphinfo> **bundle2graph,
 		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag,GIntHash<int> **gpos,BundleData* bdata,
-		int &edgeno,int &lastgpos,GArray<GEdge>& guideedge, int refend=0){
+		int &edgeno,int &lastgpos,GArray<GEdge>& guideedge, GVec<CTrimPoint> &tstartend,int refend=0){
 
 	GVec<float>* bpcov = bdata ? bdata->bpcov : NULL; // I might want to use a different type of data for bpcov to save memory in the case of very long bundles
 
@@ -3251,7 +3308,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    		//if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 	    		else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,junction[njs]->start,nls,nle,dropcov,true,lstart,lend,
 							graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    		if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
+	    		if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 
 	    		dropcov=true;
@@ -3353,7 +3410,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    			//if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 	    			else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,pos-1,nls,nle,dropcov,false,lstart,lend,
 	    						graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    			if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
+	    			if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 
 	    			graphnode->end=pos-1; // set end of current graphnode here
@@ -3424,7 +3481,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    	// if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
 	    	else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,endbundle,nls,nle,dropcov,true,lstart,lend,
 	    				graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    	if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
+	    	if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 	    	graphnode->end=endbundle;
 	    	// COUNT EDGE HERE (this is an edge to sink)
@@ -14295,8 +14352,30 @@ int build_graphs(BundleData* bdata) {
 	GVec<int> *readgroup=new GVec<int>[readlist.Count()]; // remebers groups for each read; don't forget to delete it when no longer needed
 	GVec<int> guidepred; // for eonly keeps the prediction number associated with a guide
 	GArray<GEdge> guideedge; // 0: negative starts; 1 positive starts
-	/*GPVec<GPtFeature>& feature = bdata->ptfs; // these are point features (confirmed starts/stops)
 
+	GPVec<GPtFeature>& feature = bdata->ptfs; // these are point features (confirmed starts/stops)
+	GIntHash<bool> jstart;
+	GIntHash<bool> jend;
+	bool checkfeat=false;
+	GVec<CTrimPoint> tstartend;
+
+	if(havePtFeatures && !mixedMode && !longreads) { // only in this case I check jstart and jend
+		for(int i=0;i<feature.Count();i++) {
+			if(feature[i]->ftype==GPFT_JSTART) {if(!jstart[feature[i]->coord]) jstart.Add(feature[i]->coord,true);}
+			else if(feature[i]->ftype==GPFT_JEND) {if(!jend[feature[i]->coord]) jend.Add(feature[i]->coord,true);}
+			else if(feature[i]->ftype==GPFT_TSS) {
+				CTrimPoint t(feature[i]->coord,0,true);
+				tstartend.Add(t);
+			}
+			else { // this is GPFT_CPAS
+				CTrimPoint t(feature[i]->coord,0,false);
+				tstartend.Add(t);
+			}
+		}
+		if(feature.Count()) checkfeat=true;
+	}
+
+	/*{ // DEBUG ONLY
 	for(int i=0;i<feature.Count();i++) {
 		if(feature[i]->ftype==GPFT_TSS)
 			fprintf(stderr,"TSS at position %d on strand %d\n",feature[i]->coord,feature[i]->strand);
@@ -14399,6 +14478,10 @@ int build_graphs(BundleData* bdata) {
 	char leftcons=-1;
 	char rightcons=-1;
 	for(int i=0;i<junction.Count();i++) {
+
+		if(checkfeat && !junction[i]->guide_match) { // check features here
+			if(!jstart[junction[i]->start || ! jend[junction[i]->end]]) junction[i]->strand=0;
+		}
 
 		//fprintf(stderr,"check junction:%d-%d:%d leftsupport=%f rightsupport=%f nm=%f nreads=%f\n",junction[i]->start,junction[i]->end,junction[i]->strand,junction[i]->leftsupport,junction[i]->rightsupport,junction[i]->nm,junction[i]->nreads);
 
@@ -15440,6 +15523,7 @@ int build_graphs(BundleData* bdata) {
 	//if(fraglen)
 
 	int g=0;
+	int f=0;
 
 	for(int b=0;b<bundle[1].Count();b++) { // these are neutral bundles that do not overlap any signed reads
 
@@ -15497,7 +15581,7 @@ int build_graphs(BundleData* bdata) {
     				char sign='.';
 
     				GVec<CTrimPoint> trimpoint;
-    				find_all_trims(refstart,0,currbnode->start, currbnode->end,bpcov,trimpoint); // sign should not matter as I am in a totally neutral zone
+    				f=find_all_trims(refstart,0,currbnode->start, currbnode->end,bpcov,trimpoint,tstartend,f); // sign should not matter as I am in a totally neutral zone
 
     				uint predstart=currbnode->start;
     				uint predend=currbnode->end;
@@ -15674,7 +15758,7 @@ int build_graphs(BundleData* bdata) {
     					*/
     					// create graph then
     					graphno[s][b]=create_graph(refstart,s,b,bundle[sno][b],bnode[sno],junction,ejunction,
-    							bundle2graph,no2gnode,transfrag,gpos,bdata,edgeno[s][b],lastgpos[s][b],guideedge); // also I need to remember graph coverages somewhere -> probably in the create_graph procedure
+    							bundle2graph,no2gnode,transfrag,gpos,bdata,edgeno[s][b],lastgpos[s][b],guideedge,tstartend); // also I need to remember graph coverages somewhere -> probably in the create_graph procedure
 
     					if(graphno[s][b]) tr2no[s][b]=construct_treepat(graphno[s][b],gpos[s][b],transfrag[s][b]);
     					else tr2no[s][b]=NULL;
@@ -16419,8 +16503,9 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
     				// create graph
 
     				GArray<GEdge> unused;
+    				GVec<CTrimPoint> tstartend;
     				graphno[s][b]=create_graph(refstart,s,b,bundle[sno][b],bnode[sno],junction,ejunction,
-    						bundle2graph,no2gnode,transfrag,gpos,NULL,edgeno[s][b],lastgpos[s][b],unused,refend);
+    						bundle2graph,no2gnode,transfrag,gpos,NULL,edgeno[s][b],lastgpos[s][b],unused,tstartend,refend);
 
     				if(graphno[s][b]) tr2no[s][b]=construct_treepat(graphno[s][b],gpos[s][b],transfrag[s][b]);
     				else tr2no[s][b]=NULL;

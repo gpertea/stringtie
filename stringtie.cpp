@@ -195,6 +195,8 @@ bool debugMode=false;
 bool verbose=false;
 bool ballgown=false;
 
+bool havePtFeatures=false;
+
 //int maxReadCov=1000000; //max local read coverage (changed with -s option)
 //no more reads will be considered for a bundle if the local coverage exceeds this value
 //(each exon is checked for this)
@@ -423,7 +425,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
  gseqNames=GffObj::names; //might have been populated already by gff data
  gffnames_ref(gseqNames);  //initialize the names collection if not guided
- bool havePtFeatures=false;
+
 
  // -- loading point-feature data
  if (!ptff.is_empty()) {
@@ -1682,6 +1684,10 @@ int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts) {
 			pftype=GPFT_TSS;
 	else if (strcmp(tokens[3], "CPAS")==0)
 			pftype=GPFT_CPAS;
+    else if (strcmp(tokens[3], "JSTART")==0)
+    			pftype=GPFT_JSTART;
+    else if (strcmp(tokens[3], "JEND")==0)
+    			pftype=GPFT_JEND;
     if (pftype==0)
     	GError("Error parsing point-feature line (unrecognized type):\n%s\n",line);
     GPtFeature* ptf=new GPtFeature(pftype, -1, strand, start);

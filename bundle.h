@@ -74,7 +74,9 @@ struct Ref_RC_Data {
 enum GPFType {
 	GPFT_NONE=0,
 	GPFT_TSS,
-	GPFT_CPAS
+	GPFT_CPAS,
+	GPFT_JSTART,
+	GPFT_JEND
 }; //on 4 bits: maximum 15 types
 
 struct GPtFeature { //point feature (single coordinate)
