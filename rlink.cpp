@@ -101,7 +101,6 @@ public:
 	int index = get_index(i, j);
     return ovls[index]; 
   }
-
   void set(int i, int j, bool val=true) {
 	int index = get_index(i, j);
     ovls[index]=val; 
@@ -16319,43 +16318,43 @@ void merge_exons(CGene& gene,GVec<GSeg>& exons) {
 }
 
 
-void update_overlap(GList<CPrediction>& pred,int p,int e,GVec<CExon>& node,GVec<bool>& overlap) {
+void update_overlap(GList<CPrediction>& pred,int p,int e,GVec<CExon>& node,OvlTracker& overlaps) {
 
 	int n=pred.Count();
-	for(int i=0;i<node.Count();i++) if(!overlap[n*node[i].predno+p]) { // there is no overlap detected yet
+	for(int i=0;i<node.Count();i++) if(!overlaps.get(node[i].predno, p)) { // there is no overlap detected yet
 
 		// exon e in prediction p overlaps exon ei in prediction pi
 		int pi=node[i].predno;
 		int ei=node[i].exonno;
 
-		overlap[n*pi+p]=true;
+		overlaps.set(pi, p);
 
 		// overlap is not significant in the following cases
 		if(!e && pred[p]->exons[0].end>=pred[pi]->end) { // I am at the beginning of prediction p
 			int len=pred[pi]->end-pred[p]->start+1;
-			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlap[n*pi+p]=false; // prediction p doesn't overlap prediction pi by a considerable amount
+			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlaps.set(pi,p,false); // prediction p doesn't overlap prediction pi by a considerable amount
 		}
 
-		if(overlap[n*pi+p] && !ei && pred[pi]->exons[0].end>=pred[p]->end) { // I am at the beginning of prediction pi
+		if(overlaps.get(pi,p) && !ei && pred[pi]->exons[0].end>=pred[p]->end) { // I am at the beginning of prediction pi
 			int len=pred[p]->end-pred[pi]->start+1;
-			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlap[n*pi+p]=false; // prediction pi doesn't overlap prediction p by a considerable amount
+			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlaps.set(pi,p,false); // prediction pi doesn't overlap prediction p by a considerable amount
 		}
 
-		if(overlap[n*pi+p] && e==pred[p]->exons.Count()-1 && pred[p]->exons[e].start<=pred[pi]->start) { // I am at the end of prediction p
+		if (overlaps.get(pi,p) && e==pred[p]->exons.Count()-1 && pred[p]->exons[e].start<=pred[pi]->start) { // I am at the end of prediction p
 			int len=pred[p]->end-pred[pi]->start+1;
-			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlap[n*pi+p]=false; // prediction p doesn't overlap prediction pi by a considerable amount
+			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlaps.set(pi,p,false); // prediction p doesn't overlap prediction pi by a considerable amount
 		}
 
-		if(overlap[n*pi+p] && ei==pred[pi]->exons.Count()-1 && pred[pi]->exons[ei].start<=pred[p]->start) { // I am at the end of prediction pi
+		if(overlaps.get(pi,p) && ei==pred[pi]->exons.Count()-1 && pred[pi]->exons[ei].start<=pred[p]->start) { // I am at the end of prediction pi
 			int len=pred[pi]->end-pred[p]->start+1;
-			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlap[n*pi+p]=false; // prediction pi doesn't overlap prediction p by a considerable amount
+			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlaps.set(pi,p,false); // prediction pi doesn't overlap prediction p by a considerable amount
 		}
 
 	}
 }
 
 
-CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,float c,GList<CPrediction>& pred,GVec<bool>& overlap) {
+CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,float c,GList<CPrediction>& pred, OvlTracker& overlaps) {
 
 	CMaxIntv *prevmaxint=NULL;
 	while(maxint && start>maxint->end) {
@@ -16394,7 +16393,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 				nextmaxint=maxint;
 			}
 
-			update_overlap(pred,p,e,nextmaxint->node,overlap);
+			update_overlap(pred,p,e,nextmaxint->node, overlaps);
 			nextmaxint->node.Add(ex);
 
 			if(end<nextmaxint->end) { // nextmaxint now ends where previous maxint ended
@@ -16413,7 +16412,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 						maxint->next=newintv;
 						maxint=newintv;
 					}
-					update_overlap(pred,p,e,maxint->next->node,overlap);
+					update_overlap(pred,p,e,maxint->next->node, overlaps);
 					maxint->next->node.Add(ex);
 					maxint=maxint->next;
 				}
@@ -16480,9 +16479,9 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	if(bundledist>runoffdist) runoffdist=bundledist;
 
 	int npred=pred.Count();
-	GVec<bool> overlap;
-	overlap.Resize(npred*npred-npred);
-
+	/* GVec<bool> overlap;
+	overlap.Resize(npred*npred-npred); */
+    OvlTracker overlaps(npred);
 	GVec<CPred> predord;
 	//CPred p(0,pred[0]->cov);
 	CPred p(0,abs(pred[0]->tlen)*pred[0]->cov); // priority based on number of bases covered -> this should a give a boost to predictions that are longer
@@ -16569,7 +16568,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			//fprintf(stderr,"pred[%d] intron[%d]:%d-%d introncov=%f exoncov=%f\n",0,j-1,pred[0]->exons[j-1].end,pred[0]->exons[j].start,introncov,exoncov);
 				  }
 			  }
-		nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,excov,pred,overlap); // per bp coverage
+		nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,excov,pred,overlaps); // per bp coverage
 		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,pred[0]->exoncov[j]*pred[0]->exons[j].len(),pred,overlap); // per read coverage
 		//pred[0]->exoncov[j]=0;
 	}
@@ -16597,7 +16596,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		//CPred p(n,pred[n]->cov); // priority based on cov/bp
 		CPred p(n,abs(pred[n]->tlen)*pred[n]->cov); // priority based on number of bases covered
 		predord.Add(p);
-		nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,excov,pred,overlap); // per bp coverage
+		nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,excov,pred,overlaps); // per bp coverage
 		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,pred[n]->exoncov[0]*pred[n]->exons[0].len(),pred,overlap); // read coverage
 		//pred[n]->exoncov[0]=0;
 		intron.clear();
@@ -16645,7 +16644,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 							  }
 						  }
 					  }
-			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,excov,pred,overlap); // per bp coverage
+			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,excov,pred,overlaps); // per bp coverage
 			//nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,pred[n]->exoncov[j]*pred[n]->exons[j].len(),pred,overlap); // read coverage
 			//pred[n]->exoncov[j]=0;
 		}
@@ -16699,11 +16698,11 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			//fprintf(stderr,"first consideration of pred[%d] with cov=%f and strand=%c\n",n1,pred[n1]->cov,pred[n1]->strand);
 			for(int j=i+1;j<predord.Count();j++) if(pred[predord[j].predno]->flag) {
 				int n2=predord[j].predno; // always predord.cov(n1)>=predord.cov(n2)
-				int m = n1;
+				/*int m = n1;
 				int M = n2;
 				//fprintf(stderr,"...vs prediction n2=%d with cov=%f and strand=%c\n",n2,pred[n2]->cov,pred[n2]->strand);
-				if(m>M) { m=n2; M=n1;}
-				if(overlap[npred*m+M]) { // n1 could get eliminated by some other genes for instance if it has fewer exons and it's included in a bigger one
+				if(m>M) { m=n2; M=n1;} */
+				if(overlaps.get(n1,n2)) { // n1 could get eliminated by some other genes for instance if it has fewer exons and it's included in a bigger one
 				  //fprintf(stderr,"overlap\n");
 					if(!pred[n2]->t_eq) { // this is not a known gene -> only then I can eliminate it
 						if(pred[n1]->t_eq && pred[n2]->cov<ERROR_PERC*pred[n1]->cov) { // more strict about novel predictions if annotation is available
@@ -16796,10 +16795,10 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    			else if(pred[n2]->tlen>0 && !pred[n2]->t_eq) {
 	    				if(transcript_overlap(pred,n1,n2)) {
 	    				for(int p=0;p<bettercov[n2].Count();p++) {
-	    					int m = n1;
+	    					/* int m = n1;
 	    					int M = bettercov[n2][p];
-	    					if(m>M) { m=bettercov[n2][p]; M=n1;}
-	    					if(!overlap[npred*m+M]) {
+	    					if(m>M) { m=bettercov[n2][p]; M=n1;} */
+	    					if(!overlaps.get(bettercov[n2][p],n1)) {
 	    						pred[n2]->flag=false;
 	    						//fprintf(stderr,"falseflag: pred[%d] eliminated because of overlap to %d and %d\n",n2,m,M);
 	    						break;
@@ -17092,7 +17091,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		int j=i+1;
 		while(j<npred && pred[i]->end>=pred[j]->start) {
 			//fprintf(stderr,"... check pred j=%d\n",j);
-			if(pred[j]->flag && pred[i]->strand==pred[j]->strand && overlap[npred*i+j]) {
+			if(pred[j]->flag && pred[i]->strand==pred[j]->strand && overlaps.get(i,j)) {
 				if(!pred[j]->t_eq && pred[j]->cov<readthr) {
 					pred[j]->flag=false;
 					//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
