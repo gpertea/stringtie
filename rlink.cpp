@@ -83,8 +83,31 @@ void printBitVec(GBitVec& bv) {
        fprintf(stderr, "%c", bv.test(i)?'1':'0');
    }
 }
+//  tracking overlaps between predictions in a bundle
+// using a triangular matrix representation based on total number of predictions npred 
+class OvlTracker {
+  int count; // total number of items to track overlaps between
+  GBitVec ovls; // triangular matrix representation of overlaps
+  inline int get_index(int i, int j) {
+	// Ensure i != j since no self-overlap should be used
+	if (i == j) GError("Self-overlap is not tracked.");
+	// Calculate index for triangular matrix storage
+	if (i > j) Gswap(i, j);
+	return (j * (j - 1)) / 2 + i;
+  }
+public:
+  OvlTracker(int n) : count(n), ovls((n * (n - 1)) / 2) {}
+  bool get(int i, int j) {
+	int index = get_index(i, j);
+    return ovls[index]; 
+  }
 
+  void set(int i, int j, bool val=true) {
+	int index = get_index(i, j);
+    ovls[index]=val; 
+  }
 
+};
 
 void cov_edge_add(GVec<float> *bpcov, int sno, int start, int end, float v) {
 	bool neutral=false;
