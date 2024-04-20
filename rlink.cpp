@@ -90,7 +90,7 @@ class OvlTracker {
   GBitVec ovls; // triangular matrix representation of overlaps
   inline int get_index(int i, int j) {
 	// Ensure i != j since no self-overlap should be used
-	if (i == j) GError("Self-overlap is not tracked.");
+	if (i == j) GError("OvlTracker: self-overlap index is not allowed.");
 	// Calculate index for triangular matrix storage
 	if (i > j) Gswap(i, j);
 	return (j * (j - 1)) / 2 + i;
@@ -16644,7 +16644,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 							  }
 						  }
 					  }
-			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,excov,pred,overlaps); // per bp coverage
+			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,excov,pred, overlaps); // per bp coverage
 			//nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,pred[n]->exoncov[j]*pred[n]->exons[j].len(),pred,overlap); // read coverage
 			//pred[n]->exoncov[j]=0;
 		}
