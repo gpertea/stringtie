@@ -17,6 +17,7 @@ mkdir $pack/gclib
 #cd ..
 # getting a clean htslib directory
 hts=htslib
+/bin/rm -rf $hts.prep
 mv $hts $hts.prep
 git checkout -- $hts
 mv $hts $pack/
