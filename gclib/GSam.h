@@ -248,8 +248,7 @@ class GSamRecord: public GSeg {
         p = bam_get_qname(b);
 
         strcpy(p,qname.c_str());
-        uint16_t x = 0;
-
+        
         for (int x=l;x<l+l_extranul;x++){
             p[x] = '\0';
         }

@@ -16320,7 +16320,7 @@ void merge_exons(CGene& gene,GVec<GSeg>& exons) {
 
 void update_overlap(GList<CPrediction>& pred,int p,int e,GVec<CExon>& node,OvlTracker& overlaps) {
 
-	int n=pred.Count();
+	//int n=pred.Count();
 	for(int i=0;i<node.Count();i++) if(!overlaps.get(node[i].predno, p)) { // there is no overlap detected yet
 
 		// exon e in prediction p overlaps exon ei in prediction pi
