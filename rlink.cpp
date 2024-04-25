@@ -20133,7 +20133,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 								pred[m]->flag=true; // make sure I do not delete the prediction
 								pred[n]->cov+=pred[m]->cov; // add coverage to annotated gene in this case so that pred[n]->cov>pred[m]->cov and the next if to become true
 							}
-							if(pred[n]->cov>pred[m]->cov) { // replace with higher coverage
+							if(pred[n]->cov>pred[m]->cov) { // --replace-- with higher coverage
 								if(isnascent) reconcile_nascents(pred,m,n);
 								pred[m]->start=pred[n]->start;
 								pred[m]->end=pred[n]->end;
@@ -20155,6 +20155,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 						if(pred[n]->exons.Count()==1) { // if pred[n] is single exon it can not have nascent RNA
 							if(pred[m]->cov>ERROR_PERC*pred[n]->cov && pred[n]->cov>ERROR_PERC*pred[m]->cov) { // predictions close to each other in abundance -> otherwise I just delete the less abundant overlapping single exon gene
 
+								// choose longer single exon prediction if possible
 								if(!pred[m]->t_eq) {
 									if(pred[n]->end>pred[m]->end) {
 										pred[m]->end=pred[n]->end;
@@ -20173,15 +20174,18 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 								//fprintf(stderr,"pred[%d] start=%d end=%d\n",m,pred[m]->start,pred[m]->end);
 
-								pred[m]->cov=(pred[n]->cov*abs(pred[n]->tlen)+pred[m]->cov*abs(pred[m]->tlen))/(pred[m]->end-pred[m]->start+1);
-								pred[m]->tlen=pred[m]->end-pred[m]->start+1;
+								//pred[m]->cov=(pred[n]->cov*abs(pred[n]->tlen)+pred[m]->cov*abs(pred[m]->tlen))/(pred[m]->end-pred[m]->start+1);
+								int tlen=pred[m]->tlen;
+								pred[m]->tlen=pred[m]->end-pred[m]->start+1; // this is a single exon gene this is why I can do it
 								if(longreads) pred[m]->tlen=-pred[m]->tlen;
 								else if(mixedMode){
 									if(pred[m]->cov>pred[n]->cov) {
-										if(pred[m]->tlen<0) pred[m]->tlen=-pred[m]->tlen;
+										if(tlen<0) pred[m]->tlen=-pred[m]->tlen; // this is not right as it's always positive from above
 									}
 									else if(pred[n]->tlen<0) pred[m]->tlen=-pred[m]->tlen;
 								}
+								if(abs(pred[n]->tlen)<tlen) pred[m]->cov+=pred[n]->cov*abs(pred[n]->tlen)/tlen;
+								else pred[m]->cov+=pred[n]->cov;
 								pred[m]->exoncov[0]=pred[m]->cov;
 								pred[m]->exons[0].start=pred[m]->start;
 								pred[m]->exons[0].end = pred[m]->end;
@@ -20190,6 +20194,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							}
 							else if(pred[n]->t_eq) { m++; continue;}
 							else { // prefer prediction with higher coverage
+								int tlen=pred[m]->tlen;
 								if(!pred[m]->t_eq && (pred[n]->t_eq || pred[n]->cov>pred[m]->cov)) { // prefer prediction with higher coverage here
 
 									pred[m]->start=pred[n]->start;
@@ -20201,11 +20206,11 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 									if(pred[n]->mergename=="n" || pred[n]->mergename=="N") pred[m]->mergename=pred[n]->mergename;
 									if(pred[n]->t_eq) pred[m]->flag=true;
 								}
-								pred[m]->cov+=pred[n]->cov;
+								if(abs(pred[n]->tlen)<tlen) pred[m]->cov+=pred[n]->cov*abs(pred[n]->tlen)/tlen;
+								else pred[m]->cov+=pred[n]->cov;
 								//fprintf(stderr,"--ndel Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
-								for(int k=0;k<pred[m]->exons.Count();k++) {
-									pred[m]->exoncov[k]+=pred[n]->exoncov[k];
-								}
+								pred[m]->exoncov[0]=pred[m]->cov;
+
 							}
 							//fprintf(stderr,"--ndel pred[%d] start=%d end=%d\n",m,pred[m]->start,pred[m]->end);
 						}
@@ -20215,7 +20220,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							if(pred[n]->t_eq) fprintf(stderr,"%s ",pred[n]->t_eq->getID());
 							fprintf(stderr,") mergename=%s to pred %d(",pred[n]->mergename.chars(),m);
 							if(pred[m]->t_eq) fprintf(stderr,"%s ",pred[m]->t_eq->getID());*/
-
+							uint flen=pred[m]->exons[0].len();
+							uint llen=pred[m]->exons.Last().len();
 							if(!pred[m]->t_eq && (pred[n]->t_eq || pred[n]->cov>pred[m]->cov)) { // prefer prediction with higher coverage here
 								if(isnascent) reconcile_nascents(pred,m,n);
 								pred[m]->start=pred[n]->start;
@@ -20227,11 +20233,33 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 								if(pred[n]->mergename=="n" || pred[n]->mergename=="N") pred[m]->mergename=pred[n]->mergename;
 								if(pred[n]->t_eq) pred[m]->flag=true;
 							}
-							pred[m]->cov+=pred[n]->cov;
-							//fprintf(stderr,"--ndel Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
+							/*pred[m]->cov+=pred[n]->cov;
 							for(int k=0;k<pred[m]->exons.Count();k++) {
 								pred[m]->exoncov[k]+=pred[n]->exoncov[k];
+							}*/
+							//fprintf(stderr,"--ndel Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
+							int addcov=0;
+							if(pred[n]->exons[0].len()<flen) {
+								addcov+=pred[n]->exoncov[0]*pred[n]->exons[0].len();
+								pred[m]->exoncov[0]+=addcov/flen;
 							}
+							else {
+								addcov+=pred[n]->exoncov[0]*pred[m]->exons[0].len();
+								pred[m]->exoncov[0]+=pred[n]->exoncov[0];
+							}
+							if(pred[n]->exons.Last().len()<llen) {
+								addcov+=pred[n]->exoncov.Last()*pred[n]->exons.Last().len();
+								pred[m]->exoncov.Last()+=pred[n]->exoncov.Last()*pred[n]->exons.Last().len()/llen;
+							}
+							else {
+								addcov+=pred[n]->exoncov.Last()*pred[m]->exons.Last().len();
+								pred[m]->exoncov.Last()+=pred[n]->exoncov.Last();
+							}
+							for(int k=1;k<pred[m]->exons.Count()-1;k++) {
+								pred[m]->exoncov[k]+=pred[n]->exoncov[k];
+								addcov+=pred[n]->exoncov[k]*pred[n]->exons[k].len();
+							}
+							pred[m]->cov+=addcov/pred[m]->tlen;
 
 							//fprintf(stderr,") mergename[%d]=%s\n",m,pred[m]->mergename.chars());
 
@@ -20308,7 +20336,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 									int prednlen=abs(pred[l]->tlen)-pred[l]->end+startval;
 									int predmlen=abs(pred[f]->tlen)-endval+pred[f]->start;
 
-									//fprintf(stderr,"l=%d f=%d prednlen=%d predmlen=%d startval=%d endval=%d predlend=%d predstart=%d\n",l,f,prednlen,predmlen,startval,endval,pred[l]->end,pred[f]->start);
+									fprintf(stderr,"l=%d f=%d prednlen=%d predmlen=%d startval=%d endval=%d predlend=%d predstart=%d\n",l,f,prednlen,predmlen,startval,endval,pred[l]->end,pred[f]->start);
 
 									if(prednlen>mintranscriptlen && predmlen>mintranscriptlen) {
 
@@ -20339,10 +20367,13 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 											//if(pred[l]->tlen<mintranscriptlen) ndel=true;
 										}
 										if(!pred[f]->t_eq && pred[f]->start<endval) { // adjust pred[f] coverage
+											fprintf(stderr,"pred[f]->cov=%f pred[f]->tlen=%d pred[f]->exoncov[0]=%f pred[f]->exon[0].len=%d\n",pred[f]->cov,pred[f]->tlen,pred[f]->exoncov[0],pred[f]->exons[0].len());
 											float totalcov=get_cov(1,pred[f]->start-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
 											float ratio=0;
 											float exoncov=pred[f]->exons[0].len()*pred[f]->exoncov[0];
+											fprintf(stderr,"totalcov:%d-%d=%f exoncov:%d-%d=%f\n",pred[f]->start,pred[f]->exons[0].end,totalcov,pred[f]->exons[0].start,pred[f]->exons[0].end,exoncov);
 											if(totalcov) ratio=exoncov/totalcov;
+											fprintf(stderr,"adjust pred[f]->cov by pred[f]->cov*abs(pred[f]->tlen)-exoncov=%f\n",pred[f]->cov*abs(pred[f]->tlen)-exoncov);
 											pred[f]->cov=pred[f]->cov*abs(pred[f]->tlen)-exoncov;
 											//pred[f]->tlen-=midpoint-pred[f]->start;
 											if(pred[f]->tlen<0) pred[f]->tlen=-predmlen;
@@ -20362,6 +20393,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 											pred[f]->start=endval;
 											pred[f]->exoncov[0]/=pred[f]->exons[0].len();
 											preddel=true;
+											if(pred[f]->cov<0) { fprintf(stderr,"pred[%d]->cov=%f\n",f,pred[f]->cov);exit(0);}
 										}
 										//fprintf(stderr,"midpoint=%d pred[n=%d]->cov=%f pred[m=%d]->cov=%f\n",midpoint,n,pred[l]->cov,m,pred[f]->cov);
 									}
