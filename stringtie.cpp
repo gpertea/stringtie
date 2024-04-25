@@ -484,11 +484,11 @@ if (ballgown)
 #define DEF_TSTACK_SIZE 8388608
  size_t defStackSize=DEF_TSTACK_SIZE;
 #ifdef _GTHREADS_POSIX_
- int tstackSize=GThread::defaultStackSize();
+ size_t tstackSize=GThread::defaultStackSize();
  if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  if (verbose) {
    if (tstackSize<defStackSize){
-    int ssize=defStackSize;
+    size_t ssize=defStackSize;
     GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
    }
    else GMessage("Default stack size for threads: %d\n", tstackSize);

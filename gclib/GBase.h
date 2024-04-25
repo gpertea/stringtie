@@ -250,6 +250,7 @@ inline void GFree(pointer* ptr){
 
 inline bool GMalloc(pointer* ptr,unsigned long size){
     //GASSERT(ptr);
+    *ptr=nullptr;
     if (size!=0)
   	  *ptr=malloc(size);
     return *ptr!=NULL;

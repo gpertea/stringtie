@@ -56,7 +56,7 @@ void BundleData::keepGuide(GffObj* guide, Ref_RC_Data& ref_rc) {
 //generate all nascent transcripts for a guide
 //keep nascents in 2 lists: tnlist for multi-exon, setnlist for single-exon
 void genTxNascents(GffObj &guide, GList<GffObj>& tnlist, GPVec<GffObj>& guides) {
-    //DEBUG only: keeping track of the number of nascent transcripts generated vs redundant
+    // DEBUG only: keeping track of the number of nascent transcripts generated vs redundant
     //GMessage("Generating %d nascents for %s(%c)\n", guide.exons.Count()-1, guide.getID(), guide.strand);
     int nxr=0; //number of redundant nascent transcripts discarded
     int n = guide.exons.Count() - 1; // number of introns
