@@ -18157,7 +18157,7 @@ void add_intrseq_to_nascent(GList<CPrediction>& pred,CMaxIntv *intv){
 		}
 		else summ-=intv->node[i].exoncov;
 	}
-	if(sumn) { // only in this case I need to adjust
+	if(sumn) { // nascents are present: only in this case I need to adjust
 
 		intcov=intv->cov/(summ+sumn); // this is the coverage that will be added to nascent of prediction p
 
@@ -18261,7 +18261,10 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	//pred.setSorted(predstartCmp);
 
 	int npred=pred.Count();
-	while(npred>0 && pred[npred-1]->mergename=="n") npred--;
+	while(npred>0 && pred[npred-1]->mergename=="n") {
+		npred--;
+		if(pred[npred]->cov<0) pred[npred]->cov=ERROR_PERC;
+	}
 
 	//fprintf(stderr,"There are %d pred in print_predcluster predcount=%d\n",npred,pred.Count());
 
@@ -18307,6 +18310,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		}
 	}
 
+	if(pred[0]->cov<0) pred[0]->cov=ERROR_PERC;
 	float excov=pred[0]->cov;
 	if(!longreads) excov*=abs(pred[0]->tlen); // it was len() before but that doesn't make any sense
 	CExon ex(0,0,excov); // this keeps the exon flow based on per bp coverage
@@ -18363,6 +18367,8 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	nextmaxint=maxint;
 	for(int n=1;n<npred;n++) {
+
+		if(pred[n]->cov<0) pred[n]->cov=ERROR_PERC;
 
 		if(!pred[n]->t_eq) {
 			if(eonly) pred[n]->flag=false;
@@ -19082,6 +19088,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f under 1\n",i,pred[i]->cov);
 			continue;
 		}
+
 		//fprintf(stderr,"check pred i=%d with end=%d and next start=%d\n",i,pred[i]->end,pred[i+1]->start);
 		int ci=color[i];
 		while(ci!=color[ci]) { ci=color[ci];color[i]=ci;}
@@ -19136,17 +19143,20 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	CMaxIntv *intrreg=NULL; //-> NEXTtodo update interval with nascents here and adjust intronic boundaries of nascents (last intron)
 	if(!eonly && isnascent) {
 		// first create a record for all predictions and nascents
-		for(int n=0;n<npred;n++) if(pred[n]->flag)
+		bool nascentpresent=false;
+		for(int n=0;n<npred;n++) if(pred[n]->flag) {
 			intrreg=add_to_nascent(pred,n,intrreg,bundleData);
+			if(pred[n]->linkpred) nascentpresent=true;
+		}
 		// recompute the nascents coverages
 		while(intrreg) {
-			if(!intrreg->cov) { // intronic region
+			if(!intrreg->cov && nascentpresent) { // intronic region
 				intrreg->cov=get_cov(1,intrreg->start-bundleData->start,intrreg->end-bundleData->start,bpcov); // compute unexplained coverage
 				if(intrreg->cov) add_intrseq_to_nascent(pred,intrreg); // NEXTtodo this function will need to be adjusted to count for non-intronic nascents
 			}
-			CMaxIntv *intv=intrreg;
+			CMaxIntv *intv=intrreg->next;
 			delete intrreg;
-			intrreg=intv->next;
+			intrreg=intv;
 		}
 	}
 
@@ -19916,8 +19926,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		for(int i=0;i<pred.Count();i++) {
 			if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
 			if(pred[i]->mergename=='n') {
-				fprintf(stderr,"nascent") ;
-				if(pred[i]->linkpred->t_eq) fprintf(stderr,"_%s ",pred[i]->linkpred->t_eq->getID());
+				fprintf(stderr,"nascent ") ;
 			}
 			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand);
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
@@ -20191,7 +20200,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 								//fprintf(stderr,"pred[%d] start=%d end=%d\n",m,pred[m]->start,pred[m]->end);
 
 								//pred[m]->cov=(pred[n]->cov*abs(pred[n]->tlen)+pred[m]->cov*abs(pred[m]->tlen))/(pred[m]->end-pred[m]->start+1);
-								int tlen=pred[m]->tlen;
+								int tlen=abs(pred[m]->tlen);
 								pred[m]->tlen=pred[m]->end-pred[m]->start+1; // this is a single exon gene this is why I can do it
 								if(longreads) pred[m]->tlen=-pred[m]->tlen;
 								else if(mixedMode){
@@ -20210,7 +20219,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							}
 							else if(pred[n]->t_eq) { m++; continue;}
 							else { // prefer prediction with higher coverage
-								int tlen=pred[m]->tlen;
+								int tlen=abs(pred[m]->tlen);
 								if(!pred[m]->t_eq && (pred[n]->t_eq || pred[n]->cov>pred[m]->cov)) { // prefer prediction with higher coverage here
 
 									pred[m]->start=pred[n]->start;
@@ -20352,21 +20361,28 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 									int prednlen=abs(pred[l]->tlen)-pred[l]->end+startval;
 									int predmlen=abs(pred[f]->tlen)-endval+pred[f]->start;
 
-									fprintf(stderr,"l=%d f=%d prednlen=%d predmlen=%d startval=%d endval=%d predlend=%d predstart=%d\n",l,f,prednlen,predmlen,startval,endval,pred[l]->end,pred[f]->start);
+									//fprintf(stderr,"l=%d f=%d prednlen=%d predmlen=%d startval=%d endval=%d predlend=%d predstart=%d\n",l,f,prednlen,predmlen,startval,endval,pred[l]->end,pred[f]->start);
 
 									if(prednlen>mintranscriptlen && predmlen>mintranscriptlen) {
 
 										if(!pred[l]->t_eq && pred[l]->end>startval) {
-											float totalcov=get_cov(1,pred[l]->exons.Last().start-bundleData->start,pred[l]->end-bundleData->start,bundleData->bpcov);
-											float ratio=0;
-											float exoncov=pred[l]->exons.Last().len()*pred[l]->exoncov.Last();
-											if(totalcov) ratio=exoncov/totalcov;
-											pred[l]->cov=pred[l]->cov*abs(pred[l]->tlen)-exoncov;
+											float prevcov=get_cov(1,pred[l]->exons.Last().start-bundleData->start,pred[l]->end-bundleData->start,bundleData->bpcov);
+											float nextcov=get_cov(1,pred[l]->exons.Last().start-bundleData->start,startval-bundleData->start,bundleData->bpcov);
+											if(!prevcov) prevcov=ERROR_PERC;
+											if(!nextcov) nextcov=ERROR_PERC;
+											float ratio=nextcov/prevcov;
+											pred[l]->exoncov.Last()=ratio*pred[l]->exons.Last().len()*pred[l]->exoncov.Last();
+											pred[l]->cov=pred[l]->exoncov.Last();
+											for(int k=0;k<pred[l]->exons.Count()-1;k++) {
+												pred[l]->cov+=pred[l]->exoncov[k]*pred[l]->exons[k].len();
+											}
+											pred[l]->cov/=prednlen;
+											pred[l]->exons.Last().end=startval;
+											pred[l]->end=startval;
+											pred[l]->exoncov.Last()/=pred[l]->exons.Last().len();
 											//pred[l]->tlen-=pred[l]->end-midpoint;
 											if(pred[l]->tlen<0) pred[l]->tlen=-prednlen;
 											else pred[l]->tlen=prednlen;
-											pred[l]->exoncov.Last()=ratio*get_cov(1,pred[l]->exons.Last().start-bundleData->start,startval-bundleData->start,bundleData->bpcov);
-											pred[l]->cov=(pred[l]->cov+pred[l]->exoncov.Last())/abs(pred[l]->tlen);
 											if(isnascent && pred[l]->strand=='-') {
 												CPrediction *p=pred[l]->linkpred;
 												while(p) {
@@ -20376,26 +20392,27 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 													p=p->linkpred;
 												}
 											}
-											pred[l]->exons.Last().end=startval;
-											pred[l]->end=startval;
-											pred[l]->exoncov.Last()/=pred[l]->exons.Last().len();
 											preddel=true;
 											//if(pred[l]->tlen<mintranscriptlen) ndel=true;
 										}
 										if(!pred[f]->t_eq && pred[f]->start<endval) { // adjust pred[f] coverage
-											fprintf(stderr,"pred[f]->cov=%f pred[f]->tlen=%d pred[f]->exoncov[0]=%f pred[f]->exon[0].len=%d\n",pred[f]->cov,pred[f]->tlen,pred[f]->exoncov[0],pred[f]->exons[0].len());
-											float totalcov=get_cov(1,pred[f]->start-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
-											float ratio=0;
-											float exoncov=pred[f]->exons[0].len()*pred[f]->exoncov[0];
-											fprintf(stderr,"totalcov:%d-%d=%f exoncov:%d-%d=%f\n",pred[f]->start,pred[f]->exons[0].end,totalcov,pred[f]->exons[0].start,pred[f]->exons[0].end,exoncov);
-											if(totalcov) ratio=exoncov/totalcov;
-											fprintf(stderr,"adjust pred[f]->cov by pred[f]->cov*abs(pred[f]->tlen)-exoncov=%f\n",pred[f]->cov*abs(pred[f]->tlen)-exoncov);
-											pred[f]->cov=pred[f]->cov*abs(pred[f]->tlen)-exoncov;
+											float prevcov=get_cov(1,pred[f]->start-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
+											float nextcov=get_cov(1,endval-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
+											if(!prevcov) prevcov=ERROR_PERC;
+											if(!nextcov) nextcov=ERROR_PERC;
+											float ratio=nextcov/prevcov;
+											pred[f]->exoncov[0]=ratio*pred[f]->exons[0].len()*pred[f]->exoncov[0];
+											pred[f]->cov=pred[f]->exoncov[0];
+											for(int k=1;k<pred[f]->exons.Count();k++) {
+												pred[f]->cov+=pred[f]->exoncov[k]*pred[f]->exons[k].len();
+											}
+											pred[f]->cov/=predmlen;
+											pred[f]->exons[0].start=endval;
+											pred[f]->start=endval;
+											pred[f]->exoncov[0]/=pred[f]->exons[0].len();
 											//pred[f]->tlen-=midpoint-pred[f]->start;
 											if(pred[f]->tlen<0) pred[f]->tlen=-predmlen;
 											else pred[f]->tlen=predmlen;
-											pred[f]->exoncov[0]=ratio*get_cov(1,endval-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
-											pred[f]->cov=(pred[f]->cov+pred[f]->exoncov[0])/abs(pred[f]->tlen);
 											if(isnascent && pred[f]->strand=='+') {
 												CPrediction *p=pred[f]->linkpred;
 												while(p) {
@@ -20405,11 +20422,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 													p=p->linkpred;
 												}
 											}
-											pred[f]->exons[0].start=endval;
-											pred[f]->start=endval;
-											pred[f]->exoncov[0]/=pred[f]->exons[0].len();
 											preddel=true;
-											if(pred[f]->cov<0) { fprintf(stderr,"pred[%d]->cov=%f\n",f,pred[f]->cov);exit(0);}
+											//if(pred[f]->cov<0) { fprintf(stderr,"pred[%d]->cov=%f\n",f,pred[f]->cov);exit(0);}
 										}
 										//fprintf(stderr,"midpoint=%d pred[n=%d]->cov=%f pred[m=%d]->cov=%f\n",midpoint,n,pred[l]->cov,m,pred[f]->cov);
 									}
