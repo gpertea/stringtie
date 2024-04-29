@@ -20199,8 +20199,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 								//fprintf(stderr,"pred[%d] start=%d end=%d\n",m,pred[m]->start,pred[m]->end);
 
-								//pred[m]->cov=(pred[n]->cov*abs(pred[n]->tlen)+pred[m]->cov*abs(pred[m]->tlen))/(pred[m]->end-pred[m]->start+1);
-								int tlen=abs(pred[m]->tlen);
+								pred[m]->cov=(pred[n]->cov*abs(pred[n]->tlen)+pred[m]->cov*abs(pred[m]->tlen))/(pred[m]->end-pred[m]->start+1);
+								int tlen=pred[m]->tlen;
 								pred[m]->tlen=pred[m]->end-pred[m]->start+1; // this is a single exon gene this is why I can do it
 								if(longreads) pred[m]->tlen=-pred[m]->tlen;
 								else if(mixedMode){
@@ -20209,8 +20209,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 									}
 									else if(pred[n]->tlen<0) pred[m]->tlen=-pred[m]->tlen;
 								}
-								if(abs(pred[n]->tlen)<tlen) pred[m]->cov+=pred[n]->cov*abs(pred[n]->tlen)/tlen;
-								else pred[m]->cov+=pred[n]->cov;
+								/* adj if(abs(pred[n]->tlen)<tlen) pred[m]->cov+=pred[n]->cov*abs(pred[n]->tlen)/tlen;
+								else pred[m]->cov+=pred[n]->cov; */
 								pred[m]->exoncov[0]=pred[m]->cov;
 								pred[m]->exons[0].start=pred[m]->start;
 								pred[m]->exons[0].end = pred[m]->end;
@@ -20231,6 +20231,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 									if(pred[n]->mergename=="n" || pred[n]->mergename=="N") pred[m]->mergename=pred[n]->mergename;
 									if(pred[n]->t_eq) pred[m]->flag=true;
 								}
+								/* adj */
 								if(abs(pred[n]->tlen)<tlen) pred[m]->cov+=pred[n]->cov*abs(pred[n]->tlen)/tlen;
 								else pred[m]->cov+=pred[n]->cov;
 								//fprintf(stderr,"--ndel Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
@@ -20263,6 +20264,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 								pred[m]->exoncov[k]+=pred[n]->exoncov[k];
 							}*/
 							//fprintf(stderr,"--ndel Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
+							/* adj */
 							int addcov=0;
 							if(pred[n]->exons[0].len()<flen) {
 								addcov+=pred[n]->exoncov[0]*pred[n]->exons[0].len();
@@ -20365,7 +20367,43 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 									if(prednlen>mintranscriptlen && predmlen>mintranscriptlen) {
 
+										/* if(!pred[l]->t_eq && pred[l]->end>startval) {
+											float totalcov=get_cov(1,pred[l]->exons.Last().start-bundleData->start,pred[l]->end-bundleData->start,bundleData->bpcov);
+											float ratio=0;
+											float exoncov=pred[l]->exons.Last().len()*pred[l]->exoncov.Last();
+											if(totalcov) ratio=exoncov/totalcov;
+											pred[l]->cov=pred[l]->cov*abs(pred[l]->tlen)-exoncov;
+											//pred[l]->tlen-=pred[l]->end-midpoint;
+											if(pred[l]->tlen<0) pred[l]->tlen=-prednlen;
+											else pred[l]->tlen=prednlen;
+											pred[l]->exoncov.Last()=ratio*get_cov(1,pred[l]->exons.Last().start-bundleData->start,startval-bundleData->start,bundleData->bpcov);
+											pred[l]->cov=(pred[l]->cov+pred[l]->exoncov.Last())/abs(pred[l]->tlen);
+											pred[l]->exons.Last().end=startval;
+											pred[l]->end=startval;
+											pred[l]->exoncov.Last()/=pred[l]->exons.Last().len();
+											preddel=true;
+											//if(pred[l]->tlen<mintranscriptlen) ndel=true;
+										}
+										if(!pred[f]->t_eq && pred[f]->start<endval) { // adjust pred[f] coverage
+											float totalcov=get_cov(1,pred[f]->start-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
+											float ratio=0;
+											float exoncov=pred[f]->exons[0].len()*pred[f]->exoncov[0];
+											if(totalcov) ratio=exoncov/totalcov;
+											pred[f]->cov=pred[f]->cov*abs(pred[f]->tlen)-exoncov;
+											//pred[f]->tlen-=midpoint-pred[f]->start;
+											if(pred[f]->tlen<0) pred[f]->tlen=-predmlen;
+											else pred[f]->tlen=predmlen;
+											pred[f]->exoncov[0]=ratio*get_cov(1,endval-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
+											pred[f]->cov=(pred[f]->cov+pred[f]->exoncov[0])/abs(pred[f]->tlen);
+											pred[f]->exons[0].start=endval;
+											pred[f]->start=endval;
+											pred[f]->exoncov[0]/=pred[f]->exons[0].len();
+											preddel=true;
+										} */
+
+										/* adj */
 										if(!pred[l]->t_eq && pred[l]->end>startval) {
+
 											float prevcov=get_cov(1,pred[l]->exons.Last().start-bundleData->start,pred[l]->end-bundleData->start,bundleData->bpcov);
 											float nextcov=get_cov(1,pred[l]->exons.Last().start-bundleData->start,startval-bundleData->start,bundleData->bpcov);
 											if(!prevcov) prevcov=ERROR_PERC;
@@ -20377,9 +20415,13 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 												pred[l]->cov+=pred[l]->exoncov[k]*pred[l]->exons[k].len();
 											}
 											pred[l]->cov/=prednlen;
+											//pred[l]->exoncov.Last()/=(startval-pred[l]->exons.Last().start+1);
+
+
 											pred[l]->exons.Last().end=startval;
 											pred[l]->end=startval;
 											pred[l]->exoncov.Last()/=pred[l]->exons.Last().len();
+
 											//pred[l]->tlen-=pred[l]->end-midpoint;
 											if(pred[l]->tlen<0) pred[l]->tlen=-prednlen;
 											else pred[l]->tlen=prednlen;
@@ -20396,6 +20438,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 											//if(pred[l]->tlen<mintranscriptlen) ndel=true;
 										}
 										if(!pred[f]->t_eq && pred[f]->start<endval) { // adjust pred[f] coverage
+
+
 											float prevcov=get_cov(1,pred[f]->start-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
 											float nextcov=get_cov(1,endval-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
 											if(!prevcov) prevcov=ERROR_PERC;
@@ -20407,6 +20451,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 												pred[f]->cov+=pred[f]->exoncov[k]*pred[f]->exons[k].len();
 											}
 											pred[f]->cov/=predmlen;
+											//pred[f]->exoncov[0]/=(pred[f]->exons[0].end-endval+1);
 											pred[f]->exons[0].start=endval;
 											pred[f]->start=endval;
 											pred[f]->exoncov[0]/=pred[f]->exons[0].len();
