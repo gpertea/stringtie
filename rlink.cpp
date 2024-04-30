@@ -1916,7 +1916,6 @@ int find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,G
 	uint laststart=start;
 	for(int i=0;i<trimpoint.Count();i++) {
 		if(featnode[i]) { // this is from the point feature file
-			trimpoint[i].pos=-trimpoint[i].pos;
 			laststart=(uint)(trimpoint[i].pos+1);
 			if(trimpoint[i].start) laststart--;
 			continue;
@@ -1940,6 +1939,7 @@ int find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,G
 			while(k>=0) {
 				while(k>=0 && !trimpoint[k].pos) k--;
 				if(k>=0) { // found a point above threshold
+					if(featnode[k]) break; // do not evaluate feature nodes
 					midpos=trimpoint[k].pos;
 					if(trimpoint[k].start) midpos--;
 					uint leftstart=start;
@@ -14398,13 +14398,16 @@ int build_graphs(BundleData* bdata) {
 		if(feature.Count()) checkfeat=true;
 	}
 
-	/*{ // DEBUG ONLY
-	for(int i=0;i<feature.Count();i++) {
-		if(feature[i]->ftype==GPFT_TSS)
-			fprintf(stderr,"TSS at position %d on strand %d\n",feature[i]->coord,feature[i]->strand);
-		if(feature[i]->ftype==GPFT_CPAS)
-			fprintf(stderr,"CPAS at position %d on strand %d\n",feature[i]->coord,feature[i]->strand);
-	}*/
+	/*
+	{ // DEBUG ONLY
+		for(int i=0;i<feature.Count();i++) {
+			if(feature[i]->ftype==GPFT_JSTART) { fprintf(stderr,"JSTART at position %d\n",feature[i]->coord); }
+			else if(feature[i]->ftype==GPFT_JEND) { fprintf(stderr,"JEND at position %d\n",feature[i]->coord);}
+			else if(feature[i]->ftype==GPFT_TSS) {fprintf(stderr,"TSS at position %d on strand %d\n",feature[i]->coord,feature[i]->strand);}
+			if(feature[i]->ftype==GPFT_CPAS) {fprintf(stderr,"CPAS at position %d on strand %d\n",feature[i]->coord,feature[i]->strand);}
+		}
+	}
+	*/
 
 	//fprintf(stderr,"build_graphs with %d guides\n",guides.Count());
 
@@ -14503,7 +14506,7 @@ int build_graphs(BundleData* bdata) {
 	for(int i=0;i<junction.Count();i++) {
 
 		if(checkfeat && !junction[i]->guide_match) { // check features here
-			if(!jstart[junction[i]->start || ! jend[junction[i]->end]]) junction[i]->strand=0;
+			if(!jstart[junction[i]->start] || !jend[junction[i]->end]) junction[i]->strand=0;
 		}
 
 		//fprintf(stderr,"check junction:%d-%d:%d leftsupport=%f rightsupport=%f nm=%f nreads=%f\n",junction[i]->start,junction[i]->end,junction[i]->strand,junction[i]->leftsupport,junction[i]->rightsupport,junction[i]->nm,junction[i]->nreads);
