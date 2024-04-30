@@ -18872,10 +18872,10 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			adjust=false;
 
 			// eliminate intronic coverage coming from nascents
-			if(isnascent) { // && first) {
+			/*if(isnascent) { // && first) {
 				adjust_nascent_in_intervals(maxint,pred,npred,bpcov,bundleData->start);
 				//first=false;
-			}
+			}*/
 
 
 			for(int n=0;n<npred;n++) if(pred[n]->flag) {
