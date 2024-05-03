@@ -16761,7 +16761,7 @@ void count_good_junctions(BundleData* bdata) {
 					int c=-1;
 					int dist=1+sserror;
 					while(k<gjunc.Count() && gjunc[k]->start<=junction[i]->start+sserror) {
-						if(!junction[i]->strand || gjunc[k]->strand==junction[i]->strand || gjunc[k]->end==junction[i]->end) { // LR fix
+						if(!junction[i]->strand || gjunc[k]->strand==junction[i]->strand || longreads) { // LR fix
 							if(gjunc[k]->start==junction[i]->start && gjunc[k]->guide_match) { // perfect match --> no need to change anything
 								junction[i]->strand=gjunc[k]->strand; // update strand too // LR fix
 								c=-1;
@@ -16800,7 +16800,7 @@ void count_good_junctions(BundleData* bdata) {
 					int c=-1;
 					int dist=1+sserror;
 					while(k<egjunc.Count() && egjunc[k]->end<=ejunction[i]->end+sserror) {
-						if(!ejunction[i]->strand || egjunc[k]->strand==ejunction[i]->strand || egjunc[k]->start==ejunction[i]->start) { // LR fix
+						if(!ejunction[i]->strand || egjunc[k]->strand==ejunction[i]->strand || longreads) { // LR fix
 							if(egjunc[k]->end==ejunction[i]->end  && egjunc[k]->guide_match) { // perfect match --> no need to change anything
 								c=-1;
 								ejunction[i]->strand=egjunc[k]->strand; // update strand too // LR fix
