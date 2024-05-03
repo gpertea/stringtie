@@ -16749,7 +16749,7 @@ void count_good_junctions(BundleData* bdata) {
 			egjunc.setSorted(juncCmpEnd);
 			int s=0;
 			int e=0;
-			for(int i=1;i<junction.Count();i++) {
+			for(int i=1;i<junction.Count();i++) if(!junction[i]->guide_match) { // LR fix
 
 				if(junction[i]->nm>=junction[i]->nreads){ // for all junctions -> try to see if I can correct them
 
@@ -16761,14 +16761,15 @@ void count_good_junctions(BundleData* bdata) {
 					int c=-1;
 					int dist=1+sserror;
 					while(k<gjunc.Count() && gjunc[k]->start<=junction[i]->start+sserror) {
-						if(!junction[i]->strand || gjunc[k]->strand==junction[i]->strand) {
+						if(!junction[i]->strand || gjunc[k]->strand==junction[i]->strand || gjunc[k]->end==junction[i]->end) { // LR fix
 							if(gjunc[k]->start==junction[i]->start && gjunc[k]->guide_match) { // perfect match --> no need to change anything
+								junction[i]->strand=gjunc[k]->strand; // update strand too // LR fix
 								c=-1;
 								break;
 							}
 							int d=dist;
 							if(c<0 || gjunc[c]->guide_match==gjunc[k]->guide_match) d=abs((int)gjunc[k]->start-(int)junction[i]->start);
-							if(d<dist || (!gjunc[c]->guide_match && gjunc[k]->guide_match)) {
+							if(d<dist || (!gjunc[c]->guide_match && gjunc[k]->guide_match)) { // closer to junction, or junction present in the data
 								dist=d;
 								c=k;
 								smodjunc.Add(i);
@@ -16799,9 +16800,10 @@ void count_good_junctions(BundleData* bdata) {
 					int c=-1;
 					int dist=1+sserror;
 					while(k<egjunc.Count() && egjunc[k]->end<=ejunction[i]->end+sserror) {
-						if(!ejunction[i]->strand || egjunc[k]->strand==ejunction[i]->strand) {
+						if(!ejunction[i]->strand || egjunc[k]->strand==ejunction[i]->strand || egjunc[k]->start==ejunction[i]->start) { // LR fix
 							if(egjunc[k]->end==ejunction[i]->end  && egjunc[k]->guide_match) { // perfect match --> no need to change anything
 								c=-1;
+								ejunction[i]->strand=egjunc[k]->strand; // update strand too // LR fix
 								break;
 							}
 
@@ -16840,13 +16842,14 @@ void count_good_junctions(BundleData* bdata) {
 						//fprintf(stderr,"smodified junction[%d]:%d-%d:%d %p nreads=%f\n",j,junction[j]->start,junction[j]->end,junction[j]->strand,junction[j],junction[j]->nreads);
 						s=j-1;
 						GVec<int> equal;
-						while(s>=0 && junction[s]->start==junction[j]->start) {
-							if(junction[s]->end==junction[j]->end && junction[s]->strand==junction[j]->strand) equal.Add(s);
+						float dist=2*sserror+1; // to account for junctions going further on the opposite strand // LR fix
+						while(s>=0 && abs((float)junction[s]->start-(float)junction[j]->start)<dist) { // LR fix
+							if(junction[s]->start==junction[j]->start && junction[s]->end==junction[j]->end && junction[s]->strand==junction[j]->strand) equal.Add(s); // LR fix
 							s--;
 						}
 						s=j+1;
-						while(s<junction.Count() && junction[s]->start==junction[j]->start) {
-							if(junction[s]->end==junction[j]->end && junction[s]->strand==junction[j]->strand) equal.Add(s);
+						while(s<junction.Count() && abs((float)junction[s]->start-(float)junction[j]->start)<dist) { // LR fix
+							if(junction[s]->start==junction[j]->start && junction[s]->end==junction[j]->end && junction[s]->strand==junction[j]->strand) equal.Add(s); // LR fix
 							s++;
 						}
 						if(equal.Count()) { // junction j is equal to other junctions
@@ -16856,11 +16859,11 @@ void count_good_junctions(BundleData* bdata) {
 								CJunction* jct=junction[equal[s]];
 								//fprintf(stderr,"...equal to junction[%d]:%d-%d:%d %p nreads=%f\n",equal[s],jct->start,jct->end,jct->strand,jct,jct->nreads);
 								jhash.Add(jct, junction[j]);
-								if(mixedMode) { // I can trust the reads coming from mixed data but not so much from long reads
+								// if(mixedMode) { // I can trust the reads coming from mixed data but not so much from long reads LR fix
 									junction[j]->nreads+=jct->nreads;
 									junction[j]->nm+=jct->nm;
 									jct->nreads=0;
-								}
+								//}
 								jct->strand=0;
 								jct->guide_match=false;
 							}
@@ -16871,17 +16874,18 @@ void count_good_junctions(BundleData* bdata) {
 					int j=emodjunc[i];
 					//sprintf(sbuf, "%p", ejunction[j]);
 					CJunction* jp=jhash[ejunction[j]];
-					if(!jp) { // did not process junction before
+					if(!jp) { // did not process junction before (by smodjunc)
 						//fprintf(stderr,"emodified ejunction[%d]:%d-%d:%d %p nreads=%f\n",j,ejunction[j]->start,ejunction[j]->end,ejunction[j]->strand,ejunction[j],ejunction[j]->nreads);
 						s=j-1;
 						GVec<int> equal;
-						while(s>=0 && ejunction[s]->end==ejunction[j]->end) {
-							if(ejunction[s]->start==ejunction[j]->start && ejunction[s]->strand==ejunction[j]->strand) equal.Add(s);
+						float dist=2*sserror+1; // to account for junctions going further on the opposite strand LR fix
+						while(s>=0 && abs((float)ejunction[s]->end-(float)ejunction[j]->end)<dist) { // LR fix
+							if(ejunction[s]->start==ejunction[j]->start  && ejunction[s]->end==ejunction[j]->end && ejunction[s]->strand==ejunction[j]->strand) equal.Add(s); // LR fix
 							s--;
 						}
 						s=j+1;
-						while(s<ejunction.Count() && ejunction[s]->end==ejunction[j]->end) {
-							if(ejunction[s]->start==ejunction[j]->start && ejunction[s]->strand==ejunction[j]->strand) equal.Add(s);
+						while(s<ejunction.Count() && abs((float)ejunction[s]->end-(float)ejunction[j]->end)<dist) { // LR fix
+							if(ejunction[s]->start==ejunction[j]->start  && ejunction[s]->end==ejunction[j]->end && ejunction[s]->strand==ejunction[j]->strand) equal.Add(s); // LR fix
 							s++;
 						}
 						if(equal.Count()) { // junction j is equal to other junctions
@@ -16893,11 +16897,11 @@ void count_good_junctions(BundleData* bdata) {
 								CJunction* ej=ejunction[equal[s]];
 								jhash.Add(ej, ejunction[j]);
 								//fprintf(stderr,"...equal to ejunction[%d]:%d-%d:%d %p nreads=%f\n",equal[s],ej->start,ej->end,ej->strand,ej,ej->nreads);
-								if(mixedMode) { // I can trust the reads coming from mixed data but not so much from long reads
+								//if(mixedMode) { // I can trust the reads coming from mixed data but not so much from long reads LR fix
 									ejunction[j]->nreads+=ej->nreads;
 									ejunction[j]->nm+=ej->nm;
 									ej->nreads=0;
-								}
+								//} LR fix
 								ej->strand=0;
 								ej->guide_match=false;
 							}
@@ -16952,6 +16956,7 @@ void count_good_junctions(BundleData* bdata) {
 						else {
 							rd.juncs[i-1]=jp;
 							if(!rd.strand) rd.strand=jp->strand;
+							else if(rd.strand!=jp->strand) rd.strand=0; // LR fix
 							//fprintf(stderr," [correct rd from %d-%d to %d-%d]",rd.segs[i-1].end,rd.segs[i].start,jp->start,jp->end);
 							if(rd.segs[i-1].start<=jp->start) rd.segs[i-1].end=jp->start;
 							if(rd.segs[i].end>=jp->end) rd.segs[i].start=jp->end;
@@ -16970,6 +16975,8 @@ void count_good_junctions(BundleData* bdata) {
 							//if(rd.segs[i-1].end!=rd.juncs[i-1]->start || rd.segs[i].start!=rd.juncs[i-1]->end) fprintf(stderr," [chg rd from %d-%d to %d-%d]",rd.segs[i-1].end,rd.segs[i].start,rd.juncs[i-1]->start,rd.juncs[i-1]->end);
 							if(rd.segs[i-1].end!=rd.juncs[i-1]->start && rd.segs[i-1].start<=rd.juncs[i-1]->start) rd.segs[i-1].end=rd.juncs[i-1]->start;
 							if(rd.segs[i].start!=rd.juncs[i-1]->end && rd.segs[i].end>=rd.juncs[i-1]->end) rd.segs[i].start=rd.juncs[i-1]->end;
+							if(!rd.strand) rd.strand=rd.juncs[i-1]->strand; // LR fix
+							else if(rd.strand!=rd.juncs[i-1]->strand) rd.strand=0; // LR fix
 						}
 					}
 				}
