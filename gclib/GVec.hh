@@ -355,9 +355,9 @@ template <class OBJ> void GVec<OBJ>::Grow(int idx, OBJ& item) {
  //expands and inserts item at idx at the same time
  //insertGrow(NewCapacity, idx, item);
  OBJ* newList=new OBJ[NewCapacity];
- // operator= required!
+ // move operator= required!
  std::move(& fArray[0], & fArray[idx], & newList[0]);
- newList[idx]=item;
+ newList[idx]=item; //operator=
  //copy data after idx
  std::move(& fArray[idx], & fArray[fCount], & newList[idx+1]);
  delete[] fArray;
@@ -559,7 +559,7 @@ template <class OBJ> GPVec<OBJ>::GPVec(const GPVec& list) { //copy constructor
  if (fCapacity>0) {
     //GMALLOC(fList, fCapacity*sizeof(OBJ*));
 	fList=new OBJ*[fCapacity];
-	std::move(&list.fList[0], &list.fList[fCount], &fList[0]);
+	std::copy(&list.fList[0], &list.fList[fCount], &fList[0]);
     //memcpy(fList, list.fList, fCount*sizeof(OBJ*));
  }
 }
@@ -583,7 +583,7 @@ template <class OBJ> GPVec<OBJ>::GPVec(GPVec* plist) { //another copy constructo
   if (fCapacity>0) {
     //GMALLOC(fList, fCapacity*sizeof(OBJ*));
     fList=new OBJ*[fCapacity];
-    std::move(& (plist->fList[0]), & (plist->fList[fCount]), &fList[0]);
+    std::copy(& (plist->fList[0]), & (plist->fList[fCount]), &fList[0]);
     //memcpy(fList, plist->fList, fCount*sizeof(OBJ*));
   }
 }
@@ -600,7 +600,7 @@ template <class OBJ> GPVec<OBJ>& GPVec<OBJ>::operator=(const GPVec& list) {
         //GMALLOC(fList, fCapacity*sizeof(OBJ*));
         //memcpy(fList, list.fList, fCount*sizeof(OBJ*));
    		fList=new OBJ*[fCapacity];
-   		std::move(&list.fList[0], &list.fList[fCount], &fList[0]);
+   		std::copy(&list.fList[0], &list.fList[fCount], &fList[0]);
         }
      }
  return *this;

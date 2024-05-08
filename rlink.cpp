@@ -1,6 +1,7 @@
 #include "rlink.h"
 #include "GBitVec.h"
 #include <float.h>
+#include "GThreads.h"
 
 //#define GMEMTRACE 1  //debugging memory allocation
 #ifdef GMEMTRACE
@@ -13,6 +14,7 @@
 
 //extern GffNames* gseqNames;
 extern FILE *c_out;         // file handle for the input transcripts that are fully covered by reads
+extern GFastMutex printCovMutex;
 
 extern bool trim;
 extern bool eonly;
@@ -81,8 +83,30 @@ void printBitVec(GBitVec& bv) {
        fprintf(stderr, "%c", bv.test(i)?'1':'0');
    }
 }
+//  tracking overlaps between predictions in a bundle
+// using a triangular matrix representation based on total number of predictions npred 
+class OvlTracker {
+  int count; // total number of items to track overlaps between
+  GBitVec ovls; // triangular matrix representation of overlaps
+  inline int get_index(int i, int j) {
+	// Ensure i != j since no self-overlap should be used
+	if (i == j) GError("OvlTracker: self-overlap index is not allowed.");
+	// Calculate index for triangular matrix storage
+	if (i > j) Gswap(i, j);
+	return (j * (j - 1)) / 2 + i;
+  }
+public:
+  OvlTracker(int n) : count(n), ovls((n * (n - 1)) / 2) {}
+  bool get(int i, int j) {
+	int index = get_index(i, j);
+    return ovls[index]; 
+  }
+  void set(int i, int j, bool val=true) {
+	int index = get_index(i, j);
+    ovls[index]=val; 
+  }
 
-
+};
 
 void cov_edge_add(GVec<float> *bpcov, int sno, int start, int end, float v) {
 	bool neutral=false;
@@ -309,7 +333,6 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	CReadAln* readaln=NULL;                        // readaln is initialized with NULL
 	//bool covSaturated=false;                       // coverage is set to not saturated
 
-
 	/*
 	{ // DEBUG ONLY
 		fprintf(stderr,"Process read %s with strand=%d and exons:",brec.name(),strand);
@@ -347,7 +370,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		if(alndata.tinfo->tpm>=0) bdata.covflags |= IS_TPM_FLAG;
 	}
 
-	if (bdata.end<currentend) {// I am not sure why this is done here?
+	if (bdata.end<currentend) {
 		bdata.start=currentstart;
 		bdata.end=currentend;
 	}
@@ -832,7 +855,10 @@ void merge_fwd_groups(GPVec<CGroup>& group, CGroup *group1, CGroup *group2, GVec
 int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,GList<CReadAln>& readlist,int color,GPVec<CGroup>& group,
 		CGroup **allcurrgroup,CGroup **startgroup,GVec<int> *readgroup,GVec<int>& eqcol,GVec<int>& merge,int *usedcol) {
 
+
+	//if (p==9 && np==928562 && n==928057 && sno==2 && readcol==637064){
 	//fprintf(stderr,"merge readcol=%d for read=%d:%d-%d with paird=%d and sno=%d\n",readcol,n,readlist[n]->start,readlist[n]->end,np,sno);
+	//}
 	// check if read was processed before as a fragment
 	uint localdist=0;
 	if(!longreads && !mixedMode) localdist=bundledist+longintronanchor;
@@ -851,14 +877,15 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 
 		//set currgroup first
 		CGroup *lastgroup=NULL;
-		while(currgroup!=NULL && readlist[n]->start > currgroup->end) { // while read start after the current group's end advance group -> I might have more groups leaving from current group due to splicing
+		while(currgroup!=NULL && readlist[n]->start > currgroup->end) { // while read start after the current group's end advance group
+			//-> might have more groups leaving from current group due to splicing
 		    lastgroup=currgroup;
 		    currgroup=currgroup->next_gr;
 		}
 
 		if(currgroup==NULL || readlist[n]->segs[0].end < currgroup->start) // currgroup is null only if we reached end of currgroup list
-																		   // because currgroup is not NULL initially and it starts BEFORE read
-			currgroup=lastgroup; // making sure read comes after currgroup
+									// because currgroup is not NULL initially and it starts BEFORE read
+			currgroup=lastgroup; // making sure read comes after currgroup //FIXME: lastgroup can be NULL!
 
 		// now process each group of coordinates individually
 		CGroup *thisgroup=currgroup;
@@ -999,8 +1026,8 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 
 					thisgroup->cov_sum+=(readlist[n]->segs[i].end-readlist[n]->segs[i].start+1)*readcov; // coverage is different than number of reads
 				} // end if(thisgroup && readlist[n]->segs[i].end >= thisgroup->start)
-				else { // read is at the end of groups, or read is not overlapping other groups -> lastgroup is not null here because currgroup was not null
-
+				else { // read is at the end of groups, or read is not overlapping other groups
+					// -> lastgroup can be null here because currgroup may have been set to null
 		    			// I need to split pairs here because I have no overlap => color didn't reach here for sure if I am at the first exon
 		    			if(!i && np>-1 && readlist[np]->nh && np<n) {
 
@@ -1036,7 +1063,8 @@ int merge_read_to_group(int n,int np, int p, float readcov, int sno,int readcol,
 		    			CGroup *newgroup=new CGroup(readlist[n]->segs[i].start,readlist[n]->segs[i].end,readcol,ngroup,readlist[n]->segs[i].len()*readcov,multi);
 		    			group.Add(newgroup);
 		    			merge.Add(ngroup);
-		    			lastgroup->next_gr=newgroup; // can lastgroup be null here -> no from the way I got here
+		    			if (lastgroup) lastgroup->next_gr=newgroup; // can lastgroup be null here -> yes
+		    			          //else lastgroup=newgroup; //TODO check this?
 		    			newgroup->next_gr=thisgroup;
 
 		    			//fprintf(stderr,"Assign/create group %d:%d-%d with color=%d to read %d\n",ngroup,readlist[n]->segs[i].start,readlist[n]->segs[i].end,readcol,n);
@@ -2344,7 +2372,7 @@ inline int edge(int min, int max, int gno) {
 GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec parents,int gno, GVec<bool>& visit,
 		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag, int &edgeno,GIntHash<int> **gpos,int &lastgpos){
 
-	//fprintf(stderr,"Traverse node %d\n",node->nodeid);
+	//fprintf(stderr,"Traverse node %d gno=%d\n",node->nodeid,gno);
 
 	if(visit[node->nodeid]) {
 		node->parentpat = node->parentpat | parents;
@@ -2449,11 +2477,11 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 				transfrag[s][g].Last()->longread=true;
 			n++;
 	    }
-		/*
-		fprintf(stderr,"Add %d children of node %d (%d-%d): ",n,node->nodeid,node->start,node->end);
+
+		/*fprintf(stderr,"Add %d children of node %d (%d-%d): ",n,node->nodeid,node->start,node->end);
 		for(int i=0;i<n;i++) fprintf(stderr," %d",node->child[i]);
-		fprintf(stderr,"\n");
-		*/
+		fprintf(stderr,"\n");*/
+
 
 		//edgeno+=n; // this will have to be deleted in the end; now I put it so that I can check equivalence with the one computed when creating the graph
 
@@ -2474,6 +2502,13 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 				node->childpat[*pos]=1; // add edge from node to child to the set of node children
 			}
 			else {
+
+				/*fprintf(stderr,"Add %d children of node %d (%d-%d): ",n,node->nodeid,node->start,node->end);
+				for(int k=0;k<n;k++) fprintf(stderr," %d",node->child[k]);
+				fprintf(stderr,"\n");
+				fprintf(stderr,"offending child %d:%d-%d lastgpos=%d\n",node->child[i],no2gnode[s][g][node->child[i]]->start,no2gnode[s][g][node->child[i]]->end,lastgpos);
+				*/
+
 				gpos[s][g].Add(key,lastgpos);
 				childparents[lastgpos]=1;
 				node->childpat[lastgpos]=1;
@@ -4512,7 +4547,7 @@ bool eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag
 	while(transfrag.Count()>max_trf_number) {
 		threshold++;
 		for(int t=transfrag.Count()-1;t>=0;t--)
-			if(!transfrag[t]->guide && transfrag[t]->abundance<threshold && 
+			if(!transfrag[t]->guide && transfrag[t]->abundance<threshold &&
 			    transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1) { // need to delete transfrag that doesn't come from source
 				settrf_in_treepat(NULL,gno,gpos,transfrag[t]->nodes,transfrag[t]->pattern,tr2no); // this should be eliminated if I want to store transcripts from 0 node
 				transfrag.Exchange(t,transfrag.Count()-1);
@@ -10478,7 +10513,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 		 }
 
 		 if(tocheck)  { // try to see if you can rescue transfrag
-			if(!guided || transfrag[t]->guide || (no2gnode[transfrag[t]->nodes[0]]->parent[0]==0 && 
+			if(!guided || transfrag[t]->guide || (no2gnode[transfrag[t]->nodes[0]]->parent[0]==0 &&
 				   no2gnode[transfrag[t]->nodes.Last()]->child.Last()==gno-1) )
 				// only accept long transfrags that are linked to source and sink
 			 checktrf.Add(t);
@@ -11721,7 +11756,9 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 				GStr guidecov;
 				guidecov.appendfmt("%.2f",guideabundance);
 				guides[guidetrf[g].g]->addAttr("coverage",guidecov.chars());
+				printCovMutex.lock();
 				guides[guidetrf[g].g]->printTranscriptGff(c_out);
+				printCovMutex.unlock();
 			}
 		}
 	}
@@ -12888,7 +12925,7 @@ bool guide_exon_overlap(GPVec<GffObj>& guides,int sno,uint start,uint end) {
 	if(sno==2) strand='+';
 	else if(sno==0) strand='-';
 
-	for(int g=0;g<guides.Count();g++) {
+	for(int g=0;g<guides.Count();g++) if(((RC_TData *)(guides[g]->uptr))->in_bundle>=2 ){
 		if((sno==1 || guides[g]->strand==strand) && guides[g]->overlap(start,end)) { // guide overlaps than look at the exons
 			for(int i=0;i<guides[g]->exons.Count();i++) {
 				if(end<guides[g]->exons[i]->start) break;  // there won't be any further overlap
@@ -13092,6 +13129,9 @@ int build_graphs(BundleData* bdata) {
 
 		//if(eonly)
 		for(int g=0;g<guides.Count();g++) {
+
+			//fprintf(stderr,"Look to add guide g=%d start %d-%d and end %d-%d\n",g,guides[g]->start,guides[g]->exons[0]->end,guides[g]->end,guides[g]->exons.Last()->start);
+
 			guidepred.cAdd(-1);
 			bool covered=true;
 			RC_TData* tdata=(RC_TData*)(guides[g]->uptr);
@@ -13124,7 +13164,7 @@ int build_graphs(BundleData* bdata) {
 				if(guides[g]->strand=='+') s=1; // guide on positive strand
 				else if(guides[g]->strand=='-') s=0; // guide on negative strand
 
-				//fprintf(stderr,"Look to add guide g=%d start %d-%d and end %d-%d on strand %d\n",g,guides[g]->start,guides[g]->exons[0]->end,guides[g]->end,guides[g]->exons.Last()->start,s);
+				//fprintf(stderr,"Covered guide g=%d start %d-%d and end %d-%d on strand %d\n",g,guides[g]->start,guides[g]->exons[0]->end,guides[g]->end,guides[g]->exons.Last()->start,s);
 
 				int uses=s;
 				if(s<0) uses=0;
@@ -14175,7 +14215,7 @@ int build_graphs(BundleData* bdata) {
 
 	if(c_out || (bundle[1].Count() && bnode[1].Count())) // coverage is needed
 		for(int g=0;g<guides.Count();g++) {
-			//fprintf(stderr,"consider guide %d\n",g);
+			//fprintf(stderr,"consider guide %d:%d-%d\n",g,guides[g]->start,guides[g]->end);
 			int s=0;
 			if(guides[g]->strand=='+') s=2;
 			if((c_out && !get_covered(guides[g],bundle[s],bnode[s],junction,NULL,0)) ||
@@ -14251,7 +14291,9 @@ int build_graphs(BundleData* bdata) {
     						GStr guidecov;
     						guidecov.appendfmt("%.2f",gcov);
     						guides[g]->addAttr("coverage",guidecov.chars());
+    						printCovMutex.lock();
     						guides[g]->printTranscriptGff(c_out);
+    						printCovMutex.unlock();
     					}
     					GSeg exon(guides[g]->start, guides[g]->end);
     					p->exons.Add(exon);
@@ -14419,7 +14461,7 @@ int build_graphs(BundleData* bdata) {
     								bundle[sno][b]->len,nolap);
     					}
     				}
-    				*/
+					*/
 
     				// here I can add something in stringtie to lower the mintranscript len if there are guides?
 
@@ -15408,8 +15450,8 @@ void count_good_junctions(BundleData* bdata) {
 			egjunc.setSorted(juncCmpEnd);
 			int s=0;
 			int e=0;
-			for(int i=1;i<junction.Count();i++) {
 
+			for(int i=1;i<junction.Count();i++) if(!junction[i]->guide_match) { // LR fix
 				if(junction[i]->nm>=junction[i]->nreads){ // for all junctions -> try to see if I can correct them
 
 					//fprintf(stderr,"check junction[%d]:%d-%d:%d rightsupport=%f nm=%f nreads=%f\n",i,junction[i]->start,junction[i]->end,junction[i]->strand,junction[i]->rightsupport,junction[i]->nm,junction[i]->nreads);
@@ -15420,14 +15462,15 @@ void count_good_junctions(BundleData* bdata) {
 					int c=-1;
 					int dist=1+sserror;
 					while(k<gjunc.Count() && gjunc[k]->start<=junction[i]->start+sserror) {
-						if(!junction[i]->strand || gjunc[k]->strand==junction[i]->strand) {
+						if(!junction[i]->strand || gjunc[k]->strand==junction[i]->strand || longreads) { // LR fix	
 							if(gjunc[k]->start==junction[i]->start && gjunc[k]->guide_match) { // perfect match --> no need to change anything
+							    junction[i]->strand=gjunc[k]->strand; // update strand too // LR fix
 								c=-1;
 								break;
 							}
 							int d=dist;
 							if(c<0 || gjunc[c]->guide_match==gjunc[k]->guide_match) d=abs((int)gjunc[k]->start-(int)junction[i]->start);
-							if(d<dist || (!gjunc[c]->guide_match && gjunc[k]->guide_match)) {
+ 						    if(d<dist || (!gjunc[c]->guide_match && gjunc[k]->guide_match)) { // closer to junction, or junction present in the data
 								dist=d;
 								c=k;
 								smodjunc.Add(i);
@@ -15458,9 +15501,10 @@ void count_good_junctions(BundleData* bdata) {
 					int c=-1;
 					int dist=1+sserror;
 					while(k<egjunc.Count() && egjunc[k]->end<=ejunction[i]->end+sserror) {
-						if(!ejunction[i]->strand || egjunc[k]->strand==ejunction[i]->strand) {
+						if(!ejunction[i]->strand || egjunc[k]->strand==ejunction[i]->strand || longreads) { // LR fix	
 							if(egjunc[k]->end==ejunction[i]->end  && egjunc[k]->guide_match) { // perfect match --> no need to change anything
 								c=-1;
+								ejunction[i]->strand=egjunc[k]->strand; // update strand too // LR fix
 								break;
 							}
 
@@ -15499,13 +15543,14 @@ void count_good_junctions(BundleData* bdata) {
 						//fprintf(stderr,"smodified junction[%d]:%d-%d:%d %p nreads=%f\n",j,junction[j]->start,junction[j]->end,junction[j]->strand,junction[j],junction[j]->nreads);
 						s=j-1;
 						GVec<int> equal;
-						while(s>=0 && junction[s]->start==junction[j]->start) {
-							if(junction[s]->end==junction[j]->end && junction[s]->strand==junction[j]->strand) equal.Add(s);
+						float dist=2*sserror+1; // to account for junctions going further on the opposite strand // LR fix
+						while(s>=0 && abs((float)junction[s]->start-(float)junction[j]->start)<dist) { // LR fix
+							if(junction[s]->start==junction[j]->start && junction[s]->end==junction[j]->end && junction[s]->strand==junction[j]->strand) equal.Add(s); // LR fix
 							s--;
 						}
 						s=j+1;
-						while(s<junction.Count() && junction[s]->start==junction[j]->start) {
-							if(junction[s]->end==junction[j]->end && junction[s]->strand==junction[j]->strand) equal.Add(s);
+						while(s<junction.Count() && abs((float)junction[s]->start-(float)junction[j]->start)<dist) { // LR fix
+							if(junction[s]->start==junction[j]->start && junction[s]->end==junction[j]->end && junction[s]->strand==junction[j]->strand) equal.Add(s); // LR fix
 							s++;
 						}
 						if(equal.Count()) { // junction j is equal to other junctions
@@ -15515,11 +15560,11 @@ void count_good_junctions(BundleData* bdata) {
 								CJunction* jct=junction[equal[s]];
 								//fprintf(stderr,"...equal to junction[%d]:%d-%d:%d %p nreads=%f\n",equal[s],jct->start,jct->end,jct->strand,jct,jct->nreads);
 								jhash.Add(jct, junction[j]);
-								if(mixedMode) { // I can trust the reads coming from mixed data but not so much from long reads
+								//if(mixedMode) { // I can trust the reads coming from mixed data but not so much from long reads - LR fix
 									junction[j]->nreads+=jct->nreads;
 									junction[j]->nm+=jct->nm;
 									jct->nreads=0;
-								}
+								//}
 								jct->strand=0;
 								jct->guide_match=false;
 							}
@@ -15530,17 +15575,18 @@ void count_good_junctions(BundleData* bdata) {
 					int j=emodjunc[i];
 					//sprintf(sbuf, "%p", ejunction[j]);
 					CJunction* jp=jhash[ejunction[j]];
-					if(!jp) { // did not process junction before
+					if(!jp) { // did not process junction before (by smodjunc)
 						//fprintf(stderr,"emodified ejunction[%d]:%d-%d:%d %p nreads=%f\n",j,ejunction[j]->start,ejunction[j]->end,ejunction[j]->strand,ejunction[j],ejunction[j]->nreads);
 						s=j-1;
 						GVec<int> equal;
-						while(s>=0 && ejunction[s]->end==ejunction[j]->end) {
-							if(ejunction[s]->start==ejunction[j]->start && ejunction[s]->strand==ejunction[j]->strand) equal.Add(s);
+						float dist=2*sserror+1; // to account for junctions going further on the opposite strand LR fix
+						while(s>=0 && abs((float)ejunction[s]->end-(float)ejunction[j]->end)<dist) { // LR fix
+							if(ejunction[s]->start==ejunction[j]->start  && ejunction[s]->end==ejunction[j]->end && ejunction[s]->strand==ejunction[j]->strand) equal.Add(s); // LR fix						
 							s--;
 						}
 						s=j+1;
-						while(s<ejunction.Count() && ejunction[s]->end==ejunction[j]->end) {
-							if(ejunction[s]->start==ejunction[j]->start && ejunction[s]->strand==ejunction[j]->strand) equal.Add(s);
+						while(s<ejunction.Count() && abs((float)ejunction[s]->end-(float)ejunction[j]->end)<dist) { // LR fix
+							if(ejunction[s]->start==ejunction[j]->start  && ejunction[s]->end==ejunction[j]->end && ejunction[s]->strand==ejunction[j]->strand) equal.Add(s); // LR fix			
 							s++;
 						}
 						if(equal.Count()) { // junction j is equal to other junctions
@@ -15552,11 +15598,11 @@ void count_good_junctions(BundleData* bdata) {
 								CJunction* ej=ejunction[equal[s]];
 								jhash.Add(ej, ejunction[j]);
 								//fprintf(stderr,"...equal to ejunction[%d]:%d-%d:%d %p nreads=%f\n",equal[s],ej->start,ej->end,ej->strand,ej,ej->nreads);
-								if(mixedMode) { // I can trust the reads coming from mixed data but not so much from long reads
+								//if(mixedMode) { // I can trust the reads coming from mixed data but not so much from long reads
 									ejunction[j]->nreads+=ej->nreads;
 									ejunction[j]->nm+=ej->nm;
 									ej->nreads=0;
-								}
+								//}
 								ej->strand=0;
 								ej->guide_match=false;
 							}
@@ -15611,6 +15657,7 @@ void count_good_junctions(BundleData* bdata) {
 						else {
 							rd.juncs[i-1]=jp;
 							if(!rd.strand) rd.strand=jp->strand;
+							else if(rd.strand!=jp->strand) rd.strand=0; // LR fix
 							//fprintf(stderr," [correct rd from %d-%d to %d-%d]",rd.segs[i-1].end,rd.segs[i].start,jp->start,jp->end);
 							if(rd.segs[i-1].start<=jp->start) rd.segs[i-1].end=jp->start;
 							if(rd.segs[i].end>=jp->end) rd.segs[i].start=jp->end;
@@ -15629,6 +15676,8 @@ void count_good_junctions(BundleData* bdata) {
 							//if(rd.segs[i-1].end!=rd.juncs[i-1]->start || rd.segs[i].start!=rd.juncs[i-1]->end) fprintf(stderr," [chg rd from %d-%d to %d-%d]",rd.segs[i-1].end,rd.segs[i].start,rd.juncs[i-1]->start,rd.juncs[i-1]->end);
 							if(rd.segs[i-1].end!=rd.juncs[i-1]->start && rd.segs[i-1].start<=rd.juncs[i-1]->start) rd.segs[i-1].end=rd.juncs[i-1]->start;
 							if(rd.segs[i].start!=rd.juncs[i-1]->end && rd.segs[i].end>=rd.juncs[i-1]->end) rd.segs[i].start=rd.juncs[i-1]->end;
+							if(!rd.strand) rd.strand=rd.juncs[i-1]->strand; // LR fix
+							else if(rd.strand!=rd.juncs[i-1]->strand) rd.strand=0; // LR fix
 						}
 					}
 				}
@@ -16276,43 +16325,43 @@ void merge_exons(CGene& gene,GVec<GSeg>& exons) {
 }
 
 
-void update_overlap(GList<CPrediction>& pred,int p,int e,GVec<CExon>& node,GVec<bool>& overlap) {
+void update_overlap(GList<CPrediction>& pred,int p,int e,GVec<CExon>& node,OvlTracker& overlaps) {
 
-	int n=pred.Count();
-	for(int i=0;i<node.Count();i++) if(!overlap[n*node[i].predno+p]) { // there is no overlap detected yet
+	//int n=pred.Count();
+	for(int i=0;i<node.Count();i++) if(!overlaps.get(node[i].predno, p)) { // there is no overlap detected yet
 
 		// exon e in prediction p overlaps exon ei in prediction pi
 		int pi=node[i].predno;
 		int ei=node[i].exonno;
 
-		overlap[n*pi+p]=true;
+		overlaps.set(pi, p);
 
 		// overlap is not significant in the following cases
 		if(!e && pred[p]->exons[0].end>=pred[pi]->end) { // I am at the beginning of prediction p
 			int len=pred[pi]->end-pred[p]->start+1;
-			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlap[n*pi+p]=false; // prediction p doesn't overlap prediction pi by a considerable amount
+			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlaps.set(pi,p,false); // prediction p doesn't overlap prediction pi by a considerable amount
 		}
 
-		if(overlap[n*pi+p] && !ei && pred[pi]->exons[0].end>=pred[p]->end) { // I am at the beginning of prediction pi
+		if(overlaps.get(pi,p) && !ei && pred[pi]->exons[0].end>=pred[p]->end) { // I am at the beginning of prediction pi
 			int len=pred[p]->end-pred[pi]->start+1;
-			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlap[n*pi+p]=false; // prediction pi doesn't overlap prediction p by a considerable amount
+			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlaps.set(pi,p,false); // prediction pi doesn't overlap prediction p by a considerable amount
 		}
 
-		if(overlap[n*pi+p] && e==pred[p]->exons.Count()-1 && pred[p]->exons[e].start<=pred[pi]->start) { // I am at the end of prediction p
+		if (overlaps.get(pi,p) && e==pred[p]->exons.Count()-1 && pred[p]->exons[e].start<=pred[pi]->start) { // I am at the end of prediction p
 			int len=pred[p]->end-pred[pi]->start+1;
-			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlap[n*pi+p]=false; // prediction p doesn't overlap prediction pi by a considerable amount
+			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlaps.set(pi,p,false); // prediction p doesn't overlap prediction pi by a considerable amount
 		}
 
-		if(overlap[n*pi+p] && ei==pred[pi]->exons.Count()-1 && pred[pi]->exons[ei].start<=pred[p]->start) { // I am at the end of prediction pi
+		if(overlaps.get(pi,p) && ei==pred[pi]->exons.Count()-1 && pred[pi]->exons[ei].start<=pred[p]->start) { // I am at the end of prediction pi
 			int len=pred[pi]->end-pred[p]->start+1;
-			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlap[n*pi+p]=false; // prediction pi doesn't overlap prediction p by a considerable amount
+			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlaps.set(pi,p,false); // prediction pi doesn't overlap prediction p by a considerable amount
 		}
 
 	}
 }
 
 
-CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,float c,GList<CPrediction>& pred,GVec<bool>& overlap) {
+CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,float c,GList<CPrediction>& pred, OvlTracker& overlaps) {
 
 	CMaxIntv *prevmaxint=NULL;
 	while(maxint && start>maxint->end) {
@@ -16351,7 +16400,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 				nextmaxint=maxint;
 			}
 
-			update_overlap(pred,p,e,nextmaxint->node,overlap);
+			update_overlap(pred,p,e,nextmaxint->node, overlaps);
 			nextmaxint->node.Add(ex);
 
 			if(end<nextmaxint->end) { // nextmaxint now ends where previous maxint ended
@@ -16370,7 +16419,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 						maxint->next=newintv;
 						maxint=newintv;
 					}
-					update_overlap(pred,p,e,maxint->next->node,overlap);
+					update_overlap(pred,p,e,maxint->next->node, overlaps);
 					maxint->next->node.Add(ex);
 					maxint=maxint->next;
 				}
@@ -16437,9 +16486,9 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	if(bundledist>runoffdist) runoffdist=bundledist;
 
 	int npred=pred.Count();
-	GVec<bool> overlap;
-	overlap.Resize(npred*npred-npred);
-
+	/* GVec<bool> overlap;
+	overlap.Resize(npred*npred-npred); */
+    OvlTracker overlaps(npred);
 	GVec<CPred> predord;
 	//CPred p(0,pred[0]->cov);
 	CPred p(0,abs(pred[0]->tlen)*pred[0]->cov); // priority based on number of bases covered -> this should a give a boost to predictions that are longer
@@ -16526,7 +16575,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			//fprintf(stderr,"pred[%d] intron[%d]:%d-%d introncov=%f exoncov=%f\n",0,j-1,pred[0]->exons[j-1].end,pred[0]->exons[j].start,introncov,exoncov);
 				  }
 			  }
-		nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,excov,pred,overlap); // per bp coverage
+		nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,excov,pred,overlaps); // per bp coverage
 		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,pred[0]->exoncov[j]*pred[0]->exons[j].len(),pred,overlap); // per read coverage
 		//pred[0]->exoncov[j]=0;
 	}
@@ -16554,7 +16603,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		//CPred p(n,pred[n]->cov); // priority based on cov/bp
 		CPred p(n,abs(pred[n]->tlen)*pred[n]->cov); // priority based on number of bases covered
 		predord.Add(p);
-		nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,excov,pred,overlap); // per bp coverage
+		nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,excov,pred,overlaps); // per bp coverage
 		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,pred[n]->exoncov[0]*pred[n]->exons[0].len(),pred,overlap); // read coverage
 		//pred[n]->exoncov[0]=0;
 		intron.clear();
@@ -16602,7 +16651,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 							  }
 						  }
 					  }
-			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,excov,pred,overlap); // per bp coverage
+			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,excov,pred, overlaps); // per bp coverage
 			//nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,pred[n]->exoncov[j]*pred[n]->exons[j].len(),pred,overlap); // read coverage
 			//pred[n]->exoncov[j]=0;
 		}
@@ -16656,11 +16705,11 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			//fprintf(stderr,"first consideration of pred[%d] with cov=%f and strand=%c\n",n1,pred[n1]->cov,pred[n1]->strand);
 			for(int j=i+1;j<predord.Count();j++) if(pred[predord[j].predno]->flag) {
 				int n2=predord[j].predno; // always predord.cov(n1)>=predord.cov(n2)
-				int m = n1;
+				/*int m = n1;
 				int M = n2;
 				//fprintf(stderr,"...vs prediction n2=%d with cov=%f and strand=%c\n",n2,pred[n2]->cov,pred[n2]->strand);
-				if(m>M) { m=n2; M=n1;}
-				if(overlap[npred*m+M]) { // n1 could get eliminated by some other genes for instance if it has fewer exons and it's included in a bigger one
+				if(m>M) { m=n2; M=n1;} */
+				if(overlaps.get(n1,n2)) { // n1 could get eliminated by some other genes for instance if it has fewer exons and it's included in a bigger one
 				  //fprintf(stderr,"overlap\n");
 					if(!pred[n2]->t_eq) { // this is not a known gene -> only then I can eliminate it
 						if(pred[n1]->t_eq && pred[n2]->cov<ERROR_PERC*pred[n1]->cov) { // more strict about novel predictions if annotation is available
@@ -16753,10 +16802,10 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    			else if(pred[n2]->tlen>0 && !pred[n2]->t_eq) {
 	    				if(transcript_overlap(pred,n1,n2)) {
 	    				for(int p=0;p<bettercov[n2].Count();p++) {
-	    					int m = n1;
+	    					/* int m = n1;
 	    					int M = bettercov[n2][p];
-	    					if(m>M) { m=bettercov[n2][p]; M=n1;}
-	    					if(!overlap[npred*m+M]) {
+	    					if(m>M) { m=bettercov[n2][p]; M=n1;} */
+	    					if(!overlaps.get(bettercov[n2][p],n1)) {
 	    						pred[n2]->flag=false;
 	    						//fprintf(stderr,"falseflag: pred[%d] eliminated because of overlap to %d and %d\n",n2,m,M);
 	    						break;
@@ -17027,14 +17076,18 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	}
 
 	// assign gene numbers
-	GVec<int> genes; // for each prediction remembers it's geneno
+	GVec<int> genes; // for each prediction remembers its geneno
 	genes.Resize(npred,-1);
 	GVec<int> transcripts; // for each gene remembers how many transcripts were printed
 
 	//pred.Sort();
-	for(int i=0;i<npred;i++) if(pred[i]->flag) {
-		if(pred[i]->cov<1 || (!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
-		//if(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr))) {
+	for(int i=0;i<npred;i++)
+	  if(pred[i]->flag) {
+		 //TODO: this eliminates e.g. 0.98 cov prediction based on long read that otherwise covers all the junctions!
+		 //  =>  implement a jcov metric (junction coverage) which should supersede base coverage ?
+		if ( pred[i]->cov<1 ||
+				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
+		//if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
 			pred[i]->flag=false;
 			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
 			continue;
@@ -17045,7 +17098,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		int j=i+1;
 		while(j<npred && pred[i]->end>=pred[j]->start) {
 			//fprintf(stderr,"... check pred j=%d\n",j);
-			if(pred[j]->flag && pred[i]->strand==pred[j]->strand && overlap[npred*i+j]) {
+			if(pred[j]->flag && pred[i]->strand==pred[j]->strand && overlaps.get(i,j)) {
 				if(!pred[j]->t_eq && pred[j]->cov<readthr) {
 					pred[j]->flag=false;
 					//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
@@ -17490,6 +17543,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	*/
 
 	int npred=pred.Count();
+
 	pred.setSorted(predCmp);
 
 	GVec<CGene> predgene;
@@ -17497,7 +17551,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	GVec<float>* bpcov = bundleData->bpcov;
 	int startgno=geneno+1;
 
-	if(rawreads) {
+	if(rawreads) { //-R mode
 		// assign gene numbers
 		GVec<int> genes; // for each prediction remembers it's geneno
 		genes.Resize(npred,-1);
@@ -17681,7 +17735,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		}
 
 		return(geneno);
-	}
+	} // ^^^^ rawreads processing mode (-R)
 
 	/*
 	{ // DEBUG ONLY
@@ -17697,8 +17751,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		fprintf(stderr,"\n");
 	}
 	*/
-
-
 
 	bool preddel=false;
 
@@ -17720,7 +17772,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			if(guides[i]->exons.Count()>1 && longreads) isintronguide=true;
 
-			if(eonly) { // if eonly I need to print all guides that were not printed yet
+			if (eonly) { // if eonly I need to print all guides that were not printed yet
 				if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
 
 					fprintf(f_out,"1 %d %d %d 0.0\n",guides[i]->exons.Count()+1,guides[i]->covlen, ((RC_TData*)guides[i]->uptr)->t_id);
@@ -17805,7 +17857,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 					i--;
 				}
 				while(i>=0 && pred[i]->end>pred[n]->start){
-					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC) pred[i]->flag=false;
+					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC)
+						pred[i]->flag=false;
 					i--;
 				}
 				// check if there are single exon on the right of the predicted transcript
@@ -17824,7 +17877,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 					i++;
 				}
 				while(i<npred && pred[i]->start<pred[n]->end) {
-					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC) pred[i]->flag=false;
+					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC)
+						pred[i]->flag=false;
 					i++;
 			}
 		}

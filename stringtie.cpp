@@ -5,13 +5,13 @@
 #include "GThreads.h"
 #endif
 
-//#define GMEMTRACE 1  //debugging mem allocation
+//#define GMEMTRACE 1
 
 #ifdef GMEMTRACE
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.1.8"
+#define VERSION "2.2.3"
 
 //#define DEBUGPRINT 1
 
@@ -250,6 +250,8 @@ GFastMutex bamReadingMutex;
 
 GFastMutex countMutex;
 
+GFastMutex printCovMutex;
+
 #endif
 
 GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
@@ -462,11 +464,11 @@ if (ballgown)
 #define DEF_TSTACK_SIZE 8388608
  size_t defStackSize=DEF_TSTACK_SIZE;
 #ifdef _GTHREADS_POSIX_
- int tstackSize=GThread::defaultStackSize();
+ size_t tstackSize=GThread::defaultStackSize();
  if (tstackSize<DEF_TSTACK_SIZE) defStackSize=DEF_TSTACK_SIZE;
  if (verbose) {
-   if (defStackSize>0){
-    int ssize=defStackSize;
+   if (tstackSize<defStackSize){
+    size_t ssize=defStackSize;
     GMessage("Default stack size for threads: %d (increased to %d)\n", tstackSize, ssize);
    }
    else GMessage("Default stack size for threads: %d\n", tstackSize);
@@ -802,7 +804,8 @@ if (ballgown)
     	 //check for overlaps with ref transcripts which may set xstrand
     	 if (xstrand=='+') alndata.strand=1;
     	 else if (xstrand=='-') alndata.strand=-1;
-    	 //GMessage("%s\t%c\t%d\thi=%d\n",brec->name(), xstrand, alndata.strand,hi);
+    	 //const char* bname=brec->name();
+    	 //GMessage("%s\t%c\t%d\thi=%d\n",bname, xstrand, alndata.strand,hi);
     	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
     	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
     	   processRead(currentstart, currentend, *bundle, hashread, alndata);
