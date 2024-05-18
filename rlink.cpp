@@ -396,6 +396,8 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 				}
 				int jstrand=strand;
 				uint jstart=brec.exons[i-1].end;
+				int l_support=brec.exons[i-1].len();
+				int r_support=brec.exons[i].len();
 				uint jend=brec.exons[i].start;
 
 				//fprintf(stderr,"exon count=%d junctiondel count=%d exonend=%d exonstart=%d\n",brec.exons.Count(),brec.juncsdel.Count(),jstart,jend);
@@ -407,12 +409,17 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 						jend+=brec.juncsdel[i-1].end;
 					}
 				}
-				CJunction* nj=junction.AddIfNew(new CJunction(jstart, jend, jstrand), true);
-				if (alndata.juncs.Count())
-					nj->guide_match=alndata.juncs[i-1]->guide_match;
-				if (nj) {
-					readaln->juncs.Add(nj);
-				}
+				// Bundle mod: add junction only if both anchors are longer than junctionsupport
+				// and if the junction is shorter than strg_max_intron and longer than strg_min_intron
+                if (l_support>=junctionsupport && r_support>=junctionsupport && 
+				    jend-jstart<=strg_max_intron && jend-jstart>=strg_min_intron) {
+					CJunction* nj=junction.AddIfNew(new CJunction(jstart, jend, jstrand), true);
+					if (alndata.juncs.Count())
+						nj->guide_match=alndata.juncs[i-1]->guide_match;
+					if (nj) {
+						readaln->juncs.Add(nj);
+					}
+				} //if intron passes the filters
 			}
 			readaln->segs.Add(brec.exons[i]);
 		}
@@ -447,8 +454,9 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	  	bdata.end=currentend;
 	}
 
-	float rdcount=(float)brec.tag_int("YC"); // alignment count
+	float rdcount=(float)brec.tag_int("YC", 1); // alignment count	
 	if(!rdcount) rdcount=1;
+	int raw_rdcount=(int)rdcount;
 	if(unitig_cov) {
 		rdcount=unitig_cov;
 		if(isunitig) readlist[n]->unitig=true; // treat unitig reads differently when -U is set
@@ -456,7 +464,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 
 	if(!nomulti) rdcount/=nh;
 	readlist[n]->read_count+=rdcount; // increase single count just in case I don't see the pair
-
+    readlist[n]->raw_read_count+=raw_rdcount;
 	// store the mismatch count per junction so that I can eliminate it later
 	if(!nm) {
 		nm=(double)brec.tag_int("nM"); // paired mismatch : big problem with STAR alignments
@@ -484,6 +492,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 				readlist[n]->juncs[i]->mm+=rdcount;
 			//if(nh>2) readlist[n]->juncs[i]->mm+=rdcount; // vs3; vs2 only has nh>1
 			readlist[n]->juncs[i]->nreads+=rdcount;
+			readlist[n]->juncs[i]->num_raw_reads+=raw_rdcount;
 		}
 	}
 

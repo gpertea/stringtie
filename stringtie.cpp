@@ -1,3 +1,4 @@
+// --- THIS BRANCH IS ONLY FOR TESTING THE BUNDLE PROCESSING
 //#define GFF_DEBUG 1 //debugging guides loading
 #include "rlink.h"
 #include "tmerge.h"
@@ -52,7 +53,7 @@ Options:\n\
  -R if long reads are provided, just clean and collapse the reads but\n\
     do not assemble\n\
  -m minimum assembled transcript length (default: 200)\n\
- -a minimum anchor length for junctions (default: 10)\n\
+ -a minimum anchor length for junctions (default: 8)\n\
  -j minimum junction coverage (default: 1)\n\
  -t disable trimming of predicted transcripts based on coverage\n\
     (default: coverage trimming is enabled)\n\
@@ -61,7 +62,7 @@ Options:\n\
  -s minimum reads per bp coverage to consider for single-exon transcript\n\
     (default: 4.75)\n\
  -v verbose (log bundle processing details)\n\
- -g maximum gap allowed between read mappings (default: 50)\n\
+ -g maximum gap allowed between read mappings before a new bundle is formed (default: 1)\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
@@ -157,12 +158,12 @@ bool geneabundance=false;
 int num_cpus=1;
 int mintranscriptlen=200; // minimum length for a transcript to be printed
 //int sensitivitylevel=1;
-uint junctionsupport=10; // anchor length for junction to be considered well supported <- consider shorter??
+uint junctionsupport=8; // anchor length for junction to be considered well supported <- consider shorter??
 uint sserror=25; // window arround splice sites that we use to generate consensus in case of long read data
 int junctionthr=1; // number of reads needed to support a particular junction
 float readthr=1;     // read coverage per bundle bp to accept it; // paper uses 3
 float singlethr=4.75;
-uint bundledist=50;  // reads at what distance should be considered part of separate bundles
+uint bundledist=1;  // reads at what distance should be considered part of separate bundles
 uint runoffdist=200;
 float mcov=1; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 int allowed_nodes=1000;
@@ -190,7 +191,7 @@ GStr guidegff; // -G option
 GStr ptff; // --ptf option (point features)
 
 bool debugMode=false;
-bool verbose=false;
+bool verbose=true;
 bool ballgown=false;
 
 //int maxReadCov=1000000; //max local read coverage (changed with -s option)
@@ -847,8 +848,8 @@ if (ballgown)
 #ifdef B_DEBUG
  fclose(dbg_out);
 #endif
- if (mergeMode && guided )
-	 writeUnbundledGuides(refguides, f_out);
+ //if (mergeMode && guided )
+//	 writeUnbundledGuides(refguides, f_out);
 
 
  // clear refpts data, if loaded
@@ -857,7 +858,7 @@ if (ballgown)
 		  refpts[i].pfs.setFreeItem(true);
 	  }
 
- fclose(f_out);
+ //fclose(f_out);
  if (c_out && c_out!=stdout) fclose(c_out);
 
  if(verbose && no_xs>0)
@@ -889,7 +890,8 @@ if(!mergeMode) {
 			GError("Error creating gene abundance output file %s\n", genefname.chars());
 		fprintf(g_out,"Gene ID\tGene Name\tReference\tStrand\tStart\tEnd\tCoverage\tFPKM\tTPM\n");
 	}
-
+// bundle mode - no output
+/*
 	FILE* ftmp_in=fopen(tmpfname.chars(),"rt");
 	if (ftmp_in!=NULL) {
 		char* linebuf=NULL;
@@ -936,16 +938,17 @@ if(!mergeMode) {
 		}
 		fclose(f_out);
 		fclose(ftmp_in);
+		
 		if(geneabundance) fclose(g_out);
 		GFREE(linebuf);
 		if (!keepTempFiles) {
 			remove(tmpfname.chars());
 		}
 	}
-	else {
+	else { */
 		fclose(f_out);
-		GError("No temporary file %s present!\n",tmpfname.chars());
-	}
+    //	GError("No temporary file %s present!\n",tmpfname.chars());
+	//}
 
 	//lastly, for ballgown, rewrite the tdata file with updated cov and fpkm
 	if (ballgown) {
@@ -1034,11 +1037,15 @@ void processOptions(GArgs& args) {
 	 }
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
 	 //adaptive=!(args.getOpt('d')!=NULL);
+
+
+	 /*
 	 verbose=(args.getOpt('v')!=NULL);
 	 if (verbose) {
 	     fprintf(stderr, "Running StringTie " VERSION ". Command line:\n");
 	     args.printCmdLine(stderr);
 	 }
+	 */
 	 //complete=!(args.getOpt('i')!=NULL);
 	 // trim=!(args.getOpt('t')!=NULL);
 	 includesource=!(args.getOpt('z')!=NULL);
@@ -1345,7 +1352,8 @@ void processOptions(GArgs& args) {
 	 dbg_out=fopen(dbgfname.chars(), "w");
 	 if (dbg_out==NULL) GError("Error creating debug output file %s\n", dbgfname.chars());
 #endif
-
+   // bundle mode -- do not create or open files
+     return;
 	 if(mergeMode) {
 		 f_out=stdout;
 		 if(outfname!="stdout") {
@@ -1401,11 +1409,27 @@ void noMoreBundles() {
 #endif
 }
 
+void printJunctions(BundleData& bundle) {
+	//print junctions
+	for (int i=0;i<bundle.junction.Count();++i) {
+		CJunction& jx= * bundle.junction.Get(i);
+		if (jx.start==0) continue;
+		char strand=jx.strand==1 ? '+': (jx.strand==-1 ? '-' : '.');
+		fprintf(stdout, "%s\t%d\t%d\t%c\t%d\n",
+				bundle.refseq.chars(), jx.start, jx.end, strand,
+				jx.num_raw_reads);
+	}
+
+}
+
+
 void processBundle(BundleData* bundle) {
 	if (verbose) {
 	#ifndef NOTHREADS
 		GLockGuard<GFastMutex> lock(logMutex);
 	#endif
+	    printJunctions(*bundle);
+
 		printTime(stderr);
 		GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
@@ -1448,8 +1472,7 @@ void processBundle(BundleData* bundle) {
 	}
 #endif
 
-	infer_transcripts(bundle);
-
+	//infer_transcripts(bundle);
 	if (ballgown && bundle->rc_data) {
 		rc_update_exons(*(bundle->rc_data));
 	}

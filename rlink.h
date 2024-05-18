@@ -30,6 +30,8 @@ const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
 const int MAX_MAXCOMP=200; // is 200 too much, or should I set it up to 150?
 
+const uint strg_min_intron=26; // minimum intron length
+const uint strg_max_intron=500000; // maximum intron length
 //const uint largeintron=20000; // don't trust introns longer than this unless there is higher evidence; less than 10% of all human annotated introns are longer than this
 //const uint longintron=70000; // don't trust introns longer than this unless there is higher evidence; about 98% of all human annotated introns are shorter than this
 const uint longintron=100000; // don't trust introns longer than this unless there is higher evidence; about 99% of all human annotated introns are shorter than this
@@ -363,6 +365,7 @@ struct CReadAln:public GSeg {
 	char strand; // 1, 0 (unkown), -1 (reverse)
 	short int nh;
 	uint len;
+	uint raw_read_count=0;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
 	bool unitig:1;			// set if read come from an unitig
 	bool longread:1;	    // set if read comes from long read data
@@ -383,6 +386,7 @@ struct CReadAln:public GSeg {
 		strand=rd.strand;
 		nh=rd.nh;
 		len=rd.len;
+		raw_read_count=rd.raw_read_count;
 		read_count=rd.read_count;
 		unitig=rd.unitig;
 		longread=rd.longread;
@@ -563,6 +567,7 @@ struct CJunction:public GSeg {
 	char guide_match; //exact match of a ref intron?
 	char consleft; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
 	char consright; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
+	int num_raw_reads=0;
 	double nreads;
 	double nreads_good;
 	double leftsupport;
