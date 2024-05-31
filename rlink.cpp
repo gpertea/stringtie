@@ -10059,6 +10059,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 p->exons=exons;
 						 p->exoncov=exoncov;
 						 p->tlen=-p->tlen; // negative transcript length signifies assembly is from a long read
+						 if(g&&isNascent(g)) p->mergename="N";
 						 pred.Add(p);
 
 						 CTransfrag u(path,pathpat,cov/len);
@@ -19632,7 +19633,7 @@ void reconcile_nascents(GList<CPrediction>& pred, int m, int n) { // nascents of
 	*/
 
 	if(pred[n]->t_eq) pred[m]->linkpred=pred[n]->linkpred; // guide gets priority
-	else {
+	else if(!pred[m]->t_eq){ // if pred[m] is guide I do not need to reconcile
 		// first make m's nascents equal n's nascents
 		if(pred[m]->linkpred) { // if there are nascents
 			CPrediction *p=pred[m]->linkpred;
@@ -20162,6 +20163,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 						if(pred[n]->t_eq && pred[m]->t_eq && pred[n]->t_eq!=pred[m]->t_eq) { m++; continue;} // both are equal but represent different transcripts
 
 						if(mixedMode && pred[n]->tlen*pred[m]->tlen<0) { // choose the larger one -> store it in m
+							if(isnascent) reconcile_nascents(pred,m,n);
 							if(pred[n]->t_eq) {
 								pred[m]->t_eq=pred[n]->t_eq;
 								pred[m]->mergename=pred[n]->mergename;
@@ -20169,7 +20171,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 								pred[n]->cov+=pred[m]->cov; // add coverage to annotated gene in this case so that pred[n]->cov>pred[m]->cov and the next if to become true
 							}
 							if(pred[n]->cov>pred[m]->cov) { // --replace-- with higher coverage
-								if(isnascent) reconcile_nascents(pred,m,n);
 								pred[m]->start=pred[n]->start;
 								pred[m]->end=pred[n]->end;
 								pred[m]->cov=pred[n]->cov;
@@ -20206,6 +20207,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 									pred[m]->end=pred[n]->end;
 									pred[m]->flag=true;
 								}
+
 
 								//fprintf(stderr,"pred[%d] start=%d end=%d\n",m,pred[m]->start,pred[m]->end);
 
