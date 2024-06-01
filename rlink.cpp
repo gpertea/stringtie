@@ -18201,6 +18201,7 @@ void add_intrseq_to_nascent(GList<CPrediction>& pred,CMaxIntv *intv){
 						// this is the l nascent prediction overlaping exon e in prediction p
 						int ne=e;
 						if(pred[p]->strand=='-') ne-=l;
+						//fprintf(stderr,"Add cov=%f to nascent l=%d exon=%d of prediction p=%d e=%d\n",cov,l,ne,p,e);
 						np->exoncov[ne]+=cov;
 						//fprintf(stderr,"Add cov=%f to nascent l=%d exon=%d of prediction p=%d e=%d newexcov=%f\n",cov,l,ne,p,e,np->exoncov[ne]);
 					}
@@ -19614,14 +19615,14 @@ void reconcile_nascents(GList<CPrediction>& pred, int m, int n) { // nascents of
 
 	/*
 	{ // DEBUG ONLY
-		fprintf(stderr,"Reconcile nascents of pred[%d] %d-%d:",m,pred[m]->start,pred[m]->end);
+		fprintf(stderr,"Reconcile nascents of pred[%d]:%c %d-%d:",m,pred[m]->strand,pred[m]->start,pred[m]->end);
 		CPrediction *p=pred[m]->linkpred;
 		while(p) {
 			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %d-%d",p->exons[i].start,p->exons[i].end);
 			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %f",p->exoncov[i]);
 			p=p->linkpred;
 		}
-		fprintf(stderr,"\n...with pred[%d] %d-%d:",n,pred[n]->start,pred[n]->end);
+		fprintf(stderr,"\n...with pred[%d]:%c %d-%d:",n,pred[n]->strand,pred[n]->start,pred[n]->end);
 		p=pred[n]->linkpred;
 		while(p) {
 			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %d-%d",p->exons[i].start,p->exons[i].end);
@@ -19662,6 +19663,9 @@ void reconcile_nascents(GList<CPrediction>& pred, int m, int n) { // nascents of
 			while(pn) {
 				if(!pm->linkpred || pn->start<pm->linkpred->start || pn->end<pm->linkpred->end) { // add pn before pm->linkpred
 
+					/*if(pm->linkpred) fprintf(stderr,"Add pn:%d-%d before pm->linkpred:%d-%d\n",pn->start,pn->end,pm->linkpred->start,pm->linkpred->end);
+					else fprintf(stderr,"Add pn:%d-%d before pm->linkpred:empty\n",pn->start,pn->end);*/
+
 					CPrediction *p=pn;
 					pn=pn->linkpred;
 
@@ -19670,9 +19674,11 @@ void reconcile_nascents(GList<CPrediction>& pred, int m, int n) { // nascents of
 					pm=p;
 				}
 				else if(pm->linkpred->start<pn->start || pm->linkpred->end<pn->end) { // pm->linkpred comes first
+					//fprintf(stderr,"pn:%d-%d is after pm->linkpred:%d-%d\n",pn->start,pn->end,pm->linkpred->start,pm->linkpred->end);
 					pm=pm->linkpred;
 				}
 				else { // same nascent
+					//fprintf(stderr,"pn:%d-%d is same as pm->linkpred:%d-%d\n",pn->start,pn->end,pm->linkpred->start,pm->linkpred->end);
 					pm=pm->linkpred;
 					pm->cov+=pn->cov;
 					for(int i=0;i<pm->exons.Count();i++){
@@ -19944,6 +19950,13 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			fprintf(stderr," (");
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
 			fprintf(stderr,")\n");
+			fprintf(stderr,"...nascents:");
+			CPrediction *p=pred[i]->linkpred;
+			while(p) {
+				fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->flag);
+				p=p->linkpred;
+			}
+			fprintf(stderr,"\n");
 		}
 		fprintf(stderr,"\n");
 	}
@@ -20140,6 +20153,31 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		while(npred>0 && pred[npred-1]->mergename=="n") npred--;
 	}
 
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"After guide process set:\n");
+		for(int i=0;i<pred.Count();i++) {
+			if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
+			if(pred[i]->mergename=='n') {
+				fprintf(stderr,"nascent ") ;
+			}
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand);
+			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
+			fprintf(stderr," (");
+			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
+			fprintf(stderr,")\n");
+			fprintf(stderr,"...nascents:");
+			CPrediction *p=pred[i]->linkpred;
+			while(p) {
+				fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->flag);
+				p=p->linkpred;
+			}
+			fprintf(stderr,"\n");
+		}
+		fprintf(stderr,"\n");
+	}
+	*/
+
 	//preddel=false;
 	/* adaptive mode: stitch together nearby single predictions if not within trimming parameters */
 	//if(adaptive) { // only in adaptive mode I am storing all single transcripts
@@ -20160,26 +20198,30 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 				if(pred[n]->strand==pred[m]->strand) {
 					if(equal_pred(pred,n,m)) {
 
+						//fprintf(stderr,"Equal to pred m=%d\n",m);
 						if(pred[n]->t_eq && pred[m]->t_eq && pred[n]->t_eq!=pred[m]->t_eq) { m++; continue;} // both are equal but represent different transcripts
 
 						if(mixedMode && pred[n]->tlen*pred[m]->tlen<0) { // choose the larger one -> store it in m
-							if(isnascent) reconcile_nascents(pred,m,n);
 							if(pred[n]->t_eq) {
 								pred[m]->t_eq=pred[n]->t_eq;
 								pred[m]->mergename=pred[n]->mergename;
+								pred[m]->linkpred=pred[n]->linkpred;
 								pred[m]->flag=true; // make sure I do not delete the prediction
 								pred[n]->cov+=pred[m]->cov; // add coverage to annotated gene in this case so that pred[n]->cov>pred[m]->cov and the next if to become true
 							}
-							if(pred[n]->cov>pred[m]->cov) { // --replace-- with higher coverage
-								pred[m]->start=pred[n]->start;
-								pred[m]->end=pred[n]->end;
+							if(pred[n]->cov>pred[m]->cov) { // --replace-- with higher coverage;
 								pred[m]->cov=pred[n]->cov;
-								if(pred[n]->mergename=="n" && pred[m]->mergename!="N") pred[m]->mergename=pred[n]->mergename;
-								pred[m]->tlen=-abs(pred[n]->tlen); // here is to say structure is supported by long read --> might decrease precision
-								pred[m]->exons[0].start=pred[n]->exons[0].start;
-								pred[m]->exons.Last().end=pred[n]->exons.Last().end;
-								for(int k=0;k<pred[m]->exons.Count();k++) {
-									pred[m]->exoncov[k]=pred[n]->exoncov[k];
+								if(!pred[m]->t_eq) { // without this it also adjustes start and ends for guides!!
+									if(isnascent) reconcile_nascents(pred,m,n);
+									pred[m]->start=pred[n]->start;
+									pred[m]->end=pred[n]->end;
+									if(pred[n]->mergename=="n" && pred[m]->mergename!="N") pred[m]->mergename=pred[n]->mergename;
+									pred[m]->tlen=-abs(pred[n]->tlen); // here is to say structure is supported by long read --> might decrease precision
+									pred[m]->exons[0].start=pred[n]->exons[0].start;
+									pred[m]->exons.Last().end=pred[n]->exons.Last().end;
+									for(int k=0;k<pred[m]->exons.Count();k++) {
+										pred[m]->exoncov[k]=pred[n]->exoncov[k];
+									}
 								}
 								pred[m]->geneno=-abs(pred[m]->geneno);
 							}
