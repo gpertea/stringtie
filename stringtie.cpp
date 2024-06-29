@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "2.2.n"
+#define VERSION "2.2.4"
 
 //#define DEBUGPRINT 1
 
@@ -65,7 +65,6 @@ Options:\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
- -N/--nasc : generate synthetic nascent transcripts for every guide\n\
  -E define window around possibly erroneous splice sites from long reads to\n\
     look out for correct splice sites (default: 25)\n\
  -B enable output of Ballgown table files which will be created in the\n\
@@ -205,10 +204,8 @@ bool havePtFeatures=false;
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
-bool genNascent = false; //-N/--nasc : internally generate synthetic nascent transcripts
 
 bool mixedMode = false; // both short and long read data alignments are provided
-bool isnascent=false;
 
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -317,8 +314,8 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;isnascent;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
-   "exclude=zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
+   "debug;help;version;viral;conservative;mix;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "exclude=zihvteuLRx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
 	/**
@@ -339,10 +336,6 @@ int main(int argc, char* argv[]) {
 
  int bamcount=bamreader.start(); //setup and open input files
 
-
- //TODO: TEST ONLY!
- //genNascent=true;
- // ----
 
 #ifndef GFF_DEBUG
  if (bamcount<1) {
@@ -821,8 +814,6 @@ if (ballgown)
 			 } while (cend_changed);
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
-	 if (guides && genNascent && bundle_last_kept_guide>=0) 
-	     bundle->generateAllNascents(bundle_last_kept_guide, ref_rc);		       
 	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
      bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
      if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide
@@ -1039,14 +1030,6 @@ void processOptions(GArgs& args) {
 		 bundledist=0;
 		 //isofrac=0.02; // allow mixedMode to be more conservative
 	 }
-
-
-	 // get genNascent option from -N or --isnascent
-	 if (args.getOpt('N') || args.getOpt("isnascent")) {
-		 genNascent=true; // this is not needed -> keep it for now but look to replace it with the next one later
-		 isnascent=true;
-	 }
-	 //isnascent=(args.getOpt("isnascent")!=NULL);
 
 	if (args.getOpt("conservative")) {
 	  isofrac=0.05;
@@ -1449,15 +1432,9 @@ void processBundle(BundleData* bundle) {
 		GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		if (genNascent) 
-		  GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides (%d nascent)] begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
-                bundle->keepguides.Count(), bundle->numNascents);
-		else 
-		  GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
+  	    GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count());
-
 		//bundle->printBundleGuides(); //debug only
 	#ifdef GMEMTRACE
 			double vm,rsm;

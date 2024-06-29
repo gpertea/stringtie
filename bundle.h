@@ -6,12 +6,6 @@ extern bool mergeMode;
 
 #include "tablemaker.h"
 
-extern bool genNascent; // generate nascent synthetic transcripts for each bundle
-
-void setNascent(GffObj* t, byte v=1); // set/clear the synthetic nascent RNA flag
-//0 = not nascent, 1 = synthetic nascent, 2 = nascent replacing a guide
-byte isNascent(GffObj* t); // check if a transcript is a synthetic nascent RNA
-
 // set/getBundleFlag - should set/get  (RC_TData*)(keepguides[i]->uptr)->in_bundle
 //        1 = default, 2 = every intron covered by a read, 3 = stored to be printed
 enum GuideBundleStatus {
@@ -27,11 +21,10 @@ void setGuideStatus(GffObj* t, GuideBundleStatus status);
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
   GList<GffObj> rnas; //all guides on this genomic seq; they are added in order as sorted in GffReader
-  GList<GffObj> synrnas; //just keep track/store of synthetic nascent transcripts generated on this chr
   int gseq_id; //chromosome index in GffObj::names->gseqs
   const char* gseq_name; //chromosome name
                           // rnas list: unsorted, dealloc on free, duplicates allowed
-  GRefData(int gid=-1):rnas(false, true, false), synrnas(false, true, false),
+  GRefData(int gid=-1):rnas(false, true, false), // synrnas(false, true, false),
                        gseq_id(gid),gseq_name(NULL) {
     gseq_id=gid;
     if (gseq_id>=0)
@@ -48,8 +41,7 @@ struct GRefData {
         gseq_name=t->getGSeqName();
         if (gffr->gseqtable[gseq_id]==NULL)
             GError("Error: invalid genomic sequence data (%s)!\n",gseq_name);
-        rnas.setCapacity(gffr->gseqtable[gseq_id]->fcount);
-		if (genNascent) synrnas.setCapacity(gffr->gseqtable[gseq_id]->fcount);
+        rnas.setCapacity(gffr->gseqtable[gseq_id]->fcount);		
      }
      rnas.Add(t);
      t->isUsed(true); //mark as used, to prevent deletion in GffReader destructor by gflst::freeUnused()
@@ -321,10 +313,10 @@ struct BundleData {
  GList<CReadAln> readlist;
  GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
- GPVec<GffObj> keepguides; //list of guides in this bundle (+ synthetic nascents if genNascent)  
+ GPVec<GffObj> keepguides; //list of guides in this bundle 
  GPVec<GPtFeature> ptfs; //point features for this bundle
  GList<CPrediction> pred;
- int numNascents=0; //number of nascent transcripts generated for this bundle
+ 
  RC_BundleData* rc_data; // read count data for this bundle
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 numreads(0),
@@ -364,22 +356,17 @@ struct BundleData {
 	Not needed here, we update the coverage span as each transcript is added
  */
  void keepGuide(GffObj* scaff, Ref_RC_Data& ref_rc_data);
- void generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc); //defined in tablemaker.cpp
+ 
 //#ifdef GDEBUG
  void printBundleGuides() {
 	 GStr fname("bundle");
 	 fname.appendfmt("_%d_guides.bed",idx);
-	 GStr fnasc("bundle");
-	 fnasc.appendfmt("_%d_nascents.bed",idx);
 	 FILE* f=fopen(fname.chars(),"w");
-	 FILE* fn=fopen(fnasc.chars(),"w");
 	 for(int i=0;i<keepguides.Count();i++) {
 		 GffObj* g=keepguides[i];
-		 if (isNascent(g)) g->printBED(fn);
-		              else g->printBED(f);
+		 g->printBED(f);
 	 }
 	 fclose(f);
-	 fclose(fn);
  }
 //#endif
 
@@ -400,7 +387,6 @@ struct BundleData {
 	end=0;
 	status=BUNDLE_STATUS_CLEAR;
 	numreads=0;
-	numNascents=0;
 	num_fragments=0;
 	frag_len=0;
 	sum_cov=0;
