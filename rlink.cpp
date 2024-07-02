@@ -18026,14 +18026,16 @@ CMaxIntv* add_to_nascent(GList<CPrediction>& pred,int n,CMaxIntv* intrreg,Bundle
 			if(p->start!=pred[n]->start) {
 				p->start=pred[n]->start;
 				p->exons[0].start = pred[n]->start;
-				p->tlen+=p->start-pred[n]->start;
+				if(p->tlen<0) p->tlen-=p->start-pred[n]->start;
+				else p->tlen+=p->start-pred[n]->start;
 			}
 		}
 		else {
 			if(p->end!=pred[n]->end) {
 				p->end=pred[n]->end;
 				p->exons.Last().end= pred[n]->end;
-				p->tlen+=pred[n]->end-p->end;
+				if(p->tlen<0) p->tlen-=pred[n]->end-p->end;
+				else p->tlen+=pred[n]->end-p->end;
 			}
 		}
 		p=p->linkpred;
@@ -18220,7 +18222,7 @@ void add_intrseq_to_nascent(GList<CPrediction>& pred,CMaxIntv *intv){
 						//fprintf(stderr,"mature pred[%d] with exon[%d]->cov=%f reduce by cov=%f\n",p,e,intv->node[i].exoncov,cov/pred[p]->exons[e].len());
 
 						pred[p]->exoncov[e]+=cov/pred[p]->exons[e].len();
-						pred[p]->cov+=cov/pred[p]->tlen;
+						pred[p]->cov+=cov/abs(pred[p]->tlen);
 
 						if(pred[p]->exoncov[e]<0) {
 							//fprintf(stderr,"mature exon w/neg cov\n");
@@ -19151,6 +19153,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			m++;
 		}
 	}
+
 
 	CMaxIntv *intrreg=NULL; //-> NEXTtodo update interval with nascents here and adjust intronic boundaries of nascents (last intron)
 	if(!eonly && isnascent) {
