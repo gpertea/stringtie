@@ -19643,12 +19643,14 @@ void reconcile_nascents(GList<CPrediction>& pred, int m, int n) { // nascents of
 				//fprintf(stderr," adjust nasc:%d-%d of pred[m]:%d-%d to pred[n]:%d-%d\n",p->start,p->end,pred[m]->start,pred[m]->end,pred[n]->start,pred[n]->end);
 
 				if(p->start==pred[m]->start && p->start!=pred[n]->start) { // adjust first exon
-					p->tlen+=pred[m]->start-pred[n]->start;
+					if(p->tlen<0) p->tlen-=pred[m]->start-pred[n]->start;
+					else p->tlen+=pred[m]->start-pred[n]->start;
 					p->start=pred[n]->start;
 					p->exons[0].start=pred[n]->start;
 				}
 				if(p->end==pred[m]->end && p->end!=pred[n]->end) {
-					p->tlen+=pred[n]->end-pred[m]->end;
+					if(p->tlen<0) p->tlen-=pred[n]->end-pred[m]->end;
+					else p->tlen+=pred[n]->end-pred[m]->end;
 					p->end=pred[n]->end;
 					p->exons.Last().end=pred[n]->end;
 				}
@@ -20298,12 +20300,14 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 							/*fprintf(stderr,"Add pred %d(",n);
 							if(pred[n]->t_eq) fprintf(stderr,"%s ",pred[n]->t_eq->getID());
-							fprintf(stderr,") mergename=%s to pred %d(",pred[n]->mergename.chars(),m);
-							if(pred[m]->t_eq) fprintf(stderr,"%s ",pred[m]->t_eq->getID());*/
+							fprintf(stderr,", tlen=%d) mergename=%s to pred %d(",pred[n]->tlen,pred[n]->mergename.chars(),m);
+							if(pred[m]->t_eq) fprintf(stderr,"%s ",pred[m]->t_eq->getID());
+							fprintf(stderr,", tlen=%d)\n",pred[m]->tlen);*/
 							uint flen=pred[m]->exons[0].len();
 							uint llen=pred[m]->exons.Last().len();
 							if(!pred[m]->t_eq && (pred[n]->t_eq || pred[n]->cov>pred[m]->cov)) { // prefer prediction with higher coverage here
 								if(isnascent) reconcile_nascents(pred,m,n);
+								//fprintf(stderr,"After reconcile: pred[%d]->tlen=%d pred[%d]->tlen=%d pred[%d]->cov=%f pred[%d]->cov=%f\n",n,pred[n]->tlen,m,pred[m]->tlen,n,pred[n]->cov,m,pred[m]->cov);
 								pred[m]->start=pred[n]->start;
 								pred[m]->exons[0].start=pred[n]->exons[0].start;
 								pred[m]->end=pred[n]->end;
@@ -20340,8 +20344,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 								pred[m]->exoncov[k]+=pred[n]->exoncov[k];
 								addcov+=pred[n]->exoncov[k]*pred[n]->exons[k].len();
 							}
-							pred[m]->cov+=addcov/pred[m]->tlen;
-
+							pred[m]->cov+=addcov/abs(pred[m]->tlen);
 							//fprintf(stderr,") mergename[%d]=%s\n",m,pred[m]->mergename.chars());
 
 						}
