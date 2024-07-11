@@ -12618,7 +12618,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 
 		//fprintf(stderr,"Process guide=%s\n",guides[guidetrf[g].g]->getID());
 
-		while(p<g) { // here I assume that the guides are sorted by pattern
+		if(!longreads && !mixedMode) while(p<g) { // here I assume that the guides are sorted by pattern --> added an exclusiong to only do this for short reads (is this correct?)
 			//CTransfrag guideg=guidetrf[g];
 			//CTransfrag guidep=guidetrf[p];
 			if((guidetrf[g].trf->pattern & guidetrf[p].trf->pattern)==guidetrf[g].trf->pattern) {
@@ -15741,7 +15741,7 @@ int build_graphs(BundleData* bdata) {
     				int nolap=0;
     				while(cg<ng && guides[cg]->start<=bnode[sno][bundle[sno][b]->lastnodeid]->end) { // this are potential guides that might overlap the current bundle, and they might introduce extra edges
 
-    					//fprintf(stderr,"...consider guide cg=%d with strand=%c and in_bundle=%d\n",cg,guides[cg]->strand,((RC_TData*)(guides[cg]->uptr))->in_bundle);
+    					//fprintf(stderr,"...consider guide cg=%d with strand=%c and in_bundle=%d\n",cg,guides[cg]->strand,getGuideStatus(guides[cg]));
 						//if((guides[cg]->strand==strnd || guides[cg]->strand=='.') && ((RC_TData*)(guides[cg]->uptr))->in_bundle>=2) {
     					if((guides[cg]->strand==strnd || guides[cg]->strand=='.') &&  getGuideStatus(guides[cg])>=GBST_ALL_INTR_COV ) {
     						//fprintf(stderr,"Add guide g=%d with start=%d end=%d\n",cg,guides[cg]->start,guides[cg]->end);
