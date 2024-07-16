@@ -18735,12 +18735,12 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    				if(transcript_overlap(pred,n1,n2)) {
 	    					for(int p=0;p<bettercov[n2].Count();p++) {
 	    						/* int m = n1;
-	    						int M = bettercov[n2][p];
+//	    						int M = bettercov[n2][p];
 	    						if(m>M) { m=bettercov[n2][p]; M=n1;} */
 	    						if(!overlaps.get(n1, bettercov[n2][p])) {
 	    							pred[n2]->flag=false;
 	    							//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
-	    							//fprintf(stderr,"falseflag: pred[%d] eliminated because of overlap to %d and %d\n",n2,m,M);
+	    							//fprintf(stderr,"falseflag: pred[%d] eliminated because of overlap to %d and %d\n",n2,n1,bettercov[n2][p]);
 	    							break;
 	    						}
 	    					}
@@ -19729,7 +19729,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			if(pred[i]->mergename=="n" || pred[i]->mergename=="N") {
 				fprintf(stderr,"nascent%s",pred[i]->mergename.chars()) ;
 			}
-			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand);
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
 			fprintf(stderr,"\n");
 			if(pred[i]->mergename!="n" && pred[i]->linkpred) {
@@ -19950,7 +19950,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			if(pred[i]->mergename=='n') {
 				fprintf(stderr,"nascent ") ;
 			}
-			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand);
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
 			fprintf(stderr," (");
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
@@ -20052,11 +20052,11 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			if(pred[n] && pred[n]->t_eq) { // this is a guided prediction
 
-				if(mixedMode && pred[n]->cov<DROP) { // need to be more strict with mixed data since we introduced the guides by default
+				/*if(mixedMode && pred[n]->cov<DROP) { // need to be more strict with mixed data since we introduced the guides by default
 					pred[n]->flag=false;
 					//if(pred[n]->linkpred) pred[n]->linkpred->flag=false;
 					continue;
-				}
+				}*/
 
 				//fprintf(stderr,"pred[%d]: start=%d end=%d ID=%s strand=%c refstrand=%c refstart=%d\n",n,pred[n]->start,pred[n]->end,pred[n]->t_eq->getID(),pred[n]->strand,pred[n]->t_eq->strand,pred[n]->t_eq->start);
 
@@ -20166,7 +20166,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			if(pred[i]->mergename=='n') {
 				fprintf(stderr,"nascent ") ;
 			}
-			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand);
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
 			fprintf(stderr," (");
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
