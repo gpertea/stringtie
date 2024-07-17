@@ -5113,7 +5113,7 @@ int compatible_long(int* t,int *len,GPVec<CTransfrag>& transfrag,GPVec<CGraphnod
 void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,CTreePat *tr2no,
 		GIntHash<int> &gpos,GVec<CGuide>& guidetrf,GList<CPrediction>& pred,GVec<int>& trflong,BundleData* bdata,GVec<float>& abundleft,GVec<float>& abundright) {
 
-
+	/*
 	{ // DEBUG ONLY
 		printTime(stderr);
 		fprintf(stderr,"There are %d transfrags before clean up:\n",transfrag.Count());
@@ -5123,7 +5123,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			fprintf(stderr,"\n");
 		}
 	}
-
+	*/
 
 	// add all guide patterns to the set of transfrags so that I can have a "backbone" for each guide
 	// I need this because there might be an incompatible transfrag connecting the nodes in the guide
@@ -5237,7 +5237,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 		srfrag.Clear();
 	}
 
-
+	/*
 	{ // DEBUG ONLY
 		//printTime(stderr);
 		fprintf(stderr,"\nThere are %d transfrags after clean up:\n",transfrag.Count());
@@ -5247,7 +5247,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			fprintf(stderr,"\n");
 		}
 	}
-
+	*/
 
 	GBitVec allpat(gno+edgeno);
 
@@ -12676,7 +12676,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 
 	// find guides' patterns
 	for(int g=0;g<guides.Count();g++) {
-		fprintf(stderr,"Consider guide[%d out of %d] %s in_bundle=%d\n",g,guides.Count(),guides[g]->getID(),getGuideStatus(guides[g]));
+		//fprintf(stderr,"Consider guide[%d out of %d] %s in_bundle=%d\n",g,guides.Count(),guides[g]->getID(),getGuideStatus(guides[g]));
 		//if((guides[g]->strand==strand || guides[g]->strand=='.') && ((RC_TData*)(guides[g]->uptr))->in_bundle>=2 && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
 		if((guides[g]->strand==strand || guides[g]->strand=='.') && 
 		      getGuideStatus(guides[g])>=GBST_ALL_INTR_COV && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
@@ -12699,7 +12699,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 					guidetrf.Add(newguide);
 				//}
 
-
+				/*
 				{ // DEBUG ONLY
 					if(trguide) {
 						fprintf(stderr,"Added guidetrf %d (%d) with ID=%s overlapping transcript interval %d - %d with nodes:",g,guidetrf.Count()-1,guides[g]->getID(),no2gnode[1]->start,no2gnode[gno-2]->end);
@@ -12710,7 +12710,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 						//fprintf(stderr,"\n");
 					}
 				}
-
+				*/
 
 			}
 		}
@@ -16106,7 +16106,7 @@ int build_graphs(BundleData* bdata) {
     				// include source to guide starts links
     				GVec<CGuide> guidetrf;
 
-
+    				/*
     				{ // DEBUG ONLY
     					fprintf(stderr,"process refguides for s=%d b=%d edgeno=%d gno=%d lastgpos=%d guidescount=%d\n",s,b,edgeno[s][b],graphno[s][b],lastgpos[s][b],guides.Count());
     					fprintf(stderr,"There are %d nodes and %d transfrags for graph[%d][%d]:\n",graphno[s][b],transfrag[s][b].Count(),s,b);
@@ -16119,7 +16119,7 @@ int build_graphs(BundleData* bdata) {
     						fprintf(stderr,"\n");
     					}
     				}
-
+    				*/
 
     				if(guides.Count()) process_refguides(graphno[s][b],edgeno[s][b],gpos[s][b],lastgpos[s][b],no2gnode[s][b],transfrag[s][b],s,guidetrf,bdata);
 
@@ -19939,7 +19939,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	// print transcripts including the necessary isoform fraction cleanings
 	GList<CPrediction>& pred = bundleData->pred;
 
-
+	/*
 	{ // DEBUG ONLY
 		fprintf(stderr,"Pred set before sorting:\n");
 		for(int i=0;i<pred.Count();i++) {
@@ -19962,7 +19962,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		}
 		fprintf(stderr,"\n");
 	}
-
+	*/
 
 	int npred=pred.Count();
 
