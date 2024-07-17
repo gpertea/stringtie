@@ -20270,12 +20270,13 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			if(pred[n] && pred[n]->t_eq) { // this is a guided prediction
 
+				/*
 				//if(mixedMode && pred[n]->cov<DROP) { // need to be more strict with mixed data since we introduced the guides by default
-				if(mixedMode && pred[n]->cov<ERROR_PERC) { // need to be more strict with mixed data since we introduced the guides by default
+				//if(mixedMode && pred[n]->cov<ERROR_PERC) { // need to be more strict with mixed data since we introduced the guides by default
 					pred[n]->flag=false;
 					//if(pred[n]->linkpred) pred[n]->linkpred->flag=false;
 					continue;
-				}
+				}*/
 
 				//fprintf(stderr,"pred[%d]: start=%d end=%d ID=%s strand=%c refstrand=%c refstart=%d\n",n,pred[n]->start,pred[n]->end,pred[n]->t_eq->getID(),pred[n]->strand,pred[n]->t_eq->strand,pred[n]->t_eq->start);
 
