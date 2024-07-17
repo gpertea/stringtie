@@ -9717,7 +9717,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 		if(t<0) GError("Stored long transcript is negative!\n");
 
 		if(isnascent && guides.Count()) { // no need to go through two steps if guides are not present
-			fprintf(stderr,"\ttrflong[%d]=%d\n",f,t);
+			//fprintf(stderr,"\ttrflong[%d]=%d\n",f,t);
 			if(nasc && transfrag[t]->guide && !isNascent(guides[int(transfrag[t]->guide-1)])) continue; // skip guides in this nasc step
 			if(!nasc && (!transfrag[t]->guide || isNascent(guides[int(transfrag[t]->guide-1)]))) continue; // skip non-guides and nascents in non nasc step
 		}
