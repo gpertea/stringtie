@@ -4574,9 +4574,11 @@ bool eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag
 
 	//fprintf(stderr,"eliminate from %d transfrags\n",transfrag.Count());
 
-	for(int t=transfrag.Count()-1;t>=0;t--)
+	for(int t=transfrag.Count()-1;t>=0;t--) {
+		//if(transfrag[t]->guide) fprintf(stderr,"consider transfrag[%d] longread=%d\n",t,transfrag[t]->longread);
 		//if(transfrag[t]->srabund || (mixedMode && (transfrag[t]->longread || !transfrag[t]->nodes[0] || transfrag[t]->nodes.Last()==gno-1))) { // this is a super-read
-			if(transfrag[t]->srabund || (mixedMode && transfrag[t]->longread)) { // this is a super-read
+		if(transfrag[t]->srabund || (mixedMode && transfrag[t]->longread)) { // this is a super-read
+			//fprintf(stderr,"Added transfrag[%d] to srfrag[%d]\n",t,srfrag.Count());
 			srfrag.Add(transfrag[t]);
 			if(mixedMode) {
 				if(transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()!=gno-1) // proper longread transfrag
@@ -4589,7 +4591,7 @@ bool eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag
 			transfrag.Exchange(t,transfrag.Count()-1);
 			transfrag.Delete(transfrag.Count()-1);
 		}
-
+	}
 	while(transfrag.Count()>max_trf_number) {
 		threshold++;
 		for(int t=transfrag.Count()-1;t>=0;t--)
@@ -5154,7 +5156,8 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 		}
 
 		if(!longreads) {
-			if(includesource) {
+			t->longread=true;
+			/*if(includesource) {
 				guidetrf[i].trf->nodes.Insert(0,0); // I need to comment this if I need path not to include the source
 				guidetrf[i].trf->pattern[0]=1;
 				int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
@@ -5164,7 +5167,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			guidetrf[i].trf->nodes.Add(sink);
 			guidetrf[i].trf->pattern[sink]=1;
 			int *pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
-			if(pos) guidetrf[i].trf->pattern[*pos]=1;
+			if(pos) guidetrf[i].trf->pattern[*pos]=1;*/
 		}
 
 
@@ -5176,6 +5179,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 		}
 		CTransfrag *t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund);
 		*/
+
 		/*
 		{ // DEBUG ONLY
 			fprintf(stderr,"Add guidetrf with nodes:");
@@ -9712,7 +9716,8 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 		int t=trflong[f];
 		if(t<0) GError("Stored long transcript is negative!\n");
 
-		if(isnascent) {
+		if(isnascent && guides.Count()) { // no need to go through two steps if guides are not present
+			fprintf(stderr,"\ttrflong[%d]=%d\n",f,t);
 			if(nasc && transfrag[t]->guide && !isNascent(guides[int(transfrag[t]->guide-1)])) continue; // skip guides in this nasc step
 			if(!nasc && (!transfrag[t]->guide || isNascent(guides[int(transfrag[t]->guide-1)]))) continue; // skip non-guides and nascents in non nasc step
 		}
@@ -9895,6 +9900,19 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 		GList<CPrediction>& pred,GVec<int>& trflong,GVec<float>& nodecovall,GBitVec& istranscript,GBitVec& prevpath,BundleData *bdata,bool &first) {
 
 	GPVec<GffObj>& guides = bdata->keepguides;
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Guides in bundle:\n");
+		for(int t=0;t<transfrag.Count();t++) {
+			if(transfrag[t]->guide) {
+				GffObj *g=guides[int(transfrag[t]->guide-1)];
+				fprintf(stderr,"...%s t=%d abund=%.f\n",g->getID(),t,transfrag[t]->abundance);
+			}
+		}
+	}
+	*/
+
 	GVec<float> nodecov; // the coverage of all transfrags entering a node
 	GVec<float> noderate;
 	for(int i=0;i<gno;i++) {
@@ -9930,7 +9948,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 	GVec<int> checktrf;
 
 	parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,false);
-	if(!eonly && isnascent) parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,true);
+	if(!eonly && isnascent && guides.Count()) parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,true);
 
 	/*
 	for(int f=trflong.Count()-1;f>=0;f--) { // if this is a guide it should be reflected in the prediction downstream
@@ -19909,7 +19927,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	// print transcripts including the necessary isoform fraction cleanings
 	GList<CPrediction>& pred = bundleData->pred;
 
-
+	/*
 	{ // DEBUG ONLY
 		fprintf(stderr,"Pred set before sorting:\n");
 		for(int i=0;i<pred.Count();i++) {
@@ -19932,7 +19950,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		}
 		fprintf(stderr,"\n");
 	}
-
+	*/
 
 	int npred=pred.Count();
 
@@ -20894,7 +20912,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	}
 	//}
 
-
+	/*
     { // DEBUG ONLY
     	fprintf(stderr,"Before predcluster: predcount=%d\n",pred.Count());
 		//for(int i=0;i<npred;i++) {
@@ -20922,7 +20940,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
     	}
 		fprintf(stderr,"\n");
     }
-
+	*/
 
 	if(npred) geneno=print_predcluster(pred,geneno,refname,refgene,hashgene,predgene,bundleData,incomplete);
 
