@@ -9867,13 +9867,13 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 								setGuideStatus(g, GBST_STORED);
 								//fprintf(stderr,"sg guide %s is stored\n",g->getID());
 								// adjust start/end
-								if(startpoint < g->start && g->start <= exons[0].end) {
-									len-=(int)g->start-(int)startpoint;
+								if(startpoint != g->start && g->start <= exons[0].end) {
+									len-=abs((int)g->start-(int)startpoint);
 									startpoint=g->start;
 									exons[0].start=startpoint;
 								}
-								if(endpoint > g->end && g->end >= exons.Last().start) {
-									len-=(int)endpoint-(int)g->end;
+								if(endpoint != g->end && g->end >= exons.Last().start) {
+									len-=abs((int)endpoint-(int)g->end);
 									endpoint=g->end;
 									exons.Last().end=endpoint;
 								}
@@ -10267,7 +10267,16 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 							 if (g) {
 								setGuideStatus(g, GBST_STORED);	 
 								//fprintf(stderr,"sg guide %s is stored\n",g->getID());
-
+								if(startpoint != g->start && g->start <= exons[0].end) {
+									len-=abs((int)g->start-(int)startpoint);
+									startpoint=g->start;
+									exons[0].start=startpoint;
+								}
+								if(endpoint != g->end && g->end >= exons.Last().start) {
+									len-=abs((int)endpoint-(int)g->end);
+									endpoint=g->end;
+									exons.Last().end=endpoint;
+								}
 							 }
 						 }
 						 //fprintf(stderr,"2 Store prediction %d:%d-%d  with len=%d and abundance=%f startpoint=%d endpoint=%d\n",pred.Count(),exons[0].start ,exons.Last().end,len,cov/len,startpoint,endpoint);
