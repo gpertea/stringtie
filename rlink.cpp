@@ -5113,7 +5113,7 @@ int compatible_long(int* t,int *len,GPVec<CTransfrag>& transfrag,GPVec<CGraphnod
 void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,CTreePat *tr2no,
 		GIntHash<int> &gpos,GVec<CGuide>& guidetrf,GList<CPrediction>& pred,GVec<int>& trflong,BundleData* bdata,GVec<float>& abundleft,GVec<float>& abundright) {
 
-	/*
+
 	{ // DEBUG ONLY
 		printTime(stderr);
 		fprintf(stderr,"There are %d transfrags before clean up:\n",transfrag.Count());
@@ -5123,7 +5123,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			fprintf(stderr,"\n");
 		}
 	}
-	*/
+
 
 	// add all guide patterns to the set of transfrags so that I can have a "backbone" for each guide
 	// I need this because there might be an incompatible transfrag connecting the nodes in the guide
@@ -5237,7 +5237,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 		srfrag.Clear();
 	}
 
-	/*
+
 	{ // DEBUG ONLY
 		//printTime(stderr);
 		fprintf(stderr,"\nThere are %d transfrags after clean up:\n",transfrag.Count());
@@ -5247,7 +5247,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			fprintf(stderr,"\n");
 		}
 	}
-	*/
+
 
 	GBitVec allpat(gno+edgeno);
 
@@ -9866,6 +9866,17 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 							if (g) {
 								setGuideStatus(g, GBST_STORED);
 								//fprintf(stderr,"sg guide %s is stored\n",g->getID());
+								// adjust start/end
+								if(startpoint < g->start && g->start <= exons[0].end) {
+									len-=(int)g->start-(int)startpoint;
+									startpoint=g->start;
+									exons[0].start=startpoint;
+								}
+								if(endpoint > g->end && g->end >= exons.Last().start) {
+									len-=(int)endpoint-(int)g->end;
+									endpoint=g->end;
+									exons.Last().end=endpoint;
+								}
 							}
 						}
 
@@ -10256,6 +10267,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 							 if (g) {
 								setGuideStatus(g, GBST_STORED);	 
 								//fprintf(stderr,"sg guide %s is stored\n",g->getID());
+
 							 }
 						 }
 						 //fprintf(stderr,"2 Store prediction %d:%d-%d  with len=%d and abundance=%f startpoint=%d endpoint=%d\n",pred.Count(),exons[0].start ,exons.Last().end,len,cov/len,startpoint,endpoint);
@@ -12664,7 +12676,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 
 	// find guides' patterns
 	for(int g=0;g<guides.Count();g++) {
-		//fprintf(stderr,"Consider guide[%d out of %d] %s in_bundle=%d\n",g,guides.Count(),guides[g]->getID(),getGuideStatus(guides[g]));
+		fprintf(stderr,"Consider guide[%d out of %d] %s in_bundle=%d\n",g,guides.Count(),guides[g]->getID(),getGuideStatus(guides[g]));
 		//if((guides[g]->strand==strand || guides[g]->strand=='.') && ((RC_TData*)(guides[g]->uptr))->in_bundle>=2 && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
 		if((guides[g]->strand==strand || guides[g]->strand=='.') && 
 		      getGuideStatus(guides[g])>=GBST_ALL_INTR_COV && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
@@ -12687,7 +12699,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 					guidetrf.Add(newguide);
 				//}
 
-				/*
+
 				{ // DEBUG ONLY
 					if(trguide) {
 						fprintf(stderr,"Added guidetrf %d (%d) with ID=%s overlapping transcript interval %d - %d with nodes:",g,guidetrf.Count()-1,guides[g]->getID(),no2gnode[1]->start,no2gnode[gno-2]->end);
@@ -12698,7 +12710,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 						//fprintf(stderr,"\n");
 					}
 				}
-				*/
+
 
 			}
 		}
@@ -16094,10 +16106,10 @@ int build_graphs(BundleData* bdata) {
     				// include source to guide starts links
     				GVec<CGuide> guidetrf;
 
-    				/*
+
     				{ // DEBUG ONLY
     					fprintf(stderr,"process refguides for s=%d b=%d edgeno=%d gno=%d lastgpos=%d guidescount=%d\n",s,b,edgeno[s][b],graphno[s][b],lastgpos[s][b],guides.Count());
-    					fprintf(stderr,"There are %d nodes for graph[%d][%d]:\n",graphno[s][b],s,b);
+    					fprintf(stderr,"There are %d nodes and %d transfrags for graph[%d][%d]:\n",graphno[s][b],transfrag[s][b].Count(),s,b);
     					for(int i=0;i<graphno[s][b];i++) {
     						fprintf(stderr,"%d (%d-%d): %f len=%d cov=%f",i,no2gnode[s][b][i]->start,no2gnode[s][b][i]->end,no2gnode[s][b][i]->cov,no2gnode[s][b][i]->len(),no2gnode[s][b][i]->cov/no2gnode[s][b][i]->len());
     						fprintf(stderr," parents:");
@@ -16107,7 +16119,7 @@ int build_graphs(BundleData* bdata) {
     						fprintf(stderr,"\n");
     					}
     				}
-    				*/
+
 
     				if(guides.Count()) process_refguides(graphno[s][b],edgeno[s][b],gpos[s][b],lastgpos[s][b],no2gnode[s][b],transfrag[s][b],s,guidetrf,bdata);
 
@@ -19927,7 +19939,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	// print transcripts including the necessary isoform fraction cleanings
 	GList<CPrediction>& pred = bundleData->pred;
 
-	/*
+
 	{ // DEBUG ONLY
 		fprintf(stderr,"Pred set before sorting:\n");
 		for(int i=0;i<pred.Count();i++) {
@@ -19950,7 +19962,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		}
 		fprintf(stderr,"\n");
 	}
-	*/
+
 
 	int npred=pred.Count();
 
@@ -20258,11 +20270,12 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			if(pred[n] && pred[n]->t_eq) { // this is a guided prediction
 
-				/*if(mixedMode && pred[n]->cov<DROP) { // need to be more strict with mixed data since we introduced the guides by default
+				//if(mixedMode && pred[n]->cov<DROP) { // need to be more strict with mixed data since we introduced the guides by default
+				if(mixedMode && pred[n]->cov<ERROR_PERC) { // need to be more strict with mixed data since we introduced the guides by default
 					pred[n]->flag=false;
 					//if(pred[n]->linkpred) pred[n]->linkpred->flag=false;
 					continue;
-				}*/
+				}
 
 				//fprintf(stderr,"pred[%d]: start=%d end=%d ID=%s strand=%c refstrand=%c refstart=%d\n",n,pred[n]->start,pred[n]->end,pred[n]->t_eq->getID(),pred[n]->strand,pred[n]->t_eq->strand,pred[n]->t_eq->start);
 
