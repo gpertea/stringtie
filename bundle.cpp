@@ -33,7 +33,12 @@ byte isNascent(GffObj* guide) {
       return (v>>2);
 }
 
-
+/* inline GffObj* nascentFrom(GffObj* ntx) {
+    if (ntx && ntx->uptr) {
+        return ((RC_TData*)(ntx->uptr))->gen_from;
+    }
+    return NULL;
+}*/
 
 // genNascent is included from rlink.h
 void BundleData::keepGuide(GffObj* guide, Ref_RC_Data& ref_rc) {
@@ -45,13 +50,14 @@ void BundleData::keepGuide(GffObj* guide, Ref_RC_Data& ref_rc) {
   if (isNascent(guide)) {
     // add it to corresponding refdata.synrnas
     RC_TData* tdata=new RC_TData(*guide, ref_rc.rc_tdata->Count());
+    // for nascents, uptr was used to store the gen_from guide
+    tdata->gen_from=(GffObj*)(guide->uptr);
 	  guide->uptr=tdata;
 	  ref_rc.rc_tdata->Add(tdata);
     ref_rc.refdata->synrnas.Add(guide);
   }
 	guide->udata=(int)rc_data->addTranscript(*guide); //this also adds exon/intron info
 }
-
 
 //generate all nascent transcripts for a guide
 //keep nascents in 2 lists: tnlist for multi-exon, setnlist for single-exon
@@ -128,6 +134,7 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist, GPVec<GffObj>& guides) 
           // insert it in the right location in the list
           tnlist.sortInsert(ridx, nt);
           GStr nid(guide.getID());
+          nt->uptr = &guide; // store the parent guide temporarily - replace with RC_TData later
           nid.appendfmt(".nasc%03d", i);
           nt->setGeneID(guide.getGeneID());
           nt->setGeneName(guide.getGeneName());
@@ -136,8 +143,6 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist, GPVec<GffObj>& guides) 
         } else 
            delete nt; //discard this nascent transcript (matching guide/other nascent found)
     } //for i 
-    //DEBUG only: keeping track of the number of nascent transcripts generated vs redundant
-    //if (nxr>0)  GMessage("   %d redundant nascents discarded\n", nxr);
 }
 
 void BundleData::generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc) {

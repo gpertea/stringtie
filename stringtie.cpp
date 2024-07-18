@@ -103,7 +103,6 @@ the following options are available:\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
 "
 /*
- --isnascent prints nascent transcripts to stderr
  -C output a file with reference transcripts that are covered by reads\n\
  -U unitigs are treated as reads and not as guides \n\ \\ not used now
  -d disable adaptive read coverage mode (default: yes)\n\
@@ -1457,8 +1456,8 @@ void processBundle(BundleData* bundle) {
 		  GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count());
-
-		//bundle->printBundleGuides(); //debug only
+	// DEBUG only
+	if (genNascent) bundle->printBundleGuides(); 
 	#ifdef GMEMTRACE
 			double vm,rsm;
 			get_mem_usage(vm, rsm);

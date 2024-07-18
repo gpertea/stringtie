@@ -14,6 +14,15 @@ byte isNascent(GffObj* t); // check if a transcript is a synthetic nascent RNA
 
 // set/getBundleFlag - should set/get  (RC_TData*)(keepguides[i]->uptr)->in_bundle
 //        1 = default, 2 = every intron covered by a read, 3 = stored to be printed
+
+//GffObj* nascentFrom(GffObj* ntx); // get the guide transcript that a nascent transcript was generated from
+inline GffObj* nascentFrom(GffObj* ntx) {
+    if (ntx && ntx->uptr) {
+        return ((RC_TData*)(ntx->uptr))->gen_from;
+    }
+    return NULL;
+}
+
 enum GuideBundleStatus {
   GBST_UNSET = 0,
   GBST_IN_BUNDLE,    // 1: added to bundle
@@ -365,7 +374,7 @@ struct BundleData {
  */
  void keepGuide(GffObj* scaff, Ref_RC_Data& ref_rc_data);
  void generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc); //defined in tablemaker.cpp
-//#ifdef GDEBUG
+ // use this for debug only
  void printBundleGuides() {
 	 GStr fname("bundle");
 	 fname.appendfmt("_%d_guides.bed",idx);
@@ -375,13 +384,15 @@ struct BundleData {
 	 FILE* fn=fopen(fnasc.chars(),"w");
 	 for(int i=0;i<keepguides.Count();i++) {
 		 GffObj* g=keepguides[i];
-		 if (isNascent(g)) g->printBED(fn);
-		              else g->printBED(f);
+		 if (isNascent(g)) {
+			g->addAttr("gen_from", nascentFrom(g)->getID());
+			g->printBED(fn);
+		 } else g->printBED(f);
 	 }
 	 fclose(f);
 	 fclose(fn);
  }
-//#endif
+
 
  bool evalReadAln(GReadAlnData& alndata, char& strand);
 

@@ -165,6 +165,7 @@ struct RC_TData { //storing RC data for a transcript
 	int eff_len;
 	double cov;
 	double fpkm;
+	GffObj* gen_from; // <-- for nascents, the guide transcript that generated this
 	//char strand;
     GPVec<RC_Feature> t_exons;
     GPVec<RC_Feature> t_introns;
@@ -174,7 +175,7 @@ struct RC_TData { //storing RC data for a transcript
 			          GList<RC_Feature>& fset, GPVec<RC_Feature>& fdata,
 					  int& cache_idx);
 	RC_TData(GffObj& s, uint id=0):ref_t(&s), t_id(id), l(s.start), r(s.end), //in_bundle(0), 
-	        eff_len(s.covlen), cov(0), fpkm(0), //strand(s.strand),
+	        eff_len(s.covlen), cov(0), fpkm(0), gen_from(NULL), //strand(s.strand),
 			t_exons(false), t_introns(false) { //, e_idx_cache(-1), i_idx_cache(-1) {
 	}
     
