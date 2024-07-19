@@ -5150,14 +5150,15 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 				t->longread=true;
 			}
 			else add=false;
+
 		}
 		else {
 			t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC);
 		}
 
 		if(!longreads) {
-			t->longread=true;
-			/*if(includesource) {
+			t->longread=true; // maybe do this only for mixedMode?
+			if(includesource) {
 				guidetrf[i].trf->nodes.Insert(0,0); // I need to comment this if I need path not to include the source
 				guidetrf[i].trf->pattern[0]=1;
 				int *pos=gpos[edge(0,guidetrf[i].trf->nodes[1],gno)];
@@ -5167,7 +5168,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			guidetrf[i].trf->nodes.Add(sink);
 			guidetrf[i].trf->pattern[sink]=1;
 			int *pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
-			if(pos) guidetrf[i].trf->pattern[*pos]=1;*/
+			if(pos) guidetrf[i].trf->pattern[*pos]=1;
 		}
 
 
@@ -8120,6 +8121,16 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 					}
 					capacity[n1][n2]+=transfrag[t]->abundance;
 					//fprintf(stderr,"capacity[%d][%d]=%f after adding transfrag[%d]->abundance=%f\n",n1,n2,capacity[n1][n2],t,transfrag[t]->abundance);
+
+					// add these to allow flow from source and to sink for all guides
+					if(transfrag[t]->guide) {
+						int j=1; int k=0; if(!capacity[0][1]) { link[k].Add(j);link[j].Add(k);}
+						j=n-1; k=n-2; if(!capacity[n-2][n-1]) { link[k].Add(j);link[j].Add(k);}
+						capacity[0][1]+=transfrag[t]->abundance;
+						capacity[n-2][n-1]+=transfrag[t]->abundance;
+						max_fl+=transfrag[t]->abundance;
+					}
+
 				}
 			}
 			if(i>1 && i<n-2) if(transfrag[t]->longread){ // rate needs to stay 1 for nodes next to source and sink
@@ -8133,9 +8144,14 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 	}
 
 	/*
-	fprintf(stderr,"Used transcripts:");
-	for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d(%f)",i,transfrag[i]->abundance);
-	fprintf(stderr,"\n");
+	{ //DEBUG ONLY
+		fprintf(stderr,"Used transcripts:");
+		for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d(%f)",i,transfrag[i]->abundance);
+		fprintf(stderr,"\n");
+		for(int i=0;i<n-1;i++) for(int j=i+1;j<n;j++)
+			fprintf(stderr," capacity[%d][%d]=%f",path[i],path[j],capacity[i][j]);
+		fprintf(stderr,"\n");
+	}
 	*/
 
 	for(int i=0;i<n;i++) link[i].Sort();
@@ -9722,6 +9738,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 			if(!nasc && (!transfrag[t]->guide || isNascent(guides[int(transfrag[t]->guide-1)]))) continue; // skip non-guides and nascents in non nasc step
 		}
 
+		//if(transfrag[t]->guide) fprintf(stderr,"nasc=%d evaluate guide:%s\n",nasc,guides[int(transfrag[t]->guide-1)]->getID());
 
 		path.Clear();
 		pathpat=transfrag[t]->pattern;
@@ -9770,16 +9787,16 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 				flux=long_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat);
 
 				/*
-					 { // DEBUG ONLY
-						 //printTime(stderr);
-						 fprintf(stderr,"flux=%g Path:",flux);
-						 for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
-						 fprintf(stderr,"\n");
-						 fprintf(stderr,"Nodecapacities:");
-						 for(int i=0;i<path.Count();i++) fprintf(stderr," %f",nodeflux[i]);
-						 fprintf(stderr,"***\n");
-					 }
-				 */
+				{ // DEBUG ONLY
+					//printTime(stderr);
+					fprintf(stderr,"flux=%g Path:",flux);
+					for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
+					fprintf(stderr,"\n");
+					fprintf(stderr,"Nodecapacities:");
+					for(int i=0;i<path.Count();i++) fprintf(stderr," %f",nodeflux[i]);
+					fprintf(stderr,"***\n");
+				}
+				*/
 
 				if(flux) { // these are not valid paths in the graph
 
@@ -9865,7 +9882,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 							//	 td.in_bundle=3;
 							if (g) {
 								setGuideStatus(g, GBST_STORED);
-								//fprintf(stderr,"sg guide %s is stored\n",g->getID());
+								//fprintf(stderr,"1 sg guide %s is stored\n",g->getID());
 								if(startpoint != g->start && g->start <= exons[0].end) {
 									len+=(int)startpoint-(int)g->start;
 									startpoint=g->start;
@@ -9913,11 +9930,24 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 
 	/*
 	{ // DEBUG ONLY
+		fprintf(stderr,"Transfrags in bundle:\n");
+		for(int t=0;t<transfrag.Count();t++) {
+			if(transfrag[t]->guide) {
+				GffObj *g=guides[int(transfrag[t]->guide-1)];
+				fprintf(stderr,"%s ",g->getID());
+			}
+			fprintf(stderr,"t=%d abund=%f",t,transfrag[t]->abundance);
+			for(int i=0;i<transfrag[t]->nodes.Count();i++) {
+				fprintf(stderr," %d",transfrag[t]->nodes[i]);
+			}
+			fprintf(stderr,"\n");
+		}
+		// part 2
 		fprintf(stderr,"Guides in bundle:\n");
 		for(int t=0;t<transfrag.Count();t++) {
 			if(transfrag[t]->guide) {
 				GffObj *g=guides[int(transfrag[t]->guide-1)];
-				fprintf(stderr,"...%s t=%d abund=%.f\n",g->getID(),t,transfrag[t]->abundance);
+				fprintf(stderr,"...%s t=%d abund=%f\n",g->getID(),t,transfrag[t]->abundance);
 			}
 		}
 	}
@@ -10265,7 +10295,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 							 //	 td.in_bundle=3; 
 							 if (g) {
 								setGuideStatus(g, GBST_STORED);	 
-								//fprintf(stderr,"sg guide %s is stored\n",g->getID());
+								//fprintf(stderr,"2 sg guide %s is stored\n",g->getID());
 								if(startpoint != g->start && g->start <= exons[0].end) {
 									len+=(int)startpoint-(int)g->start;
 									startpoint=g->start;
@@ -13211,6 +13241,8 @@ void guides_pushmaxflow_onestep(int gno,GIntHash<int>& gpos,GPVec<CGraphnode>& n
 			//float fragno=0;
 			bool full=true;
 
+			fprintf(stderr,"push flow for guide=%s\n",guides[guidetrf[0].g]->getID());
+
 			float flux= push_max_flow(gno,guidetrf[0].trf->nodes,istranscript,transfrag,no2gnode,nodeflux,guidetrf[0].trf->pattern,gpos,full);
 			istranscript.reset();
 
@@ -14647,29 +14679,53 @@ int build_graphs(BundleData* bdata) {
 		//if(eonly)
 		for(int g=0;g<guides.Count();g++) {
 
-			//fprintf(stderr,"Look to add guide g=%d start %d-%d and end %d-%d\n",g,guides[g]->start,guides[g]->exons[0]->end,guides[g]->end,guides[g]->exons.Last()->start);
+			//fprintf(stderr,"Look to add guide g=%d (%s) start %d-%d and end %d-%d\n",g,guides[g]->getID(),guides[g]->start,guides[g]->exons[0]->end,guides[g]->end,guides[g]->exons.Last()->start);
 
 			guidepred.cAdd(-1);
 			bool covered=true;
-			RC_TData* tdata=(RC_TData*)(guides[g]->uptr);
-			if(longreads || mixedMode) {
-				for(int i=1;i<guides[g]->exons.Count();i++) {
-					char s=0; // unknown strand
-					if(guides[g]->strand=='+') s=1; // guide on positive strand
-					else if(guides[g]->strand=='-') s=-1; // guide on negative strand
-					CJunction jn(guides[g]->exons[i-1]->end,guides[g]->exons[i]->start,s);
-					int oidx=-1;
-					if (!junction.Found(&jn, oidx)) {
-						covered=false;
-						break;
+
+			// if nascent and the portion covered by the last portion is 0 -> set nascent to not covered ? how do I know what guide it comes from?
+			if(isNascent(guides[g])) { // make sure intronic part of guide is covered, otherwise do not use
+				GffObj *refg=nascentFrom(guides[g]);
+				if(guides[g]->strand=='+') { // forward nascent
+					int i=1;
+					while(i<refg->exons.Count() && refg->exons[i]->start<guides[g]->end) {
+						i++;
 					}
+					if(!i || i>=refg->exons.Count()) GError("Nascent %s and guide %s are not compatible!\n",guides[g]->getID(),refg->getID());
+					if(!get_cov(1,refg->exons[i-1]->end+1-refstart,refg->exons[i]->start-1-refstart,bpcov)) covered=false;
+				}
+				else { // reverse strand
+					int i=0;
+					while(i<refg->exons.Count() && refg->exons[i]->end<guides[g]->start) {
+						i++;
+					}
+					if(!i || i>=refg->exons.Count()) GError("Nascent %s and guide %s are not compatible!\n",guides[g]->getID(),refg->getID());
+					if(!get_cov(1,refg->exons[i-1]->end+1-refstart,refg->exons[i]->start-1-refstart,bpcov)) covered=false;
 				}
 			}
-			else { //use RC_TData::t_introns[]->rcount to determine if all introns are covered
-				for(int i=0;i<tdata->t_introns.Count();i++) {
-					if(!tdata->t_introns[i]->rcount) {
-						covered=false;
-						break;
+
+			if(covered) {
+				RC_TData* tdata=(RC_TData*)(guides[g]->uptr);
+				if(longreads || mixedMode) {
+					for(int i=1;i<guides[g]->exons.Count();i++) {
+						char s=0; // unknown strand
+						if(guides[g]->strand=='+') s=1; // guide on positive strand
+						else if(guides[g]->strand=='-') s=-1; // guide on negative strand
+						CJunction jn(guides[g]->exons[i-1]->end,guides[g]->exons[i]->start,s);
+						int oidx=-1;
+						if (!junction.Found(&jn, oidx)) {
+							covered=false;
+							break;
+						}
+					}
+				}
+				else { //use RC_TData::t_introns[]->rcount to determine if all introns are covered
+					for(int i=0;i<tdata->t_introns.Count();i++) {
+						if(!tdata->t_introns[i]->rcount) {
+							covered=false;
+							break;
+						}
 					}
 				}
 			}
