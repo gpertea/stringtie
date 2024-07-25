@@ -9975,9 +9975,23 @@ bool mark_if_nascent(GList<CPrediction>& pred,int n,int p) { // check if p is na
 
 void find_nascent_link(GList<CPrediction>& pred,int npred,int p) {
 	if(pred[p]->t_eq) return; // this is a guide -> I do not need to identify transcripts (it's already taken care of)
+
+
 	int nex=pred[p]->exons.Count();
-	for(int n=npred;n<pred.Count();n++) if(!pred[n]->t_eq && n!=p){ // only do this for novel transcripts
+	for(int n=npred;n<pred.Count();n++) if(!pred[n]->t_eq && n!=p && pred[n]->mergename!='n'){ // only do this for novel transcripts and predictions that are not already nascents of others
 		if(pred[n]->cov>pred[p]->cov && pred[n]->exons.Count()>nex && (pred[n]->strand==pred[p]->strand || pred[p]->strand=='.') && mark_if_nascent(pred,n,p)) {
+
+			/*
+			{ // DEBUG ONLY
+				fprintf(stderr,"Add nascent pred[%d]:",p);
+				for(int i=0;i<pred[p]->exons.Count();i++) fprintf(stderr,"%d-%d ",pred[p]->exons[i].start,pred[p]->exons[i].end);
+				fprintf(stderr,"\n");
+				fprintf(stderr,"...to pred[%d]",n);
+				for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr,"%d-%d ",pred[n]->exons[i].start,pred[n]->exons[i].end);
+				fprintf(stderr,"\n");
+			}
+			*/
+
 			pred[p]->mergename="n"; // this prediction might have nascents of its own
 			CPrediction *pn=pred[n];
 			CPrediction *pp=pred[p];
@@ -10016,6 +10030,19 @@ void find_nascent_link(GList<CPrediction>& pred,int npred,int p) {
 			if(pp) pn->linkpred=pp;
 			//while(pn->linkpred) pn=pn->linkpred;
 			//pn->linkpred=pred[p];
+
+			/*
+			{ // DEBUG ONLY
+				fprintf(stderr,"...nascents of pred[%d]:",n);
+				CPrediction *p=pred[n]->linkpred;
+				while(p) {
+					fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->flag);
+					p=p->linkpred;
+				}
+				fprintf(stderr,"\n");
+			}
+			*/
+
 			break;
 		}
 	}
@@ -21142,7 +21169,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
     	}
 		fprintf(stderr,"\n");
     }
-	*/
+    */
 
 	if(npred) geneno=print_predcluster(pred,geneno,refname,refgene,hashgene,predgene,bundleData,incomplete);
 
