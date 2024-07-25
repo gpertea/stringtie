@@ -10011,6 +10011,11 @@ void find_nascent_link(GList<CPrediction>& pred,int npred,int p) {
 			}
 			
 			while(pn->linkpred) {
+
+				// update start/end of nascent
+				if(pred[n]->strand=='+') pp->start=pred[n]->start;
+				else pp->end=pred[n]->end;
+
 				if(pp->start<pn->linkpred->start || pp->end<pn->linkpred->end) { // pp comes before this nascent
 					CPrediction *pr=pn->linkpred;
 					pn->linkpred=pp;
@@ -10028,8 +10033,12 @@ void find_nascent_link(GList<CPrediction>& pred,int npred,int p) {
 				pn=pn->linkpred;
 			}
 			if(pp) pn->linkpred=pp;
-			//while(pn->linkpred) pn=pn->linkpred;
-			//pn->linkpred=pred[p];
+			while(pp) {
+				if(pred[n]->strand=='+') pp->start=pred[n]->start;
+				else pp->end=pred[n]->end;
+				pp=pp->linkpred;
+			}
+
 
 			/*
 			{ // DEBUG ONLY
