@@ -9940,10 +9940,14 @@ bool mark_if_nascent(GList<CPrediction>& pred,int n,int p) { // check if p is na
 		if(pred[p]->end<pred[n]->exons[i-1].end) return false; // if potential nascent doesn't cross within the next intron
 
 		// all introns match -> update prediction's exons
-		pred[p]->start=pred[n]->start;
 		pred[p]->end=pred[n]->exons[i].start-1;
-		pred[p]->exons[0].start=pred[p]->start;
 		pred[p]->exons.Last().end=pred[p]->end;
+		CPrediction *nasc=pred[p];
+		while(nasc) {
+			nasc->start=pred[n]->start;
+			nasc->exons[0].start=nasc->start;
+			nasc=nasc->linkpred;
+		}
 		return true;
 	}
 	else if(pred[n]->strand=='-') { // negative known strand
@@ -9963,9 +9967,14 @@ bool mark_if_nascent(GList<CPrediction>& pred,int n,int p) { // check if p is na
 
 		// all introns match -> update prediction's exons
 		pred[p]->start=pred[n]->exons[ni-1].end+1;
-		pred[p]->end=pred[n]->end;
 		pred[p]->exons[0].start=pred[p]->start;
-		pred[p]->exons.Last().end=pred[p]->end;
+
+		CPrediction *nasc=pred[p];
+		while(nasc) {
+			nasc->end=pred[n]->end;
+			nasc->exons.Last().end=nasc->end;
+			nasc=nasc->linkpred;
+		}
 		return true;
 
 	}
@@ -10012,10 +10021,6 @@ void find_nascent_link(GList<CPrediction>& pred,int npred,int p) {
 			
 			while(pn->linkpred) {
 
-				// update start/end of nascent
-				if(pred[n]->strand=='+') pp->start=pred[n]->start;
-				else pp->end=pred[n]->end;
-
 				if(pp->start<pn->linkpred->start || pp->end<pn->linkpred->end) { // pp comes before this nascent
 					CPrediction *pr=pn->linkpred;
 					pn->linkpred=pp;
@@ -10033,11 +10038,6 @@ void find_nascent_link(GList<CPrediction>& pred,int npred,int p) {
 				pn=pn->linkpred;
 			}
 			if(pp) pn->linkpred=pp;
-			while(pp) {
-				if(pred[n]->strand=='+') pp->start=pred[n]->start;
-				else pp->end=pred[n]->end;
-				pp=pp->linkpred;
-			}
 
 
 			/*
