@@ -675,7 +675,7 @@ int capCmp(const pointer p1, const pointer p2) {
 int longtrCmp(const pointer p1, const pointer p2) {
 	CTransfrag *a=(CTransfrag*)p1;
 	CTransfrag *b=(CTransfrag*)p2;
-	if(!a->guide && b->guide) return 1;
+	if(!a->guide && b->guide) return 1; // guides come first
 	if(a->guide && !b->guide) return -1;
 	if(a->abundance<b->abundance) return 1;  // most abundant transcript comes first (I want to keep the one that clearly dominates)
 	if(a->abundance>b->abundance) return -1;
@@ -8089,7 +8089,8 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 		float sumright=0;
 		for(int j=0;j<nt;j++) {
 			int t=no2gnode[path[i]]->trf[j];
-			if(transfrag[t]->longread && transfrag[t]->nodes[0]==path[i] && transfrag[t]->abundance && (istranscript[t] || ((pathpat & transfrag[t]->pattern)==transfrag[t]->pattern))) {
+			if(transfrag[t]->longread && transfrag[t]->nodes[0]==path[i] && transfrag[t]->abundance &&
+					(istranscript[t] || ((pathpat & transfrag[t]->pattern)==transfrag[t]->pattern && (transfrag[t]->nodes[0] || transfrag[t]->nodes[1]==path[1])))) {
 			//if(transfrag[t]->nodes[0]==path[i] && transfrag[t]->abundance && (istranscript[t] || ((pathpat & transfrag[t]->pattern)==transfrag[t]->pattern))) {
 				bool keeptr=true;
 				if(i==0) max_fl=transfrag[t]->abundance; // this is the flow from source on this path
@@ -9761,7 +9762,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 		GVec<float> nodeflux;
 
 		/*
-		 	 { // DEBUG ONLY
+		{ // DEBUG ONLY
 		 	 fprintf(stderr,"\n\n***Start get_trf_long_mix with maxi=%d minp=%d maxp=%d guide=%d and transcript:",maxi,minp,maxp,transfrag[t]->guide);
 		 	 for(int i=0;i<transfrag[t]->nodes.Count();i++) fprintf(stderr," %d",transfrag[t]->nodes[i]);
 		 	 fprintf(stderr," pathpat=");
@@ -9773,9 +9774,8 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 		 	 get_mem_usage(vm, rsm);
 		 	 GMessage("\t\tM(s):parse_trf memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 	#endif
-		 	 }
-		 */
-
+		}
+		*/
 
 		bool tocheck=true;
 		if(back_to_source_fast_long(maxi,path,minp,maxp,pathpat,transfrag,no2gnode,nodecov,gno,gpos)) {
@@ -9869,7 +9869,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 					//fprintf(stderr,"Store prediction %d  with abundance=%f len=%d\n",pred.Count(),cov/len,len);
 					//GffObj *g=NULL;
 
-					if(len>=mintranscriptlen) {
+					if(len>=mintranscriptlen && cov>epsilon) {
 						if(first) { geneno++; first=false;}
 						/*fprintf(stderr,"1 Store prediction %d  with abundance=%f totalabundance=%f len=%d startpoint=%d endpoint=%d and exons:",pred.Count(),cov/len,cov,len,startpoint,endpoint);
 							 for(int i=0;i<exons.Count();i++) fprintf(stderr," %d-%d",exons[i].start,exons[i].end);
@@ -9904,9 +9904,10 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 						p->tlen=-p->tlen; // negative transcript length signifies assembly is from a long read
 						pred.Add(p);
 
-						//fprintf(stderr,"Added prediction=%d with totalcov=%.1f\n",pred.Count()-1,pred.Last()->cov);
+						//fprintf(stderr,"1 Added prediction=%d with totalcov=%.1f\n",pred.Count()-1,pred.Last()->cov);
 
 						CTransfrag u(path,pathpat,cov/len);
+						//u.weak=pred.Count()-1;
 						keeptrf.Add(u);
 					}
 				}
@@ -9922,6 +9923,103 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 	}
 }
 
+bool mark_if_nascent(GList<CPrediction>& pred,int n,int p) { // check if p is nascent of n
+
+	if(pred[p]->strand!=pred[n]->strand) return false;
+	if(pred[n]->strand=='+') { // positive strand
+
+		if(pred[p]->start>pred[n]->exons[0].end) return false; // if potential nascent starts after end of first exon
+
+		int i=1;
+		while(i<pred[p]->exons.Count()) { // for all introns in nascent
+			if(pred[p]->exons[i-1].end!=pred[n]->exons[i-1].end) return false; // intron start doesn't match
+			if(pred[p]->exons[i].start!=pred[n]->exons[i].start) return false; // intron end doesn't match
+			i++;
+		}
+		// now i is at the next intron in pred[n] (but ther are no more introns in potential nascent
+		if(pred[p]->end<pred[n]->exons[i-1].end) return false; // if potential nascent doesn't cross within the next intron
+
+		// all introns match -> update prediction's exons
+		pred[p]->start=pred[n]->start;
+		pred[p]->end=pred[n]->exons[i].start-1;
+		pred[p]->exons[0].start=pred[p]->start;
+		pred[p]->exons.Last().end=pred[p]->end;
+		return true;
+	}
+	else if(pred[n]->strand=='-') { // negative known strand
+
+		if(pred[p]->end<pred[n]->exons.Last().start) return false; // if potential nascent ends before the beginning of last exon
+
+		int pi=pred[p]->exons.Count()-1;
+		int ni=pred[n]->exons.Count()-1;
+		while(pi>0) { // for all introns in nascent
+			if(pred[p]->exons[pi-1].end!=pred[n]->exons[ni-1].end) return false; // intron start doesn't match
+			if(pred[p]->exons[pi].start!=pred[n]->exons[ni].start) return false; // intron end doesn't match
+			pi--;
+			ni--;
+		}
+		// now ni is the next exon in pred[n]
+		if(pred[p]->start>pred[n]->exons[ni].start) return false; // if potential nascent doesn't cross within the next intron
+
+		// all introns match -> update prediction's exons
+		pred[p]->start=pred[n]->exons[ni-1].end+1;
+		pred[p]->end=pred[n]->end;
+		pred[p]->exons[0].start=pred[p]->start;
+		pred[p]->exons.Last().end=pred[p]->end;
+		return true;
+
+	}
+
+	return false;
+}
+
+void find_nascent_link(GList<CPrediction>& pred,int npred,int p) {
+	if(pred[p]->t_eq) return; // this is a guide -> I do not need to identify transcripts (it's already taken care of)
+	int nex=pred[p]->exons.Count();
+	for(int n=npred;n<pred.Count();n++) if(!pred[n]->t_eq && n!=p){ // only do this for novel transcripts
+		if(pred[n]->cov>pred[p]->cov && pred[n]->exons.Count()>nex && (pred[n]->strand==pred[p]->strand || pred[p]->strand=='.') && mark_if_nascent(pred,n,p)) {
+			pred[p]->mergename="n"; // this prediction might have nascents of its own
+			CPrediction *pn=pred[n];
+			CPrediction *pp=pred[p];
+			if(pp->linkpred && pp->strand=='+') { // pred[p] is a nascent --> pred[p] should come last
+
+				//fprintf(stderr,"prediction already has all these nascents:\n");
+
+				pp=pp->linkpred;
+				CPrediction *pr=pp;
+				while(pr->linkpred) {
+					//for(int i=0;i<pr->exons.Count();i++) fprintf(stderr,"%d-%d ",pr->exons[i].start,pr->exons[i].end);
+					//fprintf(stderr,"\n");
+					pr=pr->linkpred;
+				}
+				pr->linkpred=pred[p];
+				pred[p]->linkpred=NULL;
+			}
+			
+			while(pn->linkpred) {
+				if(pp->start<pn->linkpred->start || pp->end<pn->linkpred->end) { // pp comes before this nascent
+					CPrediction *pr=pn->linkpred;
+					pn->linkpred=pp;
+					pp=pp->linkpred;
+					pn->linkpred->linkpred=pr;
+					if(!pp) break;
+				}
+				else if(pp->start==pn->linkpred->start && pp->end==pn->linkpred->end) { // equal nascents
+					pn->linkpred->cov+=pp->cov;
+					for(int i=0;i<pp->exons.Count();i++)
+						pn->linkpred->exoncov[i]+=pp->exoncov[i];
+					pp=NULL;
+					break;
+				}
+				pn=pn->linkpred;
+			}
+			if(pp) pn->linkpred=pp;
+			//while(pn->linkpred) pn=pn->linkpred;
+			//pn->linkpred=pred[p];
+			break;
+		}
+	}
+}
 
 void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,int& geneno,int strand,
 		GList<CPrediction>& pred,GVec<int>& trflong,GVec<float>& nodecovall,GBitVec& istranscript,GBitVec& prevpath,BundleData *bdata,bool &first) {
@@ -10285,7 +10383,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 j++;
 					 }
 					 //GffObj *g=NULL;
-					 if(len>=mintranscriptlen) {
+					 if(len>=mintranscriptlen && cov>epsilon) {
 						 if(first) { geneno++; first=false;}
 						 GffObj *g=NULL;
 						 if(transfrag[t]->guide) {
@@ -10317,6 +10415,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 pred.Add(p);
 
 						 CTransfrag u(path,pathpat,cov/len);
+						 //u.weak=pred.Count()-1;
 						 keeptrf.Add(u);
 					 }
 				 }
@@ -10325,6 +10424,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 		 }
 	 }
 
+	 bool todelete=false;
 
 	 if(pred.Count()>npred) {
 		 for(int t=0;t<transfrag.Count();t++) if(transfrag[t]->longread) {
@@ -10390,13 +10490,16 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 					 pred[p]->tlen+=pred[p]->exons.Last().end-pred[p]->end;
 					 pred[p]->exons.Last().end=pred[p]->end;
 				 }
-				 p++;
+				 //p++;
 			 }
 			 else if(!eonly) { // || !pred[p]->t_eq) {
 				 //fprintf(stderr,"delete prediction %d\n",p);
-				 pred.Delete(p); // I delete all predictions that have 0 coverage unless it's eonly mode
+				 pred[p]->flag=false;
+				 // pred.Delete(p); // I cannot delete them all yet predictions that have 0 coverage unless it's eonly mode -> but remember to do it later
+				 todelete=true;
 			 }
-			 else p++;
+			 //else p++;
+			 p++;
 		 }
 	 }
 
@@ -10412,6 +10515,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 	 path.Clear();
 
 
+	 //for(int i=0;i<nkeep;i++) if(pred[keeptrf[i].weak]->flag){ // compute flux from short read data here -> do I include the 0 coverage predictions?
 	 for(int i=0;i<nkeep;i++) { // compute flux from short read data here
 		 istranscript.reset();
 		 nodeflux.Clear();
@@ -10471,6 +10575,17 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 			 }
 		 }
 
+	 }
+
+	 if(todelete || isnascent) { // scan predictions to find nascents and delete empty predictions
+		 int p=pred.Count()-1;
+		 while(p>=npred) { // delete 0 coverage predictions
+			 if(!pred[p]->cov) pred.Delete(p);
+			 else if(isnascent){ // this might be a nascent
+				 find_nascent_link(pred,npred,p);
+			 }
+			 p--;
+		 }
 	 }
 
 }
@@ -10905,6 +11020,15 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 			 }
 			 else p++;
 		 }
+
+		 if(isnascent){ // this might be a nascent
+			 p=pred.Count()-1;
+			 while(p>=npred) { // delete 0 coverage predictions also?
+				 find_nascent_link(pred,npred,p);
+				 p--;
+			 }
+		 }
+
 	 }
 }
 
@@ -14288,7 +14412,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 				for(int i=0;i<gno;i++) {
 					CGraphnode *inode=no2gnode[i];
 					printTime(stderr);
-					fprintf(stderr,"Node %d: cov=%f capacity=%f rate=%f ",i,inode->cov/(inode->end-inode->start+1),inode->capacity,inode->rate);
+					//fprintf(stderr,"Node %d: cov=%f capacity=%f rate=%f ",i,inode->cov/(inode->end-inode->start+1),inode->capacity,inode->rate);
 					fprintf(stderr,"trf=");
 					for(int t=0;t<inode->trf.Count();t++) fprintf(stderr," %d(%f)",inode->trf[t],transfrag[inode->trf[t]]->abundance);
 					fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
