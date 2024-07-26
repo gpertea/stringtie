@@ -9943,7 +9943,7 @@ bool mark_if_nascent(GList<CPrediction>& pred,int n,int p) { // check if p is na
 		pred[p]->end=pred[n]->exons[i].start-1;
 		pred[p]->exons.Last().end=pred[p]->end;
 		CPrediction *nasc=pred[p];
-		while(nasc) {
+		if(nasc->start != pred[n]->start) while(nasc) {
 			nasc->start=pred[n]->start;
 			nasc->exons[0].start=nasc->start;
 			nasc=nasc->linkpred;
@@ -9970,7 +9970,7 @@ bool mark_if_nascent(GList<CPrediction>& pred,int n,int p) { // check if p is na
 		pred[p]->exons[0].start=pred[p]->start;
 
 		CPrediction *nasc=pred[p];
-		while(nasc) {
+		if(nasc->end != pred[n]->end) while(nasc) {
 			nasc->end=pred[n]->end;
 			nasc->exons.Last().end=nasc->end;
 			nasc=nasc->linkpred;
