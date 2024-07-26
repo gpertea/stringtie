@@ -8985,10 +8985,12 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 			}
 		}
 
-		nodecov[path[i]]*=(1-nodeflux[i]); // don't allow this to be less than 0
+		nodecov[path[i]]*=(1-nodeflux[i]);
+		if(nodecov[path[i]]<0) nodecov[path[i]]=0; // don't allow this to be less than 0
 
 		if(!prevnode || firstex || node->start>prevnode->end+1) { // this is a new exon
 			if(prevnode && !firstex) { // compute exon coverage
+				//fprintf(stderr,"...new excov=%f for exon %d-%d: %f\n",excov,exons.Last().start,exons.Last().end,excov/(exons.Last().end-exons.Last().start+1));
 				excov/=exons.Last().end-exons.Last().start+1;
 				exoncov.Add(excov);
 				excov=0;
@@ -9872,8 +9874,10 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 					if(len>=mintranscriptlen && cov>epsilon) {
 						if(first) { geneno++; first=false;}
 						/*fprintf(stderr,"1 Store prediction %d  with abundance=%f totalabundance=%f len=%d startpoint=%d endpoint=%d and exons:",pred.Count(),cov/len,cov,len,startpoint,endpoint);
-							 for(int i=0;i<exons.Count();i++) fprintf(stderr," %d-%d",exons[i].start,exons[i].end);
-							 fprintf(stderr,"\n");*/
+						for(int i=0;i<exons.Count();i++) fprintf(stderr," %d-%d",exons[i].start,exons[i].end);
+						fprintf(stderr," cov:");
+						for(int i=0;i<exons.Count();i++) fprintf(stderr," %f",exoncov[i]);
+						fprintf(stderr,"\n");*/
 						GffObj *g=NULL;
 						if(transfrag[t]->guide) {
 							g=guides[int(transfrag[t]->guide-1)];
@@ -10476,9 +10480,9 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 					 int p=0;
 					 int i=0;
 					 int np=npred+tmatch[j];
-					 //fprintf(stderr,"Add %.1f to prediction %d with cov=%.1f",abundprop,np,pred[np]->cov);
-					 //for(int i=0;i<keeptrf[tmatch[j]].nodes.Count();i++) fprintf(stderr," %d",keeptrf[tmatch[j]].nodes[i]);
-					 //fprintf(stderr,"\n");
+					 /*fprintf(stderr,"Add %.1f to prediction %d with cov=%.1f",abundprop,np,pred[np]->cov);
+					 for(int i=0;i<keeptrf[tmatch[j]].nodes.Count();i++) fprintf(stderr," %d",keeptrf[tmatch[j]].nodes[i]);
+					 fprintf(stderr,"\n");*/
 					 while(i<transfrag[t]->nodes.Count() && p<pred[np]->exons.Count()) {
 						 if(no2gnode[transfrag[t]->nodes[i]]->end<pred[np]->exons[p].start) i++;
 						 else if(pred[np]->exons[p].end<no2gnode[transfrag[t]->nodes[i]]->start) p++;
@@ -10597,9 +10601,6 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 				 if(pred.Last()->cov>pred[keeptrf[i].weak]->cov) { // new prediction is better than the previous one -- shouldn't I add this to previous prediction?
 					 int p=keeptrf[i].weak;
 					 pred[p]->cov=pred.Last()->cov;
-					 for(int k=0;k<pred[p]->exons.Count();k++) {
-						 pred[p]->exoncov[k]=pred.Last()->exoncov[k];
-					 }
 					 /*pred[p]->start=pred.Last()->start;
 					 pred[p]->end=pred.Last()->end;
 					 pred[p]->exons[0].start=pred.Last()->exons[0].start;
@@ -20173,7 +20174,9 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			}
 			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
-			fprintf(stderr,"\n");
+			fprintf(stderr," (");
+			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
+			fprintf(stderr,")\n");
 			if(pred[i]->mergename!="n" && pred[i]->linkpred) {
 				fprintf(stderr,"...nascents:");
 				CPrediction *p=pred[i]->linkpred;
