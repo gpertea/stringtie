@@ -9080,6 +9080,7 @@ float store_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nod
 
 		//fprintf(stderr,"Transcript stored\n");
 	}
+	else cov=0;
 
 	return(cov);
 }
@@ -10437,30 +10438,30 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 exoncov.Add(excov);
 						 j++;
 					 }
-					 //GffObj *g=NULL;
-					 if(len>=mintranscriptlen && cov>epsilon) {
-						 if(first) { geneno++; first=false;}
-						 GffObj *g=NULL;
-						 if(transfrag[t]->guide) {
-							 g=guides[int(transfrag[t]->guide-1)];
-							 //if (g && g->uptr) {
-							 //	 RC_TData &td = *(RC_TData*) (g->uptr);
-							 //	 td.in_bundle=3; 
-							 if (g) {
-								setGuideStatus(g, GBST_STORED);	 
-								//fprintf(stderr,"2 sg guide %s is stored\n",g->getID());
-								if(startpoint != g->start && g->start <= exons[0].end) {
-									len+=(int)startpoint-(int)g->start;
-									startpoint=g->start;
-									exons[0].start=startpoint;
-								}
-								if(endpoint != g->end && g->end >= exons.Last().start) {
-									len+=(int)g->end-(int)endpoint;
-									endpoint=g->end;
-									exons.Last().end=endpoint;
-								}
+
+					 GffObj *g=NULL;
+					 if(transfrag[t]->guide) {
+						 g=guides[int(transfrag[t]->guide-1)];
+						 //if (g && g->uptr) {
+						 //	 RC_TData &td = *(RC_TData*) (g->uptr);
+						 //	 td.in_bundle=3;
+						 if (g) {
+							 setGuideStatus(g, GBST_STORED);
+							 //fprintf(stderr,"2 sg guide %s is stored\n",g->getID());
+							 if(startpoint != g->start && g->start <= exons[0].end) {
+								 len+=(int)startpoint-(int)g->start;
+								 startpoint=g->start;
+								 exons[0].start=startpoint;
+							 }
+							 if(endpoint != g->end && g->end >= exons.Last().start) {
+								 len+=(int)g->end-(int)endpoint;
+								 endpoint=g->end;
+								 exons.Last().end=endpoint;
 							 }
 						 }
+					 }
+					 if((g || (!eonly && len>=mintranscriptlen)) && cov>epsilon) {
+						 if(first) { geneno++; first=false;}
 						 //fprintf(stderr,"2 Store prediction %d:%d-%d  with len=%d and abundance=%f startpoint=%d endpoint=%d\n",pred.Count(),exons[0].start ,exons.Last().end,len,cov/len,startpoint,endpoint);
 						 CPrediction *p=new CPrediction(geneno, g,startpoint , endpoint, cov, sign, len);
 						 p->exons=exons;
