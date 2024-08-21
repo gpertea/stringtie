@@ -55,13 +55,13 @@ if [[ ! -f $libdir/libbz2.a ]]; then
 fi
 
 # -- prepare liblzma
-xz="xz-5.2.5"
-
+xzver="5.4.7"
+xz="xz-$xzver"
+xzurl="https://github.com/tukaani-project/xz/releases/download/v$xzver/$xz.tar.gz"
 if [[ ! -d lzma ]]; then
-  curl -ksLO https://tukaani.org/xz/$xz.tar.gz || \
-   exec echo "Error: failed to fetch $xz.tar.gz !"
+  curl -ksLO "$xzurl" || exec echo "Error: failed to fetch: $xzurl!"
   tar -xzf $xz.tar.gz || exec echo "Error: failed to unpack $xz.tar.gz !"
-  /bin/rm -f $xz.tar.gz
+  unlink $xz.tar.gz
   mv $xz lzma
 fi
 if [[ ! -f $libdir/liblzma.a ]]; then
