@@ -58,7 +58,7 @@ fi
 xz="xz-5.2.5"
 
 if [[ ! -d lzma ]]; then
-  curl -ksLO https://tukaani.org/xz/$xz.tar.gz || \
+  curl -ksLO https://zenlayer.dl.sourceforge.net/project/lzmautils/$xz.tar.gz?viasf=1 --output $xz.tar.gz || \
    exec echo "Error: failed to fetch $xz.tar.gz !"
   tar -xzf $xz.tar.gz || exec echo "Error: failed to unpack $xz.tar.gz !"
   /bin/rm -f $xz.tar.gz
