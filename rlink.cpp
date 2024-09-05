@@ -13059,9 +13059,10 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 			//CTransfrag guidep=guidetrf[p];
 			if((guidetrf[g].trf->pattern & guidetrf[p].trf->pattern)==guidetrf[g].trf->pattern) {
 				if(!isNascent(guides[guidetrf[p].g]) ) { // don't allow the longer guide to be nascent
-					if(!isNascent(guides[guidetrf[g].g]) || (!longreads && !mixedMode)) { // --> added an exclusiong for longreads and mixedMode (is this correct?)
+					if(!isNascent(guides[guidetrf[g].g]) && !longreads && !mixedMode) { // --> added an exclusiong for longreads and mixedMode (is this correct?)
 						guidetrf[g].trf->real=false;  // this marks a guide that is included in another one -> I might want to swap them if they have the same abundance
 						guidetrf[g].trf->guide=0;  // this marks a guide that is included in another one -> I might want to swap them if they have the same abundance
+						//fprintf(stderr,"...mark guide not real\n");
 						break;
 					}
 				}
@@ -13423,7 +13424,7 @@ void guides_pushmaxflow_onestep(int gno,GIntHash<int>& gpos,GPVec<CGraphnode>& n
 			//float fragno=0;
 			bool full=true;
 
-			fprintf(stderr,"push flow for guide=%s\n",guides[guidetrf[0].g]->getID());
+			//fprintf(stderr,"push flow for guide=%s\n",guides[guidetrf[0].g]->getID());
 
 			float flux= push_max_flow(gno,guidetrf[0].trf->nodes,istranscript,transfrag,no2gnode,nodeflux,guidetrf[0].trf->pattern,gpos,full);
 			istranscript.reset();
