@@ -4575,7 +4575,7 @@ bool eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag
 	//fprintf(stderr,"eliminate from %d transfrags\n",transfrag.Count());
 
 	for(int t=transfrag.Count()-1;t>=0;t--) {
-		//if(transfrag[t]->guide) fprintf(stderr,"consider transfrag[%d] longread=%d\n",t,transfrag[t]->longread);
+		//if(transfrag[t]->guide) fprintf(stderr,"consider transfrag[%d] longread=%d w/abundance=%.1f\n",t,transfrag[t]->longread,transfrag[t]->abundance);
 		//if(transfrag[t]->srabund || (mixedMode && (transfrag[t]->longread || !transfrag[t]->nodes[0] || transfrag[t]->nodes.Last()==gno-1))) { // this is a super-read
 		if(transfrag[t]->srabund || (mixedMode && transfrag[t]->longread)) { // this is a super-read
 			//fprintf(stderr,"Added transfrag[%d] to srfrag[%d]\n",t,srfrag.Count());
@@ -5113,6 +5113,9 @@ int compatible_long(int* t,int *len,GPVec<CTransfrag>& transfrag,GPVec<CGraphnod
 void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,CTreePat *tr2no,
 		GIntHash<int> &gpos,GVec<CGuide>& guidetrf,GList<CPrediction>& pred,GVec<int>& trflong,BundleData* bdata,GVec<float>& abundleft,GVec<float>& abundright) {
 
+
+	GPVec<GffObj>& guides = bdata->keepguides;
+
 	/*
 	{ // DEBUG ONLY
 		printTime(stderr);
@@ -5144,8 +5147,10 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 
 			t=findtrf_in_treepat(gno,gpos,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,tr2no); // I need to adjust first/last node
 			if(!t) { // t is NULL
+				/* process mixedMode only
 				float abund=0;
-				if(mixedMode) abund=trthr*ERROR_PERC;
+				if(mixedMode) abund=trthr*ERROR_PERC;*/
+				float abund=trthr*ERROR_PERC;
 				t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund);
 				t->longread=true;
 			}
@@ -5156,7 +5161,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC);
 		}
 
-		if(!longreads) {
+		//if(!longreads) {
 			t->longread=true; // maybe do this only for mixedMode?
 			if(includesource) {
 				guidetrf[i].trf->nodes.Insert(0,0); // I need to comment this if I need path not to include the source
@@ -5169,7 +5174,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 			guidetrf[i].trf->pattern[sink]=1;
 			int *pos=gpos[edge(guidetrf[i].trf->nodes[guidetrf[i].trf->nodes.Count()-2],guidetrf[i].trf->nodes.Last(),gno)];
 			if(pos) guidetrf[i].trf->pattern[*pos]=1;
-		}
+		//}
 
 
 
@@ -5183,7 +5188,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 
 		/*
 		{ // DEBUG ONLY
-			fprintf(stderr,"Add guidetrf with nodes:");
+			fprintf(stderr,"Add=%d guidetrf[%d] with nodes:",add,guidetrf[i].g);
 			for(int j=0;j<guidetrf[i].trf->nodes.Count();j++) fprintf(stderr," %d",guidetrf[i].trf->nodes[j]);
 			//fprintf(stderr," and pattern: ");
 			//printBitVec(guidetrf[i].trf->pattern);
@@ -5209,8 +5214,10 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 				t->nodes.Shift();
 			}
 		}*/
-		t->guide=1+guidetrf[i].g;
-		//fprintf(stderr,"t->guide set to=%d\n",1+guidetrf[i].g);
+
+		if(!isNascent(guides[guidetrf[i].g])) t->guide=1+guidetrf[i].g;
+		else if(!t->guide) t->guide=1+guidetrf[i].g;
+		//fprintf(stderr,"t->guide set to=%d t->longread=%d\n",1+guidetrf[i].g,t->longread);
 		t->longstart=no2gnode[t->nodes[0]]->start;
 		t->longend=no2gnode[t->nodes.Last()]->end;
 		//if(longreads) t->usepath=guidetrf[i].g; // guide index
@@ -9731,6 +9738,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<int> &checktrf,GVec<int>& trflong,GVec<int> &path, GBitVec &pathpat,GPVec<CTransfrag>& transfrag,
 		GIntHash<int> &gpos, GBitVec& istranscript,GPVec<CGraphnode>& no2gnode,GPVec<GffObj>& guides,GList<CPrediction>& pred,GVec<float> &nodecov,GVec<float> noderate,bool &first,bool nasc) {
 
+	//fprintf(stderr,"parse_trflong w/nasc=%d\n",nasc);
 	for(int f=trflong.Count()-1;f>=0;f--) { //if((!transfrag[trflong[f]]->guide && !nasc) || isNascent(guides[int(transfrag[trflong[f]]->guide-1)])==nasc) { // if this is a guide it should be reflected in the prediction downstream
 
 		int t=trflong[f];
