@@ -56,12 +56,13 @@ void BundleData::keepGuide(GffObj* guide, Ref_RC_Data& ref_rc) {
 	  ref_rc.rc_tdata->Add(tdata);
     ref_rc.refdata->synrnas.Add(guide);
   }
-	guide->udata=(int)rc_data->addTranscript(*guide); //this also adds exon/intron info
+	guide->udata=(int)rc_data->addTranscript(*guide); 
+  //this also adds exon/intron info
 }
 
 //generate all nascent transcripts for a guide
 //keep nascents in 2 lists: tnlist for multi-exon, setnlist for single-exon
-void genTxNascents(GffObj &guide, GList<GffObj>& tnlist, GPVec<GffObj>& guides) {
+void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& guides) {
     // DEBUG only: keeping track of the number of nascent transcripts generated vs redundant
     //GMessage("Generating %d nascents for %s(%c)\n", guide.exons.Count()-1, guide.getID(), guide.strand);
     int nxr=0; //number of redundant nascent transcripts discarded
@@ -153,7 +154,7 @@ void BundleData::generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc) {
   for (int i=from_guide_idx;i<keepguides.Count();++i) {
     GffObj* guide=keepguides[i];
     if (guide->exons.Count()<2) continue;
-    genTxNascents(*guide, tnlist, keepguides);
+    genTxNascents(*guide, tnlist); //, keepguides);
   }
   //add all nascents from tnlist to keepguides
   numNascents+=tnlist.Count();
@@ -177,54 +178,61 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
  }
  if (rc_data->g_exons.Count()==0 || rc_data->g_tdata.Count()==0)
 	 return false; //nothing to do without transcripts
- //check this read alignment against ref exons and introns
+ //check this read alignment against guides exons and introns
  char strandbits=0;
  bool result=false;
- bool is_in_guide=true; // exons and junctions are in reference transcripts but they might be in different guides
- for (int i=0;i<brec.exons.Count();i++) {
+ bool full_overlap=true; // exons and junctions are in reference transcripts but they might be in different guides
+ for (int i=0;i<brec.exons.Count();i++) { //for each read exon
 	 if (ballgown)
 		 rc_data->updateCov(xstrand, nh, brec.exons[i].start, brec.exons[i].len());
-	 GArray<RC_ExonOvl> exonOverlaps(true, true); //overlaps sorted by decreasing length
+	 GArray<RC_ExonOvl> exonOverlaps(true, true); 
+   //overlaps sorted by priority (guide/nascent) and length 
+   //   guide overlaps, if any, are always first
+   // findOvlExons requires an overlap of at least 5 bp
 	 if (rc_data->findOvlExons(exonOverlaps, brec.exons[i].start,
 			 brec.exons[i].end, xstrand, mate_pos)) {
 		 result=true;
-		 int max_ovl=exonOverlaps[0].ovlen;
-		 if(is_in_guide && (uint)max_ovl<brec.exons[i].len()) is_in_guide=false;
-		 //alndata.g_exonovls.Add(new GVec<RC_ExonOvl>(exonOverlaps));
-			 for (int k=0;k<exonOverlaps.Count();++k) {
-				 //if (exonOverlaps[k].ovlen < 5) break; //ignore very short overlaps
-				 if (k && (exonOverlaps[k].mate_ovl < exonOverlaps[0].mate_ovl
-						 || exonOverlaps[k].ovlen+5<max_ovl) )
-					 break; //ignore further overlaps after a mate matched or if they are shorter than max_overlap-5
-				 if (exonOverlaps[k].feature->strand=='+') strandbits |= 0x01;
-				 else if (exonOverlaps[k].feature->strand=='-') strandbits |= 0x02;
-				 //TODO: perhaps we could use a better approach for non-overlapping ref exons
-				 //      spanned by this same read alignment
-				 //counting this overlap for multiple exons if it's similarly large
-				 //(in the shared region of overlapping exons)
-				 rc_updateExonCounts(exonOverlaps[k], nh);
-			 }
-	 } //ref exon overlaps
-	 if (i>0) { //intron processing
+		 int best_ovl=exonOverlaps[0].ovlen; //largest guide exon overlap (nascents have lower priority)
+     int mate_ovl=exonOverlaps[0].mate_ovl;
+     byte guide_ovl=exonOverlaps[0].in_guides; // is the ovl ref exon in a real guide, or just nascents?
+		 if(full_overlap && (uint)best_ovl<brec.exons[i].len()) 
+        full_overlap=false; // this exon is not fully overlapped by a guide exon
+
+		 for (int k=0;k<exonOverlaps.Count();++k) { //check all overlaps of similar length
+          if (k && (exonOverlaps[k].mate_ovl < mate_ovl
+              || exonOverlaps[k].ovlen+5<best_ovl || exonOverlaps[k].in_guides < guide_ovl) )
+            break; // NOTE ignore further overlaps after a mate matched 
+                    // or if they are shorter than max_overlap-5
+          if (exonOverlaps[k].feature->strand=='+') strandbits |= 0x01;
+          else if (exonOverlaps[k].feature->strand=='-') strandbits |= 0x02;
+          //TODO: perhaps we could use a better approach for non-overlapping ref exons
+          //      spanned by this same read alignment
+          //counting this overlap for multiple exons if it's similarly large
+          //(in the shared region of overlapping exons)
+          if (exonOverlaps[k].in_guides)
+            rc_updateExonCounts(exonOverlaps[k], nh);
+     } //for each overlap
+	 } //has guide exon overlaps
+	 if (i>0) { //adjacent intron check for match to guide introns
 		 int j_l=brec.exons[i-1].end+1;
 		 int j_r=brec.exons[i].start-1;
+		 alndata.juncs.Add(new CJunction(j_l, j_r)); 
 		 RC_Feature* ri=rc_data->findIntron(j_l, j_r, xstrand);
-		 alndata.juncs.Add(new CJunction(j_l, j_r)); //don'guide set strand, etc. for now
 		 if (ri) { //update guide intron counts
 			 ri->rcount++;
 			 ri->mrcount += (nh > 1) ? (1.0/nh) : 1;
 			 if (nh==1)  ri->ucount++;
 			 alndata.juncs.Last()->guide_match=1;
 		 }
-		 else is_in_guide=false;
+		 else full_overlap=false;
 
-	 } //intron processing
- }
+	 } // neighboring intron processing
+ } //for each read exon
  if (xstrand=='.' && strandbits && strandbits<3) {
 	xstrand = (strandbits==1) ? '+' : '-';
  }
 
- if(!mergeMode && is_in_guide) alndata.in_guide=true;
+ if(!mergeMode && full_overlap) alndata.in_guide=true;
 
  return result;
 }

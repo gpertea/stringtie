@@ -1,4 +1,4 @@
-#include "rlink.h" // this includes "tablemaker.h"
+#include "rlink.h" // this includes "tablemaker.h", "bundle.h" etc.
 #include <numeric>
 
 extern GStr ballgown_dir;
@@ -16,7 +16,7 @@ struct COvlSorter {
 
 
 void rc_updateExonCounts(const RC_ExonOvl& exonovl, int nh) {
-  //this only gets read overlaps > 5bp and otherwise filtered in evalReadAln()
+  //this only gets read overlaps > 5bp or otherwise filtered in evalReadAln()
   exonovl.feature->rcount++;
   if (nh>1) {
 	  exonovl.feature->mrcount += (1.0/nh);
@@ -154,12 +154,12 @@ void rc_write_RCfeature( GPVec<RC_TData>& rcdata, GPVec<RC_Feature>& features, F
 	RC_Feature& f=*(features[i]);
 	const char* ref_name=rcdata[f.t_ids[0]-1]->ref_t->getGSeqName();
 	if (is_exon) {
-	  fprintf(fdata, "%u\t%s\t%c\t%d\t%d\t%d\t%d\t%.2f\t%.4f\t%.4f\t%.4f\t%.4f\n",
-		  f.id, ref_name, f.strand, f.l, f.r, f.rcount,
+	  fprintf(fdata, "%u\t%s\t%c\t%ld\t%ld\t%d\t%d\t%.2f\t%.4f\t%.4f\t%.4f\t%.4f\n",
+		  f.id, ref_name, f.strand, f.l, f.r, f.rcount, 
 		  f.ucount, f.mrcount, f.avg, f.stdev, f.mavg, f.mstdev);
 	}
     else { //introns
-	  fprintf(fdata,"%u\t%s\t%c\t%d\t%d\t%d\t%d\t%.2f\n",f.id, ref_name,
+	  fprintf(fdata,"%u\t%s\t%c\t%ld\t%ld\t%d\t%d\t%.2f\n",f.id, ref_name,
 		  f.strand, f.l, f.r, f.rcount, f.ucount, f.mrcount);
 	}
   // f2t -------
@@ -192,7 +192,7 @@ void rc_writeRC(GPVec<RC_TData>& RC_data,
    if (genename==NULL) genename=".";
    if (geneID==NULL) geneID=".";
 
-   fprintf(f_tdata, "%u\t%s\t%c\t%d\t%d\t%s\t%d\t%d\t%s\t%s\t%f\t%f\n",
+   fprintf(f_tdata, "%u\t%s\t%c\t%ld\t%ld\t%s\t%d\t%d\t%s\t%s\t%f\t%f\n",
 	  sd.t_id, refname, sd.ref_t->strand, sd.l, sd.r, sd.ref_t->getID(),
 	  sd.t_exons.Count(), sd.eff_len, geneID,
 	  genename, sd.cov, sd.fpkm);
@@ -217,21 +217,22 @@ void RC_TData::rc_addFeatures(uint& c_e_id, GList<RC_Feature>& exonSet, GPVec<RC
   //int ecache_idx = e_idx_cache>=0 ? e_idx_cache : exonSet.Count()-1;
   //int icache_idx = i_idx_cache>=0 ? i_idx_cache : intronSet.Count()-1;
   for (int i = 0; i < m.exons.Count(); ++i)  {
-    addFeature((int)m.exons[i]->start, (int)m.exons[i]->end, t_exons, c_e_id, exonSet, exonTable, ecache_idx);
+    addFeature((long)m.exons[i]->start, (long)m.exons[i]->end, t_exons, c_e_id, exonSet, exonTable, ecache_idx);
     //if (i==0) e_idx_cache=ecache_idx;
     if (i>0) { //store intron
       //if (i==1) i_idx_cache=icache_idx;
-      addFeature(m.exons[i-1]->end+1, m.exons[i]->start-1, t_introns, c_i_id,
+      addFeature(long(m.exons[i-1]->end)+1, long(m.exons[i]->start)-1, t_introns, c_i_id,
     		  intronSet, intronTable, icache_idx);
     } //for each intron
   } //for each exon
 }
 
-void RC_TData::addFeature(int fl, int fr, GPVec<RC_Feature>& fvec,
+void RC_TData::addFeature(long fl, long fr, GPVec<RC_Feature>& fvec,
                           uint& f_id, GList<RC_Feature>& fset,
 						  GPVec<RC_Feature>& fdata, int& cache_idx) {
   //f_id is the largest f_id inserted so far in fset
   bool add_new = true;
+  bool notNascent = !isNascent(ref_t);
   RC_Feature* newseg=new RC_Feature(fl, fr, ref_t->strand, 0, this->t_id);
   //RC_Feature* newfeature=NULL;
   int fit=cache_idx<0 ? fset.Count()-1 : cache_idx;
@@ -242,7 +243,8 @@ void RC_TData::addFeature(int fl, int fr, GPVec<RC_Feature>& fvec,
       while (*newseg < *(fset[fit]) || (eq = (*newseg==*(fset[fit])))) {
         if (eq) {
           add_new = false;
-          fp_id = fset[fit]->id; //fset[fit]->id;
+          fp_id = fset[fit]->id; 
+          if (notNascent) fset[fit]->nascent_only = false;
           break;
         }
         //newseg< fset[fit]
@@ -259,6 +261,7 @@ void RC_TData::addFeature(int fl, int fr, GPVec<RC_Feature>& fvec,
         if (eq) {
           add_new = false;
           fp_id = fset[fit]->id;
+          if (notNascent) fset[fit]->nascent_only = false;
           break;
         }
         ++fit;
@@ -275,6 +278,7 @@ void RC_TData::addFeature(int fl, int fr, GPVec<RC_Feature>& fvec,
   } //check existing set
   if (add_new) { //did not see this feature before
     newseg->id = ++f_id;
+    if (notNascent) newseg->nascent_only = false;
     if (fit<0) fit = fset.Add(newseg);
     else fset.sortInsert(fit, newseg);
     if (fit<0) {
@@ -291,12 +295,12 @@ void RC_TData::addFeature(int fl, int fr, GPVec<RC_Feature>& fvec,
 #endif
     GASSERT((uint)fdata.Count()==f_id);
   }
-  else { //feature seen before, update its parent list
-   fdata[fp_id-1]->t_ids.Add(this->t_id);
-   delete newseg;
+  else { //feature seen before, only update its parent list
+    fdata[fp_id-1]->t_ids.Add(this->t_id);
+    delete newseg;
   }
-  //fvec.push_back(newseg);
   GASSERT(fdata[fp_id-1]->id==(uint)fp_id);
+  // always add the feature to the transcript's t_exons/t_introns vector  
   fvec.Add(fdata[fp_id-1]);
 }
 

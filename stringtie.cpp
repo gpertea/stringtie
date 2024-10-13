@@ -286,8 +286,6 @@ void workerThread(GThreadData& td); // Thread function
 int waitForData(BundleData* bundles);
 #endif
 
-
-
 //#define DBG_ALN_DATA 1
 #ifdef DBG_ALN_DATA
   FILE* fdbgaln=NULL;
@@ -824,6 +822,7 @@ if (ballgown)
 	     bundle->generateAllNascents(bundle_last_kept_guide, ref_rc);		       
 	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
      bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
+
      if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide
     	 //check for overlaps with ref transcripts which may set xstrand
     	 if (xstrand=='+') alndata.strand=1;
