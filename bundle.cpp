@@ -106,7 +106,7 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& gu
                   // can structurally match nt, because they will start even earlier.
                   break;
               }
-              if (txStructureMatch(*nt, *tnlist[i], 0.98)) {
+              if (txStructureMatch(*nt, *tnlist[i], 0.99, 70)) {
                   keepNascent = false;
                   nxr++;
                   break;
@@ -123,7 +123,7 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& gu
                         // can structurally match guide, because they will start even later.
                         break;
                  }
-                 if (txStructureMatch(*nt, *tnlist[i], 0.98)) {
+                 if (txStructureMatch(*nt, *tnlist[i], 0.99, 70)) {
                       keepNascent = false;
                       nxr++;
                       break;
