@@ -376,7 +376,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 			   guidegff.chars());
    }
    refguides.setCount(refseqCount); //maximum gseqid
-   uint c_tid=0; //counter for all transcripts 
+   uint c_tid=0; //counter for all transcripts
    uint c_exon_id=0;
    uint c_intron_id=0;
    GList<RC_Feature> uexons(true, false, true); //sorted, free items, unique
@@ -761,13 +761,13 @@ if (ballgown)
 					 currentstart=(*guides)[ng_ovl]->start;
 				 if (currentend<(int)(*guides)[ng_ovl]->end)
 					 currentend=(*guides)[ng_ovl]->end;
-				 if (ng_ovl==ng_start && ng_ovl>0) { 
+				 if (ng_ovl==ng_start && ng_ovl>0) {
 					// -- first time only, we have to check back all possible transitive guide overlaps
 
 					 //char* geneid=(*guides)[ng_ovlstart]->getGeneID();
 					 //if (geneid==NULL) geneid=(*guides)[ng_ovlstart]->getGeneName();
 					 //if (geneid && !bgeneids.hasKey(geneid))
-					 //     bgeneids.shkAdd(geneid, &ng); 
+					 //     bgeneids.shkAdd(geneid, &ng);
 					 int g_back=ng_ovl; //start from the overlapping guide, going backwards
 					 int g_ovl_start=ng_ovl;
 					 while (g_back>ng_end+1) {
@@ -795,7 +795,7 @@ if (ballgown)
 		bundle->end=currentend;
 	 } //<---- read alignment started a new bundle
 
-	 if (currentend<(int)brec->end) { //read alignments extends the current bundle		 
+	 if (currentend<(int)brec->end) { //read alignments extends the current bundle
 		 //this might not happen if a longer guide had already been added to the bundle
 		 currentend=brec->end;
 		 if (guides) { //add any newly overlapping guides to bundle
@@ -818,8 +818,8 @@ if (ballgown)
 			 } while (cend_changed);
 		 }
 	 } //adjusted currentend and checked for overlapping reference transcripts
-	 if (guides && genNascent && bundle_last_kept_guide>=0) 
-	     bundle->generateAllNascents(bundle_last_kept_guide, ref_rc);		       
+	 if (guides && genNascent && bundle_last_kept_guide>=0)
+	     bundle->generateAllNascents(bundle_last_kept_guide, ref_rc);
 	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
      bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
 
@@ -987,7 +987,7 @@ if(!mergeMode) {
 	 GMessage("Error removing temporary directory: %s\n", tmp_path.chars());
    }
 
-   
+
  }
 
 
@@ -1447,16 +1447,16 @@ void processBundle(BundleData* bundle) {
 		GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		if (genNascent) 
+		if (genNascent)
 		  GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides (%d nascent)] begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count(), bundle->numNascents);
-		else 
+		else
 		  GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
 				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
                 bundle->keepguides.Count());
-	// DEBUG only - uncomment for testing nascent generation
-	// if (genNascent) bundle->printBundleGuides(); 
+	// -- DEBUG only - uncomment for testing nascent generation
+	//if (genNascent) bundle->printBundleGuides(); //write out the guides, including synthetic nascents, as BED
 	#ifdef GMEMTRACE
 			double vm,rsm;
 			get_mem_usage(vm, rsm);
@@ -1720,7 +1720,7 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 		 GffObj &t = *crefd.rnas[m];
 		 //RC_TData &td = *(RC_TData*) (t.uptr);
 		 //if (td.in_bundle) {
-		 if (getGuideStatus(&t)) {	
+		 if (getGuideStatus(&t)) {
 			 if (gout && m==crefd.rnas.Count()-1)
 			 		writeUnbundledGenes(geneabs, crefd.gseq_name, gout);
 			 continue;

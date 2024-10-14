@@ -105,7 +105,7 @@ int gfo_cmpRefByID(const pointer p1, const pointer p2) {
 // based on intron chain comparison and matching only!
 int txCmpByIntrons(const pointer p1, const pointer p2) {
   //const GffObj* a = static_cast<const GffObj*>(p1);
-  //const GffObj* b = static_cast<const GffObj*>(p2); 
+  //const GffObj* b = static_cast<const GffObj*>(p2);
   GffObj* a = (GffObj*)p1;
   GffObj* b = (GffObj*)p2;
   // check chromosome and strand
@@ -141,7 +141,7 @@ int txCmpByExons(const pointer p1, const pointer p2) {
 	int64_t t1_start = t1->start;
 	int64_t t1_end = t1->end;
 	int64_t t2_start = t2->start;
-	int64_t t2_end = t2->end;        
+	int64_t t2_end = t2->end;
 
    if (t1_start != t2_start) return (int)(t1_start - t2_start);
    if (t1_end != t2_end) return (int)(t1_end - t2_end);
@@ -152,14 +152,14 @@ int txCmpByExons(const pointer p1, const pointer p2) {
         int64_t e1_start = t1->exons[i]->start;
 		int64_t e1_end = t1->exons[i]->end;
 		int64_t e2_start = t2->exons[i]->start;
-		int64_t e2_end = t2->exons[i]->end;        
+		int64_t e2_end = t2->exons[i]->end;
 
         if (e1_start != e2_start) return (int)(e1_start - e2_start);
         if (e1_end != e2_end) return (int)(e1_end - e2_end);
     }
-    
+
     if (t1->exons.Count() != t2->exons.Count()) return t1->exons.Count()-t2->exons.Count();
-    
+
     return 0; // Equal if they have the same number and position of exons
 }
 
@@ -3271,23 +3271,23 @@ char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange) {
 	return '~';
 }
 
-bool txStructureMatch(GffObj& a, GffObj& b, double SET_tolerance, int me_range) {
+bool txStructureMatch(GffObj& a, GffObj& b, double SE_tolerance, int ME_range) {
     // Check if transcripts are on the same genomic sequence and overlap
     if (a.gseq_id != b.gseq_id || !a.overlap(b.start, b.end)) {
         return false; // No match if they are on different sequences or do not overlap
     }
     int exc = a.exons.Count();
     if (exc != b.exons.Count())
-		return false; // No match if they have different exon counts	
+		return false; // No match if they have different exon counts
     // Check for multi-exon transcripts with identical intron chain structure
     if (exc > 1) {
         for (int i = 0; i < exc-1; ++i) { // Compare intron coordinates
-            if (a.exons[i]->end != b.exons[i]->end || 
+            if (a.exons[i]->end != b.exons[i]->end ||
 			    a.exons[i + 1]->start != b.exons[i + 1]->start) {
                 return false; // Intron chains do not match
             }
         }
-		if (abs((int)a.start - (int)b.start) > me_range || abs((int)a.end - (int)b.end) > me_range)
+		if (abs((int)a.start - (int)b.start) > ME_range || abs((int)a.end - (int)b.end) > ME_range)
 			return false; // Transcript ends are too far apart
         return true; // All intron chains match
     } else {
@@ -3295,8 +3295,9 @@ bool txStructureMatch(GffObj& a, GffObj& b, double SET_tolerance, int me_range) 
         int ov_start = GMAX(a.start, b.start);
         int ov_end = GMIN(a.end, b.end);
         int ovlen = ov_end - ov_start + 1;
-        int shortest_span = GMIN(a.len(), b.len());
-        if (static_cast<double>(ovlen) / shortest_span >= SET_tolerance) {
+        //int shortest_span = GMIN(a.len(), b.len());
+		int longer_span = GMAX(a.len(), b.len());
+        if (static_cast<double>(ovlen) / longer_span >= SE_tolerance) {
             return true; // Overlap meets or exceeds tolerance
         }
     }

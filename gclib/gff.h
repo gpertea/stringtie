@@ -79,10 +79,10 @@ char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange=0);
 //single-exon transcript match test - returning '=', '~'  or 0
 
 
-bool txStructureMatch(GffObj& a, GffObj& b, double se_tolerance=0.8, int me_range=10000); 
+bool txStructureMatch(GffObj& a, GffObj& b, double SE_tolerance=0.8, int ME_range=10000);
 // generic transcript match test: for MET: intron chain match only
-// for single-exon tx: overlap >=80% of the shorter transcript (se_tolerance)
-// for multi-exon tx: terminal exons can differ <=10000 bases (me_range) 
+// for single-exon tx: overlap >=80% of the longer transcript (SE_tolerance)
+// for multi-exon tx: terminal exons can differ <=10000 bases (ME_range)
 
 //---
 // -- tracking exon/CDS segments from local mRNA to genome coordinates
@@ -857,8 +857,8 @@ public:
    }
    //constructor to use when programatically creating a new transcript
    // (not when loading from GFF/BED/GTF input!)
-   GffObj(bool newTranscript, const char* _id=nullptr, 
-          int refseq_id=-1, char _strand='+'):GSeg(0,0), 
+   GffObj(bool newTranscript, const char* _id=nullptr,
+          int refseq_id=-1, char _strand='+'):GSeg(0,0),
        exons(true,true,false), cdss(NULL), children(1,false), gscore() {
                                    //exons: sorted, free, non-unique
        gffID=NULL;
@@ -871,7 +871,7 @@ public:
           flag_IS_TRANSCRIPT=true;
           ftype_id=gff_fid_transcript;
           subftype_id=gff_fid_exon;
-          flag_FINALIZED=true; 
+          flag_FINALIZED=true;
 
        } else {
           ftype_id=-1;
