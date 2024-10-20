@@ -65,7 +65,8 @@ Options:\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
- -N/--nasc : generate synthetic nascent transcripts for every guide\n\
+ -N : use with non-polyA RNA-seq\n\
+ --nasc : output nascent transcripts\n\
  -E define window around possibly erroneous splice sites from long reads to\n\
     look out for correct splice sites (default: 25)\n\
  -B enable output of Ballgown table files which will be created in the\n\
@@ -73,7 +74,7 @@ Options:\n\
  -b enable output of Ballgown table files but these files will be \n\
     created under the directory path given as <dir_path>\n\
  -e only estimate the abundance of given reference transcripts (requires -G)\n\
- --viral : only relevant for long reads from viral data where splice sites\n\
+ --viral only relevant for long reads from viral data where splice sites\n\
     do not follow consensus (default:false)\n\
  -x do not assemble any transcripts on the given reference sequence(s)\n\
  -u no multi-mapping correction (default: correction enabled)\n\
@@ -204,7 +205,8 @@ bool havePtFeatures=false;
 
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
-bool genNascent = false; //-N/--nasc : internally generate synthetic nascent transcripts
+bool genNascent = false; // -N/--nasc : internally generate synthetic nascent transcripts
+bool printNascent = false; // output nascents
 
 bool mixedMode = false; // both short and long read data alignments are provided
 bool isnascent=false;
@@ -314,7 +316,7 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;isnascent;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "debug;help;version;viral;conservative;mix;nasc;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
    "exclude=zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -831,7 +833,7 @@ if (ballgown)
     	 //GMessage("%s\t%c\t%d\thi=%d\n",bname, xstrand, alndata.strand,hi);
     	 //countFragment(*bundle, *brec, hi,nh); // we count this in build_graphs to only include mapped fragments that we consider correctly mapped
     	 //fprintf(stderr,"fragno=%d fraglen=%lu\n",bundle->num_fragments,bundle->frag_len);if(bundle->num_fragments==100) exit(0);
-    	   processRead(currentstart, currentend, *bundle, hashread, alndata);
+    	   processRead(currentstart, currentend, *bundle, hashread, alndata,ovlpguide);
      }
  } //for each read alignment
 
@@ -1030,7 +1032,7 @@ void processOptions(GArgs& args) {
 	 longreads=(args.getOpt('L')!=NULL);
 	 if(longreads) {
 		 bundledist=0;
-		 singlethr=1.5;
+		 //singlethr=1.5;
 	 }
 	 mixedMode=(args.getOpt("mix")!=NULL);
 	 if(mixedMode) {
@@ -1039,12 +1041,16 @@ void processOptions(GArgs& args) {
 	 }
 
 
-	 // get genNascent option from -N or --isnascent
+	 // get genNascent option from -N or --nasc
 	 if (args.getOpt('N') || args.getOpt("isnascent")) {
 		 genNascent=true; // this is not needed -> keep it for now but look to replace it with the next one later
 		 isnascent=true;
 	 }
-	 //isnascent=(args.getOpt("isnascent")!=NULL);
+	 if (args.getOpt("nasc")) {
+		 genNascent=true; // this is not needed -> keep it for now but look to replace it with the next one later
+		 isnascent=true;
+		 printNascent=true;
+	 }
 
 	if (args.getOpt("conservative")) {
 	  isofrac=0.05;

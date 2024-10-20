@@ -427,6 +427,6 @@ struct BundleData {
 };
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
-		 GHash<int>& hashread, GReadAlnData& alndata);
+		 GHash<int>& hashread, GReadAlnData& alndata,bool ovlpguide);
 		 //GSamRecord& brec, char strand, int nh, int hi);
 
