@@ -25,7 +25,7 @@
 const double epsilon=0.000001; //-E
 const float trthr=1.0;   // transfrag pattern threshold
 const float MIN_VAL=-100000.0;
-const int MAX_MAXCOMP=200; // is 200 too much, or should I set it up to 150?
+const int MAX_DIST=200; // is 200 too much, or should I set it up to 150?
 
 //const uint largeintron=20000; // don't trust introns longer than this unless there is higher evidence; less than 10% of all human annotated introns are longer than this
 //const uint longintron=70000; // don't trust introns longer than this unless there is higher evidence; about 98% of all human annotated introns are shorter than this
@@ -286,6 +286,21 @@ struct CMaxIntv:public GSeg {
 	CMaxIntv *next; // next interval;
 	CMaxIntv(uint start=0,uint end=0):GSeg(start,end),node(),cov(0.0),next(NULL) {}
 	CMaxIntv(GVec<CExon>& _node,uint start,uint end,float _cov=0.0,CMaxIntv *_next=NULL):GSeg(start,end),node(_node),cov(_cov),next(_next) {}
+};
+
+struct CNasc{
+	CPrediction *pred;
+	int exonno;
+	float exoncov;
+	CNasc(CPrediction *p=NULL,int e=0,float c=0):pred(p),exonno(e),exoncov(c) {}
+};
+
+struct CNascIntv:public GSeg {
+	GVec<CNasc> node;
+	float cov;
+	CNascIntv *next; // next interval;
+	CNascIntv(uint start=0,uint end=0):GSeg(start,end),node(),cov(0.0),next(NULL) {}
+	CNascIntv(GVec<CNasc>& _node,uint start,uint end,float _cov=0.0,CNascIntv *_next=NULL):GSeg(start,end),node(_node),cov(_cov),next(_next) {}
 };
 
 struct GInterval {
