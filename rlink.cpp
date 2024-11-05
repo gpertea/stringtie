@@ -18372,7 +18372,13 @@ void adjust_nascent_in_intervals(CMaxIntv* maxint,GList<CPrediction>& pred,int n
 
 CNascIntv* add_nascent_to_interval(uint start,uint end,CNascIntv* sintv,CPrediction *p,int e,float cov){ // cov is negative for exons; positive for introns
 
-	//fprintf(stderr,"Add nascent interval %d-%d from pred=%d exon=%d cov=%f\n",start,end,p,e,cov);
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Add nascent interval %d-%d from pred: exon=%d cov=%f",start,end,e,cov);
+		if(p->t_eq) fprintf(stderr," %s",p->t_eq->getID());
+		fprintf(stderr,"\n");
+	}
+	*/
 
 	CNascIntv *prevint=NULL;
 	while(sintv && start>sintv->end) {
@@ -18780,6 +18786,7 @@ void add_intrseq_to_nascent(CNascIntv *intv){
 				if(intv->node[i].exoncov>=0){ // this is a nascent prediction
 					if(p->flag) {
 						float cov=intcov*intv->node[i].exoncov; // new coverage to add
+						//if(p->t_eq) fprintf(stderr,"Add cov=%f to prediction:%s\n",cov,p->t_eq->getID());
 						if(cov>epsilon) { // only in this case go through the trouble of adding the nascent
 							p->exoncov[e]+=cov;
 						}
@@ -19745,7 +19752,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		for(int n=0;n<npred;n++) if(pred[n]->flag) {
 			//if(pred[n]->mergename!="P") // equivalent to if(!(pred[n]->t_eq && isNascent(pred[n]->t_eq) && getGuideStatus(nascentFrom(pred[n]->t_eq))==GBST_STORED))
 			intrreg=add_to_nascent(pred,n,intrreg,bundleData);
-			if(pred[n]->linkpred) nascentpresent=true;
+			if(pred[n]->linkpred || pred[n]->mergename=="N") nascentpresent=true;
 
 		/*
 		{ // DEBUG ONLY
