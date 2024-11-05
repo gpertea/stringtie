@@ -19745,8 +19745,9 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	}
 
 
-	CNascIntv *intrreg=NULL; //-> NEXTtodo update interval with nascents here and adjust intronic boundaries of nascents (last intron)
 	if(!eonly && isnascent && !longreads) {
+		CNascIntv *intrreg=NULL; //-> NEXTtodo update interval with nascents here and adjust intronic boundaries of nascents (last intron)
+
 		// first create a record for all predictions and nascents
 		bool nascentpresent=false;
 		for(int n=0;n<npred;n++) if(pred[n]->flag) {
@@ -19773,15 +19774,16 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		}
 
 		// recompute the nascents coverages
-		while(intrreg) {
-			if(!intrreg->cov && nascentpresent) { // intronic region
-				intrreg->cov=get_cov(1,intrreg->start-bundleData->start,intrreg->end-bundleData->start,bpcov); // compute unexplained coverage
+		if(nascentpresent) { // intronic region
+			while(intrreg) {
+				if(!intrreg->cov) intrreg->cov=get_cov(1,intrreg->start-bundleData->start,intrreg->end-bundleData->start,bpcov); // compute unexplained coverage
 				if(intrreg->cov) add_intrseq_to_nascent(intrreg); // NEXTtodo this function will need to be adjusted to count for non-intronic nascents
+				CNascIntv *intv=intrreg->next;
+				delete intrreg;
+				intrreg=intv;
 			}
-			CNascIntv *intv=intrreg->next;
-			delete intrreg;
-			intrreg=intv;
 		}
+
 	}
 
 
