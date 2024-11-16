@@ -4,7 +4,7 @@ GffNames* GffObj::names=NULL;
 //global set of feature names, attribute names etc.
 // -- common for all GffObjs in current application!
 
-const uint GFF_MAX_LOCUS = 7000000; //longest known gene in human is ~2.2M, UCSC claims a gene for mouse of ~ 3.1 M
+const uint GFF_MAX_LOCUS = 7000000; //longest known gene in human is ~2.5M, UCSC claims a mouse gene > 5M
 const uint GFF_MAX_EXON  =   30000; //longest known exon in human is ~11K
 const uint GFF_MAX_INTRON= 6000000; //Ensembl shows a >5MB mouse intron
 const int  GFF_MIN_INTRON = 4; //for mergeCloseExons option
@@ -100,6 +100,86 @@ int gfo_cmpRefByID(const pointer p1, const pointer p2) {
              }
              else return (g1.gseq_id-g2.gseq_id); // sort refs by their id# order
 }
+
+//only for multi-exon transcripts: comparison/ordering function
+// based on intron chain comparison and matching only!
+int txCmpByIntrons(const pointer p1, const pointer p2) {
+  //const GffObj* a = static_cast<const GffObj*>(p1);
+  //const GffObj* b = static_cast<const GffObj*>(p2);
+  GffObj* a = (GffObj*)p1;
+  GffObj* b = (GffObj*)p2;
+  // check chromosome and strand
+  if (a->gseq_id != b->gseq_id) return a->gseq_id < b->gseq_id ? -1 : 1;
+  if (a->strand != b->strand) return a->strand < b->strand ? -1 : 1;
+  // compare intron chains by their start and end, regardless of exon count
+  int min_exon_count = GMIN(a->exons.Count(), b->exons.Count());
+  for (int i = 0; i < min_exon_count-1; ++i) {
+        int a_istart = a->exons[i]->end+1;
+        int a_iend = a->exons[i+1]->start-1;
+        int b_istart = b->exons[i]->end+1;
+        int b_iend = b->exons[i+1]->start-1;
+
+        if (a_istart != b_istart) return a_istart < b_istart ? -1 : 1;
+        if (a_iend != b_iend) return a_iend < b_iend ? -1 : 1;
+  }
+  // after comparing shared introns, tx with more exons is "greater"
+  if (a->exons.Count() != b->exons.Count()) {
+      return a->exons.Count() < b->exons.Count() ? -1 : 1;
+  }
+  // intron chains are identical, they are considered "equal"
+  return 0;
+}
+
+// compare transcripts with strict ordering by their exon positions
+// function returns 0 (equal) if both transcripts have exact same exons
+int txCmpByExons(const pointer p1, const pointer p2) {
+	GffObj* t1 = (GffObj*)p1;
+	GffObj* t2 = (GffObj*)p2;
+	// check chromosome and strand
+	if (t1->gseq_id != t2->gseq_id) return t1->gseq_id - t2->gseq_id;
+ 	if (t1->strand != t2->strand) return t1->strand < t2->strand ? -1 : 1;
+	int64_t t1_start = t1->start;
+	int64_t t1_end = t1->end;
+	int64_t t2_start = t2->start;
+	int64_t t2_end = t2->end;
+
+   if (t1_start != t2_start) return (int)(t1_start - t2_start);
+   if (t1_end != t2_end) return (int)(t1_end - t2_end);
+
+
+   int minExonCount = GMIN(t1->exons.Count(), t2->exons.Count());
+   for (int i = 0; i < minExonCount; ++i) {
+        int64_t e1_start = t1->exons[i]->start;
+		int64_t e1_end = t1->exons[i]->end;
+		int64_t e2_start = t2->exons[i]->start;
+		int64_t e2_end = t2->exons[i]->end;
+
+        if (e1_start != e2_start) return (int)(e1_start - e2_start);
+        if (e1_end != e2_end) return (int)(e1_end - e2_end);
+    }
+
+    if (t1->exons.Count() != t2->exons.Count()) return t1->exons.Count()-t2->exons.Count();
+
+    return 0; // Equal if they have the same number and position of exons
+}
+
+//single-exon transcripts basic comparison/ordering function
+int seTxCompareProc(pointer* p1, pointer* p2) {
+  // check chromosome and strand
+  GffObj* a = (GffObj*)p1;
+  GffObj* b = (GffObj*)p2;
+  if (a->gseq_id != b->gseq_id) return a->gseq_id < b->gseq_id ? -1 : 1;
+  if (a->strand != b->strand) return a->strand < b->strand ? -1 : 1;
+  //first by start positions
+  if (a->start != b->start) return a->start < b->start ? -1 : 1;
+  // then by end positions
+  if (a->end != b->end) return a->end < b->end ? -1 : 1;
+  return 0; // they are equal (both start and end match)
+}
+
+
+
+
 
 char* GffLine::extractGFFAttr(char* & infostr, const char* oline, const char* attr, bool caseStrict,
 		   bool enforce_GTF2, int* rlen, bool deleteAttr) {
@@ -1010,6 +1090,10 @@ int GffObj::addExon(uint segstart, uint segend, int8_t exontype, char phase, Gff
 	} //exon overlap/adjacent check
    //new exon/CDS, not merged in a previous one
    GffExon* enew=new GffExon(segstart, segend, exontype, phase, exon_score.score, exon_score.precision);
+   if (segs==&exons && exons.Count()==0) {
+	   start=segstart;
+	   end=segend;
+   }
    int eidx=segs->Add(enew);
    if (eidx<0) {
     //this would actually be possible if the object is a "Gene" and "exons" are in fact isoforms
@@ -3186,6 +3270,41 @@ char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange) {
 		   return '=';
 	return '~';
 }
+
+bool txStructureMatch(GffObj& a, GffObj& b, double SE_tolerance, int ME_range) {
+    // Check if transcripts are on the same genomic sequence and overlap
+    if (a.gseq_id != b.gseq_id || !a.overlap(b.start, b.end)) {
+        return false; // No match if they are on different sequences or do not overlap
+    }
+    int exc = a.exons.Count();
+    if (exc != b.exons.Count())
+		return false; // No match if they have different exon counts
+    // Check for multi-exon transcripts with identical intron chain structure
+    if (exc > 1) {
+        for (int i = 0; i < exc-1; ++i) { // Compare intron coordinates
+            if (a.exons[i]->end != b.exons[i]->end ||
+			    a.exons[i + 1]->start != b.exons[i + 1]->start) {
+                return false; // Intron chains do not match
+            }
+        }
+		if (abs((int)a.start - (int)b.start) > ME_range || abs((int)a.end - (int)b.end) > ME_range)
+			return false; // Transcript ends are too far apart
+        return true; // All intron chains match
+    } else {
+        // Calculate overlap for single-exon transcripts
+        int ov_start = GMAX(a.start, b.start);
+        int ov_end = GMIN(a.end, b.end);
+        int ovlen = ov_end - ov_start + 1;
+        //int shortest_span = GMIN(a.len(), b.len());
+		int longer_span = GMAX(a.len(), b.len());
+        if (static_cast<double>(ovlen) / longer_span >= SE_tolerance) {
+            return true; // Overlap meets or exceeds tolerance
+        }
+    }
+    return false; // Default case: no match
+}
+
+
 
 char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange) {
  //return '=' if boundaries match within tdelta distance,

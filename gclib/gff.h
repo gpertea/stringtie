@@ -78,6 +78,12 @@ char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange=0); //generic 
 char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange=0);
 //single-exon transcript match test - returning '=', '~'  or 0
 
+
+bool txStructureMatch(GffObj& a, GffObj& b, double SE_tolerance=0.8, int ME_range=10000);
+// generic transcript match test: for MET: intron chain match only
+// for single-exon tx: overlap >=80% of the longer transcript (SE_tolerance)
+// for multi-exon tx: terminal exons can differ <=10000 bases (ME_range)
+
 //---
 // -- tracking exon/CDS segments from local mRNA to genome coordinates
 class GMapSeg:public GSeg {
@@ -724,6 +730,7 @@ class GffObj:public GSeg {
     	                                  //deallocated when GffReader is destroyed
     	  bool flag_FINALIZED         :1; //if finalize() was already called for this GffObj
     	  unsigned int gff_level      :4; //hierarchical level (0..15)
+        unsigned int flag_USER_FLAGS :8; //user flags for setUserFlag() and getUserFlag()
       };
    };
    //-- friends:
@@ -776,6 +783,10 @@ public:
   void isGeneSegment(bool v) {flag_GENE_SEGMENT=v; }
   bool promotedChildren() { return flag_CHILDREN_PROMOTED; }
   void promotedChildren(bool v) { flag_CHILDREN_PROMOTED=v; }
+  // user flags are given as 8 bits bitmasks
+  void setUserFlags(byte fmask) {flag_USER_FLAGS |= fmask; }
+  void clearUserFlags(byte fmask) {flag_USER_FLAGS &= ~fmask; }
+  byte getUserFlags(byte fmask) { return (flag_USER_FLAGS & fmask); }
   void setLevel(byte v) { gff_level=v; }
   byte getLevel() { return gff_level; }
   byte incLevel() { gff_level++; return gff_level; }
@@ -821,7 +832,7 @@ public:
       if (sharedattrs) exons[0]->attrs=NULL;
       }
     }
-  GffObj(char* anid=NULL):GSeg(0,0), exons(true,true,false), cdss(NULL), children(1,false), gscore() {
+  GffObj(const char* anid=NULL):GSeg(0,0), exons(true,true,false), cdss(NULL), children(1,false), gscore() {
                                    //exons: sorted, free, non-unique
        gffID=NULL;
        uptr=NULL;
@@ -844,6 +855,42 @@ public:
        geneID=NULL;
        gene_name=NULL;
    }
+   //constructor to use when programatically creating a new transcript
+   // (not when loading from GFF/BED/GTF input!)
+   GffObj(bool newTranscript, const char* _id=nullptr,
+          int refseq_id=-1, char _strand='+'):GSeg(0,0),
+       exons(true,true,false), cdss(NULL), children(1,false), gscore() {
+                                   //exons: sorted, free, non-unique
+       gffID=NULL;
+       uptr=NULL;
+       ulink=NULL;
+       flags=0;
+       udata=0;
+       parent=NULL;
+       if (newTranscript) {
+          flag_IS_TRANSCRIPT=true;
+          ftype_id=gff_fid_transcript;
+          subftype_id=gff_fid_exon;
+          flag_FINALIZED=true;
+
+       } else {
+          ftype_id=-1;
+          subftype_id=-1;
+       }
+       if (_id!=NULL) gffID=Gstrdup(_id);
+       gffnames_ref(names);
+       CDstart=0; // hasCDS <=> CDstart>0
+       CDend=0;
+       CDphase=0;
+       gseq_id=refseq_id;
+       track_id=-1;
+       strand=_strand;
+       attrs=NULL;
+       covlen=0;
+       geneID=NULL;
+       gene_name=NULL;
+   }
+
    ~GffObj() {
        GFREE(gffID);
        GFREE(gene_name);
@@ -1015,6 +1062,12 @@ public:
         GFREE(geneID);
         if (gene_id) geneID=Gstrdup(gene_id);
    }
+   void setID(const char* tid) {
+        if (tid) {
+          GFREE(gffID);
+          gffID=Gstrdup(tid);
+        }
+   }
    int addSeg(GffLine* gfline);
    int addSeg(int fnid, GffLine* gfline);
    void getCDSegs(GVec<GffExon>& cds);
@@ -1041,7 +1094,7 @@ public:
    void printExonList(FILE* fout); //print comma delimited list of exon intervals
    void printCDSList(FILE* fout); //print comma delimited list of CDS intervals
 
-   void printBED(FILE* fout, bool cvtChars);
+   void printBED(FILE* fout, bool cvtChars=false);
        //print a BED-12 line + GFF3 attributes in 13th field
    void printSummary(FILE* fout=NULL);
 
@@ -1099,6 +1152,15 @@ class GSeqStat {
 
 int gfo_cmpByLoc(const pointer p1, const pointer p2);
 int gfo_cmpRefByID(const pointer p1, const pointer p2);
+
+//multi-exon transcripts basic comparison/ordering function
+// based on intron chain comparison - use only for lists with multiple multi-exon transcripts!
+int txCmpByIntrons(const pointer p1, const pointer p2);
+int txCmpByExons(const pointer p1, const pointer p2);
+
+//single-exon transcripts basic comparison/ordering function
+int seTxCompareProc(pointer* p1, pointer* p2);
+
 
 class GfList: public GList<GffObj> {
  public:

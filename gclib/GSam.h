@@ -154,7 +154,6 @@ class GSamRecord: public GSeg {
         }
         std::cout<<std::endl;
     }
-
     void print_seq(bam1_t *new_rec){
         int32_t qlen = new_rec->core.l_qseq;
         int8_t *buf = NULL;
@@ -248,7 +247,7 @@ class GSamRecord: public GSeg {
         p = bam_get_qname(b);
 
         strcpy(p,qname.c_str());
-        
+
         for (int x=l;x<l+l_extranul;x++){
             p[x] = '\0';
         }
@@ -311,6 +310,7 @@ class GSamRecord: public GSeg {
  bool isMapped() { return ((b->core.flag & BAM_FUNMAP) == 0); }
  bool isPaired() { return ((b->core.flag & BAM_FPAIRED) != 0); }
  const char* name() { return bam_get_qname(b); }
+
  int pairOrder() {
     //which read in the pair: 0 = unpaired, 1=first read, 2=second read
     int r=0;

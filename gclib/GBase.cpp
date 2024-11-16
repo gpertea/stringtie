@@ -36,7 +36,7 @@ void GError(const char* format,...){
     _vsnprintf(msg, 4095, format, arguments);
     vfprintf(stderr, format, arguments); // if a console is available
     msg[4095]=0;
-    va_end(arguments);
+    va_end(arguments);    
     OutputDebugString(msg);
     MessageBox(NULL,msg,NULL,MB_OK|MB_ICONEXCLAMATION|MB_APPLMODAL);
   #else
@@ -119,6 +119,13 @@ int G_mkdir(const char* path, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH
  #endif
 }
 
+int Grmdir(const char *path) {
+#ifdef _WIN32
+  return !RemoveDirectoryA(path);
+#else
+  return rmdir(path);
+#endif
+}
 
 void Gmktempdir(char* templ) {
 #ifdef _WIN32
@@ -840,8 +847,9 @@ int fileExists(const char* fname) {
 int64 fileSize(const char* fpath) {
 #ifdef _WIN32
     WIN32_FILE_ATTRIBUTE_DATA fad;
+    
     if (!GetFileAttributesEx(fpath, GetFileExInfoStandard, &fad))
-        return -1; // error condition, could call GetLastError to find out more
+      return -1; // error condition, could call GetLastError to find out more
     LARGE_INTEGER size;
     size.HighPart = fad.nFileSizeHigh;
     size.LowPart = fad.nFileSizeLow;

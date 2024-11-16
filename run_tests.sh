@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 function unpack_test_data() {
-  t=tests.tar.gz
+  t=tests-2.2.3.tar.gz
   if [ ! -f $t ]; then
     echo "Error: file $t not found!"
     exit 1
@@ -13,23 +13,22 @@ function unpack_test_data() {
      echo "Error: invalid test data archive?"
      exit 1
   fi
-  /bin/rm -f tests.tar.gz
+  /bin/rm -f tests-2.2.3.tar.gz
   
   #cp tests_exp_out/*.gtf tests/ 2>/dev/null
 }
 
-#if [ ! -f tests/human-chr19_P.gff ]; then
-  if [ -f tests.tar.gz ]; then
+
+if [ -f tests-2.2.3.tar.gz ]; then
     #extract the tarball and rename the directory
     echo "..Using existing ./tests.tar.gz"
     unpack_test_data
   else
     echo "..Downloading test data.."
-    #use curl to fetch the tarball from a specific github release or branch
-    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
+   #use curl to fetch the tarball from a specific github release or branch
+    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/tests-2.2.3.tar.gz
     unpack_test_data
-  fi
-# fi
+fi
 cd tests
 # array element format:
 # 

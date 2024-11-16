@@ -13,7 +13,7 @@
   #ifndef _WIN64
     #define _WIN64
   #endif
-  #define __USE_MINGW_ANSI_STDIO 1
+  // #define __USE_MINGW_ANSI_STDIO 1
   //#define __ISO_C_VISIBLE 1999
 #endif
 
@@ -197,6 +197,7 @@ inline int iround(double x) {
 char* Grealpath(const char *path, char *resolved_path);
 
 int Gmkdir(const char *path, bool recursive=true, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH));
+int Grmdir(const char *path);
 
 void Gmktempdir(char* templ);
 
