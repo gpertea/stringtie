@@ -4,7 +4,7 @@
 #include "GStr.h"
 #include "GBitVec.h"
 #include "time.h"
-#include "bundle.h" // includes tablemaker.h
+#include "bundle.h" // includes tablemaker.h, usgread.h
 #include "GHashMap.hh"
 
 #define MAX_NODE 1000000

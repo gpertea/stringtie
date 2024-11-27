@@ -5,6 +5,7 @@
 extern bool mergeMode;
 
 #include "tablemaker.h"
+#include "usgread.h"
 
 extern bool genNascent; // generate nascent synthetic transcripts for each bundle
 
@@ -31,7 +32,6 @@ enum GuideBundleStatus {
 };
 GuideBundleStatus getGuideStatus(GffObj* t);
 void setGuideStatus(GffObj* t, GuideBundleStatus status);
-
 
 //collect all refguide transcripts for a single genomic sequence
 struct GRefData {
@@ -73,12 +73,20 @@ struct GRefData {
 };
 
 
+struct BundleData;
+
+// from nascent branch, packaging guide data
+// TODO: see USG GuidesData, can they be merged?
 struct Ref_RC_Data {
      GRefData* refdata=nullptr;
 	 GPVec<RC_TData>*   rc_tdata=nullptr;
 	 GPVec<RC_Feature>* rc_edata =nullptr;
 	 GPVec<RC_Feature>* rc_idata = nullptr;
+	 Ref_RC_Data() {}
+	 Ref_RC_Data(GPVec<RC_TData>& tdata, GPVec<RC_Feature>& edata, GPVec<RC_Feature>& idata):
+		  rc_tdata(&tdata), rc_edata(&edata), rc_idata(&idata) {}
  };
+
 
 enum GPFType {
 	GPFT_NONE=0,
@@ -331,6 +339,7 @@ struct BundleData {
  GVec<float> bpcov[3];   // this needs to be changed to a more inteligent way of storing the data
  GList<CJunction> junction;
  GPVec<GffObj> keepguides; //list of guides in this bundle (+ synthetic nascents if genNascent)
+ SGBundle* usgbundle=nullptr;
  GPVec<GPtFeature> ptfs; //point features for this bundle
  GList<CPrediction> pred;
  int numNascents=0; //number of nascent transcripts generated for this bundle
@@ -416,15 +425,114 @@ struct BundleData {
 	frag_len=0;
 	sum_cov=0;
 	covflags=0;
+    delete usgbundle;
+	usgbundle=nullptr;
 	delete rc_data;
+	rc_data=nullptr;
 	GFREE(gseq);
-	rc_data=NULL;
  }
 
  ~BundleData() {
 	Clear();
  }
 };
+
+// from USG branch - alternative for keeping track of reference transcripts per chromosome
+// guides related structures and code
+struct GuidesData {
+ GList<GffObj>* guides=nullptr; //list of transcripts on a specific reference
+ int ng_start=0;
+ int ng_end=-1;
+ int ng=0;
+ GPVec<RC_TData> guides_RC_tdata; //raw count data or other info for all guide transcripts
+ GPVec<RC_Feature> guides_RC_exons; //raw count data for all guide exons
+ GPVec<RC_Feature> guides_RC_introns;//raw count data for all guide introns
+ GuidesData():guides_RC_tdata(true), guides_RC_exons(true), guides_RC_introns(true) {}
+
+ inline void newChrInit(GVec<GRefData> &refguides, int gseq_id) { //new chr
+	 ng = 0;
+	 guides = nullptr;
+	 ng_start = 0;
+	 ng_end = -1;
+	 if (refguides.Count() > gseq_id && refguides[gseq_id].rnas.Count() > 0) {
+		 guides = &(refguides[gseq_id].rnas);
+		 ng = guides->Count();
+	 }
+ }
+ inline void newBundleGuides(BundleData* bundle,  Ref_RC_Data& ref_rc,
+                        int& currentstart, int& currentend, bool fixed_ends=false) {
+	// uses AND updates currentstart, currentend with overlapping guids
+	ng_start=ng_end+1;
+	while (ng_start<ng && (int)(*guides)[ng_start]->end < currentstart) {
+		// skip guides which have no overlap with current read
+		ng_start++;
+	}
+	int ng_ovl=ng_start;
+	//add all guides overlapping the current read and other guides that overlap them
+	while (ng_ovl<ng && (int)(*guides)[ng_ovl]->start<=currentend) { //while guide overlap
+ 	    if (currentstart>(int)(*guides)[ng_ovl]->start)
+			   currentstart=(*guides)[ng_ovl]->start;
+		if (currentend<(int)(*guides)[ng_ovl]->end)
+			     currentend=(*guides)[ng_ovl]->end;
+	    if (fixed_ends) {
+			bundle->keepGuide((*guides)[ng_ovl], ref_rc);
+				// &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+            ng_ovl++;
+			continue; //do not back check
+		}
+		if (ng_ovl==ng_start && ng_ovl>0) { //first time only, we have to check back all possible transitive guide overlaps
+			int g_back=ng_ovl; //start from the overlapping guide, going backwards
+			int g_ovl_start=ng_ovl;
+			while (g_back>ng_end+1) {
+				--g_back;
+				//if overlap, set g_back_start=g_back and update currentstart
+				if (currentstart<=(int)(*guides)[g_back]->end) {
+					g_ovl_start=g_back;
+					if (currentstart>(int)(*guides)[g_back]->start)
+						currentstart=(int)(*guides)[g_back]->start;
+				}
+			} //while checking previous guides that could be pulled in this bundle
+			for (int gb=g_ovl_start;gb<=ng_ovl;++gb) {
+				bundle->keepGuide((*guides)[gb], ref_rc);
+						// &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+			}
+		} //needed to check previous guides for overlaps
+		else bundle->keepGuide((*guides)[ng_ovl], ref_rc);
+				// &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+		ng_ovl++;
+	} //while guide overlap
+	ng_end=ng_ovl-1; //MUST update ng_end here, even if no overlaps were found
+ }
+ inline void addOverlappingGuides(BundleData* bundle, Ref_RC_Data& ref_rc,
+                 int& currentstart, int& currentend, bool fixed_end=false) {
+	//add any newly overlapping guides to bundle
+	bool cend_changed;
+	int new_end=currentend;
+	do {
+		cend_changed=false;
+		while (ng_end+1<ng && (int)(*guides)[ng_end+1]->start<=currentend) {
+			++ng_end;
+			//more transcripts overlapping this bundle?
+			if ((int)(*guides)[ng_end]->end>=currentstart) {
+				//it should really overlap the bundle
+				bundle->keepGuide((*guides)[ng_end], ref_rc);
+						// &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
+				if (fixed_end) {
+					if (new_end<(int)(*guides)[ng_end]->end)
+					   new_end=(*guides)[ng_end]->end;
+				} else {
+					if(currentend<(int)(*guides)[ng_end]->end) {
+						currentend=(*guides)[ng_end]->end;
+						cend_changed=true;
+					}
+				}
+			}
+		}
+	} while (cend_changed);
+	if (fixed_end) currentend=new_end;
+ }
+};
+
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata,bool ovlpguide);

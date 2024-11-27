@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "3.0.0"
+#define VERSION "3.5.0"
 
 //#define DEBUGPRINT 1
 
@@ -34,7 +34,7 @@ stringtie <in.bam ..> [-G <guide_gff>] [-l <prefix>] [-o <out.gtf>] [-p <cpus>]\
  [-v] [-a <min_anchor_len>] [-m <min_len>] [-j <min_anchor_cov>] [-f <min_iso>]\n\
  [-c <min_bundle_cov>] [-g <bdist>] [-u] [-L] [-e] [--viral] [-E <err_margin>]\n\
  [--ptf <f_tab>] [-x <seqid,..>] [-A <gene_abund.out>] [-h] {-B|-b <dir_path>}\n\
- [--mix] [--conservative] [--rf] [--fr]\n\
+ [--usg <f_tab>] [--mix] [--conservative] [--rf] [--fr]\n\
 Assemble RNA-Seq alignments into potential transcripts.\n\
 Options:\n\
  --version : print just the version at stdout and exit\n\
@@ -65,8 +65,8 @@ Options:\n\
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)\n\
  -p number of threads (CPUs) to use (default: 1)\n\
  -A gene abundance estimation output file\n\
- -N : use with non-polyA RNA-seq\n\
- --nasc : output nascent transcripts\n\
+ -N nascent RNA aware, use with non-polyA RNA-seq\n\
+ --nasc nascent RNA aware, output and quantify likely nascent transcripts\n\
  -E define window around possibly erroneous splice sites from long reads to\n\
     look out for correct splice sites (default: 25)\n\
  -B enable output of Ballgown table files which will be created in the\n\
@@ -195,8 +195,6 @@ bool debugMode=false;
 bool verbose=false;
 bool ballgown=false;
 
-bool havePtFeatures=false;
-
 //int maxReadCov=1000000; //max local read coverage (changed with -s option)
 //no more reads will be considered for a bundle if the local coverage exceeds this value
 //(each exon is checked for this)
@@ -227,6 +225,7 @@ int refseqCount=0; // number of reference sequences found in the guides file
  GStr maxMemBundle;
 #endif
 
+const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 
 #ifndef NOTHREADS
 //single producer, multiple consumers
@@ -312,6 +311,295 @@ int waitForData(BundleData* bundles);
 
 TInputFiles bamreader;
 
+FILE* usgfh=NULL; // --usg feature (universal splicing graph)
+GStr usgfile;
+bool useUSG=false;
+SGReader* usgreader=nullptr;
+
+bool havePtFeatures=false;
+bool no_ref_used=true;
+
+ // --- input processing globals - main bundle building thread
+ // the entries below are NOT thread-safe, but they are only used by the main thread
+ // as bundles are formed serially (one at a time)
+ // for a multi-producer model, these would have to be moved to the BundleData structure
+ GHash<int> hashread;      //read_name:pos:hit_index => readlist index
+ int currentstart=0, currentend=0;
+
+ GVec<GRefData> refguides; // plain vector with guides loaded for each chromosome (if guided)
+ const char* refseqName=NULL;
+ int gseq_id=-1;
+
+ GStr lastref;
+ int lastref_id=-1; //last seen gseq_id
+
+ GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
+ int ptf_idx=0; //point-feature current index in the current (*refptfs)[]
+ GArray<GRefPtData> refpts(true, true); // sorted,unique array of refseq point-features data
+
+ GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
+
+ //table indexes for Ballgown Raw Counts data (-B/-b option)
+ GPVec<RC_TData> guides_RC_tdata(true); //raw count data or other info for all guide transcripts
+ GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
+ GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
+
+ Ref_RC_Data ref_rc(guides_RC_tdata, guides_RC_exons, guides_RC_introns); //will update ref_rc.refdata in loop
+
+#ifndef NOTHREADS
+ GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
+ //the consumers take (pop) bundles out of this queue for processing
+ //the producer populates this queue with bundles built from reading the BAM input
+ BundleData* bundles=nullptr;
+#else
+ BundleData bundles[1];
+#endif
+
+ inline int getRefSeqId(const char* chr, bool aln=false) {
+	//returns the gseq_id for the given refSeqName
+	//if not found, adds it to the gseqNames dictionary
+	gseq_id=gseqNames->gseqs.addName(chr);
+	if (aln) {
+		if (alncounts.Count()<=gseq_id) {
+					alncounts.Resize(gseq_id+1);
+				}
+				else if (alncounts[gseq_id]>0)
+						GError("%s\nAlignments (%d) already found for %s !\n",
+							ERR_BAM_SORT, alncounts[gseq_id], refseqName);
+	}
+	return gseq_id;
+}
+
+inline bool getNextReadAln( TInputFiles& bamreader, GSamRecord*& brec, int& prev_pos,
+                    char& xstrand, bool& chr_changed, bool& skipAln, SGBundle* usgbundle=nullptr,
+					bool* overlap_usg=nullptr) {
+		 if ( (brec=bamreader.next())==nullptr) return false;
+		 skipAln=false;
+		 if (brec->isUnmapped()) { skipAln=true; return true; }
+		 if (brec->start<1 || brec->mapped_len<10) {
+			 if (verbose) GMessage("Warning: invalid mapping found for read %s (position=%d, mapped length=%d)\n",
+					 brec->name(), brec->start, brec->mapped_len);
+			 skipAln=true;
+			 return true;
+		 }
+		 refseqName=brec->refName();
+ 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
+		 int usgrefcmp;
+		 bool ovlusg;
+		 if (usgbundle) {
+			usgrefcmp=strcmp(refseqName, usgbundle->chr);
+			if (usgrefcmp<0 || (usgrefcmp==0 && brec->end<usgbundle->start)) {
+				//alignment before usgbundle, skip it
+				skipAln=true;
+				prev_pos=(usgrefcmp!=0) ? 0 : brec->start;
+				return true;
+			}
+			ovlusg=(usgrefcmp==0 && brec->start<=usgbundle->end);
+			if (overlap_usg) *overlap_usg=ovlusg;
+		 }
+		 if (excludeGseqs.hasKey(refseqName)) {
+			 prev_pos=brec->start; //or 0 if there was a chr change
+			 skipAln=true; //this should also work for exclusion of region by BED file
+			 return true;
+		 }
+
+		 xstrand=brec->spliceStrand(); // tagged strand gets priority
+		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
+			 if(brec->isPaired()) { // read is paired
+				 if(brec->pairOrder()==1) { // first read in pair
+					 if((rf_strand && brec->revStrand())||(fr_strand && !brec->revStrand())) xstrand='+';
+					 else xstrand='-';
+				 }
+				 else {
+					 if((rf_strand && brec->revStrand())||(fr_strand && !brec->revStrand())) xstrand='-';
+					 else xstrand='+';
+				 }
+			 }
+			 else {
+				 if((rf_strand && brec->revStrand())||(fr_strand && !brec->revStrand())) xstrand='+';
+				 else xstrand='-';
+			 }
+		 }
+		 chr_changed=(lastref.is_empty() || lastref!=refseqName);
+		 if (chr_changed) {
+			 prev_pos=0;
+			 gseq_id=getRefSeqId(refseqName, true);
+ 			 if (guided) {
+				 if (gseq_id>=refseqCount) {
+					 if (verbose)
+						 GMessage("WARNING: no reference transcripts found for genomic sequence \"%s\"! (mismatched reference names?)\n",
+								refseqName);
+				 }
+				 else no_ref_used=false;
+			 }
+		 } //chr_changed
+
+		 if ((int)brec->start<prev_pos) GError("%s\nread %s found at position %d on %s when prev_pos=%d\n",
+			   ERR_BAM_SORT, brec->name(), brec->start, refseqName, prev_pos);
+		 prev_pos=brec->start;
+		 if (usgbundle) {
+               // we only count alignments overlapping the bundle
+			   //TODO: update this after next bundle is started
+			   if (ovlusg) alncounts[gseq_id]++;
+		 } else alncounts[gseq_id]++;
+ 	     return true;
+}
+
+inline void closeBundle(BundleData* bundle) {
+		 hashread.Clear();
+		 if (bundle->readlist.Count()>0) {
+			// (readthr, junctionthr, mintranscriptlen are globals)
+			if (refptfs) { //point-features defined for this reference
+				while (ptf_idx<refptfs->Count() && (int)(refptfs->Get(ptf_idx)->coord)<currentstart)
+					ptf_idx++;
+				//TODO: what if a PtFeature is nearby, just outside the bundle?
+				while (ptf_idx<refptfs->Count() && (int)(refptfs->Get(ptf_idx)->coord)<=currentend) {
+					bundle->ptfs.Add(refptfs->Get(ptf_idx)); //keep this PtFeature
+					ptf_idx++;
+				}
+			}
+			bundle->getReady(currentstart, currentend);
+			if (gfasta!=NULL) { //genomic sequence data requested
+				GFaSeqGet* faseq=gfasta->fetch(bundle->refseq.chars());
+				if (faseq==NULL) {
+					GError("Error: could not retrieve sequence data for %s!\n", bundle->refseq.chars());
+				}
+				bundle->gseq=faseq->copyRange(bundle->start, bundle->end, false, true);
+			}
+#ifndef NOTHREADS
+			//push this in the bundle queue where it'll be picked up by the threads
+			DBGPRINT2("##> Locking queueMutex to push loaded bundle into the queue (bundle.start=%d)\n", bundle->start);
+			int qCount=0;
+			queueMutex.lock();
+			bundleQueue.Push(bundle);
+			bundleWork |= 0x02; //set bit 1
+			qCount=bundleQueue.Count();
+			queueMutex.unlock();
+			DBGPRINT2("##> bundleQueue.Count()=%d)\n", qCount);
+			//wait for a thread to pop this bundle from the queue
+			waitMutex.lock();
+			DBGPRINT("##> waiting for a thread to become available..\n");
+			while (threadsWaiting==0) {
+				haveThreads.wait(waitMutex);
+			}
+			waitMutex.unlock();
+			haveBundles.notify_one();
+			DBGPRINT("##> waitMutex unlocked, haveBundles notified, current thread yielding\n");
+			current_thread::yield();
+			queueMutex.lock();
+			DBGPRINT("##> queueMutex locked until bundleQueue.Count()==qCount\n");
+			while (bundleQueue.Count()==qCount) {
+				queueMutex.unlock();
+				DBGPRINT2("##> queueMutex unlocked as bundleQueue.Count()==%d\n", qCount);
+				haveBundles.notify_one();
+				current_thread::yield();
+				queueMutex.lock();
+				DBGPRINT("##> queueMutex locked again within while loop\n");
+			}
+			queueMutex.unlock();
+
+#else //no threads
+			//Num_Fragments+=bundle->num_fragments;
+			//Frag_Len+=bundle->frag_len;
+			processBundle(bundle);
+#endif
+			// ncluster++; used it for debug purposes only
+		 } //have alignments to process
+		 else { //no read alignments in this bundle?
+#ifndef NOTHREADS
+			dataMutex.lock();
+			DBGPRINT2("##> dataMutex locked for bundle #%d clearing..\n", bundle->idx);
+#endif
+			bundle->Clear();
+#ifndef NOTHREADS
+			dataClear.Push(bundle->idx);
+			DBGPRINT2("##> dataMutex unlocking as dataClear got pushed idx #%d\n", bundle->idx);
+			dataMutex.unlock();
+#endif
+		 } //nothing to do with this bundle
+
+}
+
+//if an usgbundle is provided, it determines the fixed span of
+// the new bundle (currentstart, currentend) and also updates gseq_id
+inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec, int& prev_pos,
+        bool more_alns, bool& chr_changed, SGBundle* usgbundle=nullptr,
+		bool* overlap_usg=nullptr) {
+	  if (!more_alns) { //no more alignments to process
+		if (verbose) {
+#ifndef NOTHREADS
+					GLockGuard<GFastMutex> lock(logMutex);
+#endif
+					if (Num_Fragments) {
+					   printTime(stderr);
+					   GMessage(" %g aligned fragments found.\n", Num_Fragments);
+					}
+					//GMessage(" Done reading alignments.\n");
+		}
+		noMoreBundles();
+		return false; // break the main loop
+	  }
+	  bool aln_ovl;
+      if (usgbundle) {
+		//update refseqName, gseq_id
+		refseqName=usgbundle->chr;
+		chr_changed=(lastref.is_empty() || lastref!=refseqName);
+        if (chr_changed) { //update gseq_id
+		   gseq_id=getRefSeqId(refseqName, true);
+		}
+		aln_ovl=strcmp(refseqName, usgbundle->chr)==0 &&
+		                brec->start<=usgbundle->end && brec->end>=usgbundle->start;
+		if (overlap_usg) *overlap_usg=aln_ovl;
+	  }
+	  if (chr_changed) { //load guides and point-features for this chromosome
+	    prev_pos=0;
+		if (guided) gd.newChrInit(refguides, gseq_id);
+		if (havePtFeatures) {
+			ptf_idx=-1;
+			//setup refptf
+			refptfs=NULL;
+			GRefPtData rd(gseq_id);
+			int ridx=refpts.IndexOf(rd);
+			if (ridx>=0) {
+			refptfs=&(refpts[ridx].pfs);
+			ptf_idx=0;
+			}
+		}
+		lastref=refseqName;
+		lastref_id=gseq_id;
+		currentend=0; //signal that this bundle was just initialized on a new chromosome
+	  }
+
+// ------ start and initialize a new bundle
+#ifndef NOTHREADS
+		 int new_bidx=waitForData(bundles); //wait for a free bundle slot to become available,
+		 									//to become the new "current bundle" and load this brec in it
+		 if (new_bidx<0) {
+			 //should never happen!
+			 GError("Error: waitForData() returned invalid bundle index(%d)!\n", new_bidx);
+			 //break;
+		 }
+		 bundle=&(bundles[new_bidx]);
+#endif
+		 if (usgbundle) {
+			currentstart=aln_ovl ? GMIN(usgbundle->start, brec->start) : usgbundle->start;
+			currentend=aln_ovl ? GMAX(usgbundle->end, brec->end): usgbundle->end;
+			//bundle->refseq=usgbundle->chr;
+			bundle->usgbundle=usgbundle;
+		 } else {
+			currentstart=brec->start;
+			currentend=brec->end;
+		 }
+		 if (gd.guides) // add guides overlapping and/or extending the initial range
+               gd.newBundleGuides(bundle, ref_rc,
+			                     currentstart, currentend, false); //fixed_ends=usgbundle!=nullptr);
+
+		 bundle->refseq=lastref;
+		 bundle->start=currentstart;
+		 bundle->end=currentend;
+		 return true; //new bundle started
+}
+
 int main(int argc, char* argv[]) {
 
  // == Process arguments.
@@ -325,23 +613,7 @@ int main(int argc, char* argv[]) {
 	 */
  processOptions(args);
 
- GVec<GRefData> refguides; // plain vector with guides loaded for each chromosome (if guided)
-
- GArray<GRefPtData> refpts(true, true); // sorted,unique array of refseq point-features data
-
- //table indexes for Ballgown Raw Counts data (-B/-b option)
- GPVec<RC_TData> guides_RC_tdata(true); //raw count data or other info for all guide transcripts
- GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
- GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
-
- GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
-
  int bamcount=bamreader.start(); //setup and open input files
-
-
- //TODO: TEST ONLY!
- //genNascent=true;
- // ----
 
 #ifndef GFF_DEBUG
  if (bamcount<1) {
@@ -353,7 +625,7 @@ int main(int argc, char* argv[]) {
   verbose=true;
 #endif
 
-const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
+GuidesData gd;
 
  if(guided) { // read guiding transcripts from input gff file
 	 if (verbose) {
@@ -425,7 +697,6 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  gseqNames=GffObj::names; //might have been populated already by gff data
  gffnames_ref(gseqNames);  //initialize the names collection if not guided
 
-
  // -- loading point-feature data
  if (!ptff.is_empty()) {
    FILE* f=fopen(ptff.chars(),"r");
@@ -434,7 +705,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    //                transcripts_only    sort by location?
    int numptf=loadPtFeatures(f, refpts); //adds to gseqNames->gseqs accordingly, populates refpts
    havePtFeatures=(numptf>0);
-   fclose(f);
+   std::fclose(f);
  }
 
 #ifdef GFF_DEBUG
@@ -449,26 +720,12 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
   exit(0);
 #endif
 
- // --- input processing
 
-
- GHash<int> hashread;      //read_name:pos:hit_index => readlist index
  GList<GffObj>* guides=NULL; //list of transcripts on a specific reference
- GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
- int currentstart=0, currentend=0;
  int ng_start=0;
  int ng_end=-1;
- int ptf_idx=0; //point-feature current index in the current (*refptfs)[]
  int ng=0;
- GStr lastref;
  bool no_ref_used=true;
- int lastref_id=-1; //last seen gseq_id
- // int ncluster=0; used it for debug purposes only
-
-  Ref_RC_Data ref_rc; //will update ref_rc.refdata in loop
-  ref_rc.rc_tdata=&guides_RC_tdata;
-  ref_rc.rc_edata=&guides_RC_exons;
-  ref_rc.rc_idata=&guides_RC_introns;
 
  //Ballgown files
  FILE* f_tdata=NULL;
@@ -476,6 +733,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
  FILE* f_idata=NULL;
  FILE* f_e2t=NULL;
  FILE* f_i2t=NULL;
+
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
 #ifndef NOTHREADS
@@ -495,7 +753,6 @@ if (ballgown)
 #endif
  GThread* threads=new GThread[num_cpus]; //bundle processing threads
 
- GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
  //the consumers take (pop) bundles out of this queue for processing
  //the producer populates this queue with bundles built from reading the BAM input
 
@@ -510,7 +767,6 @@ if (ballgown)
    }
  BundleData* bundle = &(bundles[num_cpus]);
 #else
- BundleData bundles[1];
  BundleData* bundle = &(bundles[0]);
 #endif
  GSamRecord* brec=NULL;
@@ -521,11 +777,10 @@ if (ballgown)
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;
-	 const char* refseqName=NULL;
 	 char xstrand=0;
 	 int nh=1;
 	 int hi=0;
-	 int gseq_id=lastref_id;  //current chr id
+	 gseq_id=lastref_id;  //current chr id
      int bundle_last_kept_guide=-1;
 	 bool new_bundle=false;
 	 //delete brec;
