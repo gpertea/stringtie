@@ -30,6 +30,7 @@ enum GuideBundleStatus {
   GBST_ALL_INTR_COV, // 2: all introns covered by at least one read
   GBST_STORED,     // 3: stored to be printed
 };
+
 GuideBundleStatus getGuideStatus(GffObj* t);
 void setGuideStatus(GffObj* t, GuideBundleStatus status);
 
@@ -75,10 +76,10 @@ struct GRefData {
 
 struct BundleData;
 
-// from nascent branch, packaging guide data
-// TODO: see USG GuidesData, can they be merged?
+// from nascent branch, packaging gloabl guide data
+/*
 struct Ref_RC_Data {
-     GRefData* refdata=nullptr;
+     GRefData* refdata=nullptr; //for current chromosome
 	 GPVec<RC_TData>*   rc_tdata=nullptr;
 	 GPVec<RC_Feature>* rc_edata =nullptr;
 	 GPVec<RC_Feature>* rc_idata = nullptr;
@@ -86,7 +87,7 @@ struct Ref_RC_Data {
 	 Ref_RC_Data(GPVec<RC_TData>& tdata, GPVec<RC_Feature>& edata, GPVec<RC_Feature>& idata):
 		  rc_tdata(&tdata), rc_edata(&edata), rc_idata(&idata) {}
  };
-
+*/
 
 enum GPFType {
 	GPFT_NONE=0,
@@ -381,8 +382,8 @@ struct BundleData {
 	}
 	Not needed here, we update the coverage span as each transcript is added
  */
- void keepGuide(GffObj* scaff, Ref_RC_Data& ref_rc_data);
- void generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc); //defined in tablemaker.cpp
+ void keepGuide(GffObj* scaff, GuidesData& ref_rc_data);
+ void generateAllNascents(int from_guide_idx, GuidesData& ref_rc); //defined in tablemaker.cpp
  // use this for debug only
  void printBundleGuides() {
 	 GStr fname("bundle");
@@ -439,14 +440,20 @@ struct BundleData {
 
 // from USG branch - alternative for keeping track of reference transcripts per chromosome
 // guides related structures and code
+//TODO: replace Ref_RC_Data
 struct GuidesData {
- GList<GffObj>* guides=nullptr; //list of transcripts on a specific reference
- int ng_start=0;
- int ng_end=-1;
- int ng=0;
+ // -- global data for all guides across all chromosomes
  GPVec<RC_TData> guides_RC_tdata; //raw count data or other info for all guide transcripts
  GPVec<RC_Feature> guides_RC_exons; //raw count data for all guide exons
  GPVec<RC_Feature> guides_RC_introns;//raw count data for all guide introns
+
+ // per chromosome variables, not thread safe (single producer assumed)
+ GRefData* refdata=nullptr; //reference data for the current genomic reference (chromosome)
+ GList<GffObj>* guides=nullptr; //list of transcripts on the current specific genomic reference
+ int ng_start=0;
+ int ng_end=-1;
+ int ng=0;
+
  GuidesData():guides_RC_tdata(true), guides_RC_exons(true), guides_RC_introns(true) {}
 
  inline void newChrInit(GVec<GRefData> &refguides, int gseq_id) { //new chr
@@ -459,7 +466,7 @@ struct GuidesData {
 		 ng = guides->Count();
 	 }
  }
- inline void newBundleGuides(BundleData* bundle,  Ref_RC_Data& ref_rc,
+ inline void newBundleGuides(BundleData* bundle,  GuidesData& ref_rc,
                         int& currentstart, int& currentend, bool fixed_ends=false) {
 	// uses AND updates currentstart, currentend with overlapping guids
 	ng_start=ng_end+1;
@@ -476,7 +483,6 @@ struct GuidesData {
 			     currentend=(*guides)[ng_ovl]->end;
 	    if (fixed_ends) {
 			bundle->keepGuide((*guides)[ng_ovl], ref_rc);
-				// &guides_RC_tdata, &guides_RC_exons, &guides_RC_introns);
             ng_ovl++;
 			continue; //do not back check
 		}
@@ -503,7 +509,7 @@ struct GuidesData {
 	} //while guide overlap
 	ng_end=ng_ovl-1; //MUST update ng_end here, even if no overlaps were found
  }
- inline void addOverlappingGuides(BundleData* bundle, Ref_RC_Data& ref_rc,
+ inline void addOverlappingGuides(BundleData* bundle, GuidesData& ref_rc,
                  int& currentstart, int& currentend, bool fixed_end=false) {
 	//add any newly overlapping guides to bundle
 	bool cend_changed;
@@ -532,7 +538,6 @@ struct GuidesData {
 	if (fixed_end) currentend=new_end;
  }
 };
-
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata,bool ovlpguide);

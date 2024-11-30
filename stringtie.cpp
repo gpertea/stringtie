@@ -326,6 +326,10 @@ bool no_ref_used=true;
  GHash<int> hashread;      //read_name:pos:hit_index => readlist index
  int currentstart=0, currentend=0;
 
+ GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
+ int ptf_idx=0; //point-feature current index in the current (*refptfs)[]
+ GArray<GRefPtData> refpts(true, true); // sorted,unique array of refseq point-features data
+
  GVec<GRefData> refguides; // plain vector with guides loaded for each chromosome (if guided)
  const char* refseqName=NULL;
  int gseq_id=-1;
@@ -333,19 +337,17 @@ bool no_ref_used=true;
  GStr lastref;
  int lastref_id=-1; //last seen gseq_id
 
- GList<GPtFeature>* refptfs=NULL; //list of point-features on a specific reference
- int ptf_idx=0; //point-feature current index in the current (*refptfs)[]
- GArray<GRefPtData> refpts(true, true); // sorted,unique array of refseq point-features data
 
  GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
 
  //table indexes for Ballgown Raw Counts data (-B/-b option)
+ /*
  GPVec<RC_TData> guides_RC_tdata(true); //raw count data or other info for all guide transcripts
  GPVec<RC_Feature> guides_RC_exons(true); //raw count data for all guide exons
  GPVec<RC_Feature> guides_RC_introns(true);//raw count data for all guide introns
 
  Ref_RC_Data ref_rc(guides_RC_tdata, guides_RC_exons, guides_RC_introns); //will update ref_rc.refdata in loop
-
+*/
 #ifndef NOTHREADS
  GPVec<BundleData> bundleQueue(false); //queue of loaded bundles
  //the consumers take (pop) bundles out of this queue for processing
@@ -591,8 +593,8 @@ inline bool initNewBundle(BundleData* &bundle, GuidesData& gd, GSamRecord*& brec
 			currentend=brec->end;
 		 }
 		 if (gd.guides) // add guides overlapping and/or extending the initial range
-               gd.newBundleGuides(bundle, ref_rc,
-			                     currentstart, currentend, false); //fixed_ends=usgbundle!=nullptr);
+               gd.newBundleGuides(bundle, gd,
+			                     currentstart, currentend, usgbundle!=nullptr); //fixed_ends=usgbundle!=nullptr);
 
 		 bundle->refseq=lastref;
 		 bundle->start=currentstart;
@@ -604,13 +606,11 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;nasc;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
-   "exclude=zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
+   "debug;help;version;viral;conservative;mix;nasc;ref=;cram-ref=cds=;keeptmp;"
+   "usg=;rseq=;ptf=;bam;fr;rf;merge;exclude="
+   "zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
-	/**
-	 * No code was selected, so no documentation can be generated.
-	 */
  processOptions(args);
 
  int bamcount=bamreader.start(); //setup and open input files
@@ -680,10 +680,10 @@ GuidesData gd;
 	   //DONE: always create a RC_TData for each guide in uptr, with additional tx data
 	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
 	   m->uptr=tdata;
-	   guides_RC_tdata.Add(tdata);
+	   gd.guides_RC_tdata.Add(tdata);
 	   if (ballgown) { //already gather exon & intron info for all ref transcripts
-		   tdata->rc_addFeatures(c_exon_id, uexons, guides_RC_exons,
-		          c_intron_id, uintrons, guides_RC_introns);
+		   tdata->rc_addFeatures(c_exon_id, uexons, gd.guides_RC_exons,
+		          c_intron_id, uintrons, gd.guides_RC_introns);
 	   }
 	   GRefData& grefdata = refguides[m->gseq_id];
 	   grefdata.add(&gffr, m); // add transcripts already sorted by location
@@ -722,10 +722,12 @@ GuidesData gd;
 
 
  GList<GffObj>* guides=NULL; //list of transcripts on a specific reference
+ /* now in gd
  int ng_start=0;
  int ng_end=-1;
  int ng=0;
  bool no_ref_used=true;
+ */
 
  //Ballgown files
  FILE* f_tdata=NULL;
@@ -733,6 +735,11 @@ GuidesData gd;
  FILE* f_idata=NULL;
  FILE* f_e2t=NULL;
  FILE* f_i2t=NULL;
+
+ // -----  test SGBundle reading
+ if (useUSG) {
+ 	 usgreader=new SGReader(usgfh);
+ }
 
 if (ballgown)
  Ballgown_setupFiles(f_tdata, f_edata, f_idata, f_e2t, f_i2t);
@@ -755,8 +762,7 @@ if (ballgown)
 
  //the consumers take (pop) bundles out of this queue for processing
  //the producer populates this queue with bundles built from reading the BAM input
-
- BundleData* bundles=new BundleData[num_cpus+1];
+ bundles=new BundleData[num_cpus+1];
  //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
 
  dataClear.setCapacity(num_cpus+1);
@@ -769,11 +775,17 @@ if (ballgown)
 #else
  BundleData* bundle = &(bundles[0]);
 #endif
+ SGBundle* usgbundle=useUSG ? new SGBundle() : nullptr;
+ //bool skipGseq=false;
+ //bool nextUSG=useUSG ? true : false;
+ // ------ bundle forming loop
+
+ //TAlnInfo* tinfo=NULL; // for --merge
+ //bool skipGseq=false;
+
  GSamRecord* brec=NULL;
- bool more_alns=true;
- TAlnInfo* tinfo=NULL; // for --merge
  int prev_pos=0;
- bool skipGseq=false;
+ bool more_alns=true;
  while (more_alns) {
 	 bool chr_changed=false;
 	 int pos=0;

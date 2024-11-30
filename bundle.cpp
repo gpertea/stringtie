@@ -5,7 +5,7 @@ const byte txNASCENT_MASK=0x0C; // 2 bit flag for synthetic nascent transcripts
 
 const byte txSTATUS_MASK=0x03; // 2 bits mask for bundle status, former RC_TData::in_bundle
            // 1 if used in a bundle (guide added to keepguides, default value)
-	         // 2 if all introns are covered by at least one read 
+	         // 2 if all introns are covered by at least one read
 					 // 3 if it is stored to be printed
 GuideBundleStatus getGuideStatus(GffObj* guide) {
   return (GuideBundleStatus)guide->getUserFlags(txSTATUS_MASK);
@@ -42,22 +42,22 @@ byte isNascent(GffObj* guide) {
 }*/
 
 // genNascent is included from rlink.h
-void BundleData::keepGuide(GffObj* guide, Ref_RC_Data& ref_rc) {
+void BundleData::keepGuide(GffObj* guide, GuidesData& ref_rc) {
 	if (rc_data==NULL) {
-	  rc_init(guide, ref_rc.rc_tdata, ref_rc.rc_edata, 
-               ref_rc.rc_idata);
+	  rc_init(guide, & ref_rc.guides_RC_tdata, & ref_rc.guides_RC_exons,
+                   & ref_rc.guides_RC_introns);
 	}
 	keepguides.Add(guide);
   if (isNascent(guide)) {
     // add it to corresponding refdata.synrnas
-    RC_TData* tdata=new RC_TData(*guide, ref_rc.rc_tdata->Count());
+    RC_TData* tdata=new RC_TData(*guide, ref_rc.guides_RC_tdata.Count());
     // for nascents, uptr was used to store the gen_from guide
     tdata->gen_from=(GffObj*)(guide->uptr);
 	  guide->uptr=tdata;
-	  ref_rc.rc_tdata->Add(tdata);
+	  ref_rc.guides_RC_tdata.Add(tdata);
     ref_rc.refdata->synrnas.Add(guide);
   }
-	guide->udata=(int)rc_data->addTranscript(*guide); 
+	guide->udata=(int)rc_data->addTranscript(*guide);
   //this also adds exon/intron info
 }
 
@@ -75,7 +75,7 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& gu
               nt->addExon(guide.exons[j]->start, guide.exons[j]->end);
           }
           // Extend the first exon of nt through the previous intron up to the start of the previous exon in guide
-          nt->exons[0]->start = guide.exons[n-i]->end + 1; 
+          nt->exons[0]->start = guide.exons[n-i]->end + 1;
           nt->start = nt->exons[0]->start;
         } else { //forward strand, add exons in the same order as in guide
           for (int j = 0; j < i; ++j) {
@@ -86,7 +86,7 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& gu
           nt->exons.Last()->end = guide.exons[i]->start-1;
           nt->end = nt->exons.Last()->end;
         }
-          
+
         bool keepNascent = true;
          //   set keepNascent to false if a matching previous nascent is found
         int ridx=-1;
@@ -98,7 +98,7 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& gu
           // backward search --------------
           // set a limit to the backward search, to avoid checking too distant nascents
           int64_t nt_bck_limit=((int64_t)nt->start - (int64_t)(nt->end - nt->start)/2);
-          
+
           for (int i = ridx - 1; i >= 0; --i) {
               // break condition for the backward search is not as straightforward as the forward search
               // because the end coordinates do not influence the sort order.
@@ -112,10 +112,10 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& gu
                   nxr++;
                   break;
               }
-              // Note: An optimization here might consider the spatial distance between transcripts, but 
+              // Note: An optimization here might consider the spatial distance between transcripts, but
               // without a clear rule on how much overlap is needed for a match, it's safer not to break early.
           } // backward search
-          
+
           if (keepNascent)
             //forward search
             for (int i = ridx; i < tnlist.Count(); ++i) {
@@ -130,8 +130,8 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& gu
                       break;
                  }
             }
-        } 
-        
+        }
+
         if (keepNascent) {
           // insert it in the right location in the list
           tnlist.sortInsert(ridx, nt);
@@ -142,12 +142,12 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& gu
           nt->setGeneName(guide.getGeneName());
           nt->setID(nid.chars());
           setNascent(nt, 1); // Set the nascent flag
-        } else 
+        } else
            delete nt; //discard this nascent transcript (matching guide/other nascent found)
-    } //for i 
+    } //for i
 }
 
-void BundleData::generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc) {
+void BundleData::generateAllNascents(int from_guide_idx, GuidesData& ref_rc) {
   //GPVec<GffObj> oguides(keepguides); // copy list of pointers to guides
   // tnlist is a sorted list of nascent transcripts to be added to keepguides
   GList<GffObj> tnlist(true, true); //list to collect all nascents in this bundle
@@ -162,7 +162,7 @@ void BundleData::generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc) {
   for (int i=0;i<tnlist.Count();++i) {
     keepGuide(tnlist[i], ref_rc);
     tnlist.Put(i, NULL); //don't delete nascent, it's now owned by keepguides
-  } 
+  }
   keepguides.Sort();
 }
 
@@ -186,8 +186,8 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
  for (int i=0;i<brec.exons.Count();i++) { //for each read exon
 	 if (ballgown)
 		 rc_data->updateCov(xstrand, nh, brec.exons[i].start, brec.exons[i].len());
-	 GArray<RC_ExonOvl> exonOverlaps(true, true); 
-   //overlaps sorted by priority (guide/nascent) and length 
+	 GArray<RC_ExonOvl> exonOverlaps(true, true);
+   //overlaps sorted by priority (guide/nascent) and length
    //   guide overlaps, if any, are always first
    // findOvlExons requires an overlap of at least 5 bp
 	 if (rc_data->findOvlExons(exonOverlaps, brec.exons[i].start,
@@ -196,13 +196,13 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 		 int best_ovl=exonOverlaps[0].ovlen; //largest guide exon overlap (nascents have lower priority)
      int mate_ovl=exonOverlaps[0].mate_ovl;
      byte guide_ovl=exonOverlaps[0].in_guides; // is the ovl ref exon in a real guide, or just nascents?
-		 if(full_overlap && (uint)best_ovl<brec.exons[i].len()) 
+		 if(full_overlap && (uint)best_ovl<brec.exons[i].len())
         full_overlap=false; // this exon is not fully overlapped by a guide exon
 
 		 for (int k=0;k<exonOverlaps.Count();++k) { //check all overlaps of similar length
           if (k && (exonOverlaps[k].mate_ovl < mate_ovl
               || exonOverlaps[k].ovlen+5<best_ovl || exonOverlaps[k].in_guides < guide_ovl) )
-            break; // NOTE ignore further overlaps after a mate matched 
+            break; // NOTE ignore further overlaps after a mate matched
                     // or if they are shorter than max_overlap-5
           if (exonOverlaps[k].feature->strand=='+') strandbits |= 0x01;
           else if (exonOverlaps[k].feature->strand=='-') strandbits |= 0x02;
@@ -217,7 +217,7 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 	 if (i>0) { //adjacent intron check for match to guide introns
 		 int j_l=brec.exons[i-1].end+1;
 		 int j_r=brec.exons[i].start-1;
-		 alndata.juncs.Add(new CJunction(j_l, j_r)); 
+		 alndata.juncs.Add(new CJunction(j_l, j_r));
 		 RC_Feature* ri=rc_data->findIntron(j_l, j_r, xstrand);
 		 if (ri) { //update guide intron counts
 			 ri->rcount++;
