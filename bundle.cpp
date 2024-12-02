@@ -147,12 +147,12 @@ void genTxNascents(GffObj &guide, GList<GffObj>& tnlist) { //, GPVec<GffObj>& gu
     } //for i
 }
 
-void BundleData::generateAllNascents(int from_guide_idx, GuidesData& ref_rc) {
+void BundleData::generateAllNascents(GuidesData& ref_rc) {
   //GPVec<GffObj> oguides(keepguides); // copy list of pointers to guides
   // tnlist is a sorted list of nascent transcripts to be added to keepguides
   GList<GffObj> tnlist(true, true); //list to collect all nascents in this bundle
   tnlist.setSorted(txCmpByExons); //sort and match by exon coordinates
-  for (int i=from_guide_idx;i<keepguides.Count();++i) {
+  for (int i=guides_gen_nasc_from;i<keepguides.Count();++i) {
     GffObj* guide=keepguides[i];
     if (guide->exons.Count()<2) continue;
     genTxNascents(*guide, tnlist); //, keepguides);
@@ -164,6 +164,7 @@ void BundleData::generateAllNascents(int from_guide_idx, GuidesData& ref_rc) {
     tnlist.Put(i, NULL); //don't delete nascent, it's now owned by keepguides
   }
   keepguides.Sort();
+  guides_gen_nasc_from=keepguides.Count();
 }
 
 bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {

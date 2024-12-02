@@ -76,6 +76,8 @@ struct GRefData {
 
 struct BundleData;
 
+struct GuidesData;
+
 // from nascent branch, packaging gloabl guide data
 /*
 struct Ref_RC_Data {
@@ -151,6 +153,8 @@ struct CJunction:public GSeg {
 	char guide_match; //exact match of a ref intron?
 	char consleft; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
 	char consright; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
+	uint usg_start=-1; // matching index of the jstart node in usgbunfle, -1 if not present
+	uint usg_end=-1; // matching index of the jstart node in usgbunfle, -1 if not present
 	double nreads;
 	double nreads_good;
 	double leftsupport;
@@ -232,18 +236,41 @@ struct CReadAln:public GSeg {
 
 struct GReadAlnData {
 	GSamRecord* brec;
-	char strand; //-1, 0, 1
-	int nh;
-	int hi;
+	char strand=0; //-1, 0, 1
+	int nh=0;
+	int hi=0;
 	GPVec<CJunction> juncs;
 	union {
-		TAlnInfo* tinfo;
+		TAlnInfo* tinfo=nullptr;
 		bool in_guide;
 	};
 	//GPVec< GVec<RC_ExonOvl> > g_exonovls; //>5bp overlaps with guide exons, for each read "exon"
-	GReadAlnData(GSamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
+	/* GReadAlnData(GSamRecord* bamrec=NULL, char nstrand=0, int num_hits=0,
 			int hit_idx=0, TAlnInfo* tif=NULL):brec(bamrec), strand(nstrand),
-					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)
+					nh(num_hits), hi(hit_idx), juncs(true), tinfo(tif) { } //, g_exonovls(true)*/
+	GReadAlnData(GSamRecord* bamrec=NULL, char xstrand='.'):brec(bamrec) {
+		if (brec) {
+		 if (xstrand!='.') strand=(xstrand=='+') ? 1:-1;
+		 nh=brec->tag_int("NH");
+		 if (nh==0) nh=1;
+		 hi=brec->tag_int("HI");
+		 		 if (mergeMode) {
+			tinfo=new TAlnInfo(brec->name(), brec->uval);
+			GStr score(brec->tag_str("ZS"));
+			if (!score.is_empty()) {
+			  GStr srest=score.split('|');
+			  if (!score.is_empty())
+				 tinfo->cov=score.asDouble();
+			  score=srest.split('|');
+			  if (!srest.is_empty())
+				 tinfo->fpkm=srest.asDouble();
+			  srest=score.split('|');
+			  if (!score.is_empty())
+				 tinfo->tpm=score.asDouble();
+			}
+		 }
+		}
+	}
 	~GReadAlnData() { if(mergeMode) delete tinfo; }
 };
 
@@ -333,7 +360,6 @@ struct BundleData {
  double frag_len;
  double sum_cov; // sum of all transcripts coverages --> needed to compute TPMs
  char covflags;
-
  GStr refseq; //reference sequence name
  char* gseq; //actual genomic sequence for the bundle
  GList<CReadAln> readlist;
@@ -344,6 +370,7 @@ struct BundleData {
  GPVec<GPtFeature> ptfs; //point features for this bundle
  GList<CPrediction> pred;
  int numNascents=0; //number of nascent transcripts generated for this bundle
+ int guides_gen_nasc_from = 0; //next guide index in keepguides to generate nascents from
  RC_BundleData* rc_data; // read count data for this bundle
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 numreads(0),
@@ -383,7 +410,7 @@ struct BundleData {
 	Not needed here, we update the coverage span as each transcript is added
  */
  void keepGuide(GffObj* scaff, GuidesData& ref_rc_data);
- void generateAllNascents(int from_guide_idx, GuidesData& ref_rc); //defined in tablemaker.cpp
+ void generateAllNascents(GuidesData& ref_rc); //defined in tablemaker.cpp
  // use this for debug only
  void printBundleGuides() {
 	 GStr fname("bundle");
@@ -424,6 +451,7 @@ struct BundleData {
 	numNascents=0;
 	num_fragments=0;
 	frag_len=0;
+	guides_gen_nasc_from=0;
 	sum_cov=0;
 	covflags=0;
     delete usgbundle;
@@ -463,6 +491,7 @@ struct GuidesData {
 	 ng_end = -1;
 	 if (refguides.Count() > gseq_id && refguides[gseq_id].rnas.Count() > 0) {
 		 guides = &(refguides[gseq_id].rnas);
+		 refdata = &refguides[gseq_id];
 		 ng = guides->Count();
 	 }
  }
@@ -508,7 +537,9 @@ struct GuidesData {
 		ng_ovl++;
 	} //while guide overlap
 	ng_end=ng_ovl-1; //MUST update ng_end here, even if no overlaps were found
+	if (genNascent) bundle->generateAllNascents(ref_rc);
  }
+
  inline void addOverlappingGuides(BundleData* bundle, GuidesData& ref_rc,
                  int& currentstart, int& currentend, bool fixed_end=false) {
 	//add any newly overlapping guides to bundle
@@ -536,8 +567,10 @@ struct GuidesData {
 		}
 	} while (cend_changed);
 	if (fixed_end) currentend=new_end;
+	if (genNascent) bundle->generateAllNascents(ref_rc);
  }
-};
+
+}; //end GuidesData
 
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata,bool ovlpguide);
