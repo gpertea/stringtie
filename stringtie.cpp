@@ -1319,6 +1319,15 @@ void processOptions(GArgs& args) {
 	             ptff.chars());
 	 }
 
+     usgfile=args.getOpt("usg");
+     if (!usgfile.is_empty()) {
+  	   if (fileExists(usgfile.chars())<=1) //not a file
+  		   GError("Error: USG file (%s) not found.\n",  usgfile.chars());
+       usgfh=fopen(usgfile.chars(),"r");
+	   if (usgfh==NULL) GError("Error: could not open USG file (%s)!\n",
+		       usgfile.chars());
+	   useUSG=true;
+     }
 	 //enableNames=(args.getOpt('E')!=NULL);
 
 	 retained_intron=(args.getOpt('i')!=NULL);
@@ -1470,7 +1479,7 @@ void processOptions(GArgs& args) {
 		 f_out=fopen(tmpfname.chars(), "w");
 		 if (f_out==NULL) GError("Error creating output file %s\n", tmpfname.chars());
 	 }
-}
+} //processOptions()
 
 //---------------
 bool moreBundles() { //getter (interogation)
@@ -1516,16 +1525,16 @@ void processBundle(BundleData* bundle) {
 		GLockGuard<GFastMutex> lock(logMutex);
 	#endif
 		printTime(stderr);
-		if (genNascent)
-		  GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides (%d nascent)] begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
-                bundle->keepguides.Count(), bundle->numNascents);
-		else
-		  GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides] begins processing...\n",
-				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads, bundle->readlist.Count(), bundle->junction.Count(),
-                bundle->keepguides.Count());
-	// -- DEBUG only - uncomment for testing nascent generation
-	//if (genNascent) bundle->printBundleGuides(); //write out the guides, including synthetic nascents, as BED
+		GMessage(">bundle %s:%d-%d [%lu alignments (%d distinct), %d junctions, %d guides",
+				bundle->refseq.chars(), bundle->start, bundle->end, bundle->numreads,
+				bundle->readlist.Count(), bundle->junction.Count(), bundle->keepguides.Count());
+		if (genNascent) GMessage(" (%d nascent)", bundle->numNascents);
+		if (bundle->usgbundle) {
+			// write some USG bundle stats
+			GMessage(", USG: %d nodes (%d src)", bundle->usgbundle->nodes.Count(),
+							bundle->usgbundle->tstarts.Count());
+		}
+		GMessage("] processing...\n");
 	#ifdef GMEMTRACE
 			double vm,rsm;
 			get_mem_usage(vm, rsm);

@@ -1,3 +1,5 @@
+#ifndef BUNDLE_H_
+#define BUNDLE_H_
 #include "gff.h"
 #include "GSam.h"
 #include "GStr.h"
@@ -9,6 +11,16 @@ extern bool mergeMode;
 
 extern bool genNascent; // generate nascent synthetic transcripts for each bundle
 
+#define BSIZE 10000 // bundle size
+
+struct CReadAln;
+
+// usg related functions
+float get_cov(int s, uint start, uint end, GVec<float>* bpcov);
+float get_cov_sign(int s, uint start, uint end, GVec<float>* bpcov);
+void add_read_to_ugroup(int n, GList<CReadAln>& readlist, SGBundle* ubundle, GVec<int> &read2unode, GPVec<UGroup> *unode2ugroup);
+
+// nascent related functions
 void setNascent(GffObj* t, byte v=1); // set/clear the synthetic nascent RNA flag
 //0 = not nascent, 1 = synthetic nascent, 2 = nascent replacing a guide
 byte isNascent(GffObj* t); // check if a transcript is a synthetic nascent RNA
@@ -153,8 +165,8 @@ struct CJunction:public GSeg {
 	char guide_match; //exact match of a ref intron?
 	char consleft; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
 	char consright; // -1,0,1 -1 is not set up, 0 is non consensus, 1 is consensus
-	uint usg_start=-1; // matching index of the jstart node in usgbunfle, -1 if not present
-	uint usg_end=-1; // matching index of the jstart node in usgbunfle, -1 if not present
+	int usg_start=-1; // matching index of the jstart node in usg bundle, -1 if not present
+	int usg_end=-1; // matching index of the jstart node in usg bundle, -1 if not present
 	double nreads;
 	double nreads_good;
 	double leftsupport;
@@ -576,3 +588,4 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata,bool ovlpguide);
 		 //GSamRecord& brec, char strand, int nh, int hi);
 
+#endif /* BUNDLE_H_ */

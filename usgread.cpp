@@ -1,13 +1,12 @@
-#include "rlink.h"
-
-
 //#define GMEMTRACE 1  //debugging memory allocation
 #ifdef GMEMTRACE
 #include "proc_mem.h"
 #endif
 
+#include "rlink.h"
 
 // this functions merges a read to ugroup and returns the ugroup position in vector
+//WIP FIXME
 void merge_read_to_ugroup(int n,float readcov, int sno,GList<CReadAln>& readlist,UGroup **ugroup,UGroup **currugroup,
 		SGBundle* ubundle) {
 
@@ -20,11 +19,10 @@ void merge_read_to_ugroup(int n,float readcov, int sno,GList<CReadAln>& readlist
 }
 
 void merge_ugroups(UGroup *grp1, UGroup *grp2) {
-
 	// grp2 is added to grp1 and then it is deleted from the links
-
-	int i=
-	if(grp1->unode.Last()->end<grp2->unode)
+    //WIP FIXME
+	//int i=
+	//if(grp1->unode.Last()->end<grp2->unode)
 
 }
 
@@ -77,7 +75,8 @@ void add_read_to_ugroup(int n,GList<CReadAln>& readlist,SGBundle* ubundle,GVec<i
 
 				if(n<np) { // read pair comes after read n
 					float readcov=readlist[n]->pair_count[p];
-					merge_pair_to_ugroup(n,np,readcov,snop,readlist,ugroup,currugroup,ubundle,pair_start);
+					//WIP FIXME - ugroup, currugroup, pair_start undefined
+					//merge_pair_to_ugroup(n,np,readcov,snop,readlist,ugroup,currugroup,ubundle,pair_start);
 				}
 			} // this ends if(np>-1)
 		} // if(np>-1 && readlist[np]->nh) : read pair exists and it wasn't deleted
@@ -88,9 +87,49 @@ void add_read_to_ugroup(int n,GList<CReadAln>& readlist,SGBundle* ubundle,GVec<i
 
 	// now I need to deal with the single count
 	if(single_count>epsilon) { // my way of controlling for rounding errors
-		merge_read_to_ugroup(n,single_count,sno,readlist,ugroup,currugroup,ubundle);
+	    //WIP FIXME - ugroup, currugroup, undefined
+		//merge_read_to_ugroup(n,single_count,sno,readlist,ugroup,currugroup,ubundle);
 	}
 
 
 }
 
+// WIP FIXME
+void build_usg(BundleData* bdata,GVec<int> &read2unode) {
+
+	int refstart = bdata->start;  // reference start
+	GList<CReadAln>& readlist = bdata->readlist; // all reads in bundle
+	GList<CJunction>& junction = bdata->junction; // all junction in bundle
+	GPVec<GffObj>& guides = bdata->keepguides; // all guides in bundle
+	GVec<float>* bpcov = bdata->bpcov; // I might want to use a different type of data for bpcov to save memory in the case of very long bundles
+	GList<CPrediction>& pred = bdata->pred;
+
+	SGBundle* usgbundle = bdata->usgbundle;
+	GPVec<UGroup> unode2ugroup[usgbundle->nodes.Count()];
+
+
+	for(int n=0;n<readlist.Count();n++) { // for all reads in bundle
+		if(readlist[n]->nh) add_read_to_ugroup(n,readlist,usgbundle,read2unode,unode2ugroup);
+	}
+
+	for(int i=0;i<usgbundle->nodes.Count();i++) {
+		if(usgbundle->nodes[i]->type==JSTART) { // junction
+			for(int j=0;j<usgbundle->nodes[i]->jxLinks.Count();j++) {
+				char s=0; // unknown strand
+				if(usgbundle->nodes[i]->jxLinks[j].strand=='+') s=1; // junction on positive strand
+				else if(usgbundle->nodes[i]->jxLinks[j].strand=='-') s=-1; // guide on negative strand
+				CJunction jn(usgbundle->nodes[i]->position,usgbundle->nodes[i]->jxLinks[j].pos,s);
+				int oidx=-1;
+				if (junction.Found(&jn, oidx)) { // junction present in data
+					junction[oidx]->usg_start=i;
+					junction[oidx]->usg_end=usgbundle->nodes[i]->jxLinks[j].jx->bidx;
+				}
+			}
+
+		}
+	}
+
+
+
+    //TODO: don't forget to clean up the allocated data here
+}

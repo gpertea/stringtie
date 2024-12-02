@@ -238,3 +238,27 @@ bool BundleData::evalReadAln(GReadAlnData& alndata, char& xstrand) {
 
  return result;
 }
+
+float get_cov(int s, uint start, uint end, GVec<float>* bpcov) {
+	int m=int((end+1)/BSIZE);
+	int k=int(start/BSIZE);
+	float cov=0;
+	for(int i=k+1;i<=m;i++)
+		cov+=bpcov[s][i*BSIZE-1];
+	cov+=bpcov[s][end+1]-bpcov[s][start];
+	if(cov<0) cov=0;
+	return(cov);
+
+}
+
+float get_cov_sign(int s, uint start, uint end, GVec<float>* bpcov) {
+	int m=int((end+1)/BSIZE);
+	int k=int(start/BSIZE);
+	int o=2-s;
+	float cov=0;
+	for(int i=k+1;i<=m;i++)
+		cov+=bpcov[1][i*BSIZE-1]-bpcov[o][i*BSIZE-1];
+	cov+=bpcov[1][end+1]-bpcov[1][start]-bpcov[o][end+1]+bpcov[o][start];
+	if(cov<0) cov=0;
+	return(cov);
+}

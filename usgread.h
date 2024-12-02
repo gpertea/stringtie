@@ -9,6 +9,7 @@
 #define USGREAD_H_
 #include "GVec.hh"
 
+
 typedef int SG_getChrIDFunc(const char* chr);
 
 enum SGNodeType {
@@ -200,6 +201,10 @@ struct UGroup: public GSeg { // universal group -> links several UNode's togethe
 	GPVec<UNode> unode;
 	UGroup(int rstart=0, int rend=0, UGroup *_ulk=NULL): GSeg(rstart, rend), ulk(_ulk),unode(true) { }
 };
+
+struct BundleData;
+
+void build_usg(BundleData* bdata,GVec<int> &read2unode);
 
 
 #endif /* USGREAD_H_ */

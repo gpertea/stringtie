@@ -271,15 +271,6 @@ struct CInterval {
 	CInterval(uint _pos=0,float _val=0,CInterval *_next=NULL):pos(_pos),val(_val),next(_next) {}
 };
 
-/*
-struct CSegCov:public GSeg {
-	bool spliced:1;
-	GVec<GStr> rname;
-	CSegCov *next; // next interval;
-	CSegCov(uint start=0,uint end=0):GSeg(start,end),spliced(false),rname(),next(NULL) {}
-};
-*/
-
 struct CMaxIntv:public GSeg {
 	GVec<CExon> node;
 	float cov;
@@ -350,6 +341,7 @@ struct CGraphnode:public GSeg {
 	float cov;
 	float abundin; //sum of all transfrags entering node
 	float abundout; //sum of all transfrags exiting node
+    float rate; // conversion rate between in and out transfrags of node
 	//float frag; // number of fragments included in node
 	GVec<int> child;
 	GVec<int> parent;

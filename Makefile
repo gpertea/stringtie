@@ -1,6 +1,6 @@
 #-- for now these MUST point to the included "samtools-0.x.x" and "gclib" sub-directories
 HTSLIB  := ./htslib
-#-- 
+#--
 LIBDEFLATE := ${HTSLIB}/xlibs/lib/libdeflate.a
 LIBBZ2 := ${HTSLIB}/xlibs/lib/libbz2.a
 LIBLZMA := ${HTSLIB}/xlibs/lib/liblzma.a
@@ -121,9 +121,9 @@ else
 endif
 
 ifdef RELEASE_BUILD
- ifneq ($(findstring static,$(MAKECMDGOALS)),) 
+ ifneq ($(findstring static,$(MAKECMDGOALS)),)
   # static or static-cpp found
-  ifneq ($(findstring static-cpp,$(MAKECMDGOALS)),) 
+  ifneq ($(findstring static-cpp,$(MAKECMDGOALS)),)
      #not a full static build, only c/c++ libs
      LDFLAGS := -static-libgcc -static-libstdc++ ${LDFLAGS}
   else
@@ -140,7 +140,7 @@ ifdef DEBUG_BUILD
 endif
 
 OBJS := ${GDIR}/GBase.o ${GDIR}/GArgs.o ${GDIR}/GStr.o ${GDIR}/GSam.o \
- ${GDIR}/gdna.o ${GDIR}/codons.o ${GDIR}/GFastaIndex.o ${GDIR}/GFaSeqGet.o ${GDIR}/gff.o 
+ ${GDIR}/gdna.o ${GDIR}/codons.o ${GDIR}/GFastaIndex.o ${GDIR}/GFaSeqGet.o ${GDIR}/gff.o
 
 ifneq (,$(filter %memtrace %memusage %memuse, $(MAKECMDGOALS)))
     CXXFLAGS += -DGMEMTRACE
@@ -148,13 +148,14 @@ ifneq (,$(filter %memtrace %memusage %memuse, $(MAKECMDGOALS)))
 endif
 
 ifndef NOTHREADS
- OBJS += ${GDIR}/GThreads.o 
+ OBJS += ${GDIR}/GThreads.o
 endif
 
 %.o : %.cpp
 	${CXX} ${CXXFLAGS} -c $< -o $@
 
-OBJS += bundle.o rlink.o tablemaker.o tmerge.o
+OBJS += bundle.o usgread.o rlink.o tablemaker.o tmerge.o
+## print_results.o ?
 
 all release static static-cpp debug: stringtie${EXE}
 memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
@@ -162,13 +163,15 @@ memuse memusage memtrace: stringtie${EXE}
 prof profile: stringtie${EXE}
 nothreads: stringtie${EXE}
 
-stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GSam.h
-rlink.o : rlink.h tablemaker.h bundle.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
-bundle.o : bundle.h rlink.h tablemaker.h $(GDIR)/GSam.h
+stringtie.o : usgread.h bundle.h rlink.h $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GSam.h
+rlink.o : rlink.h usgread.h tablemaker.h bundle.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
+bundle.o : bundle.h usgread.h rlink.h tablemaker.h $(GDIR)/GSam.h
+usgread.o : rlink.h
+print_results.o : rlink.h
 tmerge.o : rlink.h tmerge.h
 tablemaker.o : tablemaker.h rlink.h
 
-##${BAM}/libbam.a: 
+##${BAM}/libbam.a:
 ##	cd ${BAM} && make lib
 
 ${HTSLIB}/libhts.a:
