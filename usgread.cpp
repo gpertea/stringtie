@@ -7,8 +7,8 @@
 
 // this functions merges a read to ugroup and returns the ugroup position in vector
 //WIP FIXME
-void merge_read_to_ugroup(int n,float readcov, int sno,GList<CReadAln>& readlist,UGroup **ugroup,UGroup **currugroup,
-		SGBundle* ubundle) {
+void merge_read_to_ugroup(int n, float readcov, int sno, GList<CReadAln>& readlist, UGroup **ugroup, UGroup **currugroup,
+		                  SGBundle* ubundle) {
 
 	if(currugroup[sno]) { // group exists
 
@@ -27,8 +27,8 @@ void merge_ugroups(UGroup *grp1, UGroup *grp2) {
 }
 
 
-void merge_pair_to_ugroup(int n,int np, float readcov, int sno,GList<CReadAln>& readlist,UGroup **ugroup,UGroup **currugroup,
-		SGBundle* ubundle,UGroup **pairstart) {
+void merge_pair_to_ugroup(int n, int np, float readcov, int sno,GList<CReadAln>& readlist, UGroup **ugroup, UGroup **currugroup,
+		                  SGBundle* ubundle, UGroup **pairstart) {
 
 
 	merge_read_to_ugroup(n,readcov,sno,readlist,ugroup,currugroup,ubundle);
@@ -38,7 +38,7 @@ void merge_pair_to_ugroup(int n,int np, float readcov, int sno,GList<CReadAln>& 
 
 }
 
-void add_read_to_ugroup(int n,GList<CReadAln>& readlist,SGBundle* ubundle,GVec<int> &read2unode,GPVec<UGroup> *unode2ugroup) {
+void add_read_to_ugroup(int n, GList<CReadAln>& readlist, SGBundle* ubundle, GVec<int> &read2unode, GPVec<UGroup> *unode2ugroup) {
 
 
 	float single_count=readlist[n]->read_count; // need to compute read single count
@@ -95,7 +95,7 @@ void add_read_to_ugroup(int n,GList<CReadAln>& readlist,SGBundle* ubundle,GVec<i
 }
 
 // WIP FIXME
-void build_usg(BundleData* bdata,GVec<int> &read2unode) {
+void build_usg(BundleData* bdata, GVec<int> &read2unode) {
 
 	int refstart = bdata->start;  // reference start
 	GList<CReadAln>& readlist = bdata->readlist; // all reads in bundle

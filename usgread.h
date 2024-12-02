@@ -204,7 +204,7 @@ struct UGroup: public GSeg { // universal group -> links several UNode's togethe
 
 struct BundleData;
 
-void build_usg(BundleData* bdata,GVec<int> &read2unode);
+void build_usg(BundleData* bdata, GVec<int> &read2unode);
 
 
 #endif /* USGREAD_H_ */
