@@ -154,8 +154,7 @@ endif
 %.o : %.cpp
 	${CXX} ${CXXFLAGS} -c $< -o $@
 
-OBJS += bundle.o usgread.o rlink.o tablemaker.o tmerge.o
-## print_results.o ?
+OBJS += bundle.o usgread.o rlink.o print_results.o tablemaker.o tmerge.o
 
 all release static static-cpp debug: stringtie${EXE}
 memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}

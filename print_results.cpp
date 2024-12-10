@@ -19,6 +19,8 @@ extern FILE* f_out;
 extern GStr label;
 extern bool eonly;
 extern bool mixedMode;
+extern bool isnascent;
+extern bool printNascent;
 extern bool guided;
 extern int mintranscriptlen; // minimum number for a transcript to be printed
 extern float singlethr;     // read coverage per bundle bp to accept it; otherwise considered noise
@@ -27,89 +29,30 @@ extern uint junctionsupport; // anchor length for junction to be considered well
 extern bool includecov;
 extern bool enableNames;
 
-int predordCmp(const pointer p1, const pointer p2) { // sort from highest to lowest coverage
-	CPred *a=(CPred*)p1;
-	CPred *b=(CPred*)p2;
-	if(a->cov < b->cov) return 1;
-	if(a->cov > b->cov) return -1;
-	return 0;
-}
+//  tracking overlaps between predictions in a bundle
+// using a triangular matrix representation based on total number of predictions npred
+class OvlTracker {
+  int count; // total number of items to track overlaps between
+  GBitVec ovls; // triangular matrix representation of overlaps
+  inline int get_index(int i, int j) {
+	// Ensure i != j since no self-overlap should be used
+	if (i == j) GError("OvlTracker: self-overlap index is not allowed.");
+	// Calculate index for triangular matrix storage
+	if (i > j) Gswap(i, j);
+	return (j * (j - 1)) / 2 + i;
+  }
+public:
+  OvlTracker(int n) : count(n), ovls((n * (n - 1)) / 2) {}
+  bool get(int i, int j) {
+	int index = get_index(i, j);
+    return ovls[index];
+  }
+  void set(int i, int j, bool val=true) {
+	int index = get_index(i, j);
+    ovls[index]=val;
+  }
 
-int predCmp(const pointer p1, const pointer p2) {
-	CPrediction *a=(CPrediction*)p1;
-	CPrediction *b=(CPrediction*)p2;
-
-	if(a->start < b->start) return -1; // order based on start
-	if(a->start > b->start) return 1;
-
-	if(a->cov > b->cov) return -1; // the one with higher coverage comes first
-	if(a->cov < b->cov) return 1;
-
-	// same start
-
-	if(a->exons.Count() < b->exons.Count()) return -1; // order based on number of exons
-	if(a->exons.Count() > b->exons.Count()) return 1;
-
-	// same number of exons
-	int i=0;
-	uint a1=0;
-	uint b1=0;
-	while(i<a->exons.Count()) {
-		if(a->exons[i].start<b->exons[i].start) {
-			a1=a->exons[i].start;
-			b1=b->exons[i].start;
-			break;
-		}
-		if(a->exons[i].end<b->exons[i].end) {
-			a1=a->exons[i].end;
-			b1=b->exons[i].end;
-			break;
-		}
-		i++;
-	}
-	if(a1) {
-		if(a1<b1) return -1; // the one with the first exon comes first
-		if(a1>b1) return 1;
-	}
-	//}
-	return 0;
-}
-
-/*
- *
-
- int predlenCmp(const pointer p1, const pointer p2) { // sort from highest to lowest coverage
-	CPrediction *a=(CPrediction*)p1;
-	CPrediction *b=(CPrediction*)p2;
-	if(a->exons.Count() < b->exons.Count()) return 1;
-	if(a->exons.Count() > b->exons.Count()) return -1;
-	if(a->t_eq==NULL && b->t_eq!=NULL) return 1;
-	if(a->t_eq!=NULL && b->t_eq==NULL) return -1;
-	if(a->cov < b->cov) return 1;
-	if(a->cov > b->cov) return -1;
-	return 0;
-}
-
-int predcovCmp(const pointer p1, const pointer p2) { // sort from highest to lowest coverage
-	CPrediction *a=(CPrediction*)p1;
-	CPrediction *b=(CPrediction*)p2;
-	if(a->cov < b->cov) return 1;
-	if(a->cov > b->cov) return -1;
-	return 0;
-}
-
-int predexCmp(const pointer p1, const pointer p2) {
-	CPrediction *a=(CPrediction*)p1;
-	CPrediction *b=(CPrediction*)p2;
-	if(a->exons.Count() < b->exons.Count()) return -1;
-	if(a->exons.Count() > b->exons.Count()) return 1;
-	if(abs(a->tlen) < abs(b->tlen)) return -1;
-	if(abs(a->tlen) > abs(b->tlen)) return 1;
-	return 0;
-}
-
- *
- */
+};
 
 void merge_exons(CGene& gene,GList<GffExon>& exons) {
 	int ig=0;
@@ -250,154 +193,41 @@ void find_endpoints(int refstart,uint start,uint end,GVec<float>* bpcov, uint &n
 
 }
 
-/*
-bool is_pred_above_frac(CInterval *maxcov,CPrediction* pred) {
 
-	CInterval *lastinterv=NULL;
-	while(maxcov && pred->start>=maxcov->pos) {
-		lastinterv=maxcov;
-		maxcov=maxcov->next;
-	}
-	if(lastinterv && ((pred->exons.Count()==1 && pred->cov<lastinterv->val) || pred->cov<isofrac*lastinterv->val)) return(false); // I need to deal with single exons too here
-	while(maxcov && pred->end>=maxcov->pos) {
-		if((pred->exons.Count()==1 && pred->cov<maxcov->val) || pred->cov<isofrac*maxcov->val) return(false);
-		maxcov=maxcov->next;
-	}
-	return(true);
-}
+void update_overlap(GList<CPrediction>& pred,int p,int e,GVec<CExon>& node, OvlTracker& overlaps) {
 
-//bool is_exon_above_frac(CInterval *maxcov,uint start,uint end,float cov,int exonno) {
-bool is_exon_above_frac(CInterval *maxcov,uint start,uint end,float cov) {
-
-	CInterval *lastinterv=NULL;
-	while(maxcov && start>=maxcov->pos) {
-		lastinterv=maxcov;
-		maxcov=maxcov->next;
-	}
-	//if(lastinterv && ((exonno==1 && cov<lastinterv->val) || cov<isofrac*lastinterv->val)) return(false); // I need to deal with single exons too here
-	if(lastinterv &&  cov<isofrac*lastinterv->val) return(false); // I need to deal with single exons too here
-	while(maxcov && end>=maxcov->pos) {
-		//if((exonno==1 && cov<maxcov->val) || cov<isofrac*maxcov->val) return(false);
-		if(cov<isofrac*maxcov->val) return(false);
-		maxcov=maxcov->next;
-	}
-	return(true);
-}
-
-void delete_Cinterval(CInterval *interv){
-	if(interv) {
-		if(interv->next) delete_Cinterval(interv->next);
-		delete interv;
-	}
-}
-*/
-
-void update_overlap(GList<CPrediction>& pred,int p,int e,GVec<CExon>& node,GVec<bool>& overlap) {
-
-	int n=pred.Count();
-	for(int i=0;i<node.Count();i++) if(!overlap[n*node[i].predno+p]) { // there is no overlap detected yet
+	//int n=pred.Count();
+	for(int i=0;i<node.Count();i++) if(!overlaps.get(node[i].predno, p)) { // there is no overlap detected yet
 
 		// exon e in prediction p overlaps exon ei in prediction pi
 		int pi=node[i].predno;
 		int ei=node[i].exonno;
 
-		overlap[n*pi+p]=true;
+		overlaps.set(pi, p);
 
 		// overlap is not significant in the following cases
 		if(!e && pred[p]->exons[0].end>=pred[pi]->end) { // I am at the beginning of prediction p
 			int len=pred[pi]->end-pred[p]->start+1;
-			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlap[n*pi+p]=false; // prediction p doesn't overlap prediction pi by a considerable amount
+			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlaps.set(pi,p,false); // prediction p doesn't overlap prediction pi by a considerable amount
 		}
 
-		if(overlap[n*pi+p] && !ei && pred[pi]->exons[0].end>=pred[p]->end) { // I am at the beginning of prediction pi
+		if(overlaps.get(pi,p) && !ei && pred[pi]->exons[0].end>=pred[p]->end) { // I am at the beginning of prediction pi
 			int len=pred[p]->end-pred[pi]->start+1;
-			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlap[n*pi+p]=false; // prediction pi doesn't overlap prediction p by a considerable amount
+			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlaps.set(pi,p,false); // prediction pi doesn't overlap prediction p by a considerable amount
 		}
 
-		if(overlap[n*pi+p] && e==pred[p]->exons.Count()-1 && pred[p]->exons[e].start<=pred[pi]->start) { // I am at the end of prediction p
+		if (overlaps.get(pi,p) && e==pred[p]->exons.Count()-1 && pred[p]->exons[e].start<=pred[pi]->start) { // I am at the end of prediction p
 			int len=pred[p]->end-pred[pi]->start+1;
-			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlap[n*pi+p]=false; // prediction p doesn't overlap prediction pi by a considerable amount
+			if(len<ERROR_PERC*abs(pred[p]->tlen)) overlaps.set(pi,p,false); // prediction p doesn't overlap prediction pi by a considerable amount
 		}
 
-		if(overlap[n*pi+p] && ei==pred[pi]->exons.Count()-1 && pred[pi]->exons[ei].start<=pred[p]->start) { // I am at the end of prediction pi
+		if(overlaps.get(pi,p) && ei==pred[pi]->exons.Count()-1 && pred[pi]->exons[ei].start<=pred[p]->start) { // I am at the end of prediction pi
 			int len=pred[pi]->end-pred[p]->start+1;
-			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlap[n*pi+p]=false; // prediction pi doesn't overlap prediction p by a considerable amount
+			if(len<ERROR_PERC*abs(pred[pi]->tlen)) overlaps.set(pi,p,false); // prediction pi doesn't overlap prediction p by a considerable amount
 		}
 
 	}
 }
-
-/*void update_cov(GList<CPrediction>& pred,int big,int small,float frac=1) { // small gets included into big
-
-	if(pred[big]->strand=='.') pred[big]->strand=pred[small]->strand;
-
-	if(pred[small]->t_eq && !pred[big]->t_eq) { // this can only happen if big pred has the same number of exons
-		pred[big]->tlen=pred[small]->tlen;
-		pred[big]->exons[0].start=pred[small]->exons[0].start;
-		pred[big]->start=pred[small]->start;
-		pred[big]->exons.Last().end=pred[small]->exons.Last().end;
-		pred[big]->end=pred[small]->end;
-		pred[big]->t_eq=pred[small]->t_eq;
-	}
-
-	int bex=0; // first exon in big pred that overlaps small pred
-	while(pred[small]->exons[0].start>pred[big]->exons[bex].end) bex++;
-
-	if(pred[big]->cov<pred[small]->cov && !pred[big]->t_eq && !bex && pred[small]->exons.Count()>1 && pred[big]->exons[0].start<pred[small]->exons[0].start) { // adjust start to account for trimming -> this messes up coverage of big pred though
-		pred[big]->tlen-=pred[small]->exons[0].start-pred[big]->exons[0].start;
-		pred[big]->exons[0].start=pred[small]->exons[0].start;
-		pred[big]->start=pred[small]->start;
-	}
-
-	int sex=0;
-	int overlap=0;
-	while(sex<pred[small]->exons.Count()) {
-		int exovlp=(pred[small]->exons[sex].end<pred[big]->exons[bex].end ? pred[small]->exons[sex].end : pred[big]->exons[bex].end)-
-				(pred[small]->exons[sex].start>pred[big]->exons[bex].start ? pred[small]->exons[sex].start : pred[big]->exons[bex].start)+1;
-
-		if(pred[big]->cov<pred[small]->cov && !pred[big]->t_eq && bex==pred[big]->exons.Count()-1 && sex>=1 && pred[big]->exons[bex].end>pred[small]->exons[sex].end) { // adjust end
-			pred[big]->tlen-=pred[big]->exons[bex].end-pred[small]->exons[sex].end;
-			pred[big]->exons[bex].end=pred[small]->exons[sex].end;
-			pred[big]->end=pred[small]->end;
-		}
-
-		pred[big]->exoncov[bex]=(pred[big]->exoncov[bex]*pred[big]->exons[bex].len()+frac*pred[small]->exoncov[sex]*exovlp)/pred[big]->exons[bex].len();
-		overlap+=exovlp;
-		sex++;bex++;
-	}
-
-	pred[big]->cov=(pred[big]->tlen*pred[big]->cov+overlap*frac*pred[small]->cov)/pred[big]->tlen;
-
-}*/
-
-
-/*
-uint min(uint n1,uint n2) {
-	if(n1<n2) return(n1);
-	return(n2);
-}
-
-uint max(uint n1,uint n2) {
-	if(n1<n2) return(n2);
-	return n1;
-}
-*/
-
-
-
-/*
-bool retainedintron(GList<CPrediction>& pred,int n1,int n2,GVec<GBitVec>& lowintron) {
-	int j=1;
-	for(int i=1;i<pred[n1]->exons.Count();i++) {
-		if(j>pred[n2]->exons.Count()-2) return false;
-		if(lowintron[n1][i-1]) {
-			while(j<pred[n2]->exons.Count()-1 && pred[n2]->exons[j].end<pred[n1]->exons[i].start) j++; // now pred[n2]->exons[j].end>=pred[n1]->exons[i].start
-			if(j<pred[n2]->exons.Count()-1 && pred[n2]->exons[j].start<=pred[n1]->exons[i-1].end) return true;
-		}
-	}
-	return false;
-}
-*/
 
 int retainedintron(GList<CPrediction>& pred,int n1,int n2,GVec<GBitVec>& lowintron) {
 
@@ -519,7 +349,13 @@ bool included_pred(GList<CPrediction>& pred,int n1,int n2,uint refstart=0,GVec<f
 	return false;
 }
 
-CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,float c,GList<CPrediction>& pred,GVec<bool>& overlap) {
+CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,float c,GList<CPrediction>& pred, OvlTracker& overlaps) {
+
+	/*
+	fprintf(stderr,"Add exon %d-%d to maxint ",start,end);
+	if(maxint) fprintf(stderr," starting at %d-%d",maxint->start,maxint->end);
+	fprintf(stderr,"\n");
+	*/
 
 	CMaxIntv *prevmaxint=NULL;
 	while(maxint && start>maxint->end) {
@@ -545,7 +381,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 		else { // end>=maxint->start --> there is overlap
 
 			if(maxint->start<start) { // some region of maxint comes before exon
-				nextmaxint=new CMaxIntv(maxint->node,start,maxint->end, maxint->cov, maxint->next);
+				nextmaxint=new CMaxIntv(maxint->node,start,maxint->end,0,maxint->next);
 				maxint->next=nextmaxint;
 				maxint->end=start-1;
 			}
@@ -558,11 +394,11 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 				nextmaxint=maxint;
 			}
 
-			update_overlap(pred,p,e,nextmaxint->node,overlap);
+			update_overlap(pred,p,e,nextmaxint->node, overlaps);
 			nextmaxint->node.Add(ex);
 
 			if(end<nextmaxint->end) { // nextmaxint now ends where previous maxint ended
-				maxint=new CMaxIntv(nextmaxint->node,end+1,nextmaxint->end, nextmaxint->cov, nextmaxint->next);
+				maxint=new CMaxIntv(nextmaxint->node,end+1,nextmaxint->end,0,nextmaxint->next);
 				nextmaxint->end=end;
 				maxint->node.Pop();
 				nextmaxint->next=maxint;
@@ -577,7 +413,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 						maxint->next=newintv;
 						maxint=newintv;
 					}
-					update_overlap(pred,p,e,maxint->next->node,overlap);
+					update_overlap(pred,p,e,maxint->next->node, overlaps);
 					maxint->next->node.Add(ex);
 					maxint=maxint->next;
 				}
@@ -591,7 +427,7 @@ CMaxIntv *add_exon_to_maxint(CMaxIntv *maxint,uint start,uint end,int p,int e,fl
 					maxint->next=newintv;
 				}
 				else if(end<maxint->end) {
-					CMaxIntv *newintv=new CMaxIntv(maxint->node,end+1,maxint->end, maxint->cov, maxint->next);
+					CMaxIntv *newintv=new CMaxIntv(maxint->node,end+1,maxint->end,0,maxint->next);
 					newintv->node.Pop();
 					maxint->next=newintv;
 					maxint->end=end;
@@ -636,6 +472,529 @@ bool transcript_overlap(GList<CPrediction>& pred,int n1,int n2) {
 	return false;
 }
 
+bool pred_in_intv(CMaxIntv *intv,int p) {
+	for(int k=0;k<intv->node.Count();k++) {
+		if(intv->node[k].predno==p) return true;
+	}
+	return false;
+}
+
+bool nascent_in_intron(CPrediction *n,CPrediction *p,int i) {
+
+	if(p->strand=='+') { // forward strand
+		if(n->exons.Last().start==p->exons[i].start) { // last nascent exon starts at same place as exon i in prediction
+			return true;
+		}
+	}
+	else {
+		if(n->exons[0].end==p->exons[i+1].end) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+// this removes some of the coverage that was nascent from the intervals related to predictions
+void adjust_nascent_in_intervals(CMaxIntv* maxint,GList<CPrediction>& pred,int npred,GVec<float>* bpcov, int refstart) {
+
+	CMaxIntv *intv=maxint;
+	for(int i=0;i<npred;i++) if(pred[i]->flag) { // for all predictions that have survived consider their nascents
+
+		//fprintf(stderr,"Adj nasc for pred[%d]:%c\n",i,pred[i]->strand);
+
+		while(intv && intv->end < pred[i]->start) intv=intv->next;
+		CPrediction *p=pred[i]->linkpred;
+			CMaxIntv *pintv=intv;
+
+		for(int j=1;j<pred[i]->exons.Count();j++) {
+			// intron to consider here is pred[i]->exons[j-1].end+1,pred[i]->exons[j].start-1
+			if(p) {
+				if(nascent_in_intron(p,pred[i],j-1)) { // nascent matches intron
+					float covperc=0;
+					if(p->strand=='+') covperc=p->exoncov.Last();
+					else covperc=p->exoncov[0];
+					covperc=(float)((int)covperc % 1000);
+
+					while(pintv && pred[i]->exons[j-1].end+1>pintv->end) pintv=pintv->next; // now p->exons[j].start<=pintv->end
+					while(pintv && pintv->start<=pred[i]->exons[j].start-1) {
+						int s=pred[i]->exons[j-1].end+1<pintv->start?pintv->start:pred[i]->exons[j-1].end+1;
+						int e=pred[i]->exons[j].start-1>pintv->end?pintv->end:pred[i]->exons[j].start-1;
+						float pcovsame=0;
+						float pcovdiff=0;
+						for(int k=0;k<pintv->node.Count();k++) {
+							if(pred[pintv->node[k].predno]->strand==p->strand)
+								pcovsame+=pred[pintv->node[k].predno]->exoncov[pintv->node[k].exonno];
+							else pcovdiff+=pred[pintv->node[k].predno]->exoncov[pintv->node[k].exonno];
+						}
+						float intvcov=get_cov(1,s-refstart,e-refstart,bpcov);
+						if(pcovsame || pcovdiff) {
+							pcovsame*=intvcov/(pcovsame+pcovdiff);
+						}
+						else pcovsame=intvcov;
+						//fprintf(stderr,"Cov in intv %d-%d adjusted by %f of cov=%f pcovplus=%f pcovminus=%f\n",s,e,covperc,get_cov(1,s-refstart,e-refstart,bpcov),pcovplus,pcovminus);
+						//pintv->cov-=covperc*get_cov(1,s-refstart,e-refstart,bpcov)/100;
+
+						//pintv->cov-=covperc*pcovsame/100; // adj
+						pintv->cov-=DROP*covperc*pcovsame/100; // adjdrop
+						//pintv->cov-=ERROR_PERC*covperc*pcovsame/100; // adjerr
+						pintv=pintv->next;
+					}
+					p=p->linkpred;
+				}
+				else break; // this nascent doesn't match intron -> go to next intron
+			}
+			else break; // no more nascents to consider
+		}
+	}
+}
+
+CPrediction *create_nascent(GList<CPrediction>& pred,int n,int i,float mincov) {
+	GVec<GSeg> exons;
+	GVec<float> exoncov;
+	int tlen=0;
+	if(pred[n]->strand=='+') {
+		for(int j=0;j<i;j++) {
+			GSeg exon(pred[n]->exons[j]);
+			exons.Add(exon);
+			exoncov.Add(mincov);
+			tlen+=exon.len();
+		}
+		GSeg exon(pred[n]->exons[i].start,pred[n]->exons[i+1].start-1);
+		exons.Add(exon);
+		exoncov.Add(mincov);
+		tlen+=exon.len();
+	}
+	else {
+		GSeg exon(pred[n]->exons[i].end+1,pred[n]->exons[i+1].end);
+		exons.Add(exon);
+		exoncov.Add(mincov);
+		tlen+=exon.len();
+		for(int j=i+2;j<pred[n]->exons.Count();j++) {
+			GSeg exon(pred[n]->exons[j]);
+			exons.Add(exon);
+			exoncov.Add(mincov);
+			tlen+=exon.len();
+		}
+	}
+
+	CPrediction *p=new CPrediction(pred[n]->geneno, NULL, exons[0].start, exons.Last().end, mincov, pred[n]->strand, tlen);
+	p->exons=exons;
+	p->exoncov=exoncov;
+	p->linkpred=NULL;
+	p->mergename="n";
+	pred.Add(p);
+	return(p);
+}
+
+float recompute_nascentcov(GList<CPrediction>& pred,int n,BundleData* bundleData) {
+	GffObj *refg=nascentFrom(pred[n]->t_eq);
+
+	float introncov=0;
+	if(pred[n]->strand=='-') {
+		for(int i=0;i<refg->exons.Count()-1;i++) {
+			if(refg->exons[i]->end+1==pred[n]->exons[0].start) {
+				introncov=get_cov(1,pred[n]->exons[0].start-bundleData->start,refg->exons[i+1]->start-1-bundleData->start,bundleData->bpcov); // compute unexplained coverage
+				break;
+			}
+		}
+	}
+	else { // positive strand
+		for(int i=0;i<refg->exons.Count()-1;i++) {
+			if(refg->exons[i+1]->start-1==pred[n]->exons.Last().end) {
+				introncov=get_cov(1,refg->exons[i]->end+1-bundleData->start,pred[n]->exons.Last().end-bundleData->start,bundleData->bpcov); // compute unexplained coverage
+				break;
+			}
+		}
+	}
+
+	return(ERROR_PERC*introncov);
+}
+
+
+CNascIntv* add_nascent_to_interval(uint start,uint end,CNascIntv* sintv,CPrediction *p,int e,float cov){ // cov is negative for exons; positive for introns
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Add nascent interval %d-%d from pred: exon=%d cov=%f",start,end,e,cov);
+		if(p->t_eq) fprintf(stderr," %s",p->t_eq->getID());
+		fprintf(stderr,"\n");
+	}
+	*/
+
+	CNascIntv *prevint=NULL;
+	while(sintv && start>sintv->end) {
+		prevint=sintv;
+		sintv=sintv->next; // skip maxint until I get to the one that overlaps my exon or after it
+	}
+
+	CNasc ex=CNasc(p,e,cov);
+
+	CNascIntv *nextint;
+	if(sintv) { // start <= sintv->end, start>prevint->end ; there might be overlap with sintv
+
+		if(end<sintv->start) { // --> no overlap -> exon is in between nodes of maxint -> I need to keep previous maxint for this
+			if(!prevint) { // this shouldn't happen due to maxint construction
+				GError("No overlap with exon in printing results!\n");
+			}
+			nextint=new CNascIntv(start,end);
+			nextint->node.Add(ex);
+			nextint->next=sintv;
+			prevint->next=nextint;
+			return nextint;
+		}
+		else { // end>=sintv->start --> there is overlap
+
+			if(sintv->start<start) { // some region of sintv comes before exon
+				nextint=new CNascIntv(sintv->node,start,sintv->end,sintv->cov,sintv->next);
+				sintv->next=nextint;
+				sintv->end=start-1;
+			}
+			else if(start<sintv->start) { // this does nothing to maxint -> it could depending on the end
+				nextint=new CNascIntv(start,sintv->start-1);
+				nextint->next=sintv;
+				if(prevint) prevint->next=nextint;
+			}
+			else { // start==maxint->start and this does nothing to maxint
+				nextint=sintv;
+			}
+
+			nextint->node.Add(ex);
+
+			if(end<nextint->end) { // nextmaxint now ends where previous maxint ended
+				sintv=new CNascIntv(nextint->node,end+1,nextint->end,nextint->cov,nextint->next);
+				nextint->end=end;
+				sintv->node.Pop();
+				nextint->next=sintv;
+			}
+			else if(end>nextint->end) {
+				sintv=nextint;
+				while(sintv->next && end>=sintv->next->start) {
+					if(sintv->end+1<sintv->next->start) {
+						CNascIntv *newintv=new CNascIntv(sintv->end+1,sintv->next->start-1);
+						newintv->node.Add(ex);
+						newintv->next=sintv->next;
+						sintv->next=newintv;
+						sintv=newintv;
+					}
+					sintv->next->node.Add(ex);
+					sintv=sintv->next;
+				}
+
+				// end<maxint->next->start or maxint->next is NULL
+
+				if(end>sintv->end) {
+					CNascIntv *newintv=new CNascIntv(sintv->end+1,end);
+					newintv->cov=sintv->cov;
+					newintv->node.Add(ex);
+					newintv->next=sintv->next;
+					sintv->next=newintv;
+				}
+				else if(end<sintv->end) {
+					CNascIntv *newintv=new CNascIntv(sintv->node,end+1,sintv->end,sintv->cov,sintv->next);
+					newintv->node.Pop();
+					sintv->next=newintv;
+					sintv->end=end;
+				}
+				else { // end==sintv->end
+				}
+			}
+		}
+	}
+	else { // start > prevint->end and sintv is NULL --> no overlap here
+		nextint=new CNascIntv(start,end);
+		nextint->node.Add(ex);
+		if(prevint) prevint->next=nextint;
+	}
+
+	return nextint;
+
+}
+
+
+CNascIntv* add_to_nascent(GList<CPrediction>& pred,int n,CNascIntv* intrreg,BundleData* bundleData) {
+
+
+	// add all nascents first for non guided predictions
+	CPrediction *p=pred[n]->linkpred;
+	while(p) {
+		if(p->strand=='+') {
+			if(p->start!=pred[n]->start) {
+				p->start=pred[n]->start;
+				p->exons[0].start = pred[n]->start;
+				if(p->tlen<0) p->tlen-=p->start-pred[n]->start;
+				else p->tlen+=p->start-pred[n]->start;
+			}
+		}
+		else {
+			if(p->end!=pred[n]->end) {
+				p->end=pred[n]->end;
+				p->exons.Last().end= pred[n]->end;
+				if(p->tlen<0) p->tlen-=pred[n]->end-p->end;
+				else p->tlen+=pred[n]->end-p->end;
+			}
+		}
+		p=p->linkpred;
+	}
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"\npred[%d]%c%s:%f:",n,pred[n]->strand,pred[n]->mergename.chars(),pred[n]->cov);
+		if(pred[n]->t_eq) fprintf(stderr,"%s:",pred[n]->t_eq->getID());
+		for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," %d-%d",pred[n]->exons[i].start,pred[n]->exons[i].end);
+		fprintf(stderr,"\n");
+		for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," %f",pred[n]->exoncov[i]);
+		fprintf(stderr,"\n");
+
+		fprintf(stderr,"1 Nascents:\n");
+		p=pred[n]->linkpred;
+		while(p) {
+			if(p->t_eq) fprintf(stderr,"n.%s:",p->t_eq->getID());
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %d-%d",p->exons[i].start,p->exons[i].end);
+			fprintf(stderr,"\n");
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %f",p->exoncov[i]);
+			fprintf(stderr,"\n");
+			p=p->linkpred;
+		}
+	}
+	*/
+
+	p=pred[n];
+	if(!pred[n]->t_eq) { // || pred[n]->mergename!="N") {
+		for(int i=0;i<pred[n]->exons.Count()-1;i++){ // for all exons except the last one
+
+			float introncov=get_cov(1,pred[n]->exons[i].end+1-bundleData->start,pred[n]->exons[i+1].start-1-bundleData->start,bundleData->bpcov); // compute unexplained coverage
+			if(!p->linkpred || !nascent_in_intron(p->linkpred,pred[n],i)) { // I need a new prediction here
+				if(introncov>epsilon) {
+					int k=i;
+					if(p->strand=='-') k++;
+					introncov=DBL_ERROR*pred[n]->exoncov[k]; // assume a small fraction of nascent for this nascent prediction (1%)
+				}
+				else introncov=0;
+				CPrediction *pn=create_nascent(pred,n,i,introncov);
+				pn->mergename="p";
+				pn->linkpred=p->linkpred;
+				p->linkpred=pn;
+			}
+			else { // p->linkpred exists and it is present in interval -> recompute p->exoncov (NEXTtodo: make this right)
+				// intron is pred[n]->exons[i].end+1 to pred[n]->exons[i+1].start-1
+				float covperc=0;
+				float excov;
+				if(p->strand=='+') {
+					covperc=p->linkpred->exoncov.Last();
+					excov=get_cov(1,pred[n]->exons[i].start-bundleData->start,pred[n]->exons[i].end-bundleData->start,bundleData->bpcov);
+					float incovperc=(float)((int)covperc % 1000);
+					float excovperc=(float)((int)(covperc / 1000));
+					p->linkpred->exoncov.Last()=(incovperc*introncov/100+excovperc*excov/1000)/p->linkpred->exons.Last().len();
+				}
+				else {
+					covperc=p->linkpred->exoncov[0];
+					excov=get_cov(1,pred[n]->exons[i+1].start-bundleData->start,pred[n]->exons[i+1].end-bundleData->start,bundleData->bpcov);
+					float incovperc=(float)((int)covperc % 1000);
+					float excovperc=(float)((int)(covperc / 1000));
+					p->linkpred->exoncov[0]=(incovperc*introncov/100+excovperc*excov/1000)/p->linkpred->exons[0].len();
+				}
+			}
+			p=p->linkpred;
+		}
+	}
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"2 Nascents:\n");
+		p=pred[n]->linkpred;
+		int l=1;
+		while(p) {
+			fprintf(stderr,"n.%d",l);
+			if(p->t_eq) fprintf(stderr," %s",p->t_eq->getID());
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %d-%d",p->exons[i].start,p->exons[i].end);
+			fprintf(stderr,"\n");
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %f",p->exoncov[i]);
+			fprintf(stderr,"\n");
+			p=p->linkpred;
+			l++;
+		}
+	}
+	*/
+
+	float exoncov=-pred[n]->exoncov[0];
+	if(pred[n]->mergename=="N") {
+		exoncov=-exoncov;
+		if(!exoncov && (pred[n]->exons.Count()==1 || pred[n]->strand=='-')) exoncov=recompute_nascentcov(pred,n,bundleData);
+	}
+
+	CNascIntv *nextintv=add_nascent_to_interval(pred[n]->exons[0].start,pred[n]->exons[0].end,intrreg,pred[n],0,exoncov); // first exon
+	if(!intrreg) intrreg=nextintv;
+	if(pred[n]->mergename=="N") {
+		pred[n]->exoncov[0]=0;
+		pred[n]->cov=0;
+	}
+
+	p=pred[n]->linkpred;
+	while(p) {
+		if(p->start==pred[n]->exons[0].start) nextintv=add_nascent_to_interval(p->exons[0].start,p->exons[0].end,intrreg,p,0,p->exoncov[0]);
+		else break;
+		p->exoncov[0]=0;
+		p=p->linkpred;
+	}
+
+	CPrediction *pn=pred[n]->linkpred;
+	for(int i=1;i<pred[n]->exons.Count();i++){ // for all exons in prediction pred[n] starting from the second one
+		//fprintf(stderr,"Consider exon[%d]:%d-%d\n",i,pred[n]->exons[i].start,pred[n]->exons[i].end);
+		while(pn && pn->end<pred[n]->exons[i].start) { // while nascent ended before start of exon -> ignore
+			pn=pn->linkpred;
+		}
+		p=pn;
+		//if(pn) fprintf(stderr,"pn:%d-%d\n",p->start,p->end);
+		while(p && p->start<=pred[n]->exons[i].start) { // as long as nascent starts before exon start (I know it ends after)
+			//fprintf(stderr,"...consider nascent %d-%d\n",p->start,p->end);
+			int j=0;
+			while(p->exons[j].start!=pred[n]->exons[i].start && p->exons[j].end!=pred[n]->exons[i].end) j++;
+			nextintv=add_nascent_to_interval(p->exons[j].start,p->exons[j].end,intrreg,p,j,p->exoncov[j]);
+			p->exoncov[j]=0;
+			p=p->linkpred;
+		}
+
+		float exoncov=-pred[n]->exoncov[i];
+		if(pred[n]->mergename=="N") {
+			exoncov=-exoncov;
+			if(!exoncov && pred[n]->strand=='+' && i==pred[n]->exons.Count()-1) exoncov=recompute_nascentcov(pred,n,bundleData);
+		}
+
+		nextintv=add_nascent_to_interval(pred[n]->exons[i].start,pred[n]->exons[i].end,nextintv,pred[n],i,exoncov);
+		if(pred[n]->mergename=="N") pred[n]->exoncov[i]=0;
+
+	}
+
+	return(intrreg);
+}
+
+bool safe_pred(CPrediction *pn,CNascIntv *intv) {
+
+	/*fprintf(stderr,"\ncheck safe prediction %d ",n);
+	if(pred[n]->t_eq) fprintf(stderr," refid=%s",pred[n]->t_eq->getID());
+	if(pred[n]->flag) fprintf(stderr," with true flag");
+	fprintf(stderr," with geneno=%d and exons:",pred[n]->geneno);
+	for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," %d-%d",pred[n]->exons[i].start,pred[n]->exons[i].end);
+	fprintf(stderr,"\n");*/
+
+	if(!pn->flag) return false;
+	if((pn->mergename=="p" || (guided && pn->mergename=="n")) && pn->start==intv->start) { // only in this case I check potential nascent prediction that it is safe
+		if(pn->strand=='+') { // forward nascent -> only check last exon
+			CNascIntv *nintv=intv;
+			while(nintv->end<pn->exons.Last().start) nintv=nintv->next; // while interval starts before last exon
+				// now nintv->end>=pred[p]->exons.Last().start
+			while(nintv && nintv->start<=pn->exons.Last().end) {
+				bool found=false;
+				for(int i=0;i<nintv->node.Count();i++) {
+					if(nintv->node[i].pred!=pn && (nintv->node[i].pred->mergename!="p" && (!guided || nintv->node[i].pred->mergename!="n")) ) {
+						found=true;
+						break;
+					}
+				}
+				if(!found) { // this is an interval unique to this nascent
+					pn->mergename="N";
+					return true;
+				}
+				nintv=nintv->next;
+			}
+			// if I reach this point it means that I did not find a unique interval
+			pn->flag=false;
+			return false;
+		}
+		else { // pred[n]->strand=='-'; first exon is intronic
+			CNascIntv *nintv=intv;
+			while(nintv && nintv->start<=pn->exons[0].end) {
+				bool found=false;
+				for(int i=0;i<nintv->node.Count();i++) {
+					if(nintv->node[i].pred!=pn && (nintv->node[i].pred->mergename!="p" && (!guided || nintv->node[i].pred->mergename!="n"))) {
+						found=true;
+						break;
+					}
+				}
+				if(!found) { // this is an interval unique to this nascent
+					pn->mergename="N";
+					return true;
+				}
+				nintv=nintv->next;
+			}
+			// if I reach this point it means that I did not find a unique interval
+			pn->flag=false;
+			return false;
+		}
+	}
+	return true;
+}
+
+
+void add_intrseq_to_nascent(CNascIntv *intv){
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"\nAdd intrreg:%d-%d with len=%d cov=%.2f and predictions:",intv->start,intv->end,intv->len(),intv->cov);
+		for(int i=0;i<intv->node.Count();i++) fprintf(stderr," p=%d-%d e=%d cov=%f flag=%d",intv->node[i].pred->start,intv->node[i].pred->end,intv->node[i].exonno,intv->node[i].exoncov,intv->node[i].pred->flag);
+		fprintf(stderr,"\n");
+	}
+	*/
+
+	float intcov=0;
+	float summ=0;
+	float sumn=0;
+
+	for(int i=0;i<intv->node.Count();i++) {
+
+		if(intv->node[i].exoncov>0) {
+			if(safe_pred(intv->node[i].pred,intv))  // this is nascent (could be guide nascent as well)
+				sumn+=intv->node[i].exoncov;
+		}
+		else { //if(intv->node[i].exoncov<0){
+			summ-=intv->node[i].exoncov;
+		}
+	}
+	if(sumn) { // nascents are present: only in this case I need to adjust
+
+		intcov=intv->cov/(summ+sumn); // this is the coverage that will be added to nascent of prediction p
+
+		float usedcov=sumn*intcov;
+		//fprintf(stderr,"summ=%f sumn=%f intvcov=%f perbpcov=%f intcov=%f usedcov=%f\n",summ,sumn,intv->cov,intv->cov/intv->len(),intcov,usedcov);
+
+		if(usedcov>epsilon) { // if there are nascents in this interval - I need to recompute coverages
+
+			for(int i=0;i<intv->node.Count();i++) {
+				CPrediction *p=intv->node[i].pred; // prediction
+				int e=intv->node[i].exonno; // exon
+
+				if(intv->node[i].exoncov>=0){ // this is a nascent prediction
+					if(p->flag) {
+						float cov=intcov*intv->node[i].exoncov; // new coverage to add
+						//if(p->t_eq) fprintf(stderr,"Add cov=%f to prediction:%s\n",cov,p->t_eq->getID());
+						if(cov>epsilon) { // only in this case go through the trouble of adding the nascent
+							p->exoncov[e]+=cov;
+						}
+					}
+				}
+				else { // if there are mature transcripts
+					float cov=intv->node[i].exoncov*(intv->len()-intcov); // this much coverage to add to exon/prediction coverage
+
+					if(p->exoncov[e]*p->exons[e].len()+cov < 0 ) {
+						p->cov-=p->exoncov[e]*p->exons[e].len()/abs(p->tlen);
+					}
+					else {
+						p->exoncov[e]+=cov/p->exons[e].len();
+						p->cov+=cov/abs(p->tlen);
+					}
+
+					//fprintf(stderr,"mature pred:%d-%d with exon[%d]->cov=%f(%f) reduce by cov=%f(%f) newexoncov=%f newcov=%f\n",p->start,p->end,e,intv->node[i].exoncov,intv->node[i].exoncov*p->exons[e].len(),cov,cov/p->exons[e].len(),p->exoncov[e],p->cov);
+
+				}
+			}
+		}
+	}
+}
+
+
+
+
 int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		GVec<CGene>& refgene, GHash<int>& hashgene, GVec<CGene>& predgene, BundleData* bundleData,bool checkincomplete) {
 
@@ -643,9 +1002,18 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	if(longreads) runoffdist=0;
 	if(bundledist>runoffdist) runoffdist=bundledist;
 
+	//pred.Sort();
+	//pred.setSorted(predstartCmp);
+
 	int npred=pred.Count();
-	GVec<bool> overlap;
-	overlap.Resize(npred*npred-npred);
+	while(npred>0 && pred[npred-1]->mergename=="n") {
+		npred--;
+		if(pred[npred]->cov<0) pred[npred]->cov=ERROR_PERC;
+	}
+
+	//fprintf(stderr,"There are %d pred in print_predcluster predcount=%d\n",npred,pred.Count());
+
+	OvlTracker overlaps(npred);
 
 	GVec<CPred> predord;
 	//CPred p(0,pred[0]->cov);
@@ -671,7 +1039,8 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	GVec<float>* bpcov = bundleData->bpcov;
 
 	float intronfrac=DROP-ERROR_PERC;
-	if(longreads && isofrac<intronfrac) intronfrac=isofrac;
+	//if(longreads && isofrac<intronfrac) intronfrac=isofrac;
+	if(longreads) intronfrac=ERROR_PERC;
 
 	// build maxIntv
 	CMaxIntv *maxint=new CMaxIntv(pred[0]->exons[0].start,pred[0]->exons[0].end);
@@ -687,6 +1056,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		}
 	}
 
+	if(pred[0]->cov<0) pred[0]->cov=ERROR_PERC;
 	float excov=pred[0]->cov;
 	if(!longreads) excov*=abs(pred[0]->tlen); // it was len() before but that doesn't make any sense
 	CExon ex(0,0,excov); // this keeps the exon flow based on per bp coverage
@@ -712,29 +1082,30 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 						  get_cov(1,pred[0]->exons[j].start-bundleData->start,pred[0]->exons[j].end-bundleData->start,bpcov))/(pred[0]->exons[j-1].len()+pred[0]->exons[j].len());
 		    if(introncov<exoncov*intronfrac) intron[j-1]=1;
 				  else {
-						  // left drop
-						  int start=pred[0]->exons[j-1].end-longintronanchor+1-bundleData->start;
+					  // left drop
+					  int start=pred[0]->exons[j-1].end-longintronanchor+1-bundleData->start;
+					  if(start<0) start=0;
+					  int end=pred[0]->exons[j-1].end+longintronanchor-bundleData->start;
+					  if(end>bpcov->Count()-2) end=bpcov->Count()-2;
+					  exoncov=get_cov(1,start,pred[0]->exons[j-1].end-bundleData->start,bpcov);
+					  introncov=get_cov(1,pred[0]->exons[j-1].end+1-bundleData->start,end,bpcov);
+					  if(introncov<exoncov*intronfrac) intron[j-1]=1;
+					  else { // right drop
+						  int start=pred[0]->exons[j].start-longintronanchor-bundleData->start;
 						  if(start<0) start=0;
-						  int end=pred[0]->exons[j-1].end+longintronanchor-bundleData->start;
+						  int end=pred[0]->exons[j].start+longintronanchor-1-bundleData->start;
 						  if(end>bpcov->Count()-2) end=bpcov->Count()-2;
-						  exoncov=get_cov(1,start,pred[0]->exons[j-1].end-bundleData->start,bpcov);
-						  introncov=get_cov(1,pred[0]->exons[j-1].end+1-bundleData->start,end,bpcov);
-							  if(introncov<exoncov*intronfrac) intron[j-1]=1;
-		    	else { // right drop
-								  int start=pred[0]->exons[j].start-longintronanchor-bundleData->start;
-								  if(start<0) start=0;
-								  int end=pred[0]->exons[j].start+longintronanchor-1-bundleData->start;
-								  if(end>bpcov->Count()-2) end=bpcov->Count()-2;
-								  introncov=get_cov(1,start,pred[0]->exons[j].start-1-bundleData->start,bpcov);
-								  exoncov=get_cov(1,pred[0]->exons[j].start-bundleData->start,end,bpcov);
-		    		if(introncov<exoncov*intronfrac) intron[j-1]=1;
-							  }
-						  }
-			//fprintf(stderr,"pred[%d] intron[%d]:%d-%d introncov=%f exoncov=%f\n",0,j-1,pred[0]->exons[j-1].end,pred[0]->exons[j].start,introncov,exoncov);
+						  introncov=get_cov(1,start,pred[0]->exons[j].start-1-bundleData->start,bpcov);
+						  exoncov=get_cov(1,pred[0]->exons[j].start-bundleData->start,end,bpcov);
+						  if(introncov<exoncov*intronfrac) intron[j-1]=1;
+					  }
 				  }
-			  }
-		nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,excov,pred,overlap); // per bp coverage
-		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,pred[0]->exoncov[j]*pred[0]->exons[j].len(),pred,overlap); // per read coverage
+			//fprintf(stderr,"pred[%d] intron[%d]:%d-%d introncov=%f exoncov=%f\n",0,j-1,pred[0]->exons[j-1].end,pred[0]->exons[j].start,introncov,exoncov);
+		  }
+		}
+		nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,excov,pred, overlaps); // per bp coverage
+		//fprintf(stderr,"nextmaxint:%d-%d\n",nextmaxint->start,nextmaxint->end);
+		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[0]->exons[j].start,pred[0]->exons[j].end,0,j,pred[0]->exoncov[j]*pred[0]->exons[j].len(),pred, overlaps); // per read coverage
 		//pred[0]->exoncov[j]=0;
 	}
 
@@ -742,6 +1113,8 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	nextmaxint=maxint;
 	for(int n=1;n<npred;n++) {
+
+		if(pred[n]->cov<0) pred[n]->cov=ERROR_PERC;
 
 		if(!pred[n]->t_eq) {
 			if(eonly) pred[n]->flag=false;
@@ -761,8 +1134,9 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		//CPred p(n,pred[n]->cov); // priority based on cov/bp
 		CPred p(n,abs(pred[n]->tlen)*pred[n]->cov); // priority based on number of bases covered
 		predord.Add(p);
-		nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,excov,pred,overlap); // per bp coverage
-		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,pred[n]->exoncov[0]*pred[n]->exons[0].len(),pred,overlap); // read coverage
+		nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,excov,pred, overlaps); // per bp coverage
+		//fprintf(stderr,"nextmaxint:%d-%d\n",nextmaxint->start,nextmaxint->end);
+		//nextmaxint=add_exon_to_maxint(nextmaxint,pred[n]->exons[0].start,pred[n]->exons[0].end,n,0,pred[n]->exoncov[0]*pred[n]->exons[0].len(),pred, overlaps); // read coverage
 		//pred[n]->exoncov[0]=0;
 		intron.clear();
 		intron.resize(pred[n]->exons.Count()-1,false);
@@ -772,6 +1146,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 		CMaxIntv *nextintv=nextmaxint;
 		for(int j=1;j<pred[n]->exons.Count();j++) {
+
 			if(checkincomplete && pred[n]->t_eq) {
 				//GStr id((int)pred[n]->exons[j-1].end);
 				id.assign((int)pred[n]->exons[j-1].end);
@@ -780,37 +1155,39 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				bool *gi=guideintron[id.chars()];
 				if(!gi) guideintron.Add(id.chars(),exist);
 			}
+
 			float introncov=get_cov(1,pred[n]->exons[j-1].end+1-bundleData->start,pred[n]->exons[j].start-1-bundleData->start,bpcov)/(pred[n]->exons[j].start-pred[n]->exons[j-1].end-1);
 			if(introncov) {
 			  if(introncov<1 || (!longreads && introncov<singlethr)) intron[j-1]=1;
 			  else {
-					  float exoncov=(get_cov(1,pred[n]->exons[j-1].start-bundleData->start,pred[n]->exons[j-1].end-bundleData->start,bpcov)+
-							  get_cov(1,pred[n]->exons[j].start-bundleData->start,pred[n]->exons[j].end-bundleData->start,bpcov))/(pred[n]->exons[j-1].len()+pred[n]->exons[j].len());
+				  float exoncov=(get_cov(1,pred[n]->exons[j-1].start-bundleData->start,pred[n]->exons[j-1].end-bundleData->start,bpcov)+
+						  get_cov(1,pred[n]->exons[j].start-bundleData->start,pred[n]->exons[j].end-bundleData->start,bpcov))/(pred[n]->exons[j-1].len()+pred[n]->exons[j].len());
 
-					if(introncov<exoncov*intronfrac) intron[j-1]=1;
-					  else {
-							  // left drop
-							  int start=pred[n]->exons[j-1].end-longintronanchor+1-bundleData->start;
-							  if(start<0) start=0;
-							  int end=pred[n]->exons[j-1].end+longintronanchor-bundleData->start;
-							  if(end>bpcov->Count()-2) end=bpcov->Count()-2;
-							  exoncov=get_cov(1,start,pred[n]->exons[j-1].end-bundleData->start,bpcov);
-							  introncov=get_cov(1,pred[n]->exons[j-1].end+1-bundleData->start,end,bpcov);
-								  if(introncov<exoncov*intronfrac) intron[j-1]=1;
-						else { // right drop
-									  int start=pred[n]->exons[j].start-longintronanchor-bundleData->start;
-									  if(start<0) start=0;
-									  int end=pred[n]->exons[j].start+longintronanchor-1-bundleData->start;
-									  if(end>bpcov->Count()-2) end=bpcov->Count()-2;
-									  introncov=get_cov(1,start,pred[n]->exons[j].start-1-bundleData->start,bpcov);
-									  exoncov=get_cov(1,pred[n]->exons[j].start-bundleData->start,end,bpcov);
-							if(introncov<exoncov*intronfrac) intron[j-1]=1;
-								  }
-							  }
-						  }
+				  if(introncov<exoncov*intronfrac) intron[j-1]=1;
+				  else {
+					  // left drop
+					  int start=pred[n]->exons[j-1].end-longintronanchor+1-bundleData->start;
+					  if(start<0) start=0;
+					  int end=pred[n]->exons[j-1].end+longintronanchor-bundleData->start;
+					  if(end>bpcov->Count()-2) end=bpcov->Count()-2;
+					  exoncov=get_cov(1,start,pred[n]->exons[j-1].end-bundleData->start,bpcov);
+					  introncov=get_cov(1,pred[n]->exons[j-1].end+1-bundleData->start,end,bpcov);
+					  if(introncov<exoncov*intronfrac) intron[j-1]=1;
+					  else { // right drop
+						  int start=pred[n]->exons[j].start-longintronanchor-bundleData->start;
+						  if(start<0) start=0;
+						  int end=pred[n]->exons[j].start+longintronanchor-1-bundleData->start;
+						  if(end>bpcov->Count()-2) end=bpcov->Count()-2;
+						  introncov=get_cov(1,start,pred[n]->exons[j].start-1-bundleData->start,bpcov);
+						  exoncov=get_cov(1,pred[n]->exons[j].start-bundleData->start,end,bpcov);
+						  if(introncov<exoncov*intronfrac) intron[j-1]=1;
 					  }
-			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,excov,pred,overlap); // per bp coverage
-			//nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,pred[n]->exoncov[j]*pred[n]->exons[j].len(),pred,overlap); // read coverage
+				  }
+			  }
+			}
+			nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,excov,pred, overlaps); // per bp coverage
+			//fprintf(stderr,"nextmaxint:%d-%d\n",nextmaxint->start,nextmaxint->end);
+			//nextintv=add_exon_to_maxint(nextintv,pred[n]->exons[j].start,pred[n]->exons[j].end,n,j,pred[n]->exoncov[j]*pred[n]->exons[j].len(),pred, overlap); // read coverage
 			//pred[n]->exoncov[j]=0;
 		}
 
@@ -829,6 +1206,120 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	}
 
+
+	if(isnascent) { // check for readthrough predictions and predictions inside introns
+
+		adjust_nascent_in_intervals(maxint,pred,npred,bpcov,bundleData->start);
+
+
+		CMaxIntv *intv=maxint;
+		for(int i=0;i<npred;i++) if(pred[i]->flag) {
+			//fprintf(stderr,"check pred[%d]\n",i);
+			while(intv->end<pred[i]->start) intv=intv->next;
+
+			CMaxIntv *pintv=intv;
+
+			if(pred[i]->t_eq) { // this is a guide -> I am more confident to eliminate intronic predictions
+
+				// eliminate intronic predictions that are under ERROR_PERC
+				for(int j=0;j<pred[i]->exons.Count()-1;j++) {
+
+					float err_covleft=ERROR_PERC*get_cov(1,pred[i]->exons[j].end-bundleData->start,pred[i]->exons[j].end-bundleData->start,bpcov); // coverage on the left exon
+					float err_covright=ERROR_PERC*get_cov(1,pred[i]->exons[j+1].start-bundleData->start,pred[i]->exons[j+1].start-bundleData->start,bpcov); // coverage on the right exon
+					//float err_cov= err_covleft<err_covright?err_covleft:err_covright;
+
+
+					while(pred[i]->exons[j].end>=pintv->start) {
+						pintv=pintv->next;
+					} // now pred[i]->exons[j].end<pintv->start
+
+
+					while(pintv->end<pred[i]->exons[j+1].start) { // while inside intron
+						if(pintv->cov<=0) {
+							pintv->cov=get_cov(1,pintv->start-bundleData->start,pintv->end-bundleData->start,bpcov);
+						}
+						float cov=pintv->cov/pintv->len();
+						if(cov<err_covleft || cov< err_covright) { // prediction in intronic interval with small coverage
+							for(int k=0;k<pintv->node.Count();k++) {
+								int p = pintv->node[k].predno;
+								if(!pred[p]->t_eq && pred[p]->flag) {
+									//float excov=pred[p]->cov*pred[p]->exons.Count();
+									//if(excov<err_cov) {
+										pred[p]->flag=false;
+									//}
+								}
+							}
+						}
+						pintv=pintv->next;
+					}
+				}
+				pintv=intv;
+			}
+			else for(int j=i+1;j<npred;j++) if(pred[j]->flag) {
+				if(pred[j]->start>pred[i]->end) break; // this ensures that pred[i] and pred[j] regions overlap
+				if(!overlaps.get(i,j) && !pred[j]->t_eq) { // pred[j] is intronic
+					float cov=0; // cov is the last cov in pintv that has pred[i] in it before pred[j]
+					while(pintv->end<pred[j]->start) {
+						if(pred_in_intv(pintv,i)) {
+							if(pintv->cov<=0) {
+								pintv->cov+=get_cov(1,pintv->start-bundleData->start,pintv->end-bundleData->start,bpcov);
+							}
+							cov=pintv->cov/pintv->len();
+						}
+						pintv=pintv->next;
+					}
+
+
+					//fprintf(stderr,"...intronic pred j=%d w/cov=%.1f vs intv cov=%.1f and lowcov=%.2f\n",j,pred[j]->cov,cov,2*ERROR_PERC*cov/pred[j]->exons.Count());
+					//if(pred[j]->cov<2*ERROR_PERC*cov/pred[j]->exons.Count()) {
+					if(pred[j]->cov<3*ERROR_PERC*cov/pred[j]->exons.Count()) {
+						//fprintf(stderr,"...intronic pred j=%d -> eliminated\n",j);
+						pred[j]->flag=false;
+					}
+					else { // try to find next interval for prediction i; now pred[j]->start <= pintv
+						CMaxIntv *aintv=pintv;
+						while(aintv->start<=pred[i]->end) {
+							if(pred_in_intv(aintv,i)) { // first time I see an interval that has i
+								if(pred[j]->end<aintv->start) { // only in this case j is intronic
+									if(aintv->cov<=0) {
+										aintv->cov+=get_cov(1,aintv->start-bundleData->start,aintv->end-bundleData->start,bpcov);
+									}
+									//fprintf(stderr,"...next pred=%d intv is %d-%d with cov=%1.f and lowcov=%.2f\n",i,aintv->start,aintv->end,aintv->cov/aintv->len(),2*ERROR_PERC*aintv->cov/(pred[j]->exons.Count()*aintv->len()));
+									//if(pred[j]->cov<2*ERROR_PERC*aintv->cov/(pred[j]->exons.Count()*aintv->len())) {
+									if(pred[j]->cov<3*ERROR_PERC*aintv->cov/(pred[j]->exons.Count()*aintv->len())) {
+										//fprintf(stderr,"intronic pred j=%d -> cov =%f eliminated from interval:%d-%d with cov=%f\n",j,pred[j]->cov,aintv->start,aintv->end,aintv->cov);
+										pred[j]->flag=false;
+									}
+								}
+								break;
+							}
+							aintv=aintv->next;
+						}
+					}
+				}
+
+			} // end pred[j]
+		} // end pred[i]
+
+	}
+
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Maxint created:\n");
+		CMaxIntv *intv=maxint;
+		int k=0;
+		while(intv) {
+			k++;
+			float intvcov=get_cov(1,intv->start-bundleData->start,intv->end-bundleData->start,bpcov)/intv->len();
+			fprintf(stderr,"intv[%d] %d-%d with cov=%.1f from pred:",k,intv->start,intv->end,intvcov);
+			for(int i=0;i<intv->node.Count();i++) fprintf(stderr," %d%c[%d]",intv->node[i].predno,pred[intv->node[i].predno]->strand,intv->node[i].exonno);
+			fprintf(stderr,"\n");
+			intv=intv->next;
+		}
+	}
+	*/
+
 	if(checkincomplete) {
 		for(int i=0;i<incomplete.Count();i++) {
 			int n=incomplete[i];
@@ -845,11 +1336,11 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			}
 			if(eliminate) {
 				pred[n]->flag=false;
+				//if(pred[n]->linkpred) pred[n]->linkpred->flag=false;
 				//fprintf(stderr,"falseflag: incomplete pred[%d]\n",n);
 			}
 		}
 	}
-
 
 	//GVec<int> bettercov[npred];
 	GVec<int> ivec;
@@ -863,40 +1354,42 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 			//fprintf(stderr,"first consideration of pred[%d] with cov=%f and strand=%c\n",n1,pred[n1]->cov,pred[n1]->strand);
 			for(int j=i+1;j<predord.Count();j++) if(pred[predord[j].predno]->flag) {
 				int n2=predord[j].predno; // always predord.cov(n1)>=predord.cov(n2)
-				int m = n1;
-				int M = n2;
-				//fprintf(stderr,"...vs prediction n2=%d with cov=%f and strand=%c\n",n2,pred[n2]->cov,pred[n2]->strand);
-				if(m>M) { m=n2; M=n1;}
-				if(overlap[npred*m+M]) { // n1 could get eliminated by some other genes for instance if it has fewer exons and it's included in a bigger one
-				  //fprintf(stderr,"overlap\n");
+				if(overlaps.get(n1,n2)) { // n1 could get eliminated by some other genes for instance if it has fewer exons and it's included in a bigger one
+					//fprintf(stderr,"overlap\n");
 					if(!pred[n2]->t_eq) { // this is not a known gene -> only then I can eliminate it
 						if(pred[n1]->t_eq && pred[n2]->cov<ERROR_PERC*pred[n1]->cov) { // more strict about novel predictions if annotation is available
+							//fprintf(stderr,"Pred %d eliminated due to low percent coverage from prediction %d",n2,n1);
 							pred[n2]->flag=false;
+							//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 							continue;
 						}
 						uint anchor=longintronanchor;
 						if(pred[n2]->tlen<0 && pred[n2]->cov>readthr) anchor=junctionsupport;
-						if(pred[n2]->exons[0].len()<anchor || pred[n2]->exons.Last().len()<anchor) { // VAR8: leave this one out
+						if(pred[n2]->exons[0].len()<anchor || pred[n2]->exons.Last().len()<anchor) {
 							//fprintf(stderr,"falseflag: pred[%d] n2=%d has low first/last exon\n",n2,n2);
 							pred[n2]->flag=false;
+							//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 						}
 						else if(retainedintron(pred,n1,n2,lowintron)) {
 							//if(ret>1 || pred[n2]->cov<ERROR_PERC*pred[n1]->cov) {
 							//fprintf(stderr,"falseflag: pred[%d] n2=%d has low intron coverage\n",n2,n2);
 							pred[n2]->flag=false;
+							//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 							//}
 						}
 						else if(pred[n1]->strand != pred[n2]->strand) {
 
 							//fprintf(stderr,"diff strand\n");
 							if(pred[n2]->exons.Count()==1 || (pred[n1]->tlen<0 && pred[n2]->tlen>0 && pred[n2]->cov<1/ERROR_PERC)) { // why was I restricting it to single exons?
-								//fprintf(stderr,"falseflag: ...strand elmination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
+								//fprintf(stderr,"falseflag: ...strand elimination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
 								pred[n2]->flag=false;
+								//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 							}
 							else if(!pred[n1]->t_eq && pred[n1]->exons.Count()==1) {
 								if(pred[n1]->cov < pred[n2]->cov+singlethr) {
-									//fprintf(stderr,"flaseflag: pred[%d] n1=%d with 1 exon eliminated by n2=%d\n",n1,n1,n2);
+									//fprintf(stderr,"falseflag: pred[%d] n1=%d with 1 exon eliminated by n2=%d\n",n1,n1,n2);
 									pred[n1]->flag=false;
+									//if(pred[n1]->linkpred) pred[n1]->linkpred->flag=false; // this is not possible because pred[n1] only has one exon
 									break;
 								}
 								/*else {
@@ -908,9 +1401,10 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 							else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) {
 								//fprintf(stderr,"falseflag: pred[%d] n2=%d is included in n1=%d\n",n2,n2,n1);
 								pred[n2]->flag=false;
+								//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 							}
 							else if(pred[n2]->tlen>0 && !mixedMode){
-	    						bool lowcov=true;
+								bool lowcov=true;
 	    						for(int e=0;e<pred[n2]->exons.Count();e++) {
 	    							float totalcov=get_cov(1,pred[n2]->exons[e].start-bundleData->start,pred[n2]->exons[e].end-bundleData->start,bundleData->bpcov);
 	    							if(pred[n2]->exoncov[e]*pred[n2]->exons[e].len()>totalcov/2) {
@@ -920,29 +1414,39 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    						}
 	    						if(lowcov) {
 	    							pred[n2]->flag=false;
+	    							//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 	    							//fprintf(stderr,"falseflag: pred[%d] n2=%d has lowcov\n",n2,n2);
 	    						}
-	    					}
+							}
 
 						} // end pred[n1]->strand != pred[n2]->strand
 	    				//else if(pred[n2]->cov<isofrac*pred[n1]->cov) pred[n2]->flag=false;  // I am only considering inclusions here since this might change allocations
-	    				else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && pred[n1]->cov>pred[n2]->cov*DROP && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) {
+	    				else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() &&
+						        pred[n1]->cov>pred[n2]->cov*DROP && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) {
 	    					pred[n2]->flag=false;
-	    					//fprintf(stderr,"falseflag: ...included elmination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
+	    					//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
+	    					//fprintf(stderr,"falseflag: ...included elimination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
 	    				}
-	    				else if(!pred[n1]->t_eq && n1 && ((pred[n1]->tlen>0 && pred[n1]->exons.Count()<=2 && pred[n2]->cov>lowisofrac*pred[n1]->cov) || pred[n1]->cov < pred[n2]->cov+singlethr) && pred[n1]->exons.Count()<pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
+	    				else if(!pred[n1]->t_eq && n1 && ((pred[n1]->tlen>0 && pred[n1]->exons.Count()<=2 && pred[n2]->cov>lowisofrac*pred[n1]->cov*pred[n1]->exons.Count()) ||
+	    						((pred[n2]->cov>singlethr || pred[n1]->cov<singlethr) && pred[n1]->cov < pred[n2]->cov+singlethr)) && pred[n1]->exons.Count()<pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
 	    					pred[n1]->flag=false;
-	    					//fprintf(stderr,"falseflag: ...included elmination of pred[%d] n1=%d by n2=%d\n",n1,n1,n2);
+	    					//if(pred[n1]->linkpred) pred[n1]->linkpred->flag=false;
+	    					//fprintf(stderr,"falseflag: ...included elimination of pred[%d] n1=%d by n2=%d\n",n1,n1,n2);
 	    					break;
 	    				}
-	    			}
-	    			else if(!pred[n1]->t_eq && n1 && ((pred[n1]->tlen>0 && pred[n1]->exons.Count()<=2 && pred[n2]->cov>lowisofrac*pred[n1]->cov) || pred[n1]->cov < pred[n2]->cov+singlethr) && pred[n1]->exons.Count()<=pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
-	    				//fprintf(stderr,"falseflag: ...included elmination of pred[%d] n1=%d(%f) by n2=%d(%f)\n",n1,n1,pred[n1]->cov,n2,pred[n2]->cov);
+					}
+	    			else if(!pred[n1]->t_eq && n1 && ((pred[n1]->tlen>0 && pred[n1]->exons.Count()<=2 &&
+					          pred[n2]->cov>lowisofrac*pred[n1]->cov*pred[n1]->exons.Count()) ||
+	    					((pred[n2]->cov>singlethr || pred[n1]->cov<singlethr) &&
+							  pred[n1]->cov < pred[n2]->cov+singlethr)) && pred[n1]->exons.Count()<=pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
+	    				//fprintf(stderr,"falseflag: ...included elimination of pred[%d] n1=%d(%f) by n2=%d(%f)\n",n1,n1,pred[n1]->cov,n2,pred[n2]->cov);
 	    				pred[n1]->flag=false;
+	    				//if(pred[n1]->linkpred) pred[n1]->linkpred->flag=false;
 	    				break;
 	    			}
 	    			else if(pred[n2]->tlen<0 && !pred[n2]->t_eq && pred[n2]->cov < DROP && pred[n2]->exons.Count()<=pred[n1]->exons.Count() && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov,false)) {
 	    				pred[n2]->flag=false;
+	    				//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 	    				//fprintf(stderr,"falseflag: pred[%d] n2=%d is included in n1=%d\n",n2,n2,n1);
 	    			}
 	    		}
@@ -950,41 +1454,55 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    		else if(!pred[n2]->t_eq && pred[n2]->exons.Count()==1 && ((pred[n2]->tlen>0 && pred[n2]->cov<pred[n1]->cov) || pred[n2]->cov<isofrac*pred[n1]->cov) && pred[n1]->start<=pred[n2]->start && pred[n2]->end<=pred[n1]->end) {
 	    			//fprintf(stderr,"falseflag: ...single exon elmination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
 	    			pred[n2]->flag=false; // delete intronic prediction if single exon and at realtively low coverage
+	    			//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 	    		}
-	    		else if(pred[n1]->tlen>0) {
+	    		else if(pred[n1]->tlen>0 ) {
 	    			if(!pred[n1]->t_eq && pred[n1]->exons.Count()==1 && pred[n1]->cov<pred[n2]->cov && pred[n2]->start<=pred[n1]->start && pred[n1]->end<=pred[n2]->end) {
 	    				//fprintf(stderr,"falseflag: ...single exon elmination of pred[%d] n1=%d by n2=%d\n",n1, n1,n2);
 	    				pred[n1]->flag=false;
+	    				//if(pred[n1]->linkpred) pred[n1]->linkpred->flag=false;
 	    				break;
 	    			}
 	    			else if(pred[n2]->tlen>0 && !pred[n2]->t_eq) {
 	    				if(transcript_overlap(pred,n1,n2)) {
-	    				for(int p=0;p<bettercov[n2].Count();p++) {
-	    					int m = n1;
-	    					int M = bettercov[n2][p];
-	    					if(m>M) { m=bettercov[n2][p]; M=n1;}
-	    					if(!overlap[npred*m+M]) {
-	    						pred[n2]->flag=false;
-	    						//fprintf(stderr,"falseflag: pred[%d] eliminated because of overlap to %d and %d\n",n2,m,M);
-	    						break;
+	    					for(int p=0;p<bettercov[n2].Count();p++) {
+	    						/* int m = n1;
+//	    						int M = bettercov[n2][p];
+	    						if(m>M) { m=bettercov[n2][p]; M=n1;} */
+	    						if(!overlaps.get(n1, bettercov[n2][p])) {
+	    							pred[n2]->flag=false;
+	    							//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
+	    							//fprintf(stderr,"falseflag: pred[%d] eliminated because of overlap to %d and %d\n",n2,n1,bettercov[n2][p]);
+	    							break;
+	    						}
+	    					}
+	    					if(pred[n2]->flag) {
+	    						if((mixedMode || pred[n1]->strand==pred[n2]->strand) &&
+								   ((mixedMode && pred[n2]->cov<singlethr) || pred[n2]->cov<pred[n1]->cov*ERROR_PERC) &&
+								     pred[n1]->start<=pred[n2]->start && pred[n2]->end<=pred[n1]->end && intronic(pred,n2,n1)) { // n2 is an intronic prediction to n1
+	    							//fprintf(stderr,"falseflag: eliminate pred[%d] is intronic into pred[%d]\n",n2,n1);
+	    							pred[n2]->flag=false;
+	    							//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
+	    						}
+	    						else bettercov[n2].Add(n1);
 	    					}
 	    				}
-	    				if(pred[n2]->flag) {
-	    						if((mixedMode || pred[n1]->strand==pred[n2]->strand) && ((mixedMode && pred[n2]->cov<singlethr) || pred[n2]->cov<pred[n1]->cov*ERROR_PERC) && pred[n1]->start<=pred[n2]->start && pred[n2]->end<=pred[n1]->end && intronic(pred,n2,n1)) { // n2 is an intronic prediction to n1
-							  //fprintf(stderr,"falseflag: eliminate pred[%d] is intronic into pred[%d]\n",n2,n1);
-	    						pred[n2]->flag=false;
+	    				else if(mixedMode && pred[n2]->strand!=pred[n1]->strand && pred[n2]->cov<singlethr) {
+	    					if(pred[n1]->start<=pred[n2]->end && pred[n2]->start<=pred[n1]->end) {
+	    						//fprintf(stderr,"falseflag: eliminate pred[%d] in mixmode being single into pred[%d]\n",n2,n1);
+	    						pred[n2]->flag=false; // antisense short read overlap
+	    						//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 	    					}
-	    					else bettercov[n2].Add(n1);
 	    				}
 	    			}
-	    				else if(mixedMode && pred[n2]->strand!=pred[n1]->strand && pred[n2]->cov<singlethr) {
-	    					if(pred[n1]->start<=pred[n2]->end && pred[n2]->start<=pred[n1]->end) pred[n2]->flag=false; // antisense short read overlap
-	    				}
 	    		}
-	    		}
-	    		else if(pred[n2]->tlen>0  && !pred[n2]->t_eq ) { // && pred[n2]->strand!=pred[n1]->strand){ // now pred[n1]->tlen<0; n1 & n2 are antisense
+	    		else if(pred[n2]->tlen>0  && !pred[n2]->t_eq) { // && pred[n2]->strand!=pred[n1]->strand){ // now pred[n1]->tlen<0; n1 & n2 are antisense
 	    			if(pred[n1]->start<=pred[n2]->end && pred[n2]->start<=pred[n1]->end) {// n1 & n2 overlap but not within the exons
-	    				if(pred[n2]->cov<1/ERROR_PERC || (pred[n2]->strand==pred[n1]->strand && pred[n2]->cov<ERROR_PERC*pred[n1]->cov)) pred[n2]->flag=false; // mixed mode doesn't accept low covered anti-senses
+	    				if(pred[n2]->cov<1/ERROR_PERC || (pred[n2]->strand==pred[n1]->strand && pred[n2]->cov<ERROR_PERC*pred[n1]->cov)) {
+	    					//fprintf(stderr,"falseflag: eliminate pred[%d] due to very low coverage from pred[%d]\n",n2,n1);
+	    					pred[n2]->flag=false; // mixed mode doesn't accept low covered anti-senses
+	    					//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
+	    				}
 	    			}
 	    		}
 	    		//if(!pred[n1]->flag) fprintf(stderr,"pred[%d] eliminated\n",n1);
@@ -1077,6 +1595,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 						if(longunder) {
 							//fprintf(stderr,"flaseflag: pred[%d] has low cov=%f percentage from usedcoverage=%f\n",n,pred[n]->cov,usedcov[s]);
 							pred[n]->flag=false;
+							//if(pred[n]->linkpred) pred[n]->linkpred->flag=false;
 						}
 						else {
 							usedcov[s]+=pred[n]->cov;
@@ -1091,8 +1610,16 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	}
 	else { // recompute coverages -> mostly for short reads; long reads should be more reliable in the way coverages are estimated
 		bool adjust=true;
-		while(adjust) { // by here I eliminated inclusions and intronic single exons
+		//bool first=true;
+		while(adjust) { // by here I eliminated inclusions and intronic single exons -> not necessarily if they bpassed cetain thresholds
 			adjust=false;
+
+			// eliminate intronic coverage coming from nascents
+			/*if(isnascent) { // && first) {
+				adjust_nascent_in_intervals(maxint,pred,npred,bpcov,bundleData->start);
+				//first=false;
+			}*/
+
 
 			for(int n=0;n<npred;n++) if(pred[n]->flag) {
 				/*if(!pred[n]->t_eq && !keep[n] && pred[n]->cov<lowcov) pred[n]->flag=false; // this was commented and it was almost there Pr 29.8 for 534291
@@ -1113,11 +1640,21 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 						//covsum+=pred[nextmaxint->node[i].predno]->cov; // priority based on cov/bp
 						//covsum+=pred[nextmaxint->node[i].predno]->tlen*pred[nextmaxint->node[i].predno]->cov; // priority based on number of bases covered
-						covsum+=nextmaxint->node[i].exoncov; // priority based on exoncov
+						covsum+=nextmaxint->node[i].exoncov; // priority based on exoncov which is actually the initial pred->cov*tlen
 					}
 
 					if(covsum) {
-						float totalcov=get_cov(1,nextmaxint->start-bundleData->start,nextmaxint->end-bundleData->start,bpcov);
+						float totalcov=nextmaxint->cov;
+						if(totalcov<=0) {
+							totalcov+=get_cov(1,nextmaxint->start-bundleData->start,nextmaxint->end-bundleData->start,bpcov);
+							//fprintf(stderr,"\nnextmaxintcov:%d-%d=%f\n",nextmaxint->start,nextmaxint->end,totalcov/nextmaxint->len());
+							if(totalcov<0) {
+								/*fprintf(stderr,"After adding cov=%f in maxint:%d-%d cov is negative: %f\n",get_cov(1,nextmaxint->start-bundleData->start,nextmaxint->end-bundleData->start,bpcov),
+										nextmaxint->start,nextmaxint->end,totalcov);*/
+								totalcov=0;
+							}
+							nextmaxint->cov=totalcov;
+						}
 						exord.Sort(predordCmp); // sort exons from the most highest coverage to lowest
 						int i=exord[0].predno;
 						int n=nextmaxint->node[i].predno;
@@ -1128,13 +1665,17 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 						bool shortmax=false;
 						if(pred[n]->tlen>0) {
 						  pred[n]->exoncov[e]+=exoncov;
-						  if(mixedMode && exord.Count()==1) {
+						  if(mixedMode && exord.Count()==1 && !pred[n]->t_eq) {
 						    if(pred[n]->exons.Count()==1 && pred[n]->cov<singlethr/DROP) pred[n]->flag=false; // stricter criteria for random single exon short-read genes
-						    else if(pred[n]->exons.Count()==2 && pred[n]->cov<singlethr*DROP) pred[n]->flag=false; // stricter criteria for random two-exon short-read genes
+						    else if(pred[n]->exons.Count()==2 && pred[n]->cov<singlethr*DROP) {
+						    	pred[n]->flag=false; // stricter criteria for random two-exon short-read genes
+						    	//if(pred[n]->linkpred) pred[n]->linkpred->flag=false;
+						    	//fprintf(stderr,"falseflag: eliminate pred[%d] as random two exon short gene\n",n);
+						    }
 						  }
 						  shortmax=true;
 						}
-						//fprintf(stderr,"pred[%d]->exoncov[%d]=%f exoncov=%f totalcov=%f covsum=%f\n",n,e,pred[n]->exoncov[e],exoncov,totalcov,covsum);
+						//fprintf(stderr,"pred[%d]->exoncov[%d]=%f exoncov=%f totalcov=%f covsum=%f\n",n,e,pred[n]->exoncov[e],exoncov/nextmaxint->len(),totalcov,covsum);
 						float usedcov=pred[n]->cov;
 
 						//fprintf(stderr,"maxint=%d-%d has first pred[%d] with cov=%f usedcov=%f\n",nextmaxint->start,nextmaxint->end,n,pred[n]->cov,usedcov);
@@ -1156,6 +1697,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 								adjust=true;
 								//fprintf(stderr,"flaseflag: pred[%d] has low cov=%f percentage from usedcoverage=%f < %f\n",n,pred[n]->cov,usedcov,allowedfrac*usedcov);
 								pred[n]->flag=false;
+								//if(pred[n]->linkpred) pred[n]->linkpred->flag=false;
 							}
 							else {
 								e=nextmaxint->node[i].exonno;
@@ -1164,6 +1706,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 								exoncov=totalcov*nextmaxint->node[i].exoncov/covsum; // priority based on per bp cov
 								if(pred[n]->tlen>0) pred[n]->exoncov[e]+=exoncov;
 								usedcov+=pred[n]->cov;
+								//fprintf(stderr,"pred[%d]->exoncov[%d]=%f exoncov=%f totalcov=%f covsum=%f\n",n,e,pred[n]->exoncov[e],exoncov/nextmaxint->len(),totalcov,covsum);
 								//fprintf(stderr,"maxint=%d-%d add pred[%d]->cov=%f to usedcov=%f\n",nextmaxint->start,nextmaxint->end,n,pred[n]->cov,usedcov);
 							}
 						}
@@ -1199,6 +1742,48 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 					//fprintf(stderr,"coverage of pred[%d]=%f\n",n,pred[n]->cov);
 				}
 			}
+
+			/*if(!adjust && isnascent) { // check for readthrough predictions and predictions inside introns
+
+				CMaxIntv *intv=maxint;
+				for(int i=0;i<npred;i++) if(pred[i]->flag) {
+					//fprintf(stderr,"check pred[%d]\n",i);
+					while(intv->end<pred[i]->start) intv=intv->next;
+
+					CMaxIntv *pintv=intv;
+
+					uint laststop=pred[i]->end;
+					for(int j=i+1;j<npred;j++) if(pred[j]->flag) {
+						if(pred[j]->start>pred[i]->end) break; // this ensures that pred[i] and pred[j] regions overlap
+						if(overlap[i*npred+j]) { // j overlaps i: consider readthroughs here
+							//fprintf(stderr,"...overlap pred j=%d\n",j);
+							while(pintv->end<pred[j]->start) pintv=pintv->next;
+							if(!pred[i]->t_eq && pred[i]->cov<ERROR_PERC*pred[j]->cov) { // pred[j] has much higher coverage -> pred[i] might be a readthrough modif 20: add /DROP
+								if(pred[j]->start>laststop) { // this can only happen if pred[i] already was smaller than a previous pred[j] that ended early
+									//fprintf(stderr,"...pred i=%d eliminated due to pred j=%d\n",i,j);
+									pred[i]->flag=false;
+									break;
+								}
+								else if(pred[j]->end<laststop) { // found a prediction that ended early and had much higher coverage
+									laststop=pred[j]->end;
+									//fprintf(stderr,"...set last stop at %d due to prediction %d\n",laststop,j);
+								}
+							}
+							else if(!pred[j]->t_eq && pred[j]->cov<ERROR_PERC*pred[i]->cov) { // pred[j] might be a readthrough modif 20: add /DROP
+								for(int k=j+1;k<npred;k++) if(pred[k]->flag){
+									if(pred[k]->start>pred[j]->end) break;
+									if(pred[k]->start>pred[i]->end && pred[j]->cov<ERROR_PERC*pred[k]->cov) { // modif 20: add /DROP
+										//fprintf(stderr,"...pred j=%d eliminated due to pred i=%d and k=%d\n",j,i,k);
+										pred[j]->flag=false;
+										break;
+									}
+								}
+							}
+						}
+					} // end pred[j]
+				} // end pred[i]
+
+			}*/
 		}
 	}
 
@@ -1243,22 +1828,31 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	  if(pred[i]->flag) {
 		 //TODO: this eliminates e.g. 0.98 cov prediction based on long read that otherwise covers all the junctions!
 		 //  =>  implement a jcov metric (junction coverage) which should supersede base coverage ?
-		if ( pred[i]->cov<1 ||
-				(!pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)))) {
-		//if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
+		//if (pred[i]->cov<1 ||
+		if ( !pred[i]->t_eq && (pred[i]->cov<readthr || (mixedMode && guided && pred[i]->cov<singlethr)) ) {
 			pred[i]->flag=false;
-			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
+			//if(pred[i]->linkpred) pred[i]->linkpred->flag=false;
+			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f under 1\n",i,pred[i]->cov);
 			continue;
 		}
+
+		/*if ((mixedMode || longreads) && pred[i]->cov<DBL_ERROR && pred[i]->t_eq && pred[i]->mergename!="N") {
+			pred[i]->flag=false;
+			//if(pred[i]->linkpred) pred[i]->linkpred->flag=false;
+			//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f under 1\n",i,pred[i]->cov);
+			continue;
+		}*/
+
 		//fprintf(stderr,"check pred i=%d with end=%d and next start=%d\n",i,pred[i]->end,pred[i+1]->start);
 		int ci=color[i];
 		while(ci!=color[ci]) { ci=color[ci];color[i]=ci;}
 		int j=i+1;
 		while(j<npred && pred[i]->end>=pred[j]->start) {
 			//fprintf(stderr,"... check pred j=%d\n",j);
-			if(pred[j]->flag && pred[i]->strand==pred[j]->strand && overlap[npred*i+j]) {
+			if(pred[j]->flag && pred[i]->strand==pred[j]->strand && overlaps.get(i,j)) {
 				if(!pred[j]->t_eq && pred[j]->cov<readthr) {
 					pred[j]->flag=false;
+					//if(pred[j]->linkpred) pred[j]->linkpred->flag=false;
 					//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
 					j++;
 					continue;
@@ -1300,53 +1894,116 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		}
 	}
 
-	for(int n=0;n<npred;n++) if(pred[n]->flag){
+
+	if(!eonly && isnascent && !longreads) {
+		CNascIntv *intrreg=NULL; //-> NEXTtodo update interval with nascents here and adjust intronic boundaries of nascents (last intron)
+
+		// first create a record for all predictions and nascents
+		bool nascentpresent=false;
+		for(int n=0;n<npred;n++) if(pred[n]->flag) {
+			//if(pred[n]->mergename!="P") // equivalent to if(!(pred[n]->t_eq && isNascent(pred[n]->t_eq) && getGuideStatus(nascentFrom(pred[n]->t_eq))==GBST_STORED))
+			intrreg=add_to_nascent(pred,n,intrreg,bundleData);
+			if(pred[n]->linkpred || pred[n]->mergename=="N") nascentpresent=true;
 
 		/*
 		{ // DEBUG ONLY
-			  fprintf(stderr,"\nprint prediction %d with cov=%f len=%d",n,pred[n]->cov,pred[n]->tlen);
+			fprintf(stderr,"Intrreg:\n");
+				CNascIntv *intv=intrreg;
+			while(intv) {
+				fprintf(stderr,"Intv %d-%d",intv->start,intv->end);
+				for(int i=0;i<intv->node.Count();i++) {
+						CPrediction *p=intv->node[i].pred; // mature prediction
+					int e=intv->node[i].exonno; // mature exon
+						fprintf(stderr," (i=%d p=%p:%d-%d e=%d ecov=%f)",i,p,p->start,p->end,e,intv->node[i].exoncov);
+				}
+				fprintf(stderr,"\n");
+				intv=intv->next;
+			}
+		}
+		*/
+		}
+
+		// recompute the nascents coverages
+		if(nascentpresent) { // intronic region
+			while(intrreg) {
+				if(!intrreg->cov) intrreg->cov=get_cov(1,intrreg->start-bundleData->start,intrreg->end-bundleData->start,bpcov); // compute unexplained coverage
+				if(intrreg->cov) add_intrseq_to_nascent(intrreg); // NEXTtodo this function will need to be adjusted to count for non-intronic nascents
+				CNascIntv *intv=intrreg->next;
+				delete intrreg;
+				intrreg=intv;
+			}
+		}
+
+	}
+
+
+	for(int n=0;n<npred;n++) if(pred[n]->flag) {
+
+		/*
+		{ // DEBUG ONLY
+			  fprintf(stderr,"\nprint prediction %d with cov=%f len=%d genes[n]=%d",n,pred[n]->cov,pred[n]->tlen,genes[n]);
+				if(pred[n]->t_eq) fprintf(stderr," refid=%s",pred[n]->t_eq->getID());
 			  if(pred[n]->flag) fprintf(stderr," with true flag");
 			  fprintf(stderr," with geneno=%d and exons:",pred[n]->geneno);
+				for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," %d-%d",pred[n]->exons[i].start,pred[n]->exons[i].end);
 			  for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," cov=%f len=%d",pred[n]->exoncov[i],pred[n]->exons[i].len());
 			  fprintf(stderr,"\n");
 		}
 		*/
 
+		//if(isnascent) intrreg=add_to_nascent(pred,n,intrreg); -> this was designed for intronic regions predictions -> supose to add nascents to intronic regions in prediction
+		// NEXTtodo modify function above to update nascent coverages within introns of predictions -> maybe withing the previous pred loop
 
-		transcripts[genes[n]]++;
-		pred[n]->geneno=genes[n]+geneno+1;
-		uint t_id=0;
-		if (pred[n]->t_eq && pred[n]->t_eq->uptr) {
-			t_id = ((RC_TData*)pred[n]->t_eq->uptr)->t_id;
-		}
+		bool printpred=true;
+		GStr prog("",20);
 
 		pred[n]->tlen=abs(pred[n]->tlen);
 
-		//fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
-		fprintf(f_out,"1 %d %d %d %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id,pred[n]->cov);
-
-		GStr geneid(label, 10);geneid+='.';geneid+=pred[n]->geneno;
-		GStr trid(geneid.chars(), 10); trid+='.';trid+=transcripts[genes[n]];
-		if(eonly && pred[n]->t_eq && pred[n]->t_eq->getGeneID()) geneid=pred[n]->t_eq->getGeneID();
-		if(eonly && pred[n]->t_eq) trid=pred[n]->t_eq->getID();
-
-		fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; ",
-				refname.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,geneid.chars(),trid.chars());
-
-		//fprintf(stderr,"print pred[%d] gene_id %s transcript_id %s\n",n,geneid.chars(),trid.chars());
-
-		if(pred[n]->t_eq) {
-			if(!eonly) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
-			if (!eonly && pred[n]->t_eq->getGeneID())
-				fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
-			if (pred[n]->t_eq->getGeneName())
-				fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+		if(pred[n]->mergename=="N") {
+			if(!printNascent) printpred=false;
+			else {
+				if(!pred[n]->cov) { // first see if I can restore coverage
+					for(int i=0;i<pred[n]->exons.Count();i++) if(pred[n]->exoncov[i]) {
+						pred[n]->cov+=pred[n]->exoncov[i];
+						pred[n]->exoncov[i]/=pred[n]->exons[i].len();
+					}
+					pred[n]->cov/=pred[n]->tlen;
+				}
+				if(!pred[n]->cov) printpred=false;
+				else prog+="nascentRNA";
+			}
 		}
-		fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
-		for(int j=0;j<pred[n]->exons.Count();j++) {
-			fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; exon_number \"%d\"; ",
-					refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,geneid.chars(),
-					trid.chars(),j+1); // maybe add exon coverage here
+		//else if(pred[n]->mergename=="P") printpred=false;
+		else prog+="StringTie";
+
+		if(printpred) {
+
+			transcripts[genes[n]]++;
+			pred[n]->geneno=genes[n]+geneno+1;
+			uint t_id=0;
+			if (pred[n]->t_eq && pred[n]->t_eq->uptr) {
+				t_id = ((RC_TData*)pred[n]->t_eq->uptr)->t_id;
+			}
+
+
+			//fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
+			fprintf(f_out,"1 %d %d %d %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id,pred[n]->cov);
+
+			GStr geneid(label, 10);geneid+='.';geneid+=pred[n]->geneno;
+			GStr trid(geneid.chars(), 10); trid+='.';trid+=transcripts[genes[n]];
+
+			//if(pred[n]->t_eq) fprintf(stderr,"pred %s has pred[%d]->mergename=%s\n",pred[n]->t_eq->getID(),n,pred[n]->mergename.chars());
+
+			if(eonly && pred[n]->t_eq && pred[n]->t_eq->getGeneID()) geneid=pred[n]->t_eq->getGeneID();
+			if(eonly && pred[n]->t_eq) trid=pred[n]->t_eq->getID();
+
+			pred[n]->mergename=trid;
+
+			fprintf(f_out,"%s\t%s\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; ",
+					refname.chars(),prog.chars(),pred[n]->start,pred[n]->end,pred[n]->strand,geneid.chars(),trid.chars());
+
+			//fprintf(stderr,"print pred[%d] gene_id %s transcript_id %s\n",n,geneid.chars(),trid.chars());
+
 			if(pred[n]->t_eq) {
 				if(!eonly) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
 				if (!eonly && pred[n]->t_eq->getGeneID())
@@ -1354,7 +2011,85 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				if (pred[n]->t_eq->getGeneName())
 					fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
 			}
-			fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
+			if(longreads && pred[n]->longcov) fprintf(f_out,"longcov \"%.6f\"; ",pred[n]->longcov);
+			fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
+			for(int j=0;j<pred[n]->exons.Count();j++) {
+				fprintf(f_out,"%s\t%s\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; exon_number \"%d\"; ",
+						refname.chars(),prog.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,geneid.chars(),
+						trid.chars(),j+1); // maybe add exon coverage here
+				if(pred[n]->t_eq) {
+					if(!eonly) fprintf(f_out,"reference_id \"%s\"; ",pred[n]->t_eq->getID());
+					if (!eonly && pred[n]->t_eq->getGeneID())
+						fprintf(f_out,"ref_gene_id \"%s\"; ",pred[n]->t_eq->getGeneID());
+					if (pred[n]->t_eq->getGeneName())
+						fprintf(f_out,"ref_gene_name \"%s\"; ",pred[n]->t_eq->getGeneName());
+				}
+				fprintf(f_out,"cov \"%.6f\";\n",pred[n]->exoncov[j]);
+			}
+
+			if(!eonly && printNascent) {
+				CPrediction *p=pred[n]->linkpred;
+				while(p) { if(p->flag){
+
+					p->tlen=abs(p->tlen);
+
+					/*fprintf(stderr,"print nascent:");
+					for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %d-%d",p->exons[i].start,p->exons[i].end);
+					for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %f",p->exoncov[i]);
+					fprintf(stderr,"\n");*/
+
+					p->cov=0; // I can not compute this at add_intrseq because I have only limited information about the exon positioning in nascent
+					for(int i=0;i<p->exons.Count();i++) if(p->exoncov[i]) {
+						p->cov+=p->exoncov[i];
+						p->exoncov[i]/=p->exons[i].len();
+					}
+					p->cov/=p->tlen;
+
+					if(p->cov>epsilon) {
+
+						/*fprintf(stderr,"adjusted nascent:");
+						for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %d-%d",p->exons[i].start,p->exons[i].end);
+						for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %f",p->exoncov[i]);
+						fprintf(stderr,"\n");*/
+
+						transcripts[genes[n]]++;
+						p->geneno=genes[n]+geneno+1;
+						p->tlen=abs(p->tlen);
+						fprintf(f_out,"1 %d %d 0 %.6f\n",p->exons.Count()+1,p->tlen,p->cov);
+
+						GStr geneid(label, 10);geneid+='.';geneid+=p->geneno;
+						GStr trid(geneid.chars(), 10); trid+='.';trid+=transcripts[genes[n]];
+
+						fprintf(f_out,"%s\tnascentRNA\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; nascent_parent \"%s\"; ",
+								refname.chars(),p->start,p->end,p->strand,geneid.chars(),trid.chars(),pred[n]->mergename.chars());
+						if(p->t_eq) {
+							if(!eonly) fprintf(f_out,"reference_id \"%s\"; ",p->t_eq->getID());
+							if (!eonly && pred[n]->t_eq->getGeneID())
+								fprintf(f_out,"ref_gene_id \"%s\"; ",p->t_eq->getGeneID());
+							if (p->t_eq->getGeneName())
+								fprintf(f_out,"ref_gene_name \"%s\"; ",p->t_eq->getGeneName());
+						}
+						if(longreads && p->longcov) fprintf(f_out,"longcov \"%.6f\"; ",p->longcov);
+						fprintf(f_out,"cov \"%.6f\";\n",p->cov);
+						for(int j=0;j<p->exons.Count();j++) {
+
+							fprintf(f_out,"%s\tnascentRNA\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; ",
+									refname.chars(),p->exons[j].start,p->exons[j].end,p->strand,geneid.chars(),
+									trid.chars()); // maybe add exon coverage here
+							if(p->t_eq) {
+								if(!eonly) fprintf(f_out,"reference_id \"%s\"; ",p->t_eq->getID());
+								if (!eonly && pred[n]->t_eq->getGeneID())
+									fprintf(f_out,"ref_gene_id \"%s\"; ",p->t_eq->getGeneID());
+								if (p->t_eq->getGeneName())
+									fprintf(f_out,"ref_gene_name \"%s\"; ",p->t_eq->getGeneName());
+							}
+							fprintf(f_out,"cov \"%.6f\";\n",p->exoncov[j]);
+						}
+					}
+				}
+					p=p->linkpred;
+				}
+			}
 		}
 
 		// now deal with the genes
@@ -1403,6 +2138,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				bundleData->sum_cov+=pred[n]->cov;
 			}
 		}
+
 	}
 
 	// clean-up maxint
@@ -1431,10 +2167,24 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	{ // DEBUG ONLY
 		fprintf(stderr,"Pred set before sorting:\n");
 		for(int i=0;i<pred.Count();i++) {
-			if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
-			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand);
+			if(pred[i]->t_eq) fprintf(stderr,"%s(%s) ",pred[i]->t_eq->getID(),pred[i]->mergename.chars());
+			if(pred[i]->mergename=="n" || pred[i]->mergename=="N") {
+				fprintf(stderr,"nascent%s",pred[i]->mergename.chars()) ;
+			}
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
-			fprintf(stderr,"\n");
+			fprintf(stderr," (");
+			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
+			fprintf(stderr,")\n");
+			if(pred[i]->mergename!="n" && pred[i]->linkpred) {
+				fprintf(stderr,"...nascents:");
+				CPrediction *p=pred[i]->linkpred;
+				while(p) {
+					fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->flag);
+					p=p->linkpred;
+				}
+				fprintf(stderr,"\n");
+			}
 		}
 		fprintf(stderr,"\n");
 	}
@@ -1442,7 +2192,9 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 	int npred=pred.Count();
 
-	pred.setSorted(predCmp);
+	pred.setSorted(predCmp); // order based on start; the one with higher coverage comes first; fewer exons first; nascents are at the end
+
+	while(npred>0 && pred[npred-1]->mergename=="n") npred--;
 
 	GVec<CGene> predgene;
 	int refstart=bundleData->start;
@@ -1460,6 +2212,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		for(int i=0;i<npred-1;i++) if(pred[i]->flag) {
 			if(pred[i]->cov<readthr) {
 				pred[i]->flag=false;
+				//if(pred[i]->linkpred) pred[i]->linkpred->flag=false;
 				//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
 				continue;
 			}
@@ -1471,6 +2224,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 				//fprintf(stderr,"... check pred j=%d\n",j);
 				if(pred[j]->cov<readthr) {
 					pred[j]->flag=false;
+					//if(pred[j]->linkpred) pred[j]->linkpred->flag=false;
 					//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
 					j++;
 					continue;
@@ -1564,7 +2318,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			// now deal with the genes
 			// predicted:
 			int gno=genes[n];
-			//fprintf(stderr,"gno=%d\n",gno);
 			if(gno>=predgene.Count()) { // I did not see this gene before
 				CGene g(pred[n]->start,pred[n]->end,pred[n]->strand);
 				for(int i=0;i<pred[n]->exons.Count();i++) {
@@ -1572,7 +2325,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 				}
 				g.cov+=pred[n]->cov*pred[n]->tlen;
 				g.covsum+=pred[n]->cov;
-				//fprintf(stderr,"3:add pred[%d]'s coverage=%g to gene cov\n",n,pred[n]->cov);
 				predgene.Add(g);
 			}
 			else { // I've seen this gene before
@@ -1581,7 +2333,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 				merge_exons(predgene[gno],pred[n]->exons);
 				predgene[gno].cov+=pred[n]->cov*pred[n]->tlen;
 				predgene[gno].covsum+=pred[n]->cov;
-				//fprintf(stderr,"4:add pred[%d]'s coverage=%g to gene cov\n",n,pred[n]->cov);
 			}
 		}
 
@@ -1640,11 +2391,21 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		fprintf(stderr,"Initial set:\n");
 		for(int i=0;i<pred.Count();i++) {
 			if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
-			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand);
+			if(pred[i]->mergename=='n') {
+				fprintf(stderr,"nascent ") ;
+			}
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
 			fprintf(stderr," (");
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
 			fprintf(stderr,")\n");
+			fprintf(stderr,"...nascents:");
+			CPrediction *p=pred[i]->linkpred;
+			while(p) {
+				fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->flag);
+				p=p->linkpred;
+			}
+			fprintf(stderr,"\n");
 		}
 		fprintf(stderr,"\n");
 	}
@@ -1652,7 +2413,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 	bool preddel=false;
 
-	// this are needed for gene abundance estimations
+	// these are needed for gene abundance estimations
 	GVec<CGene> refgene;
 	GHash<int> hashgene;
 
@@ -1671,8 +2432,9 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			if(guides[i]->exons.Count()>1 && longreads) isintronguide=true;
 
 			if (eonly) { // if eonly I need to print all guides that were not printed yet
+			    //if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
 				if (guides[i]->uptr && getGuideStatus(guides[i])<GBST_STORED) {
-				                       //((RC_TData*)guides[i]->uptr)->in_bundle<3) {
+
 					fprintf(f_out,"1 %d %d %d 0.0\n",guides[i]->exons.Count()+1,guides[i]->covlen, ((RC_TData*)guides[i]->uptr)->t_id);
 					fprintf(f_out, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",refname.chars(),
 							guides[i]->getTrackName(), guides[i]->start,guides[i]->end, guides[i]->strand);
@@ -1732,31 +2494,37 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		GVec< GVec<int> > reflink(npred); reflink.Resize(npred);
 		for(int n=0;n<npred;n++) {
 
-			if(pred[n] && pred[n]->t_eq) {
+			if(pred[n] && pred[n]->t_eq) { // this is a guided prediction
 
-				if(mixedMode && pred[n]->cov<DROP) { // need to be more strict with mixed data since we introduced the guides by default
+				/*
+				//if(mixedMode && pred[n]->cov<DROP) { // need to be more strict with mixed data since we introduced the guides by default
+				//if(mixedMode && pred[n]->cov<ERROR_PERC) { // need to be more strict with mixed data since we introduced the guides by default
 					pred[n]->flag=false;
+					//if(pred[n]->linkpred) pred[n]->linkpred->flag=false;
 					continue;
-				}
+				}*/
 
 				//fprintf(stderr,"pred[%d]: start=%d end=%d ID=%s strand=%c refstrand=%c refstart=%d\n",n,pred[n]->start,pred[n]->end,pred[n]->t_eq->getID(),pred[n]->strand,pred[n]->t_eq->strand,pred[n]->t_eq->start);
 
 				// check if there are single exon on the left of the predicted transcript
 				int i=n-1;
 				while(i>=0 && pred[i]->start>=pred[n]->t_eq->start) {
-				  //fprintf(stderr,"%d: excnot=%d end=%d start=%d str=%c\n",i,pred[i]->exons.Count(), pred[i]->end,pred[n]->start, pred[i]->strand);
+					//fprintf(stderr,"%d: excnot=%d end=%d start=%d str=%c\n",i,pred[i]->exons.Count(), pred[i]->end,pred[n]->start, pred[i]->strand);
 					if(pred[i]->exons.Count()==1 && pred[i]->end<pred[n]->start && (pred[i]->strand==pred[n]->strand || pred[i]->strand=='.')) {
 						if(!pred[i]->t_eq || !strcmp(pred[i]->t_eq->getID(),pred[n]->t_eq->getID())) reflink[i].Add(n);
 					}
 					if(!pred[i]->t_eq && pred[i]->end>pred[n]->start && pred[i]->cov<pred[n]->cov*ERROR_PERC) {
 						//fprintf(stderr,"1 set pred[%d] to false\n",i);
 						pred[i]->flag=false;
+						//if(pred[i]->linkpred) pred[i]->linkpred->flag=false;
 					}
 					i--;
 				}
 				while(i>=0 && pred[i]->end>pred[n]->start){
-					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC)
+					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC) {
 						pred[i]->flag=false;
+						//if(pred[i]->linkpred) pred[i]->linkpred->flag=false;
+					}
 					i--;
 				}
 				// check if there are single exon on the right of the predicted transcript
@@ -1771,16 +2539,21 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 					if(!pred[i]->t_eq && pred[i]->start<pred[n]->end && pred[i]->cov<pred[n]->cov*ERROR_PERC) {
 						//fprintf(stderr,"2 set pred[%d] to false\n",i);
 						pred[i]->flag=false;
+						//if(pred[i]->linkpred) pred[i]->linkpred->flag=false;
 					}
+
 					i++;
 				}
 				while(i<npred && pred[i]->start<pred[n]->end) {
-					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC)
+					if(!pred[i]->t_eq && pred[i]->cov<pred[n]->cov*ERROR_PERC) {
 						pred[i]->flag=false;
+						//if(pred[i]->linkpred) pred[i]->linkpred->flag=false;
+					}
 					i++;
+				}
 			}
 		}
-		}
+
 
 		for(int n=0;n<npred;n++) {
 
@@ -1812,11 +2585,12 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 					}
 					// now replace pred[y] with null
 						//fprintf(stderr,"Replace pred[%d] with null\n",n);
-					CPrediction *p=pred[n];
-					pred.Forget(n);
-					delete p;
+						//fprintf(stderr,"1 delete pred %d\n",n);
+						CPrediction *p=pred[n];
+						pred.Forget(n);
+						delete p;
+					}
 				}
-			}
 				/*if(!del && !pred[n]->flag) {
 					CPrediction *p=pred[n];
 					pred.Forget(n);
@@ -1827,8 +2601,33 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		pred.Pack();
 		pred.Sort();
 		npred=pred.Count();
-
+		while(npred>0 && pred[npred-1]->mergename=="n") npred--;
 	}
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"After guide process set:\n");
+		for(int i=0;i<pred.Count();i++) {
+			if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
+			if(pred[i]->mergename=='n') {
+				fprintf(stderr,"nascent ") ;
+			}
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
+			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
+			fprintf(stderr," (");
+			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
+			fprintf(stderr,")\n");
+			fprintf(stderr,"...nascents:");
+			CPrediction *p=pred[i]->linkpred;
+			while(p) {
+				fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->flag);
+				p=p->linkpred;
+			}
+			fprintf(stderr,"\n");
+		}
+		fprintf(stderr,"\n");
+	}
+	*/
 
 	//preddel=false;
 	/* adaptive mode: stitch together nearby single predictions if not within trimming parameters */
@@ -1838,8 +2637,10 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 	bool incomplete=false;
 	GStr id("", 32);
-	for(int n=0;n<npred-1;n++) {
-		//fprintf(stderr,"check pred[%d]:%d-%d:%c with noexon=%d and cov=%f\n",n,pred[n]->start,pred[n]->end,pred[n]->strand,pred[n]->exons.Count(),pred[n]->cov);
+	for(int n=0;n<npred-1;n++) { // this only looks at mature pred or nascent guides
+		/*fprintf(stderr,"check pred[%d]:%d-%d:%c with noexon=%d and cov=%f tlen=%d",n,pred[n]->start,pred[n]->end,pred[n]->strand,pred[n]->exons.Count(),pred[n]->cov,pred[n]->tlen);
+		if(pred[n]->t_eq) fprintf(stderr," %s",pred[n]->t_eq->getID());
+		fprintf(stderr,"\n");*/
 		bool ndel=false;
 		if(!pred[n]->t_eq && (abs(pred[n]->tlen)<mintranscriptlen)) { ndel=true;}
 		else {
@@ -1848,23 +2649,42 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 				if(pred[n]->strand==pred[m]->strand) {
 					if(equal_pred(pred,n,m)) {
 
+						//fprintf(stderr,"Equal to pred m=%d\n",m);
 						if(pred[n]->t_eq && pred[m]->t_eq && pred[n]->t_eq!=pred[m]->t_eq) { m++; continue;} // both are equal but represent different transcripts
 
-						if(mixedMode && pred[n]->tlen*pred[m]->tlen<0) { // choose the larger one
+						if(mixedMode && pred[n]->tlen*pred[m]->tlen<0) { // choose the larger one -> store it in m
 							if(pred[n]->t_eq) {
-								pred[m]->t_eq=pred[n]->t_eq;
+								pred[m]->mergename=pred[n]->mergename;
+								pred[m]->linkpred=pred[n]->linkpred;
 								pred[m]->flag=true; // make sure I do not delete the prediction
-								pred[n]->cov+=pred[m]->cov; // add coverage to annotated gene in this case
+								if(abs(pred[m]->tlen)<abs(pred[n]->tlen)) {
+									//float cov=pred[m]->cov*abs(pred[m]->tlen)/abs(pred[n]->tlen);
+									//fprintf(stderr,"pred[n]->cov=%f cov=%f new pred[n]->cov=%f\n",pred[n]->cov,cov,pred[n]->cov+cov);
+									pred[n]->cov+=pred[m]->cov*abs(pred[m]->tlen)/abs(pred[n]->tlen); // add coverage to annotated gene in this case so that pred[n]->cov>pred[m]->cov and the next if to become true
+									for(int k=0;k<pred[n]->exons.Count();k++) {
+										int len=pred[n]->exons[k].len();
+										if(pred[m]->exons[k].start>pred[n]->exons[k].start) len-=pred[m]->exons[k].start-pred[n]->exons[k].start;
+										if(pred[m]->exons[k].end<pred[n]->exons[k].end) len+=pred[m]->exons[k].end-pred[n]->exons[k].end;
+										pred[n]->exoncov[k]+=pred[m]->exoncov[k]*len/pred[n]->exons[k].len();
+									}
+									//fprintf(stderr,"pred[n]->cov=%f\n",pred[n]->cov);
+								}
+								else pred[n]->cov+=pred[m]->cov; // add coverage to annotated gene in this case so that pred[n]->cov>pred[m]->cov and the next if to become true
 							}
-							if(pred[n]->cov>pred[m]->cov) { // replace with higher coverage
-								pred[m]->start=pred[n]->start;
-								pred[m]->end=pred[n]->end;
+							if(pred[n]->cov>pred[m]->cov || pred[n]->t_eq) { // --replace-- with higher coverage;
 								pred[m]->cov=pred[n]->cov;
-								pred[m]->tlen=-abs(pred[n]->tlen); // here is to say structure is supported by long read --> might decrease precision
-								pred[m]->exons[0].start=pred[n]->exons[0].start;
-								pred[m]->exons.Last().end=pred[n]->exons.Last().end;
-								for(int k=0;k<pred[m]->exons.Count();k++) {
-									pred[m]->exoncov[k]=pred[n]->exoncov[k];
+								if(!pred[m]->t_eq) { // without this it also adjustes start and ends for guides!!
+									if(isnascent) reconcile_nascents(pred,m,n);
+									pred[m]->t_eq=pred[n]->t_eq;
+									pred[m]->start=pred[n]->start;
+									pred[m]->end=pred[n]->end;
+									if(pred[n]->mergename=="n" && pred[m]->mergename!="N") pred[m]->mergename=pred[n]->mergename;
+									pred[m]->tlen=-abs(pred[n]->tlen); // here is to say structure is supported by long read --> might decrease precision
+									pred[m]->exons[0].start=pred[n]->exons[0].start;
+									pred[m]->exons.Last().end=pred[n]->exons.Last().end;
+									for(int k=0;k<pred[m]->exons.Count();k++) {
+										pred[m]->exoncov[k]=pred[n]->exoncov[k];
+									}
 								}
 								pred[m]->geneno=-abs(pred[m]->geneno);
 							}
@@ -1873,72 +2693,135 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							break;
 						}
 
-						if(pred[n]->exons.Count()==1) {
+						if(pred[n]->exons.Count()==1) { // if pred[n] is single exon it can not have nascent RNA
 							if(pred[m]->cov>ERROR_PERC*pred[n]->cov && pred[n]->cov>ERROR_PERC*pred[m]->cov) { // predictions close to each other in abundance -> otherwise I just delete the less abundant overlapping single exon gene
 
-								if(!pred[m]->t_eq && pred[n]->end>pred[m]->end) pred[m]->end=pred[n]->end;
+								// choose longer single exon prediction if possible
+								if(!pred[m]->t_eq) {
+									if(pred[n]->end>pred[m]->end) {
+										pred[m]->end=pred[n]->end;
+									}
+									//fprintf(stderr,"1 pred[%d] start=%d end=%d cov=%f tlen=%d\n",m,pred[m]->start,pred[m]->end,pred[m]->cov,pred[m]->tlen);
 
+									pred[m]->start=pred[n]->start; // pred[n]->start comes before pred[m]->start -> adjust if pred[m] is not reference
+									if(pred[n]->mergename=="n" || pred[n]->mergename=="N") pred[m]->mergename=pred[n]->mergename;
+								}
 
-								//fprintf(stderr,"pred[%d] start=%d end=%d\n",m,pred[m]->start,pred[m]->end);
-
-								if(!pred[m]->t_eq) pred[m]->start=pred[n]->start; // pred[n]->start comes before pred[m]->start -> adjust if pred[m] is not reference
 								if(pred[n]->t_eq) {
 									pred[m]->t_eq=pred[n]->t_eq;
 									pred[m]->end=pred[n]->end;
 									pred[m]->flag=true;
+									if(pred[m]->t_eq) pred[m]->cov+=pred[n]->cov;
+									else {
+										if(abs(pred[m]->tlen)>ERROR_PERC*abs(pred[n]->tlen) && abs(pred[n]->tlen)>ERROR_PERC*abs(pred[m]->tlen)) pred[m]->cov+=pred[n]->cov;
+										else pred[m]->cov=pred[n]->cov;
+									}
 								}
+								else {
 
-								//fprintf(stderr,"pred[%d] start=%d end=%d\n",m,pred[m]->start,pred[m]->end);
+									//fprintf(stderr,"2 pred[%d] start=%d end=%d cov=%f tlen=%d\n",m,pred[m]->start,pred[m]->end,pred[m]->cov,pred[m]->tlen);
 
-								pred[m]->cov=(pred[n]->cov*abs(pred[n]->tlen)+pred[m]->cov*abs(pred[m]->tlen))/(pred[m]->end-pred[m]->start+1);
-								pred[m]->tlen=pred[m]->end-pred[m]->start+1;
+									if(!pred[m]->t_eq) pred[m]->cov=(pred[n]->cov*abs(pred[n]->tlen)+pred[m]->cov*abs(pred[m]->tlen))/(pred[m]->end-pred[m]->start+1);
+									else if(abs(pred[m]->tlen)>ERROR_PERC*abs(pred[n]->tlen) && abs(pred[n]->tlen)>ERROR_PERC*abs(pred[m]->tlen)) pred[m]->cov+=pred[n]->cov;
+								}
+								//fprintf(stderr,"3 pred[%d] start=%d end=%d cov=%f tlen=%d\n",m,pred[m]->start,pred[m]->end,pred[m]->cov,pred[m]->tlen);
+
+								int tlen=pred[m]->tlen;
+								pred[m]->tlen=pred[m]->end-pred[m]->start+1; // this is a single exon gene this is why I can do it
 								if(longreads) pred[m]->tlen=-pred[m]->tlen;
 								else if(mixedMode){
 									if(pred[m]->cov>pred[n]->cov) {
-										if(pred[m]->tlen<0) pred[m]->tlen=-pred[m]->tlen;
+										if(tlen<0) pred[m]->tlen=-pred[m]->tlen;
 									}
 									else if(pred[n]->tlen<0) pred[m]->tlen=-pred[m]->tlen;
 								}
+								/* adj if(abs(pred[n]->tlen)<tlen) pred[m]->cov+=pred[n]->cov*abs(pred[n]->tlen)/tlen;
+								else pred[m]->cov+=pred[n]->cov; */
 								pred[m]->exoncov[0]=pred[m]->cov;
 								pred[m]->exons[0].start=pred[m]->start;
 								pred[m]->exons[0].end = pred[m]->end;
 
 								if(pred[m]->strand=='.') pred[m]->strand=pred[n]->strand;
 							}
-							else if(pred[n]->t_eq) { m++; continue;}
-							else { // prefer prediction with higher coverage
-								if(!pred[m]->t_eq && (pred[n]->t_eq || pred[n]->cov>pred[m]->cov)) { // prefer prediction with higher coverage here
-									pred[m]->start=pred[n]->start;
-									pred[m]->exons[0].start=pred[n]->exons[0].start;
-									pred[m]->end=pred[n]->end;
-									pred[m]->exons.Last().end=pred[n]->exons.Last().end;
-									pred[m]->tlen=pred[n]->tlen;
-									pred[m]->t_eq=pred[n]->t_eq;
-									if(pred[n]->t_eq) pred[m]->flag=true;
+							else if(pred[n]->t_eq && pred[m]->t_eq!=pred[n]->t_eq) { m++; continue;} // keep both because pred[m] is highly covered
+							else { // prefer prediction with higher coverage pred[n] is not a guide
+								int tlen=abs(pred[m]->tlen);
+
+								if(pred[m]->t_eq) {
+									if(abs(pred[m]->tlen)>ERROR_PERC*abs(pred[n]->tlen) && abs(pred[n]->tlen)>ERROR_PERC*abs(pred[m]->tlen)) pred[m]->cov+=pred[n]->cov;
 								}
-								pred[m]->cov+=pred[n]->cov;
+								else {
+									if(pred[n]->cov>pred[m]->cov) { // prefer prediction with higher coverage here
+										pred[m]->start=pred[n]->start;
+										pred[m]->exons[0].start=pred[n]->exons[0].start;
+										pred[m]->end=pred[n]->end;
+										pred[m]->exons.Last().end=pred[n]->exons.Last().end;
+										pred[m]->tlen=pred[n]->tlen;
+										pred[m]->t_eq=pred[n]->t_eq;
+										if(pred[n]->mergename=="n" || pred[n]->mergename=="N") pred[m]->mergename=pred[n]->mergename;
+										if(pred[n]->t_eq) pred[m]->flag=true;
+									}
+									/* adj */
+									if(abs(pred[n]->tlen)<tlen) pred[m]->cov+=pred[n]->cov*abs(pred[n]->tlen)/tlen;
+									else pred[m]->cov+=pred[n]->cov;
+								}
 								//fprintf(stderr,"--ndel Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
-								for(int k=0;k<pred[m]->exons.Count();k++) {
-									pred[m]->exoncov[k]+=pred[n]->exoncov[k];
-								}
+								pred[m]->exoncov[0]=pred[m]->cov;
+
 							}
 							//fprintf(stderr,"--ndel pred[%d] start=%d end=%d\n",m,pred[m]->start,pred[m]->end);
 						}
 						else {
+
+							/*fprintf(stderr,"Add pred %d(",n);
+							if(pred[n]->t_eq) fprintf(stderr,"%s ",pred[n]->t_eq->getID());
+							fprintf(stderr,", tlen=%d) mergename=%s to pred %d(",pred[n]->tlen,pred[n]->mergename.chars(),m);
+							if(pred[m]->t_eq) fprintf(stderr,"%s ",pred[m]->t_eq->getID());
+							fprintf(stderr,", tlen=%d)\n",pred[m]->tlen);*/
+							uint flen=pred[m]->exons[0].len();
+							uint llen=pred[m]->exons.Last().len();
 							if(!pred[m]->t_eq && (pred[n]->t_eq || pred[n]->cov>pred[m]->cov)) { // prefer prediction with higher coverage here
+								if(isnascent) reconcile_nascents(pred,m,n);
+								//fprintf(stderr,"After reconcile: pred[%d]->tlen=%d pred[%d]->tlen=%d pred[%d]->cov=%f pred[%d]->cov=%f\n",n,pred[n]->tlen,m,pred[m]->tlen,n,pred[n]->cov,m,pred[m]->cov);
 								pred[m]->start=pred[n]->start;
 								pred[m]->exons[0].start=pred[n]->exons[0].start;
 								pred[m]->end=pred[n]->end;
 								pred[m]->exons.Last().end=pred[n]->exons.Last().end;
 								pred[m]->tlen=pred[n]->tlen;
 								pred[m]->t_eq=pred[n]->t_eq;
+								if(pred[n]->mergename=="n" || pred[n]->mergename=="N") pred[m]->mergename=pred[n]->mergename;
 								if(pred[n]->t_eq) pred[m]->flag=true;
 							}
-							pred[m]->cov+=pred[n]->cov;
-							//fprintf(stderr,"--ndel Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
+							/*pred[m]->cov+=pred[n]->cov;
 							for(int k=0;k<pred[m]->exons.Count();k++) {
 								pred[m]->exoncov[k]+=pred[n]->exoncov[k];
+							}*/
+							//fprintf(stderr,"--ndel Prediction m=%d (new cov=%f) is equal\n",m,pred[m]->cov);
+							/* adj */
+							int addcov=0;
+							if(pred[n]->exons[0].len()<flen) {
+								addcov+=pred[n]->exoncov[0]*pred[n]->exons[0].len();
+								pred[m]->exoncov[0]+=addcov/flen;
 							}
+							else {
+								addcov+=pred[n]->exoncov[0]*pred[m]->exons[0].len();
+								pred[m]->exoncov[0]+=pred[n]->exoncov[0];
+							}
+							if(pred[n]->exons.Last().len()<llen) {
+								addcov+=pred[n]->exoncov.Last()*pred[n]->exons.Last().len();
+								pred[m]->exoncov.Last()+=pred[n]->exoncov.Last()*pred[n]->exons.Last().len()/llen;
+							}
+							else {
+								addcov+=pred[n]->exoncov.Last()*pred[m]->exons.Last().len();
+								pred[m]->exoncov.Last()+=pred[n]->exoncov.Last();
+							}
+							for(int k=1;k<pred[m]->exons.Count()-1;k++) {
+								pred[m]->exoncov[k]+=pred[n]->exoncov[k];
+								addcov+=pred[n]->exoncov[k]*pred[n]->exons[k].len();
+							}
+							pred[m]->cov+=addcov/abs(pred[m]->tlen);
+							//fprintf(stderr,") mergename[%d]=%s\n",m,pred[m]->mergename.chars());
+
 						}
 						ndel=true;
 						break;
@@ -2016,7 +2899,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 									if(prednlen>mintranscriptlen && predmlen>mintranscriptlen) {
 
-										if(!pred[l]->t_eq && pred[l]->end>startval) {
+										/* if(!pred[l]->t_eq && pred[l]->end>startval) {
 											float totalcov=get_cov(1,pred[l]->exons.Last().start-bundleData->start,pred[l]->end-bundleData->start,bundleData->bpcov);
 											float ratio=0;
 											float exoncov=pred[l]->exons.Last().len()*pred[l]->exoncov.Last();
@@ -2048,6 +2931,76 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 											pred[f]->start=endval;
 											pred[f]->exoncov[0]/=pred[f]->exons[0].len();
 											preddel=true;
+										} */
+
+										/* adj */
+										if(!pred[l]->t_eq && pred[l]->end>startval) {
+
+											float prevcov=get_cov(1,pred[l]->exons.Last().start-bundleData->start,pred[l]->end-bundleData->start,bundleData->bpcov);
+											float nextcov=get_cov(1,pred[l]->exons.Last().start-bundleData->start,startval-bundleData->start,bundleData->bpcov);
+											if(!prevcov) prevcov=ERROR_PERC;
+											if(!nextcov) nextcov=ERROR_PERC;
+											float ratio=nextcov/prevcov;
+											pred[l]->exoncov.Last()=ratio*pred[l]->exons.Last().len()*pred[l]->exoncov.Last();
+											pred[l]->cov=pred[l]->exoncov.Last();
+											for(int k=0;k<pred[l]->exons.Count()-1;k++) {
+												pred[l]->cov+=pred[l]->exoncov[k]*pred[l]->exons[k].len();
+											}
+											pred[l]->cov/=prednlen;
+											//pred[l]->exoncov.Last()/=(startval-pred[l]->exons.Last().start+1);
+
+
+											pred[l]->exons.Last().end=startval;
+											pred[l]->end=startval;
+											pred[l]->exoncov.Last()/=pred[l]->exons.Last().len();
+
+											//pred[l]->tlen-=pred[l]->end-midpoint;
+											if(pred[l]->tlen<0) pred[l]->tlen=-prednlen;
+											else pred[l]->tlen=prednlen;
+											if(isnascent && pred[l]->strand=='-') {
+												CPrediction *p=pred[l]->linkpred;
+												while(p) {
+													p->tlen+=startval-p->end;
+													p->end=startval;
+													p->exons.Last().end=startval;
+													p=p->linkpred;
+												}
+											}
+											preddel=true;
+											//if(pred[l]->tlen<mintranscriptlen) ndel=true;
+										}
+										if(!pred[f]->t_eq && pred[f]->start<endval) { // adjust pred[f] coverage
+
+
+											float prevcov=get_cov(1,pred[f]->start-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
+											float nextcov=get_cov(1,endval-bundleData->start,pred[f]->exons[0].end-bundleData->start,bundleData->bpcov);
+											if(!prevcov) prevcov=ERROR_PERC;
+											if(!nextcov) nextcov=ERROR_PERC;
+											float ratio=nextcov/prevcov;
+											pred[f]->exoncov[0]=ratio*pred[f]->exons[0].len()*pred[f]->exoncov[0];
+											pred[f]->cov=pred[f]->exoncov[0];
+											for(int k=1;k<pred[f]->exons.Count();k++) {
+												pred[f]->cov+=pred[f]->exoncov[k]*pred[f]->exons[k].len();
+											}
+											pred[f]->cov/=predmlen;
+											//pred[f]->exoncov[0]/=(pred[f]->exons[0].end-endval+1);
+											pred[f]->exons[0].start=endval;
+											pred[f]->start=endval;
+											pred[f]->exoncov[0]/=pred[f]->exons[0].len();
+											//pred[f]->tlen-=midpoint-pred[f]->start;
+											if(pred[f]->tlen<0) pred[f]->tlen=-predmlen;
+											else pred[f]->tlen=predmlen;
+											if(isnascent && pred[f]->strand=='+') {
+												CPrediction *p=pred[f]->linkpred;
+												while(p) {
+													p->tlen+=p->start-endval;
+													p->start=endval;
+													p->exons[0].start=endval;
+													p=p->linkpred;
+												}
+											}
+											preddel=true;
+											//if(pred[f]->cov<0) { fprintf(stderr,"pred[%d]->cov=%f\n",f,pred[f]->cov);exit(0);}
 										}
 										//fprintf(stderr,"midpoint=%d pred[n=%d]->cov=%f pred[m=%d]->cov=%f\n",midpoint,n,pred[l]->cov,m,pred[f]->cov);
 									}
@@ -2068,6 +3021,15 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							pred[m]->cov>ERROR_PERC*pred[n]->cov && pred[n]->cov>ERROR_PERC*pred[m]->cov && !pred[m]->t_eq) {
 						// if both are single predictions and are within bundledist on the same strand and not in reference and are not within error_perc from each other
 						//fprintf(stderr,"Stich predictions %d and %d with cov=%f and %f\n",n,m,pred[n]->cov,pred[m]->cov);
+						if(isnascent && pred[m]->linkpred && pred[m]->strand=='+') {
+							CPrediction *p=pred[m]->linkpred;
+							while(p) {
+								p->tlen+=p->start-pred[n]->start;
+								p->start=pred[n]->start;
+								p->exons[0].start=pred[n]->start;
+								p=p->linkpred;
+							}
+						}
 						pred[m]->start=pred[n]->start;
 						pred[m]->cov=(pred[n]->cov*abs(pred[n]->tlen)+pred[m]->cov*abs(pred[m]->tlen))/(pred[m]->end-pred[m]->start+1);
 						int mult=1;
@@ -2211,24 +3173,49 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		pred.Pack();
 		pred.Sort();
 		npred=pred.Count();
+		while(npred>0 && pred[npred-1]->mergename=="n") npred--;
 	}
 	//}
 
 	/*
     { // DEBUG ONLY
-    	fprintf(stderr,"Before predcluster:\n");
-		for(int i=0;i<pred.Count();i++) {
+    	fprintf(stderr,"Before predcluster: predcount=%d\n",pred.Count());
+		//for(int i=0;i<npred;i++) {
+    	for(int i=0;i<pred.Count();i++) {
     		if(pred[i]->t_eq) fprintf(stderr,"%s ",pred[i]->t_eq->getID());
-    		fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
+			if(pred[i]->mergename=="n" || pred[i]->mergename=="N") {
+				fprintf(stderr,"nascent") ;
+				if(pred[i]->linkpred && pred[i]->linkpred->t_eq) fprintf(stderr,"_%s ",pred[i]->linkpred->t_eq->getID());
+			}
+    		fprintf(stderr,"pred[%d]:%d-%d(cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
     		//for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d(%f)",pred[i]->exons[j].start,pred[i]->exons[j].end,pred[i]->exoncov[j]);
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
 			fprintf(stderr," (");
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
 			fprintf(stderr,")\n");
+			if(i<npred) {
+				fprintf(stderr,"...nascents:");
+				CPrediction *p=pred[i]->linkpred;
+				while(p) {
+					fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->flag);
+					p=p->linkpred;
+				}
+				fprintf(stderr,"\n");
+			}
     	}
 		fprintf(stderr,"\n");
     }
     */
+
+	/*if(isnascent && guided)  { // add nascents to guides
+    	GVec<int> guidepred;
+    	for(int i=0;i<npred;i++) {
+    		if(pred[i]->mergename=="N") add_nascent_to_refpred(i,pred,npred,guidepred);
+    		else if(pred[i]->t_eq && !isNascent(pred[i]->t_eq)) {
+    			guidepred.Add(i);
+    		}
+    	}
+    }*/
 
 	if(npred) geneno=print_predcluster(pred,geneno,refname,refgene,hashgene,predgene,bundleData,incomplete);
 
@@ -2490,8 +3477,241 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 	return(geneno);
 }
 
-
 /*
+bool small_overlap(GList<CPrediction>& pred, int i,int j, OvlTracker& overlaps) {
+	if (overlaps.get(i,j)) {
+		return true;
+	}
+	// pred[m] comes first on genomic coordinates as m<M
+	int ei=0;
+	int ej=0;
+	int ovp=0;
+	int allowedovlp=ERROR_PERC*pred[j]->tlen;
+	while(ei<pred[i]->exons.Count() && ej<pred[j]->exons.Count()) {
+		while(ei<pred[i]->exons.Count() && pred[i]->exons[ei].end<pred[j]->exons[ej].start) ei++; // now pi[ei].end>=pj[ej].start
+		if(ei<pred[i]->exons.Count()) {
+			while(ej<pred[j]->exons.Count() && pred[j]->exons[ej].end<pred[i]->exons[ei].start) ej++; // now pj[ej].end>=pi[ei].start
+			if(ej<pred[j]->exons.Count()) {
+				ovp+=pred[j]->exons[ej].overlapLen(pred[i]->exons[ei].start,pred[i]->exons[ei].end);
+				if(ovp) {
+					if(ovp>allowedovlp) return true;
+					if(pred[j]->exons[ej].end<pred[i]->exons[ei].end) ej++;
+					else ei++;
+				}
+			}
+		}
+	}
+
+	return false;
+
+}
+
+int predstartCmp(const pointer p1, const pointer p2) {
+	CPrediction *a=(CPrediction*)p1;
+	CPrediction *b=(CPrediction*)p2;
+
+	if(a->mergename=="n" && b->mergename!="n") return 1; // nascents are at the end
+	if(a->mergename!="n" && b->mergename=="n") return -1;
+
+	if(a->start < b->start) return -1; // order based on start
+	if(a->start > b->start) return 1;
+
+	// same start
+	if(a->end < b->end) return -1; // order based on start
+	if(a->end > b->end) return 1;
+
+	return 0;
+}
+
+void update_cov(GList<CPrediction>& pred,int big,int small,float frac=1) { // small gets included into big
+
+	if(pred[big]->strand=='.') pred[big]->strand=pred[small]->strand;
+
+	if(pred[small]->t_eq && !pred[big]->t_eq) { // this can only happen if big pred has the same number of exons
+		pred[big]->tlen=pred[small]->tlen;
+		pred[big]->exons[0].start=pred[small]->exons[0].start;
+		pred[big]->start=pred[small]->start;
+		pred[big]->exons.Last().end=pred[small]->exons.Last().end;
+		pred[big]->end=pred[small]->end;
+		pred[big]->t_eq=pred[small]->t_eq;
+	}
+
+	int bex=0; // first exon in big pred that overlaps small pred
+	while(pred[small]->exons[0].start>pred[big]->exons[bex].end) bex++;
+
+	if(pred[big]->cov<pred[small]->cov && !pred[big]->t_eq && !bex && pred[small]->exons.Count()>1 && pred[big]->exons[0].start<pred[small]->exons[0].start) { // adjust start to account for trimming -> this messes up coverage of big pred though
+		pred[big]->tlen-=pred[small]->exons[0].start-pred[big]->exons[0].start;
+		pred[big]->exons[0].start=pred[small]->exons[0].start;
+		pred[big]->start=pred[small]->start;
+	}
+
+	int sex=0;
+	int overlap=0;
+	while(sex<pred[small]->exons.Count()) {
+		int exovlp=(pred[small]->exons[sex].end<pred[big]->exons[bex].end ? pred[small]->exons[sex].end : pred[big]->exons[bex].end)-
+				(pred[small]->exons[sex].start>pred[big]->exons[bex].start ? pred[small]->exons[sex].start : pred[big]->exons[bex].start)+1;
+
+		if(pred[big]->cov<pred[small]->cov && !pred[big]->t_eq && bex==pred[big]->exons.Count()-1 && sex>=1 && pred[big]->exons[bex].end>pred[small]->exons[sex].end) { // adjust end
+			pred[big]->tlen-=pred[big]->exons[bex].end-pred[small]->exons[sex].end;
+			pred[big]->exons[bex].end=pred[small]->exons[sex].end;
+			pred[big]->end=pred[small]->end;
+		}
+
+		pred[big]->exoncov[bex]=(pred[big]->exoncov[bex]*pred[big]->exons[bex].len()+frac*pred[small]->exoncov[sex]*exovlp)/pred[big]->exons[bex].len();
+		overlap+=exovlp;
+		sex++;bex++;
+	}
+
+	pred[big]->cov=(pred[big]->tlen*pred[big]->cov+overlap*frac*pred[small]->cov)/pred[big]->tlen;
+
+}
+uint min(uint n1,uint n2) {
+	if(n1<n2) return(n1);
+	return(n2);
+}
+
+uint max(uint n1,uint n2) {
+	if(n1<n2) return(n2);
+	return n1;
+}
+
+
+bool retainedintron(GList<CPrediction>& pred,int n1,int n2,GVec<GBitVec>& lowintron) {
+	int j=1;
+	for(int i=1;i<pred[n1]->exons.Count();i++) {
+		if(j>pred[n2]->exons.Count()-2) return false;
+		if(lowintron[n1][i-1]) {
+			while(j<pred[n2]->exons.Count()-1 && pred[n2]->exons[j].end<pred[n1]->exons[i].start) j++; // now pred[n2]->exons[j].end>=pred[n1]->exons[i].start
+			if(j<pred[n2]->exons.Count()-1 && pred[n2]->exons[j].start<=pred[n1]->exons[i-1].end) return true;
+		}
+	}
+	return false;
+}
+
+
+bool is_pred_above_frac(CInterval *maxcov,CPrediction* pred) {
+
+	CInterval *lastinterv=NULL;
+	while(maxcov && pred->start>=maxcov->pos) {
+		lastinterv=maxcov;
+		maxcov=maxcov->next;
+	}
+	if(lastinterv && ((pred->exons.Count()==1 && pred->cov<lastinterv->val) || pred->cov<isofrac*lastinterv->val)) return(false); // I need to deal with single exons too here
+	while(maxcov && pred->end>=maxcov->pos) {
+		if((pred->exons.Count()==1 && pred->cov<maxcov->val) || pred->cov<isofrac*maxcov->val) return(false);
+		maxcov=maxcov->next;
+	}
+	return(true);
+}
+
+//bool is_exon_above_frac(CInterval *maxcov,uint start,uint end,float cov,int exonno) {
+bool is_exon_above_frac(CInterval *maxcov,uint start,uint end,float cov) {
+
+	CInterval *lastinterv=NULL;
+	while(maxcov && start>=maxcov->pos) {
+		lastinterv=maxcov;
+		maxcov=maxcov->next;
+	}
+	//if(lastinterv && ((exonno==1 && cov<lastinterv->val) || cov<isofrac*lastinterv->val)) return(false); // I need to deal with single exons too here
+	if(lastinterv &&  cov<isofrac*lastinterv->val) return(false); // I need to deal with single exons too here
+	while(maxcov && end>=maxcov->pos) {
+		//if((exonno==1 && cov<maxcov->val) || cov<isofrac*maxcov->val) return(false);
+		if(cov<isofrac*maxcov->val) return(false);
+		maxcov=maxcov->next;
+	}
+	return(true);
+}
+
+void delete_Cinterval(CInterval *interv){
+	if(interv) {
+		if(interv->next) delete_Cinterval(interv->next);
+		delete interv;
+	}
+}
+
+int predordCmp(const pointer p1, const pointer p2) { // sort from highest to lowest coverage
+	CPred *a=(CPred*)p1;
+	CPred *b=(CPred*)p2;
+	if(a->cov < b->cov) return 1;
+	if(a->cov > b->cov) return -1;
+	return 0;
+}
+
+int predCmp(const pointer p1, const pointer p2) {
+	CPrediction *a=(CPrediction*)p1;
+	CPrediction *b=(CPrediction*)p2;
+
+	if(a->mergename=="n" && b->mergename!="n") return 1; // nascents are at the end
+	if(a->mergename!="n" && b->mergename=="n") return -1;
+
+	if(a->start < b->start) return -1; // order based on start
+	if(a->start > b->start) return 1;
+
+	// same start
+	//if(a->end < b->end) return -1; // order based on end - not helpful
+	//if(a->end > b->end) return 1;
+
+	if(a->cov > b->cov) return -1; // the one with higher coverage comes first
+	if(a->cov < b->cov) return 1;
+
+	if(a->exons.Count() < b->exons.Count()) return -1; // order based on number of exons
+	if(a->exons.Count() > b->exons.Count()) return 1;
+
+	// same number of exons
+	int i=0;
+	uint a1=0;
+	uint b1=0;
+	while(i<a->exons.Count()) {
+		if(a->exons[i].start<b->exons[i].start) {
+			a1=a->exons[i].start;
+			b1=b->exons[i].start;
+			break;
+		}
+		if(a->exons[i].end<b->exons[i].end) {
+			a1=a->exons[i].end;
+			b1=b->exons[i].end;
+			break;
+		}
+		i++;
+	}
+	if(a1) {
+		if(a1<b1) return -1; // the one with the first exon comes first
+		if(a1>b1) return 1;
+	}
+	//}
+	return 0;
+}
+
+int predlenCmp(const pointer p1, const pointer p2) { // sort from highest to lowest coverage
+	CPrediction *a=(CPrediction*)p1;
+	CPrediction *b=(CPrediction*)p2;
+	if(a->exons.Count() < b->exons.Count()) return 1;
+	if(a->exons.Count() > b->exons.Count()) return -1;
+	if(a->t_eq==NULL && b->t_eq!=NULL) return 1;
+	if(a->t_eq!=NULL && b->t_eq==NULL) return -1;
+	if(a->cov < b->cov) return 1;
+	if(a->cov > b->cov) return -1;
+	return 0;
+}
+
+int predcovCmp(const pointer p1, const pointer p2) { // sort from highest to lowest coverage
+	CPrediction *a=(CPrediction*)p1;
+	CPrediction *b=(CPrediction*)p2;
+	if(a->cov < b->cov) return 1;
+	if(a->cov > b->cov) return -1;
+	return 0;
+}
+
+int predexCmp(const pointer p1, const pointer p2) {
+	CPrediction *a=(CPrediction*)p1;
+	CPrediction *b=(CPrediction*)p2;
+	if(a->exons.Count() < b->exons.Count()) return -1;
+	if(a->exons.Count() > b->exons.Count()) return 1;
+	if(abs(a->tlen) < abs(b->tlen)) return -1;
+	if(abs(a->tlen) > abs(b->tlen)) return 1;
+	return 0;
+}
+
 uint find_midhash(int refstart,int start,int end,GVec<float>* bpcov) {
 
 	//if(end-refstart>bpcov[1].Count()) return(0);
@@ -2544,9 +3764,7 @@ uint find_midhash(int refstart,int start,int end,GVec<float>* bpcov) {
 
 	return(midpoint);
 }
-*/
 
-/*
 void printGff3Header(FILE* f, GArgs& args) {
   fprintf(f, "# ");
   args.printCmdLine(f);
