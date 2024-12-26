@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.12.7"
+#define GCLIB_VERSION "0.12.8"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -13,7 +13,7 @@
   #ifndef _WIN64
     #define _WIN64
   #endif
-  // #define __USE_MINGW_ANSI_STDIO 1
+  #define __USE_MINGW_ANSI_STDIO 1
   //#define __ISO_C_VISIBLE 1999
 #endif
 
@@ -417,14 +417,18 @@ struct GSeg {
         return (r->end<end)? r->end-start+1 : end-start+1;
         }
      }
-  int overlapLen(uint rstart, uint rend) {
+  // refstart = overlap start in ref coordinate space (1-based)
+  int overlapLen(uint rstart, uint rend, int* refstart=NULL) {
      if (rstart>rend) { Gswap(rstart,rend); }
+     if (refstart) *refstart=0;
      if (start<rstart) {
         if (rstart>end) return 0;
+        if (refstart) *refstart=1;
         return (rend>end) ? end-rstart+1 : rend-rstart+1;
         }
        else { //rstart<=start
         if (start>rend) return 0;
+        if (refstart) *refstart=(start-rstart)+1;
         return (rend<end)? rend-start+1 : end-start+1;
         }
   }

@@ -36,7 +36,7 @@ void GError(const char* format,...){
     _vsnprintf(msg, 4095, format, arguments);
     vfprintf(stderr, format, arguments); // if a console is available
     msg[4095]=0;
-    va_end(arguments);    
+    va_end(arguments);
     OutputDebugString(msg);
     MessageBox(NULL,msg,NULL,MB_OK|MB_ICONEXCLAMATION|MB_APPLMODAL);
   #else
@@ -46,7 +46,7 @@ void GError(const char* format,...){
     va_end(arguments);
     #ifdef DEBUG
      // comment this if you do NOT want a core dump
-     abort();
+     //abort();
     #endif
   #endif
     exit(1);
