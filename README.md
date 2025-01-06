@@ -21,7 +21,7 @@ In order to compile the StringTie source in this GitHub repository the following
 ```
 git clone https://github.com/gpertea/stringtie
 cd stringtie
-make release
+make -j4 release
 ```
 During the first run of the above make command a few library dependencies will be downloaded and compiled, but any subsequent stringtie updates (using `git pull`) 
 should rebuild much faster.
@@ -79,8 +79,8 @@ and runs a few simple tests to ensure that the program works and generates the e
 If a pre-compiled package is used instead of compiling the program from source, the `run_tests.sh` script is included in the binary package as well and it can be run immediately after unpacking the binary package:
 
 ```
-tar -xvzf stringtie-2.2.0.Linux_x86_64.tar.gz
-cd stringtie-2.2.0.Linux_x86_64
+tar -xvzf stringtie-3.0.0.Linux_x86_64.tar.gz
+cd stringtie-3.0.0.Linux_x86_64
 ./run_tests.sh
 ```
 
@@ -119,7 +119,8 @@ stringtie --mix -o mix_reads.out.gtf mix_short.bam mix_long.bam
 stringtie --mix -G mix_guides.gff -o mix_reads_guided.out.gtf mix_short.bam mix_long.bam
 ```
 
-These tests should complete in several seconds.
+For version 3.0.0, three additional tests have been added, please see the `run_tests.sh` scripts for the details.
+
 
 For large data sets one can expect up to one hour of processing time. A minimum of 8GB of RAM is recommended for running StringTie on regular size RNA-Seq samples, with 16 GB or more being strongly advised for larger data sets.
 
@@ -129,12 +130,13 @@ For large data sets one can expect up to one hour of processing time. A minimum 
 The following optional parameters can be specified (use `-h` or `--help` to get the usage message):
 
 ```
+  --version : print just the version at stdout and exit
+ --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05
  --mix : both short and long read data alignments are provided
         (long read alignments must be the 2nd BAM/CRAM input file)
  --rf : assume stranded library fr-firststrand
  --fr : assume stranded library fr-secondstrand
  -G reference annotation to use for guiding the assembly process (GTF/GFF)
- --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05
  --ptf : load point-features from a given 4 column feature file <f_tab>
  -o output path/file name for the assembled transcripts GTF (default: stdout)
  -l name prefix for output transcripts (default: STRG)
@@ -167,10 +169,10 @@ The following optional parameters can be specified (use `-h` or `--help` to get 
     do not follow consensus (default:false)
  -x do not assemble any transcripts on the given reference sequence(s)
  -u no multi-mapping correction (default: correction enabled)
+ -h print this usage message and exit
  --ref/--cram-ref reference genome FASTA file for CRAM input
 
 Transcript merge usage mode: 
-
   stringtie --merge [Options] { gtf_list | strg1.gtf ...}
 With this option StringTie will assemble transcripts from multiple
 input files generating a unified non-redundant set of isoforms. In this mode
@@ -191,7 +193,6 @@ the following options are available:
   -i               keep merged transcripts with retained introns; by default
                    these are not kept unless there is strong evidence for them
   -l <label>       name prefix for output transcripts (default: MSTRG)
-
 ```
 
 More details about StringTie options can be found in the [online manual](http://ccb.jhu.edu/software/stringtie/index.shtml?t=manual).

@@ -21,7 +21,8 @@ mkdir -p $libdir
 if [[ ! -d libdeflate ]]; then
  git clone https://github.com/ebiggers/libdeflate
  cd libdeflate
- git checkout '9b565afd996d8b798fc7b94cddcc7cfa49293050'
+ #git checkout '9b565afd996d8b798fc7b94cddcc7cfa49293050'
+ git checkout 7805198 # release v1.23
  cd ..
 fi
 if [[ ! -f $libdir/libdeflate.a ]]; then
@@ -32,7 +33,7 @@ if [[ ! -f $libdir/libdeflate.a ]]; then
    MINGW=1
    libdeflate=libdeflatestatic.lib
   fi
-  make -j 2 $libdeflate || exit 1
+  make -f ../Makefile.libdeflate -j 4 $libdeflate || exit 1
   cp $libdeflate $libdir/libdeflate.a
   cp libdeflate.h $incdir/
   cd ..

@@ -180,7 +180,7 @@ stringtie${EXE}: ${HTSLIB}/libhts.a $(OBJS) stringtie.o
 	${DBG_WARN}
 test demo tests: stringtie${EXE}
 	@./run_tests.sh
-.PHONY : clean cleanall cleanAll allclean
+.PHONY : clean clean-htslib
 
 # target for removing all object files
 
@@ -188,6 +188,10 @@ test demo tests: stringtie${EXE}
 clean:
 	${RM} stringtie${EXE} stringtie.o*  $(OBJS)
 	${RM} core.*
+clean-all: clean
+	cd ${HTSLIB} && ./build_lib.sh clean
+clean-htslib:
+	cd ${HTSLIB} && ./build_lib.sh clean
 ##allclean cleanAll cleanall:
 ##	cd ${BAM} && make clean
 ##	${RM} stringtie${EXE} stringtie.o* $(OBJS)

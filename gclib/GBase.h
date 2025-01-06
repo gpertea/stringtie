@@ -244,15 +244,14 @@ template<class T>
 
 inline void GFree(pointer* ptr){
      GASSERT(ptr);
-     if (*ptr) free(*ptr);
+     free(*ptr);
      *ptr=NULL;
  }
 
 inline bool GMalloc(pointer* ptr,unsigned long size){
     //GASSERT(ptr);
     *ptr=nullptr;
-    if (size!=0)
-  	  *ptr=malloc(size);
+    if (size!=0) *ptr=malloc(size);
     return *ptr!=nullptr;
  }
 
