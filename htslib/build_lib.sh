@@ -16,13 +16,18 @@ incdir=$prefix/include
 libdir=$prefix/lib
 mkdir -p $incdir
 mkdir -p $libdir
-
 # -- prepare libdeflate
 if [[ ! -d libdeflate ]]; then
  git clone https://github.com/ebiggers/libdeflate
  cd libdeflate
- #git checkout '9b565afd996d8b798fc7b94cddcc7cfa49293050'
- git checkout 7805198 # release v1.23
+ compiler=${CXX:-g++}       
+ cver=$($compiler -dumpversion)
+ gt49=$(echo "$cver > 4.9" | bc -l)    
+ if [[ $gt49 -eq 1 ]]; then
+   git checkout	7805198	# release v1.23
+ else
+   git checkout 9b565af
+ fi
  cd ..
 fi
 if [[ ! -f $libdir/libdeflate.a ]]; then
