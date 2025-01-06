@@ -46,7 +46,7 @@ void GError(const char* format,...){
     va_end(arguments);
     #ifdef DEBUG
      // comment this if you do NOT want a core dump
-     abort();
+     //abort();
     #endif
   #endif
     exit(1);
@@ -119,6 +119,13 @@ int G_mkdir(const char* path, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH
  #endif
 }
 
+int Grmdir(const char *path) {
+#ifdef _WIN32
+  return !RemoveDirectoryA(path);
+#else
+  return rmdir(path);
+#endif
+}
 
 void Gmktempdir(char* templ) {
 #ifdef _WIN32
@@ -840,8 +847,9 @@ int fileExists(const char* fname) {
 int64 fileSize(const char* fpath) {
 #ifdef _WIN32
     WIN32_FILE_ATTRIBUTE_DATA fad;
+    
     if (!GetFileAttributesEx(fpath, GetFileExInfoStandard, &fad))
-        return -1; // error condition, could call GetLastError to find out more
+      return -1; // error condition, could call GetLastError to find out more
     LARGE_INTEGER size;
     size.HighPart = fad.nFileSizeHigh;
     size.LowPart = fad.nFileSizeLow;

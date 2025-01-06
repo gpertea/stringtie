@@ -154,7 +154,7 @@ endif
 %.o : %.cpp
 	${CXX} ${CXXFLAGS} -c $< -o $@
 
-OBJS += rlink.o tablemaker.o tmerge.o
+OBJS += bundle.o rlink.o tablemaker.o tmerge.o
 
 all release static static-cpp debug: stringtie${EXE}
 memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
@@ -163,7 +163,8 @@ prof profile: stringtie${EXE}
 nothreads: stringtie${EXE}
 
 stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GSam.h
-rlink.o : rlink.h tablemaker.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
+rlink.o : rlink.h tablemaker.h bundle.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
+bundle.o : bundle.h rlink.h tablemaker.h $(GDIR)/GSam.h
 tmerge.o : rlink.h tmerge.h
 tablemaker.o : tablemaker.h rlink.h
 
@@ -179,7 +180,7 @@ stringtie${EXE}: ${HTSLIB}/libhts.a $(OBJS) stringtie.o
 	${DBG_WARN}
 test demo tests: stringtie${EXE}
 	@./run_tests.sh
-.PHONY : clean cleanall cleanAll allclean
+.PHONY : clean clean-htslib
 
 # target for removing all object files
 
@@ -187,6 +188,10 @@ test demo tests: stringtie${EXE}
 clean:
 	${RM} stringtie${EXE} stringtie.o*  $(OBJS)
 	${RM} core.*
+clean-all: clean
+	cd ${HTSLIB} && ./build_lib.sh clean
+clean-htslib:
+	cd ${HTSLIB} && ./build_lib.sh clean
 ##allclean cleanAll cleanall:
 ##	cd ${BAM} && make clean
 ##	${RM} stringtie${EXE} stringtie.o* $(OBJS)

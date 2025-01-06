@@ -38,9 +38,11 @@ const byte CLASSCODE_J_RANK = 6; // all junctional based overlaps
 
 byte classcode_rank(char c) {
 	switch (c) {
-		case '=': return 0; //intron chain match or full exon chain match if strict matching is enabled
-		case '~': return 1; //intron chain match when strict matching is enabled
-		case 'c': return 4; //containment, perfect partial match (transfrag contained in reference)
+		case '=': return 0; // intron chain match or full exon chain match if strict matching is enabled
+		case '~': return 1; // intron chain match when strict matching is enabled
+		case ':': return 2; // intron chain match with no CDS match when cds matching is enabled
+		case '_': return 3; // intron chain match with no CDS match when strict matching and cds matching is enabled
+		case 'c': return 4; // containment, perfect partial match (transfrag contained in reference)
 		case 'k': return 4; // reverse containment (reference contained in transfrag)
 		case 'm': return 6; // full span overlap with all reference introns either matching or retained
 		case 'n': return 6; // partial overlap transfrag with at least one intron retention
@@ -52,9 +54,9 @@ byte classcode_rank(char c) {
 		case 'x': return 18; // generic overlap on opposite strand (usually wrong strand mapping)
 		case 'i': return 20; // intra-intron (transfrag fully contained within a reference intron)
 		case 'y': return 30; // no exon overlap: ref exons fall within transfrag introns! (reverse of i)
-		case 'p': return 90; //polymerase run
-		case 'r': return 92; //repeats
-		case 'u': return 94; //intergenic
+		case 'p': return 90; // polymerase run
+		case 'r': return 92; // repeats
+		case 'u': return 94; // intergenic
 		case  0 : return 100;
 		 default: return 96;
 		}
@@ -100,6 +102,86 @@ int gfo_cmpRefByID(const pointer p1, const pointer p2) {
              }
              else return (g1.gseq_id-g2.gseq_id); // sort refs by their id# order
 }
+
+//only for multi-exon transcripts: comparison/ordering function
+// based on intron chain comparison and matching only!
+int txCmpByIntrons(const pointer p1, const pointer p2) {
+  //const GffObj* a = static_cast<const GffObj*>(p1);
+  //const GffObj* b = static_cast<const GffObj*>(p2);
+  GffObj* a = (GffObj*)p1;
+  GffObj* b = (GffObj*)p2;
+  // check chromosome and strand
+  if (a->gseq_id != b->gseq_id) return a->gseq_id < b->gseq_id ? -1 : 1;
+  if (a->strand != b->strand) return a->strand < b->strand ? -1 : 1;
+  // compare intron chains by their start and end, regardless of exon count
+  int min_exon_count = GMIN(a->exons.Count(), b->exons.Count());
+  for (int i = 0; i < min_exon_count-1; ++i) {
+        int a_istart = a->exons[i]->end+1;
+        int a_iend = a->exons[i+1]->start-1;
+        int b_istart = b->exons[i]->end+1;
+        int b_iend = b->exons[i+1]->start-1;
+
+        if (a_istart != b_istart) return a_istart < b_istart ? -1 : 1;
+        if (a_iend != b_iend) return a_iend < b_iend ? -1 : 1;
+  }
+  // after comparing shared introns, tx with more exons is "greater"
+  if (a->exons.Count() != b->exons.Count()) {
+      return a->exons.Count() < b->exons.Count() ? -1 : 1;
+  }
+  // intron chains are identical, they are considered "equal"
+  return 0;
+}
+
+// compare transcripts with strict ordering by their exon positions
+// function returns 0 (equal) if both transcripts have exact same exons
+int txCmpByExons(const pointer p1, const pointer p2) {
+	GffObj* t1 = (GffObj*)p1;
+	GffObj* t2 = (GffObj*)p2;
+	// check chromosome and strand
+	if (t1->gseq_id != t2->gseq_id) return t1->gseq_id - t2->gseq_id;
+ 	if (t1->strand != t2->strand) return t1->strand < t2->strand ? -1 : 1;
+	int64_t t1_start = t1->start;
+	int64_t t1_end = t1->end;
+	int64_t t2_start = t2->start;
+	int64_t t2_end = t2->end;
+
+   if (t1_start != t2_start) return (int)(t1_start - t2_start);
+   if (t1_end != t2_end) return (int)(t1_end - t2_end);
+
+
+   int minExonCount = GMIN(t1->exons.Count(), t2->exons.Count());
+   for (int i = 0; i < minExonCount; ++i) {
+        int64_t e1_start = t1->exons[i]->start;
+		int64_t e1_end = t1->exons[i]->end;
+		int64_t e2_start = t2->exons[i]->start;
+		int64_t e2_end = t2->exons[i]->end;
+
+        if (e1_start != e2_start) return (int)(e1_start - e2_start);
+        if (e1_end != e2_end) return (int)(e1_end - e2_end);
+    }
+
+    if (t1->exons.Count() != t2->exons.Count()) return t1->exons.Count()-t2->exons.Count();
+
+    return 0; // Equal if they have the same number and position of exons
+}
+
+//single-exon transcripts basic comparison/ordering function
+int seTxCompareProc(pointer* p1, pointer* p2) {
+  // check chromosome and strand
+  GffObj* a = (GffObj*)p1;
+  GffObj* b = (GffObj*)p2;
+  if (a->gseq_id != b->gseq_id) return a->gseq_id < b->gseq_id ? -1 : 1;
+  if (a->strand != b->strand) return a->strand < b->strand ? -1 : 1;
+  //first by start positions
+  if (a->start != b->start) return a->start < b->start ? -1 : 1;
+  // then by end positions
+  if (a->end != b->end) return a->end < b->end ? -1 : 1;
+  return 0; // they are equal (both start and end match)
+}
+
+
+
+
 
 char* GffLine::extractGFFAttr(char* & infostr, const char* oline, const char* attr, bool caseStrict,
 		   bool enforce_GTF2, int* rlen, bool deleteAttr) {
@@ -1010,6 +1092,10 @@ int GffObj::addExon(uint segstart, uint segend, int8_t exontype, char phase, Gff
 	} //exon overlap/adjacent check
    //new exon/CDS, not merged in a previous one
    GffExon* enew=new GffExon(segstart, segend, exontype, phase, exon_score.score, exon_score.precision);
+   if (segs==&exons && exons.Count()==0) {
+	   start=segstart;
+	   end=segend;
+   }
    int eidx=segs->Add(enew);
    if (eidx<0) {
     //this would actually be possible if the object is a "Gene" and "exons" are in fact isoforms
@@ -2953,10 +3039,23 @@ bool GffObj::printAttrs(FILE* fout,  const char* sep, bool GTFstyle, bool cvtCha
 		  if (strcmp(attrname, "gene_id")==0) continue;
 		  if (cvtChars) {
 			  decodeHexChars(dbuf, attrval, DBUF_LEN-1);
-			  fprintf(fout,"%s%s \"%s\"", prsep, attrname, dbuf);
+			  int dl=0;
+			  char* av=dbuf;
+			  if ( (dl=strlen(av))>0) {
+				  if (av[dl-1]=='"') av[dl-1]=0;
+				  if (av[0]=='"') ++av;
+			  }
+			  fprintf(fout,"%s%s \"%s\"", prsep, attrname, av);
 		  }
-		  else
-			 fprintf(fout,"%s%s \"%s\"", prsep, attrname, attrs->Get(i)->attr_val);
+		  else {
+			  int dl=0;
+			  char* av=attrs->Get(i)->attr_val;
+			  if ( (dl=strlen(av))>0) {
+				  if (av[dl-1]=='"') av[dl-1]=0;
+				  if (av[0]=='"') ++av;
+			  }
+			 fprintf(fout,"%s%s \"%s\"", prsep, attrname, av);
+		  }
 		  prsep=sep;
 		  pr=true;
 		}
@@ -3156,361 +3255,578 @@ void GffObj::getCDSegs(GVec<GffExon>& cds) {
 //-- transcript match/overlap classification functions
 
 
-char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange) {
-	//return '=' if exact exon match or transcripts ends are within tdelta distance
-	// '~' if intron-chain match (or 80% overlap, for single-exon)
-	// or 0 otherwise
-	int imax=a.exons.Count()-1;
-	int jmax=b.exons.Count()-1;
-	ovlen=0;
-	if (imax!=jmax) return false; //different number of exons, cannot match
-	if (imax==0) //single-exon mRNAs
-	    return (singleExonTMatch(a,b,ovlen, trange));
-	if ( a.exons[imax]->start<b.exons[0]->end ||
-		b.exons[jmax]->start<a.exons[0]->end )
-		return 0; //intron chains do not overlap at all
-	//check intron overlaps
-	ovlen=a.exons[0]->end-(GMAX(a.start,b.start))+1;
-	ovlen+=(GMIN(a.end,b.end))-a.exons.Last()->start;
-	for (int i=1;i<=imax;i++) {
-		if (i<imax) ovlen+=a.exons[i]->len();
-		if ((a.exons[i-1]->end!=b.exons[i-1]->end) ||
-			(a.exons[i]->start!=b.exons[i]->start)) {
-			return 0; //intron mismatch
+char transcriptMatch(GffObj &a, GffObj &b, int &ovlen, int trange)
+{
+	// return '=' if exact exon match or transcripts ends are within tdelta distance
+	//  '~' if intron-chain match (or 80% overlap, for single-exon)
+	//  '-' if CDS chains do not match but otherwise would be '=' or '~'
+	//  or 0 otherwise
+	int imax = a.exons.Count() - 1;
+	int jmax = b.exons.Count() - 1;
+	ovlen = 0;
+	if (imax != jmax)
+		return false; // different number of exons, cannot match
+	if (imax == 0)	  // single-exon mRNAs
+		return (singleExonTMatch(a, b, ovlen, trange));
+	if (a.exons[imax]->start < b.exons[0]->end ||
+		b.exons[jmax]->start < a.exons[0]->end)
+		return 0; // intron chains do not overlap at all
+	// check intron overlaps
+	ovlen = a.exons[0]->end - (GMAX(a.start, b.start)) + 1;
+	ovlen += (GMIN(a.end, b.end)) - a.exons.Last()->start;
+	for (int i = 1; i <= imax; i++)
+	{
+		if (i < imax)
+			ovlen += a.exons[i]->len();
+		if ((a.exons[i - 1]->end != b.exons[i - 1]->end) ||
+			(a.exons[i]->start != b.exons[i]->start))
+		{
+			return 0; // intron mismatch
 		}
 	}
 	//--- full intron chain match
-	//check if it's an exact
-	if (abs((int)a.exons[0]->start-(int)b.exons[0]->start)<=trange &&
-		abs((int)a.exons.Last()->end-(int)b.exons.Last()->end)<=trange)
-		   return '=';
-	return '~';
+	char result = 0;
+	// check if it's an exact
+	if (abs((int)a.exons[0]->start - (int)b.exons[0]->start) <= trange &&
+		abs((int)a.exons.Last()->end - (int)b.exons.Last()->end) <= trange)
+		result = '=';
+	else
+		result = '~';
+
+	bool cdsEndsMatch = a.CDstart == b.CDstart && a.CDend == b.CDend;
+	if (!cdsEndsMatch)
+	{
+		if (result == '=')
+		{
+			result = ':';
+		}
+		else if (result == '~')
+		{
+			result = '_';
+		}
+	}
+
+	return result;
 }
 
-char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange) {
- //return '=' if boundaries match within tdelta distance,
- //    or '~' if the overlap is >=80% of the longer sequence length
- // return 0 if there is no overlap
- GSeg mseg(m.start, m.end);
- ovlen=mseg.overlapLen(r.start,r.end);
- if (ovlen<=0) return 0;
- // fuzzy matching for single-exon transcripts:
- // matching = overlap is at least 80% of the length of the longer transcript
- // *OR* in case of reverse containment (reference contained in m)
- //   it's also considered "matching" if the overlap is at least 80% of
- //   the reference len AND at least 70% of the query len
- if (abs((int)m.start-(int)r.start)<=trange
-	 && abs((int)m.end-(int)r.end)<=trange)
-	  return '=';
- if (m.covlen>r.covlen) {
-   if ( (ovlen >= m.covlen*0.8) ||
-		   (ovlen >= r.covlen*0.8 && ovlen >= m.covlen* 0.7 ) )
-		   //allow also some fuzzy reverse containment
-           return '~';
- } else {
-   if (ovlen >= r.covlen*0.8) return '~';
- }
- return 0;
+bool txStructureMatch(GffObj& a, GffObj& b, double SE_tolerance, int ME_range) {
+    // Check if transcripts are on the same genomic sequence and overlap
+    if (a.gseq_id != b.gseq_id || !a.overlap(b.start, b.end)) {
+        return false; // No match if they are on different sequences or do not overlap
+    }
+    int exc = a.exons.Count();
+    if (exc != b.exons.Count())
+		return false; // No match if they have different exon counts
+    // Check for multi-exon transcripts with identical intron chain structure
+    if (exc > 1) {
+        for (int i = 0; i < exc-1; ++i) { // Compare intron coordinates
+            if (a.exons[i]->end != b.exons[i]->end ||
+			    a.exons[i + 1]->start != b.exons[i + 1]->start) {
+                return false; // Intron chains do not match
+            }
+        }
+		if (abs((int)a.start - (int)b.start) > ME_range || abs((int)a.end - (int)b.end) > ME_range)
+			return false; // Transcript ends are too far apart
+        return true; // All intron chains match
+    } else {
+        // Calculate overlap for single-exon transcripts
+        int ov_start = GMAX(a.start, b.start);
+        int ov_end = GMIN(a.end, b.end);
+        int ovlen = ov_end - ov_start + 1;
+        //int shortest_span = GMIN(a.len(), b.len());
+		int longer_span = GMAX(a.len(), b.len());
+        if (static_cast<double>(ovlen) / longer_span >= SE_tolerance) {
+            return true; // Overlap meets or exceeds tolerance
+        }
+    }
+    return false; // Default case: no match
 }
 
-TOvlData getOvlData(GffObj& m, GffObj& r, bool stricterMatch, int trange) {
+char singleExonTMatch(GffObj &m, GffObj &r, int &ovlen, int trange, int *ovlrefstart)
+{
+	// return '=' if boundaries match within tdelta distance,
+	//   or '~' if the overlap is >=80% of the longer sequence length
+	//  ':' and '_' respectively if CDS chains do not match but otherwise would be '=' or '~'
+	//  return 0 if there is no overlap
+	GSeg mseg(m.start, m.end);
+	ovlen = mseg.overlapLen(r.start, r.end, ovlrefstart);
+	if (ovlen <= 0)
+		return 0;
+	// fuzzy matching for single-exon transcripts:
+	// matching = overlap is at least 80% of the length of the longer transcript
+	// *OR* in case of reverse containment (reference contained in m)
+	//   it's also considered "matching" if the overlap is at least 80% of
+	//   the reference len AND at least 70% of the query len
+	char result = 0;
+	if (abs((int)m.start - (int)r.start) <= trange && abs((int)m.end - (int)r.end) <= trange)
+		result = '=';
+	if (m.covlen > r.covlen)
+	{
+		if ((ovlen >= m.covlen * 0.8) ||
+			(ovlen >= r.covlen * 0.8 && ovlen >= m.covlen * 0.7))
+			// allow also some fuzzy reverse containment
+			result = '~';
+	}
+	else
+	{
+		if (ovlen >= r.covlen * 0.8)
+			result = '~';
+	}
+
+	// check if CDS chains match and modify result accordingly
+	bool cdsEndsMatch = r.CDstart == m.CDstart && r.CDend == m.CDend;
+	if (!cdsEndsMatch)
+	{
+		if (result == '=')
+		{
+			result = ':';
+		}
+		else if (result == '~')
+		{
+			result = '_';
+		}
+	}
+
+	return 0;
+}
+
+//NOTE: getOvlData() does not check the strands of the transcripts
+TOvlData getOvlData(GffObj &m, GffObj &r, bool stricterMatch, int trange, bool cdsMatch)
+{
 	TOvlData odta;
-	if (!m.overlap(r.start,r.end)) return odta;
-	int jmax=r.exons.Count()-1;
-	//char rcode=0;
-	if (m.exons.Count()==1) { //single-exon transfrag
+	if (!m.overlap(r.start, r.end))
+		return odta;
+	int jmax = r.exons.Count() - 1;
+	// char rcode=0;
+	if (m.exons.Count() == 1)
+	{ // single-exon transfrag
 		GSeg mseg(m.start, m.end);
-		if (jmax==0) { //also single-exon ref
-			char eqcode=0;
-			if ((eqcode=singleExonTMatch(m, r, odta.ovlen, trange))>0) {
-				odta.ovlcode=(stricterMatch) ? eqcode : '=';
+		if (jmax == 0)
+		{ // also single-exon ref
+			char eqcode = 0;
+			if ((eqcode = singleExonTMatch(m, r, odta.ovlen, trange, &odta.ovlRefstart)) > 0)
+			{
+				odta.ovlcode = (stricterMatch) ? eqcode : '=';
 				return odta;
 			}
-			if (m.covlen<r.covlen)
-			   { if (odta.ovlen >= m.covlen*0.8) { odta.ovlcode='c'; return odta; } } // fuzzy containment
-			else
-				if (odta.ovlen >= r.covlen*0.8 ) { odta.ovlcode='k'; return odta; }   // fuzzy reverse containment
-			odta.ovlcode='o';
+			// singleExonTMatch set odta.ovlen and odta.ovlRefstart anyway
+			if (m.covlen < r.covlen)
+			{
+				if (odta.ovlen >= m.covlen * 0.8)
+				{
+					odta.ovlcode = 'c';
+					return odta;
+				}
+			} // fuzzy containment
+			else if (odta.ovlen >= r.covlen * 0.8)
+			{
+				odta.ovlcode = 'k';
+				return odta;
+			} // fuzzy reverse containment
+			odta.ovlcode = 'o';
 			return odta;
-			//just plain overlapping
+			// just plain overlapping
 		}
 		//-- single-exon qry overlaping multi-exon ref
-		//check full pre-mRNA case (all introns retained): code 'm'
-		if (m.start<=r.exons[0]->end && m.end>=r.exons[jmax]->start)
-			{ odta.ovlcode='m'; return odta; }
+		// check full pre-mRNA case (all introns retained): code 'm'
+		if (m.start <= r.exons[0]->end && m.end >= r.exons[jmax]->start)
+		{
+			odta.ovlcode = 'm';
+			odta.ovlRefstart = ((r.exons[0]->start > m.start) ? 1 : m.start - r.exons[0]->start + 1);
+			int rovlend = (r.exons[jmax]->end < m.end) ? r.covlen : r.exons[jmax]->end - m.end + 1;
+			odta.ovlen = rovlend - odta.ovlRefstart + 1;
+			return odta;
+		}
+		int refxpos = 0;
+		for (int j = 0; j <= jmax; j++)
+		{
+			int ovlst = 0; // check if it's ~contained by an exon
+			int exovlen = mseg.overlapLen(r.exons[j]->start, r.exons[j]->end, &ovlst);
+			if (exovlen > 0)
+			{
+				if (odta.ovlen == 0)
+				{ // first exon being overlapped
+					odta.ovlRefstart = refxpos + ovlst;
+				}
+				odta.ovlen += exovlen;
 
-		for (int j=0;j<=jmax;j++) {
-			//check if it's ~contained by an exon
-			int exovlen=mseg.overlapLen(r.exons[j]);
-			if (exovlen>0) {
-				odta.ovlen+=exovlen;
-				if (m.start>r.exons[j]->start-4 && m.end<r.exons[j]->end+4) {
-					odta.ovlcode='c';
-					return odta; //close enough to be considered contained in this exon
+				if (m.start > r.exons[j]->start - 4 && m.end < r.exons[j]->end + 4)
+				{
+					odta.ovlcode = 'c';
+					return odta; // close enough to be considered contained in this exon
 				}
 			}
-			if (j==jmax) break; //last exon here, no intron to check
-			//check if it fully covers an intron (retained intron)
-			if (m.start<r.exons[j]->end && m.end>r.exons[j+1]->start)
-				{ odta.ovlcode='n'; return odta; }
-			//check if it's fully contained by an intron
-			if (m.end<r.exons[j+1]->start && m.start>r.exons[j]->end)
-			{ odta.ovlcode='i'; return odta; }
+			refxpos += r.exons[j]->len();
+			if (j == jmax)
+				break; // last exon here, no intron to check
+			// check if it fully covers an intron (retained intron)
+			if (m.start < r.exons[j]->end && m.end > r.exons[j + 1]->start)
+			{
+				odta.ovlcode = 'n';
+				return odta;
+			}
+			// check if it's fully contained by an intron
+			if (m.end < r.exons[j + 1]->start && m.start > r.exons[j]->end)
+			{
+				odta.ovlcode = 'i';
+				return odta;
+			}
 			// check if it's a potential pre-mRNA transcript
 			// (if overlaps this intron at least 10 bases)
-			uint introvl=mseg.overlapLen(r.exons[j]->end+1, r.exons[j+1]->start-1);
-			//iovlen+=introvl;
-			if (introvl>=10 && mseg.len()>introvl+10) { odta.ovlcode='e'; }
-		} //for each ref exon
-		if (odta.ovlcode>0) return odta;
-		odta.ovlcode='o'; //plain overlap, uncategorized
+			uint introvl = mseg.overlapLen(r.exons[j]->end + 1, r.exons[j + 1]->start - 1);
+			// iovlen+=introvl;
+			if (introvl >= 10 && mseg.len() > introvl + 10)
+			{
+				odta.ovlcode = 'e';
+			}
+		} // for each ref exon
+		if (odta.ovlcode > 0)
+			return odta;
+		odta.ovlcode = 'o'; // plain overlap, uncategorized
 		return odta;
-	} //single-exon transfrag
+	} // single-exon transfrag
 	//-- multi-exon transfrag --
-	int imax=m.exons.Count()-1;// imax>0 here
-	odta.jbits.resize(imax << 1); //num_junctions = 2 * num_introns
-	if (jmax==0) { //single-exon reference overlap
-		//any exon overlap?
+	int imax = m.exons.Count() - 1; // imax>0 here
+	odta.jbits.resize(imax << 1);	// num_junctions = 2 * num_introns
+	odta.inbits.resize(imax);		// num_introns
+	if (jmax == 0)
+	{ // single-exon reference overlap
+		// any exon overlap?
 		GSeg rseg(r.start, r.end);
-		for (int i=0;i<=imax;i++) {
-			//check if it's ~contained by an exon
-			int exovlen=rseg.overlapLen(m.exons[i]);
-			if (exovlen>0) {
-				odta.ovlen+=exovlen;
-				if (r.start>m.exons[i]->start-4 && r.end<m.exons[i]->end+4) {
-					odta.ovlcode='k';
-					return odta; //reference contained in this assembled exon
+		for (int i = 0; i <= imax; i++)
+		{
+			// check if it's ~contained by an exon
+			int rxpos = 0;
+			int exovlen = m.exons[i]->overlapLen(r.start, r.end, &rxpos);
+			if (exovlen > 0)
+			{
+				if (odta.ovlRefstart == 0)
+					odta.ovlRefstart = rxpos;
+				odta.ovlen += exovlen;
+				if (r.start > m.exons[i]->start - 4 && r.end < m.exons[i]->end + 4)
+				{
+					odta.ovlcode = 'k';
+					return odta; // reference contained in this assembled exon
 				}
 			}
-			if (i==imax) break;
-			if (r.end<m.exons[i+1]->start && r.start>m.exons[i]->end) {
-				 odta.ovlcode='y'; //ref contained in this transfrag intron
-				 return odta;
+			if (i == imax)
+				break;
+			if (r.end < m.exons[i + 1]->start && r.start > m.exons[i]->end)
+			{
+				odta.ovlcode = 'y'; // ref contained in this transfrag intron
+				return odta;
 			}
 		}
-		odta.ovlcode='o';
+		odta.ovlcode = 'o'; // ref is just partially overlapped by this transfrag
 		return odta;
 	} // SET reference
 	// -- MET comparison ---
+	odta.rint.resize(jmax); // initialize bitvector of reference introns (1=intron matched)
 	// check if qry contained by a ref intron
-	for (int j=0;j<jmax;j++) {
-		if (m.end<r.exons[j+1]->start && m.start>r.exons[j]->end)
-			{ odta.ovlcode='i'; return odta; }
-	}
-	if (m.exons[imax]->start<r.exons[0]->end) {
-		//qry intron chain ends before ref intron chain starts
-		//check if last qry exon plugs the 1st ref intron
-		if (m.exons[imax]->start<=r.exons[0]->end &&
-			m.exons[imax]->end>=r.exons[1]->start) {
-			odta.ovlen=m.exonOverlapLen(r);
-			odta.ovlcode='n';
+	for (int j = 0; j < jmax; j++)
+	{
+		if (m.end < r.exons[j + 1]->start && m.start > r.exons[j]->end)
+		{
+			odta.ovlcode = 'i';
 			return odta;
 		}
-		odta.ovlen=m.exons[imax]->overlapLen(r.exons[0]);
-		odta.ovlcode='o'; //only terminal exons overlap
-		return odta;
 	}
-	else if (r.exons[jmax]->start<m.exons[0]->end) {
-		//qry intron chain starts after ref intron chain ends
-		//check if first qry exon plugs the last ref intron
-		if (m.exons[0]->start<=r.exons[jmax-1]->end &&
-			m.exons[0]->end>=r.exons[jmax]->start) {
-			odta.ovlen=m.exonOverlapLen(r);
-			odta.ovlcode='n';
+	if (m.exons[imax]->start < r.exons[0]->end)
+	{
+		// qry intron chain ends before ref intron chain starts
+		// check if last qry exon plugs the 1st ref intron
+		if (m.exons[imax]->start <= r.exons[0]->end &&
+			m.exons[imax]->end >= r.exons[1]->start)
+		{
+			odta.ovlen = m.exonOverlapLen(r, &odta.ovlRefstart);
+			odta.ovlcode = 'n';
 			return odta;
 		}
-		odta.ovlen=m.exons[0]->overlapLen(r.exons[jmax]);
-		odta.ovlcode='o'; //only terminal exons overlap
+		odta.ovlen = m.exons[imax]->overlapLen(r.exons[0]->start, r.exons[0]->end, &odta.ovlRefstart);
+		odta.ovlcode = 'o'; // only terminal exons overlap
 		return odta;
 	}
-	//check intron chain overlap (match, containment, intron retention etc.)
-	int i=1; //index of exon to the right of current qry intron
-	int j=1; //index of exon to the right of current ref intron
-	bool intron_conflict=false; //overlapping introns have at least a mismatching splice site
-	//from here on we check all qry introns against ref introns
-	bool junct_match=false; //true if at least a junction match is found
-	bool ichain_match=false; //if there is intron (sub-)chain match, to be updated by any mismatch
-	bool intron_ovl=false; //if any intron overlap is found
-	bool intron_retention=false; //if any ref intron is covered by a qry exon
-	//intron chain (partial) match exon-index boundaries:
-	int imfirst=0; //index of exon after first intron match in query (valid>0)
-	int jmfirst=0; //index of exon after first intron match in reference (valid>0)
-	int imlast=0;  //index of exon after last intron match in query
-	int jmlast=0;  //index of  exon after last intron match in reference
+	else if (r.exons[jmax]->start < m.exons[0]->end)
+	{
+		// qry intron chain starts after ref intron chain ends
+		// check if first qry exon plugs the last ref intron
+		if (m.exons[0]->start <= r.exons[jmax - 1]->end &&
+			m.exons[0]->end >= r.exons[jmax]->start)
+		{
+			odta.ovlen = m.exonOverlapLen(r, &odta.ovlRefstart);
+			odta.ovlcode = 'n';
+			return odta;
+		}
+		odta.ovlen = m.exons[0]->overlapLen(r.exons[jmax]->start, r.exons[jmax]->end, &odta.ovlRefstart);
+		odta.ovlRefstart += r.covlen - r.exons[jmax]->len();
+		odta.ovlcode = 'o'; // only terminal exons overlap
+		return odta;
+	}
+	// check intron chain overlap (match, containment, intron retention etc.)
+	int i = 1;					  // index of exon to the right of current qry intron
+	int j = 1;					  // index of exon to the right of current ref intron
+	bool intron_conflict = false; // overlapping introns have at least a mismatching splice site
+	// from here on we check all qry introns against ref introns
+	bool junct_match = false;	   // true if at least a junction match is found
+	bool ichain_match = false;	   // if there is intron (sub-)chain match, to be updated by any mismatch
+	bool intron_ovl = false;	   // if any intron overlap is found
+	bool intron_retention = false; // if any ref intron is covered by a qry exon
+	// intron chain (partial) match exon-index boundaries:
+	int imfirst = 0; // index of exon after first intron match in query (valid>0)
+	int jmfirst = 0; // index of exon after first intron match in reference (valid>0)
+	int imlast = 0;	 // index of exon after last intron match in query
+	int jmlast = 0;	 // index of  exon after last intron match in reference
 	//--keep track of the last overlapping introns in both qry and ref:
-	odta.ovlen=m.exonOverlapLen(r);
-    //int q_first_iovl=-1, r_first_iovl=-1, q_last_iovl=-1, r_last_iovl=-1;
-	//check for intron matches
-	while (i<=imax && j<=jmax) {
-		uint mstart=m.exons[i-1]->end; //qry intron start-end
-		uint mend=m.exons[i]->start;
-		uint rstart=r.exons[j-1]->end; //ref intron start-end
-		uint rend=r.exons[j]->start;
-		if (rend<mstart) { //qry intron starts after ref intron ends
-			if (!intron_conflict && r.exons[j]->overlap(mstart+1, mend-1))
-				intron_conflict=true; //next ref exon overlaps this qry intron
-			if (!intron_retention && rstart>=m.exons[i-1]->start && rend<=m.exons[i-1]->end)
-				intron_retention=true; //this ref intron is covered by previous qry exons[i-1]
-			if (intron_ovl) ichain_match=false;
+	odta.ovlen = m.exonOverlapLen(r, &odta.ovlRefstart);
+	// int q_first_iovl=-1, r_first_iovl=-1, q_last_iovl=-1, r_last_iovl=-1;
+	// check for intron matches
+	while (i <= imax && j <= jmax)
+	{
+		uint mstart = m.exons[i - 1]->end; // qry intron start-end
+		uint mend = m.exons[i]->start;
+		uint rstart = r.exons[j - 1]->end; // ref intron start-end
+		uint rend = r.exons[j]->start;
+		if (rend < mstart)
+		{ // qry intron starts after ref intron ends
+			if (!intron_conflict && r.exons[j]->overlap(mstart + 1, mend - 1))
+				intron_conflict = true; // next ref exon overlaps this qry intron
+			if (!intron_retention && rstart >= m.exons[i - 1]->start && rend <= m.exons[i - 1]->end)
+				intron_retention = true; // this ref intron is covered by previous qry exons[i-1]
+			if (intron_ovl)
+				ichain_match = false;
 			j++;
 			continue;
-		} //no overlap with this ref intron, skipping it
-		if (rstart>mend) { //qry intron ends before ref intron starts
-			//if qry intron overlaps the exon on the left, we have an intron conflict
-			if (!intron_conflict && r.exons[j-1]->overlap(mstart+1, mend-1))
-				intron_conflict=true;
-			if (!intron_retention && rstart>=m.exons[i]->start && rend<=m.exons[i]->end)
-				intron_retention=true;
-			if (intron_ovl) ichain_match=false;
+		} // no overlap with this ref intron, skipping it
+		if (rstart > mend)
+		{ // qry intron ends before ref intron starts
+			// if qry intron overlaps the exon on the left, we have an intron conflict
+			if (!intron_conflict && r.exons[j - 1]->overlap(mstart + 1, mend - 1))
+				intron_conflict = true;
+			if (!intron_retention && rstart >= m.exons[i]->start && rend <= m.exons[i]->end)
+				intron_retention = true;
+			if (intron_ovl)
+				ichain_match = false;
 			i++;
 			continue;
-		} //no intron overlap, skipping qry intron
-		intron_ovl=true;
+		} // no intron overlap, skipping qry intron
+		intron_ovl = true;
 
-		//q_last_iovl=i; //keep track of the last overlapping introns in both qry and ref
-		//r_last_iovl=j;
-		//overlapping introns, test junction matching
-		bool smatch=false;
-		if (mstart==rstart) {
-			smatch=true;
-			odta.jbits.set( (i-1)<<1 );
+		// q_last_iovl=i; //keep track of the last overlapping introns in both qry and ref
+		// r_last_iovl=j;
+		// overlapping introns, test junction matching
+		bool smatch = false;
+		if (mstart == rstart)
+		{
+			smatch = true;
+			odta.jbits.set((i - 1) << 1);
 			odta.numJmatch++;
-		    junct_match=true;
+			junct_match = true;
 		}
-		bool ematch=false;
-		if (mend==rend) {
-			ematch=true;
-			odta.jbits.set( ((i-1)<<1)+1 );
-		    odta.numJmatch++;
-		    junct_match=true;
+		bool ematch = false;
+		if (mend == rend)
+		{
+			ematch = true;
+			odta.jbits.set(((i - 1) << 1) + 1);
+			odta.numJmatch++;
+			junct_match = true;
 		}
-		if (smatch && ematch) {
-			//perfect match of this intron
-			if (jmfirst==0) {
-				ichain_match=true;
-				jmfirst=j;
-				imfirst=i;
+		if (smatch && ematch)
+		{
+			// full match of this reference intron
+			odta.inbits.set(i - 1);
+			odta.rint.set(j - 1);
+			if (jmfirst == 0)
+			{
+				ichain_match = true;
+				jmfirst = j;
+				imfirst = i;
 			}
-			if (ichain_match) {
-  		       imlast=i;
-			   jmlast=j;
+			if (ichain_match)
+			{
+				imlast = i;
+				jmlast = j;
 			}
-			i++; j++;
+			i++;
+			j++;
 			continue;
 		}
-		//intron overlapping but not fully matching
-		intron_conflict=true;
-		ichain_match=false;
-		if (mend>rend) j++; else i++;
-	} //while checking intron overlaps
+		// intron overlapping but not fully matching
+		intron_conflict = true;
+		ichain_match = false;
+		if (mend > rend)
+			j++;
+		else
+			i++;
+	} // while checking intron overlaps
 	// --- when qry intron chain is contained within ref intron chain
 	//     qry terminal exons may poke (overhang) into ref's other introns
-	int l_iovh=0;   // overhang of q left boundary beyond the end of ref intron on the left
-	int r_iovh=0;   // same type of overhang through the ref intron on the right
-	int qry_intron_poking=0;
+	int l_iovh = 0; // overhang of q left boundary beyond the end of ref intron on the left
+	int r_iovh = 0; // same type of overhang through the ref intron on the right
+	int qry_intron_poking = 0;
 	// --- when ref intron chain is contained within qry intron chain,
 	//     terminal exons of ref may poke (overhang) into qry other introns
-	int l_jovh=0;   // overhang of q left boundary beyond the end of ref intron to the left
-	int r_jovh=0;   // same type of overhang through the ref intron on the right
-	int ref_intron_poking=0;
-	if (ichain_match) { //intron (sub-)chain compatible so far (but there could still be conflicts)
-		if (imfirst==1 && imlast==imax) { // qry full intron chain match
-			if (jmfirst==1 && jmlast==jmax) {//identical intron chains
-				if (stricterMatch) {
-					odta.ovlcode= (abs((int)r.exons[0]->start-(int)m.exons[0]->start)<=trange &&
-							abs((int)r.exons.Last()->end-(int)m.exons.Last()->end)<=trange) ? '=' : '~';
-					return odta;
+	int l_jovh = 0; // overhang of q left boundary beyond the end of ref intron to the left
+	int r_jovh = 0; // same type of overhang through the ref intron on the right
+	int ref_intron_poking = 0;
+	if (ichain_match)
+	{ // intron (sub-)chain compatible so far (but there could still be conflicts)
+		if (imfirst == 1 && imlast == imax)
+		{ // qry full intron chain match
+			if (jmfirst == 1 && jmlast == jmax)
+			{ // identical intron chains
+				if (stricterMatch)
+				{
+					odta.ovlcode = (abs((int)r.exons[0]->start - (int)m.exons[0]->start) <= trange &&
+									abs((int)r.exons.Last()->end - (int)m.exons.Last()->end) <= trange)
+									   ? '='
+									   : '~';
 				}
-				odta.ovlcode='=';
+				else
+				{
+					odta.ovlcode = '=';
+				}
+
+				if (cdsMatch)
+				{
+					bool cdsEndsMatch = r.CDstart == m.CDstart && r.CDend == m.CDend;
+					if (!cdsEndsMatch)
+					{
+						if (odta.ovlcode == '=')
+						{
+							odta.ovlcode = ':';
+						}
+						else if (odta.ovlcode == '~')
+						{
+							odta.ovlcode = '_';
+						}
+					}
+				}
+
 				return odta;
 			}
 			// -- a partial intron chain match
-			if (jmfirst>1) {
-				//find if m.start falls within any ref intron before jmfirst
-				for (int j=jmfirst-1;j>0;--j)
-					if (m.start<r.exons[j]->start) {
-						if (m.start>r.exons[j-1]->end) { //m.start within this ref intron
+			if (jmfirst > 1)
+			{
+				// find if m.start falls within any ref intron before jmfirst
+				for (int j = jmfirst - 1; j > 0; --j)
+					if (m.start < r.exons[j]->start)
+					{
+						if (m.start > r.exons[j - 1]->end)
+						{ // m.start within this ref intron
 							l_iovh = r.exons[j]->start - m.start;
 							break;
 						}
-						else { intron_retention=true; ichain_match=false; }
-					}
-			}
-			if (jmlast<jmax) {
-				for (int j=jmlast;j<jmax;++j)
-					if (m.end > r.exons[j]->end) {
-						if (m.end < r.exons[j+1]->start) { //m.end within this ref intron
-							r_iovh = m.end - r.exons[j]->end;
-						    break;
+						else
+						{
+							intron_retention = true;
+							ichain_match = false;
 						}
-						else { intron_retention=true; ichain_match=false; }
 					}
 			}
-			if (ichain_match && l_iovh<4 && r_iovh<4) {
-				odta.ovlcode='c';
+			if (jmlast < jmax)
+			{
+				for (int j = jmlast; j < jmax; ++j)
+					if (m.end > r.exons[j]->end)
+					{
+						if (m.end < r.exons[j + 1]->start)
+						{ // m.end within this ref intron
+							r_iovh = m.end - r.exons[j]->end;
+							break;
+						}
+						else
+						{
+							intron_retention = true;
+							ichain_match = false;
+						}
+					}
+			}
+			if (ichain_match && l_iovh < 4 && r_iovh < 4)
+			{
+				odta.ovlcode = 'c';
 				return odta;
 			}
-			qry_intron_poking=GMAX(l_iovh, r_iovh);
-		} else if ((jmfirst==1 && jmlast==jmax)) {//ref intron chain match
-			//check if the reference j-chain is contained in qry i-chain
-			//check for ref ends poking into qry introns
-			if (imfirst>1)  {
-				for (int i=imfirst-1;i>0;--i)
-					if (m.exons[i]->start>r.start) {
-						if (r.start>m.exons[i-1]->end) {
+			qry_intron_poking = GMAX(l_iovh, r_iovh);
+		}
+		else if ((jmfirst == 1 && jmlast == jmax))
+		{ // ref intron chain match
+			// check if the reference j-chain is contained in qry i-chain
+			// check for ref ends poking into qry introns
+			if (imfirst > 1)
+			{
+				for (int i = imfirst - 1; i > 0; --i)
+					if (m.exons[i]->start > r.start)
+					{
+						if (r.start > m.exons[i - 1]->end)
+						{
 							l_jovh = m.exons[i]->start - r.start;
 							break;
 						}
-						else { ichain_match = false; }
+						else
+						{
+							ichain_match = false;
+						}
 					}
 			}
-			if (imlast<imax) {
-				for (int i=imlast;i<imax;++i)
-					if (r.end > m.exons[i]->end) {
-						if (r.end < m.exons[i+1]->start)
-							 { r_jovh = r.end - m.exons[i]->end; break; }
-						else { ichain_match = false; }
+			if (imlast < imax)
+			{
+				for (int i = imlast; i < imax; ++i)
+					if (r.end > m.exons[i]->end)
+					{
+						if (r.end < m.exons[i + 1]->start)
+						{
+							r_jovh = r.end - m.exons[i]->end;
+							break;
+						}
+						else
+						{
+							ichain_match = false;
+						}
 					}
 			}
-			if (ichain_match && l_jovh<4 && r_jovh<4) {
-				odta.ovlcode='k'; //reverse containment
+			if (ichain_match && l_jovh < 4 && r_jovh < 4)
+			{
+				odta.ovlcode = 'k'; // reverse containment
 				return odta;
 			}
-			ref_intron_poking=GMAX(l_jovh, r_jovh);
+			ref_intron_poking = GMAX(l_jovh, r_jovh);
 		}
 	}
 	//'=', 'c' and 'k' were checked and assigned, check for 'm' and 'n' before falling back to 'j'
-	if (intron_retention) {
-			//ref is boundary contained with qry intron chain ? that's not required for 'm'
-		    //GMessage("r_jovh=%d, r_iovh=%d, l_jovh=%d, l_iovh=%d\n", r_jovh, r_iovh, l_jovh, l_iovh);
-		    //GMessage("m.start=%d, r.exons[0]->end=%d, m.end=%d, r.exons[jmax]->start=%d\n",
-		    //		m.start, r.exons[0]->end, m.end, r.exons[jmax]->start);
-		    //if (ref_intron_poking>0 && )
-		//we just need to have no intron poking going on
-		if (!intron_conflict && ref_intron_poking<4
-						&& qry_intron_poking<4) {
-			odta.ovlcode='m';
+	if (intron_retention)
+	{
+		// ref is boundary contained with qry intron chain ? that's not required for 'm'
+		// GMessage("r_jovh=%d, r_iovh=%d, l_jovh=%d, l_iovh=%d\n", r_jovh, r_iovh, l_jovh, l_iovh);
+		// GMessage("m.start=%d, r.exons[0]->end=%d, m.end=%d, r.exons[jmax]->start=%d\n",
+		//		m.start, r.exons[0]->end, m.end, r.exons[jmax]->start);
+		// if (ref_intron_poking>0 && )
+		// we just need to have no intron poking going on
+		if (!intron_conflict && ref_intron_poking < 4 && qry_intron_poking < 4)
+		{
+			odta.ovlcode = 'm';
 			return odta;
 		}
-		odta.ovlcode='n';
+		odta.ovlcode = 'n';
 		return odta;
 	}
-	//if (intron_ovl) { ?
-	if (junct_match) {
-		odta.ovlcode='j';
+	// if (intron_ovl) { ?
+	if (junct_match)
+	{
+		odta.ovlcode = 'j';
 		return odta;
 	}
-	//what's left could be intron overlap but with no junction match = 'o'
-	if (odta.ovlen>4) {
-		odta.ovlcode='o';
+	// what's left could be intron overlap but with no junction match: 'o'
+	if (odta.ovlen > 4)
+	{
+		odta.ovlcode = 'o';
 		return odta;
 	}
-	//but if there is no exon overlap, we have 'i' or 'y'
-	//exons are within the introns of the other!
-	if (m.start>r.start && r.end > m.end) {
-		odta.ovlcode='i';
+	// but if there is no exon overlap, we can have 'i' or 'y'
+	// exons are within the introns of the other transcript
+	if (m.start > r.start && r.end > m.end)
+	{
+		odta.ovlcode = 'i';
 		return odta;
 	}
-	odta.ovlcode='y';
-	return odta; //all reference exons are within transfrag introns!
+	odta.ovlcode = 'y';
+	return odta; // all reference exons are within transfrag introns!
 }

@@ -1,6 +1,6 @@
 #ifndef G_BASE_DEFINED
 #define G_BASE_DEFINED
-#define GCLIB_VERSION "0.12.7"
+#define GCLIB_VERSION "0.12.8"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -197,6 +197,7 @@ inline int iround(double x) {
 char* Grealpath(const char *path, char *resolved_path);
 
 int Gmkdir(const char *path, bool recursive=true, int perms = (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH));
+int Grmdir(const char *path);
 
 void Gmktempdir(char* templ);
 
@@ -243,15 +244,14 @@ template<class T>
 
 inline void GFree(pointer* ptr){
      GASSERT(ptr);
-     if (*ptr) free(*ptr);
+     free(*ptr);
      *ptr=NULL;
  }
 
 inline bool GMalloc(pointer* ptr,unsigned long size){
     //GASSERT(ptr);
     *ptr=nullptr;
-    if (size!=0)
-  	  *ptr=malloc(size);
+    if (size!=0) *ptr=malloc(size);
     return *ptr!=nullptr;
  }
 
@@ -416,14 +416,18 @@ struct GSeg {
         return (r->end<end)? r->end-start+1 : end-start+1;
         }
      }
-  int overlapLen(uint rstart, uint rend) {
+  // refstart = overlap start in ref coordinate space (1-based)
+  int overlapLen(uint rstart, uint rend, int* refstart=NULL) {
      if (rstart>rend) { Gswap(rstart,rend); }
+     if (refstart) *refstart=0;
      if (start<rstart) {
         if (rstart>end) return 0;
+        if (refstart) *refstart=1;
         return (rend>end) ? end-rstart+1 : rend-rstart+1;
         }
        else { //rstart<=start
         if (start>rend) return 0;
+        if (refstart) *refstart=(start-rstart)+1;
         return (rend<end)? rend-start+1 : end-start+1;
         }
   }
