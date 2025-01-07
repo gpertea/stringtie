@@ -67,7 +67,7 @@ Note that the command line parser in StringTie allows arbitrary order and mixing
 stringtie <short_read_alns.bam> <long_read_alns.bam> --mix [other_options] [-o <output.gtf>] 
 ```
 
-### Running StringTie on the provided test/demo data
+### Running StringTie on the provided test data
 
 When building from this source repository, after the program was compiled with `make release` as instructed above, the generated binary can be tested on a small data set with a command like this:
 ```
@@ -84,7 +84,7 @@ cd stringtie-3.0.0.Linux_x86_64
 ./run_tests.sh
 ```
 
-These small test/demo data sets can also be downloaded separately as <a href="https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz">test_data.tar.gz</a> 
+These small test/demo data set can be downloaded as <a href="https://github.com/gpertea/stringtie/raw/test_data/tests_3.tar.gz">tests_3.tar.gz</a> 
 along with the source package and pre-compiled packages on the <a href="https://github.com/gpertea/stringtie/releases">Releases</a> 
 page of this repository.
 
