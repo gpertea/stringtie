@@ -121,16 +121,14 @@ stringtie --mix -G mix_guides.gff -o mix_reads_guided.out.gtf mix_short.bam mix_
 
 For version 3.0.0, three additional tests have been added, please see the `run_tests.sh` scripts for the details.
 
-
 For large data sets one can expect up to one hour of processing time. A minimum of 8GB of RAM is recommended for running StringTie on regular size RNA-Seq samples, with 16 GB or more being strongly advised for larger data sets.
-
 
 ### StringTie options
 
 The following optional parameters can be specified (use `-h` or `--help` to get the usage message):
 
 ```
-  --version : print just the version at stdout and exit
+ --version : print just the version at stdout and exit
  --conservative : conservative transcript assembly, same as -t -c 1.5 -f 0.05
  --mix : both short and long read data alignments are provided
         (long read alignments must be the 2nd BAM/CRAM input file)
@@ -158,6 +156,9 @@ The following optional parameters can be specified (use `-h` or `--help` to get 
  -M fraction of bundle allowed to be covered by multi-hit reads (default:1)
  -p number of threads (CPUs) to use (default: 1)
  -A gene abundance estimation output file
+ -N nascent aware assembly: use this option with rRNA-depleted RNAseq
+     libraries (e.g. Total RNA, Ribo-Zero)
+ --nasc : enables -N but also outputs the assembled nascent transcripts
  -E define window around possibly erroneous splice sites from long reads to
     look out for correct splice sites (default: 25)
  -B enable output of Ballgown table files which will be created in the
@@ -165,7 +166,7 @@ The following optional parameters can be specified (use `-h` or `--help` to get 
  -b enable output of Ballgown table files but these files will be 
     created under the directory path given as <dir_path>
  -e only estimate the abundance of given reference transcripts (requires -G)
- --viral : only relevant for long reads from viral data where splice sites
+ --viral only relevant for long reads from viral data where splice sites
     do not follow consensus (default:false)
  -x do not assemble any transcripts on the given reference sequence(s)
  -u no multi-mapping correction (default: correction enabled)
@@ -193,6 +194,7 @@ the following options are available:
   -i               keep merged transcripts with retained introns; by default
                    these are not kept unless there is strong evidence for them
   -l <label>       name prefix for output transcripts (default: MSTRG)
+
 ```
 
 More details about StringTie options can be found in the [online manual](http://ccb.jhu.edu/software/stringtie/index.shtml?t=manual).
