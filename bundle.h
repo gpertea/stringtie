@@ -18,7 +18,6 @@ struct CReadAln;
 // usg related functions
 float get_cov(int s, uint start, uint end, GVec<float>* bpcov);
 float get_cov_sign(int s, uint start, uint end, GVec<float>* bpcov);
-void add_read_to_ugroup(int n, GList<CReadAln>& readlist, SGBundle* ubundle, GVec<int> &read2unode, GPVec<UGroup> *unode2ugroup);
 
 // nascent related functions
 void setNascent(GffObj* t, byte v=1); // set/clear the synthetic nascent RNA flag
@@ -199,6 +198,7 @@ struct CReadAln:public GSeg {
 	float read_count;       // keeps count for all reads (including paired and unpaired)
 	bool unitig:1;			// set if read come from an unitig
 	bool longread:1;	    // set if read comes from long read data
+	int usg; 				// previous node in USG bundle
 	GVec<float> pair_count;   // keeps count for all paired reads
 	GVec<int> pair_idx;     // keeps indeces for all pairs in assembly mode, or all reads that were collapsed in merge mode
 	GVec<GSeg> segs; //"exons"
@@ -210,7 +210,7 @@ struct CReadAln:public GSeg {
 
 	CReadAln(char _strand=0, short int _nh=0,
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
-					strand(_strand),nh(_nh), len(0), read_count(0), unitig(false),longread(false),pair_count(),pair_idx(),
+					strand(_strand),nh(_nh), len(0), read_count(0), unitig(false),longread(false),usg(-1),pair_count(),pair_idx(),
 					segs(), juncs(false), tinfo(tif) { }
 	CReadAln(CReadAln &rd):GSeg(rd.start,rd.end) { // copy contructor
 		strand=rd.strand;
@@ -219,6 +219,7 @@ struct CReadAln:public GSeg {
 		read_count=rd.read_count;
 		unitig=rd.unitig;
 		longread=rd.longread;
+		usg=rd.usg;
 		pair_count=rd.pair_count;
 		pair_idx=rd.pair_idx;
 		juncs=rd.juncs;

@@ -479,6 +479,104 @@ bool pred_in_intv(CMaxIntv *intv,int p) {
 	return false;
 }
 
+void reconcile_nascents(GList<CPrediction>& pred, int m, int n) { // nascents of n become nascents of m; nascents of m need to be adjusted to reflect nascents of n
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Reconcile nascents of pred[%d]:%c %d-%d:",m,pred[m]->strand,pred[m]->start,pred[m]->end);
+		CPrediction *p=pred[m]->linkpred;
+		while(p) {
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %d-%d",p->exons[i].start,p->exons[i].end);
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %f",p->exoncov[i]);
+			p=p->linkpred;
+		}
+		fprintf(stderr,"\n...with pred[%d]:%c %d-%d:",n,pred[n]->strand,pred[n]->start,pred[n]->end);
+		p=pred[n]->linkpred;
+		while(p) {
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %d-%d",p->exons[i].start,p->exons[i].end);
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %f",p->exoncov[i]);
+			p=p->linkpred;
+		}
+		fprintf(stderr,"\n");
+	}
+	*/
+
+	if(pred[n]->t_eq) pred[m]->linkpred=pred[n]->linkpred; // guide gets priority
+	else if(!pred[m]->t_eq){ // if pred[m] is guide I do not need to reconcile
+		// first make m's nascents equal n's nascents
+		if(pred[m]->linkpred) { // if there are nascents
+			CPrediction *p=pred[m]->linkpred;
+			while(p) {
+
+				//fprintf(stderr," adjust nasc:%d-%d of pred[m]:%d-%d to pred[n]:%d-%d\n",p->start,p->end,pred[m]->start,pred[m]->end,pred[n]->start,pred[n]->end);
+
+				if(p->start==pred[m]->start && p->start!=pred[n]->start) { // adjust first exon
+					if(p->tlen<0) p->tlen-=pred[m]->start-pred[n]->start;
+					else p->tlen+=pred[m]->start-pred[n]->start;
+					p->start=pred[n]->start;
+					p->exons[0].start=pred[n]->start;
+				}
+				if(p->end==pred[m]->end && p->end!=pred[n]->end) {
+					if(p->tlen<0) p->tlen-=pred[n]->end-pred[m]->end;
+					else p->tlen+=pred[n]->end-pred[m]->end;
+					p->end=pred[n]->end;
+					p->exons.Last().end=pred[n]->end;
+				}
+				p=p->linkpred;
+			}
+
+		}
+		// add pred[n] nascents to pred[m]'s
+		if(pred[n]->linkpred) {
+			CPrediction *pm=pred[m];
+			CPrediction *pn=pred[n]->linkpred;
+			while(pn) {
+				if(!pm->linkpred || pn->start<pm->linkpred->start || pn->end<pm->linkpred->end) { // add pn before pm->linkpred
+
+					/*if(pm->linkpred) fprintf(stderr,"Add pn:%d-%d before pm->linkpred:%d-%d\n",pn->start,pn->end,pm->linkpred->start,pm->linkpred->end);
+					else fprintf(stderr,"Add pn:%d-%d before pm->linkpred:empty\n",pn->start,pn->end);*/
+
+					CPrediction *p=pn;
+					pn=pn->linkpred;
+
+					p->linkpred=pm->linkpred;
+					pm->linkpred=p;
+					pm=p;
+				}
+				else if(pm->linkpred->start<pn->start || pm->linkpred->end<pn->end) { // pm->linkpred comes first
+					//fprintf(stderr,"pn:%d-%d is after pm->linkpred:%d-%d\n",pn->start,pn->end,pm->linkpred->start,pm->linkpred->end);
+					pm=pm->linkpred;
+				}
+				else { // same nascent
+					//fprintf(stderr,"pn:%d-%d is same as pm->linkpred:%d-%d\n",pn->start,pn->end,pm->linkpred->start,pm->linkpred->end);
+					pm=pm->linkpred;
+					pm->cov+=pn->cov;
+					for(int i=0;i<pm->exons.Count();i++){
+						pm->exoncov[i]+=pn->exoncov[i];
+					}
+					pn=pn->linkpred;
+				}
+
+			}
+		}
+	}
+
+	/*
+	{ // DEBUG ONLY
+		fprintf(stderr,"Reconciled nascents:\n");
+		CPrediction *p=pred[m]->linkpred;
+		while(p) {
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %d-%d",p->exons[i].start,p->exons[i].end);
+			fprintf(stderr,"\n");
+			for(int i=0;i<p->exons.Count();i++) fprintf(stderr," %f",p->exoncov[i]);
+			fprintf(stderr,"\n");
+			p=p->linkpred;
+		}
+		fprintf(stderr,"\n");
+	}
+	*/
+}
+
 bool nascent_in_intron(CPrediction *n,CPrediction *p,int i) {
 
 	if(p->strand=='+') { // forward strand
@@ -992,8 +1090,58 @@ void add_intrseq_to_nascent(CNascIntv *intv){
 	}
 }
 
+int predordCmp(const pointer p1, const pointer p2) { // sort from highest to lowest coverage
+	CPred *a=(CPred*)p1;
+	CPred *b=(CPred*)p2;
+	if(a->cov < b->cov) return 1;
+	if(a->cov > b->cov) return -1;
+	return 0;
+}
 
+int predCmp(const pointer p1, const pointer p2) {
+	CPrediction *a=(CPrediction*)p1;
+	CPrediction *b=(CPrediction*)p2;
 
+	if(a->mergename=="n" && b->mergename!="n") return 1; // nascents are at the end
+	if(a->mergename!="n" && b->mergename=="n") return -1;
+
+	if(a->start < b->start) return -1; // order based on start
+	if(a->start > b->start) return 1;
+
+	// same start
+	//if(a->end < b->end) return -1; // order based on end - not helpful
+	//if(a->end > b->end) return 1;
+
+	if(a->cov > b->cov) return -1; // the one with higher coverage comes first
+	if(a->cov < b->cov) return 1;
+
+	if(a->exons.Count() < b->exons.Count()) return -1; // order based on number of exons
+	if(a->exons.Count() > b->exons.Count()) return 1;
+
+	// same number of exons
+	int i=0;
+	uint a1=0;
+	uint b1=0;
+	while(i<a->exons.Count()) {
+		if(a->exons[i].start<b->exons[i].start) {
+			a1=a->exons[i].start;
+			b1=b->exons[i].start;
+			break;
+		}
+		if(a->exons[i].end<b->exons[i].end) {
+			a1=a->exons[i].end;
+			b1=b->exons[i].end;
+			break;
+		}
+		i++;
+	}
+	if(a1) {
+		if(a1<b1) return -1; // the one with the first exon comes first
+		if(a1>b1) return 1;
+	}
+	//}
+	return 0;
+}
 
 int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 		GVec<CGene>& refgene, GHash<int>& hashgene, GVec<CGene>& predgene, BundleData* bundleData,bool checkincomplete) {
@@ -2153,6 +2301,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 	return(geneno);
 }
+
 
 int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
@@ -3629,58 +3778,7 @@ void delete_Cinterval(CInterval *interv){
 	}
 }
 
-int predordCmp(const pointer p1, const pointer p2) { // sort from highest to lowest coverage
-	CPred *a=(CPred*)p1;
-	CPred *b=(CPred*)p2;
-	if(a->cov < b->cov) return 1;
-	if(a->cov > b->cov) return -1;
-	return 0;
-}
 
-int predCmp(const pointer p1, const pointer p2) {
-	CPrediction *a=(CPrediction*)p1;
-	CPrediction *b=(CPrediction*)p2;
-
-	if(a->mergename=="n" && b->mergename!="n") return 1; // nascents are at the end
-	if(a->mergename!="n" && b->mergename=="n") return -1;
-
-	if(a->start < b->start) return -1; // order based on start
-	if(a->start > b->start) return 1;
-
-	// same start
-	//if(a->end < b->end) return -1; // order based on end - not helpful
-	//if(a->end > b->end) return 1;
-
-	if(a->cov > b->cov) return -1; // the one with higher coverage comes first
-	if(a->cov < b->cov) return 1;
-
-	if(a->exons.Count() < b->exons.Count()) return -1; // order based on number of exons
-	if(a->exons.Count() > b->exons.Count()) return 1;
-
-	// same number of exons
-	int i=0;
-	uint a1=0;
-	uint b1=0;
-	while(i<a->exons.Count()) {
-		if(a->exons[i].start<b->exons[i].start) {
-			a1=a->exons[i].start;
-			b1=b->exons[i].start;
-			break;
-		}
-		if(a->exons[i].end<b->exons[i].end) {
-			a1=a->exons[i].end;
-			b1=b->exons[i].end;
-			break;
-		}
-		i++;
-	}
-	if(a1) {
-		if(a1<b1) return -1; // the one with the first exon comes first
-		if(a1>b1) return 1;
-	}
-	//}
-	return 0;
-}
 
 int predlenCmp(const pointer p1, const pointer p2) { // sort from highest to lowest coverage
 	CPrediction *a=(CPrediction*)p1;

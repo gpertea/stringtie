@@ -8,6 +8,9 @@
 #ifndef USGREAD_H_
 #define USGREAD_H_
 #include "GVec.hh"
+#include "rlink.h"
+
+extern bool useUSG;
 
 
 typedef int SG_getChrIDFunc(const char* chr);
@@ -185,26 +188,42 @@ class SGReader {
 };
 
 
-struct UNode:public GSeg { // a universal graph "node" -> links together several entries in the USG bundle
-	SGNode *ustart; // start node in bundle
-	SGNode *uend; // end node in bundle
-	float cov_sum; // read coverage from sample
-	float multi; // proportion of multi-mapped reads
-	float neg_prop; // proportion of negative reads assigned to group out of all positives and negatives
-	UNode(int rstart=0, int rend=0, SGNode *u_start=NULL, SGNode *u_end=NULL, float _cov_sum=0,
-			float _multi=0,float _neg_prop=0): GSeg(rstart, rend), ustart(u_start),uend(u_end),cov_sum(_cov_sum),
-			multi(_multi), neg_prop(_neg_prop) { }
+struct UCov: public GSeg {
+	float cov;
+	UCov *next;
+	UCov(int cstart=0, int cend=0, float _cov=0):GSeg(cstart, cend),next(NULL),
+			cov(_cov) {}
 };
 
+
+
+struct UCNode { // a universal graph "coverage node" (might actually contain more than one node)
+	int prevSGnode; // index of previous SGnode in USG bundle
+	GPVec<UCov> covintv[3]; // covered regions in this UCNode on 0:-, 1:., and 2:+
+	GPVec<UCNode> childlink[3]; // links to coverage nodes in the same bundle
+	GVec<float> childcov[3]; // coverage linking this UCNode to child UCNode
+
+	// Constructor for UCNode
+	UCNode(int u = 0): prevSGnode(u) {
+		// Initialize childlink pointers to nullptr (default is null pointer)
+		for (int s = 0; s < 3; s++) {
+			childlink[s] = GPVec<UCNode>(); // TODO: do I need this?
+			covintv[s]=GPVec<UCov>(); // TODO: do I need this?
+			childcov[s]=GVec<float>(); // TODO: do I need this?
+		}
+	}
+};
+
+/*
 struct UGroup: public GSeg { // universal group -> links several UNode's together that would belong to the same UGraph
 	UGroup *ulk; // link to next ugroup
 	GPVec<UNode> unode;
 	UGroup(int rstart=0, int rend=0, UGroup *_ulk=NULL): GSeg(rstart, rend), ulk(_ulk),unode(true) { }
-};
+};*/
 
 struct BundleData;
 
-void build_usg(BundleData* bdata, GVec<int> &read2unode);
+void build_usg(BundleData* bdata);
 
 
 #endif /* USGREAD_H_ */

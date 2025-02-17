@@ -2,6 +2,7 @@
 #include "GBitVec.h"
 #include <float.h>
 #include "GThreads.h"
+#include "usgread.h"
 
 //#define GMEMTRACE 1  //debugging memory allocation
 #ifdef GMEMTRACE
@@ -43,7 +44,6 @@ extern float fpkm_thr;
 extern float tpm_thr;
 extern bool enableNames;
 extern bool retained_intron;
-extern bool useUSG;
 
 extern bool havePtFeatures; // if there is feature data to use
 
@@ -13886,6 +13886,7 @@ int build_graphs(BundleData* bdata) {
 	bool checkfeat=false;
 	GVec<CTrimPoint> tstartend;
 
+	// process features if present
 	if(havePtFeatures && !mixedMode && !longreads) { // only in this case I check jstart and jend
 		for(int i=0;i<feature.Count();i++) {
 			if(feature[i]->ftype==GPFT_JSTART) {if(!jstart[feature[i]->coord]) jstart.Add(feature[i]->coord,true);}
@@ -13915,7 +13916,7 @@ int build_graphs(BundleData* bdata) {
 
 	//fprintf(stderr,"build_graphs with %d guides\n",guides.Count());
 
-
+	// get covered guides
 	if(guides.Count()) {
 
 		guideedge.setSorted(true);
@@ -16276,9 +16277,9 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
     return(geneno);
 }
 
+
 // compute coverages and junction support here
-//USG: using read2unode
-void count_good_junctions(BundleData* bdata, GVec<int> &read2unode) {
+void count_good_junctions(BundleData* bdata) {
 
 	GList<CReadAln>& readlist = bdata->readlist;
 	GList<CJunction>& junction = bdata->junction;
@@ -16500,18 +16501,8 @@ void count_good_junctions(BundleData* bdata, GVec<int> &read2unode) {
 	for(int s=0;s<3;s++) bpcov[s].Resize(refend-refstart+3);
 
 	GVec<int> unstranded; // remembers unstranded reads
-	SGBundle* usgbundle = bdata->usgbundle;
-	int nu=0;
-	bool haveUSG = useUSG && usgbundle;
-	if (haveUSG) nu=usgbundle->nodes.Count(); // number of nodes in usg bundle
-	int u=0; // next usg bundle to process
 
 	for(int n=0;n<readlist.Count();n++) {
-
-		if (haveUSG) {
-			while(u<nu && usgbundle->nodes[u]->position<readlist[n]->start) u++; // while nodes in sgbundle start before read advance u
-			read2unode[n]=u;
-		}
 
 		CReadAln & rd=*(readlist[n]);
 		float rdcount=rd.read_count;
@@ -16533,7 +16524,7 @@ void count_good_junctions(BundleData* bdata, GVec<int> &read2unode) {
 			if(i) {
 				//fprintf(stderr,":%d",rd.juncs[i-1]->strand);
 
-				if(modified) { // see if read uses modified junction -> correct it
+				if(modified) { // see if read uses modified junction -> correct it; modified is true only for longreads when junction is around a guide
 					//sprintf(sbuf, "%p", rd.juncs[i-1]);
 					CJunction* jp=jhash[rd.juncs[i-1]];
 					if(jp) {
@@ -16810,12 +16801,12 @@ int infer_transcripts(BundleData* bundle) {
 	else if(bundle->keepguides.Count() || !eonly) {
 		//fprintf(stderr,"Process %d reads from %lu.\n",bundle->readlist.Count(),bundle->numreads);
 
-		GVec<int> read2unode;
+		if(useUSG) geneno=build_usg(bundle);
+		else {
+			count_good_junctions(bundle);
+			geneno = build_graphs(bundle);
+		}
 
-		count_good_junctions(bundle,read2unode);
-
-		if(useUSG) build_usg(bundle,read2unode);
-		geneno = build_graphs(bundle);
 	}
 
 
