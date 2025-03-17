@@ -1,6 +1,6 @@
 /*  synced_bcf_reader.c -- stream through multiple VCF files.
 
-    Copyright (C) 2012-2020 Genome Research Ltd.
+    Copyright (C) 2012-2023 Genome Research Ltd.
 
     Author: Petr Danecek <pd3@sanger.ac.uk>
 
@@ -25,6 +25,7 @@ DEALINGS IN THE SOFTWARE.  */
 #define HTS_BUILDING_LIBRARY // Enables HTSLIB_EXPORT, see htslib/hts_defs.h
 #include <config.h>
 
+#include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -67,13 +68,17 @@ region_t;
 typedef struct
 {
     sr_sort_t sort;
+    int regions_overlap, targets_overlap;
 }
 aux_t;
 
+static bcf_sr_regions_t *bcf_sr_regions_alloc(void);
 static int _regions_add(bcf_sr_regions_t *reg, const char *chr, hts_pos_t start, hts_pos_t end);
 static bcf_sr_regions_t *_regions_init_string(const char *str);
 static int _regions_match_alleles(bcf_sr_regions_t *reg, int als_idx, bcf1_t *rec);
 static void _regions_sort_and_merge(bcf_sr_regions_t *reg);
+static int _bcf_sr_regions_overlap(bcf_sr_regions_t *reg, const char *seq, hts_pos_t start, hts_pos_t end, int missed_reg_handler);
+static void bcf_sr_seek_start(bcf_srs_t *readers);
 
 char *bcf_sr_strerror(int errnum)
 {
@@ -121,6 +126,18 @@ int bcf_sr_set_opt(bcf_srs_t *readers, bcf_sr_opt_t opt, ...)
         case BCF_SR_PAIR_LOGIC:
             va_start(args, opt);
             BCF_SR_AUX(readers)->sort.pair = va_arg(args, int);
+            return 0;
+
+        case BCF_SR_REGIONS_OVERLAP:
+            va_start(args, opt);
+            BCF_SR_AUX(readers)->regions_overlap = va_arg(args, int);
+            if ( readers->regions ) readers->regions->overlap = BCF_SR_AUX(readers)->regions_overlap;
+            return 0;
+
+        case BCF_SR_TARGETS_OVERLAP:
+            va_start(args, opt);
+            BCF_SR_AUX(readers)->targets_overlap = va_arg(args, int);
+            if ( readers->targets ) readers->targets->overlap = BCF_SR_AUX(readers)->targets_overlap;
             return 0;
 
         default:
@@ -171,21 +188,29 @@ static int *init_filters(bcf_hdr_t *hdr, const char *filters, int *nfilters)
 
 int bcf_sr_set_regions(bcf_srs_t *readers, const char *regions, int is_file)
 {
-    assert( !readers->regions );
-    if ( readers->nreaders )
+    if ( readers->nreaders || readers->regions )
     {
-        hts_log_error("Must call bcf_sr_set_regions() before bcf_sr_add_reader()");
-        return -1;
+        if ( readers->regions ) bcf_sr_regions_destroy(readers->regions);
+        readers->regions = bcf_sr_regions_init(regions,is_file,0,1,-2);
+        bcf_sr_seek_start(readers);
+        return 0;
     }
+
     readers->regions = bcf_sr_regions_init(regions,is_file,0,1,-2);
     if ( !readers->regions ) return -1;
     readers->explicit_regs = 1;
     readers->require_index = REQUIRE_IDX_;
+    readers->regions->overlap = BCF_SR_AUX(readers)->regions_overlap;
     return 0;
 }
+
 int bcf_sr_set_targets(bcf_srs_t *readers, const char *targets, int is_file, int alleles)
 {
-    assert( !readers->targets );
+    if ( readers->nreaders || readers->targets )
+    {
+        hts_log_error("Must call bcf_sr_set_targets() before bcf_sr_add_reader()");
+        return -1;
+    }
     if ( targets[0]=='^' )
     {
         readers->targets_exclude = 1;
@@ -194,6 +219,7 @@ int bcf_sr_set_targets(bcf_srs_t *readers, const char *targets, int is_file, int
     readers->targets = bcf_sr_regions_init(targets,is_file,0,1,-2);
     if ( !readers->targets ) return -1;
     readers->targets_als = alleles;
+    readers->targets->overlap = BCF_SR_AUX(readers)->targets_overlap;
     return 0;
 }
 
@@ -344,13 +370,22 @@ int bcf_sr_add_reader(bcf_srs_t *files, const char *fname)
     if ( !files->explicit_regs && !files->streaming )
     {
         int n = 0, i;
-        const char **names = reader->tbx_idx ? tbx_seqnames(reader->tbx_idx, &n) : bcf_hdr_seqnames(reader->header, &n);
+        const char **names;
+
+        if ( !files->regions )
+        {
+            files->regions = bcf_sr_regions_alloc();
+            if ( !files->regions )
+            {
+                hts_log_error("Cannot allocate regions data structure");
+                return 0;
+            }
+        }
+
+        names = reader->tbx_idx ? tbx_seqnames(reader->tbx_idx, &n) : bcf_hdr_seqnames(reader->header, &n);
         for (i=0; i<n; i++)
         {
-            if ( !files->regions )
-                files->regions = _regions_init_string(names[i]);
-            else
-                _regions_add(files->regions, names[i], -1, -1);
+            _regions_add(files->regions, names[i], -1, -1);
         }
         free(names);
         _regions_sort_and_merge(files->regions);
@@ -386,6 +421,8 @@ bcf_srs_t *bcf_sr_init(void)
     bcf_srs_t *files = (bcf_srs_t*) calloc(1,sizeof(bcf_srs_t));
     files->aux = (aux_t*) calloc(1,sizeof(aux_t));
     bcf_sr_sort_init(&BCF_SR_AUX(files)->sort);
+    bcf_sr_set_opt(files,BCF_SR_REGIONS_OVERLAP,1);
+    bcf_sr_set_opt(files,BCF_SR_TARGETS_OVERLAP,0);
     return files;
 }
 
@@ -506,7 +543,7 @@ static int _reader_seek(bcf_sr_t *reader, const char *seq, hts_pos_t start, hts_
     }
     if (!reader->itr) {
         hts_log_error("Could not seek: %s:%"PRIhts_pos"-%"PRIhts_pos, seq, start + 1, end + 1);
-        assert(0);
+        abort();
     }
     return 0;
 }
@@ -540,6 +577,35 @@ static int _readers_next_region(bcf_srs_t *files)
     return 0;
 }
 
+static void _set_variant_boundaries(bcf1_t *rec, hts_pos_t *beg, hts_pos_t *end)
+{
+    hts_pos_t off;
+    if ( rec->n_allele )
+    {
+        off = rec->rlen;
+        bcf_unpack(rec, BCF_UN_STR);
+        int i;
+        for (i=1; i<rec->n_allele; i++)
+        {
+            // Make symbolic alleles start at POS, although this is not strictly true for
+            // <DEL>,<INS> where POS should be the position BEFORE the deletion/insertion.
+            // However, since arbitrary symbolic alleles can be defined by the user, we
+            // will simplify the interpretation of --targets-overlap and --region-overlap.
+            int j = 0;
+            char *ref = rec->d.allele[0];
+            char *alt = rec->d.allele[i];
+            while ( ref[j] && alt[j] && ref[j]==alt[j] ) j++;
+            if ( off > j ) off = j;
+            if ( !off ) break;
+        }
+    }
+    else
+        off = 0;
+
+    *beg = rec->pos + off;
+    *end = rec->pos + rec->rlen - 1;
+}
+
 /*
  *  _reader_fill_buffer() - buffers all records with the same coordinate
  */
@@ -571,7 +637,9 @@ static int _reader_fill_buffer(bcf_srs_t *files, bcf_sr_t *reader)
         {
             if ( reader->file->format.format==vcf )
             {
-                if ( (ret=hts_getline(reader->file, KS_SEP_LINE, &files->tmps)) < 0 ) break;   // no more lines
+                ret = hts_getline(reader->file, KS_SEP_LINE, &files->tmps);
+                if ( ret < -1 ) files->errnum = bcf_read_error;
+                if ( ret < 0 ) break; // no more lines or an error
                 ret = vcf_parse1(&files->tmps, reader->header, reader->buffer[reader->nbuffer+1]);
                 if ( ret<0 ) { files->errnum = vcf_parse_error; break; }
             }
@@ -589,7 +657,9 @@ static int _reader_fill_buffer(bcf_srs_t *files, bcf_sr_t *reader)
         }
         else if ( reader->tbx_idx )
         {
-            if ( (ret=tbx_itr_next(reader->file, reader->tbx_idx, reader->itr, &files->tmps)) < 0 ) break;  // no more lines
+            ret = tbx_itr_next(reader->file, reader->tbx_idx, reader->itr, &files->tmps);
+            if ( ret < -1 ) files->errnum = bcf_read_error;
+            if ( ret < 0 ) break; // no more lines or an error
             ret = vcf_parse1(&files->tmps, reader->header, reader->buffer[reader->nbuffer+1]);
             if ( ret<0 ) { files->errnum = vcf_parse_error; break; }
         }
@@ -601,8 +671,27 @@ static int _reader_fill_buffer(bcf_srs_t *files, bcf_sr_t *reader)
             bcf_subset_format(reader->header,reader->buffer[reader->nbuffer+1]);
         }
 
-        // prevent creation of duplicates from records overlapping multiple regions
-        if ( files->regions && reader->buffer[reader->nbuffer+1]->pos <= files->regions->prev_end ) continue;
+        // Prevent creation of duplicates from records overlapping multiple regions
+        // and recognize true variant overlaps vs record overlaps (e.g. TA>T vs A>-)
+        if ( files->regions )
+        {
+            hts_pos_t beg, end;
+            if ( BCF_SR_AUX(files)->regions_overlap==0 )
+                beg = end = reader->buffer[reader->nbuffer+1]->pos;
+            else if ( BCF_SR_AUX(files)->regions_overlap==1 )
+            {
+                beg = reader->buffer[reader->nbuffer+1]->pos;
+                end = reader->buffer[reader->nbuffer+1]->pos + reader->buffer[reader->nbuffer+1]->rlen - 1;
+            }
+            else if ( BCF_SR_AUX(files)->regions_overlap==2 )
+                _set_variant_boundaries(reader->buffer[reader->nbuffer+1], &beg,&end);
+            else
+            {
+                hts_log_error("This should never happen, just to keep clang compiler happy: %d",BCF_SR_AUX(files)->targets_overlap);
+                exit(1);
+            }
+            if ( beg <= files->regions->prev_end || end < files->regions->start || beg > files->regions->end ) continue;
+        }
 
         // apply filter
         if ( !reader->nfilter_ids )
@@ -632,23 +721,18 @@ static int _reader_fill_buffer(bcf_srs_t *files, bcf_sr_t *reader)
 }
 
 /*
- *  _readers_shift_buffer() - removes the first line and all subsequent lines with the same position
+ *  _readers_shift_buffer() - removes the first line
  */
 static void _reader_shift_buffer(bcf_sr_t *reader)
 {
+    if ( !reader->nbuffer ) return;
     int i;
+    bcf1_t *tmp = reader->buffer[1];
     for (i=2; i<=reader->nbuffer; i++)
-        if ( reader->buffer[i]->rid!=reader->buffer[1]->rid || reader->buffer[i]->pos!=reader->buffer[1]->pos ) break;
-    if ( i<=reader->nbuffer )
-    {
-        // A record with a different position follows, swap it. Because of the reader's logic,
-        // only one such line can be present.
-        assert( i==reader->nbuffer );
-        bcf1_t *tmp = reader->buffer[1]; reader->buffer[1] = reader->buffer[i]; reader->buffer[i] = tmp;
-        reader->nbuffer = 1;
-    }
-    else
-        reader->nbuffer = 0;    // no other line
+        reader->buffer[i-1] = reader->buffer[i];
+    if ( reader->nbuffer > 1 )
+        reader->buffer[reader->nbuffer] = tmp;
+    reader->nbuffer--;
 }
 
 static int next_line(bcf_srs_t *files)
@@ -699,19 +783,38 @@ static int next_line(bcf_srs_t *files)
         // Skip this position if not present in targets
         if ( files->targets )
         {
-            int ret = bcf_sr_regions_overlap(files->targets, chr, min_pos, min_pos);
-            if ( (!files->targets_exclude && ret<0) || (files->targets_exclude && !ret) )
+            int match = 0;
+            for (i=0; i<files->nreaders; i++)
             {
-                // Remove all lines with this position from the buffer
-                for (i=0; i<files->nreaders; i++)
-                    if ( files->readers[i].nbuffer && files->readers[i].buffer[1]->pos==min_pos )
-                        _reader_shift_buffer(&files->readers[i]);
+                if ( !files->readers[i].nbuffer || files->readers[i].buffer[1]->pos!=min_pos ) continue;
+                hts_pos_t beg, end;
+                if ( BCF_SR_AUX(files)->targets_overlap==0 )
+                    beg = end = min_pos;
+                else if ( BCF_SR_AUX(files)->targets_overlap==1 )
+                {
+                    beg = min_pos;
+                    end = min_pos + files->readers[i].buffer[1]->rlen - 1;
+                }
+                else if ( BCF_SR_AUX(files)->targets_overlap==2 )
+                    _set_variant_boundaries(files->readers[i].buffer[1], &beg,&end);
+                else
+                {
+                    hts_log_error("This should never happen, just to keep clang compiler happy: %d",BCF_SR_AUX(files)->targets_overlap);
+                    exit(1);
+                }
+                int overlap = bcf_sr_regions_overlap(files->targets, chr, beg, end)==0 ? 1 : 0;
+                if ( (!files->targets_exclude && !overlap) || (files->targets_exclude && overlap) )
+                    _reader_shift_buffer(&files->readers[i]);
+                else
+                    match = 1;
+            }
+            if ( !match )
+            {
                 min_pos = HTS_POS_MAX;
                 chr = NULL;
                 continue;
             }
         }
-
         break;  // done: chr and min_pos are set
     }
     if ( !chr ) return 0;
@@ -753,6 +856,11 @@ static void bcf_sr_seek_start(bcf_srs_t *readers)
     for (i=0; i<reg->nseqs; i++)
         reg->regs[i].creg = -1;
     reg->iseq = 0;
+    reg->start = -1;
+    reg->end   = -1;
+    reg->prev_seq = -1;
+    reg->prev_start = -1;
+    reg->prev_end   = -1;
 }
 
 
@@ -766,8 +874,18 @@ int bcf_sr_seek(bcf_srs_t *readers, const char *seq, hts_pos_t pos)
         bcf_sr_seek_start(readers);
         return 0;
     }
-    bcf_sr_regions_overlap(readers->regions, seq, pos, pos);
+
     int i, nret = 0;
+
+    // Need to position both the readers and the regions. The latter is a bit of a mess
+    // because we can have in memory or external regions. The safe way is:
+    //  - reset all regions as if they were not read from at all (bcf_sr_seek_start)
+    //  - find the requested iseq (stored in the seq_hash)
+    //  - position regions to the requested position (bcf_sr_regions_overlap)
+    bcf_sr_seek_start(readers);
+    if ( khash_str2int_get(readers->regions->seq_hash, seq, &i)>=0 ) readers->regions->iseq = i;
+    _bcf_sr_regions_overlap(readers->regions, seq, pos, pos, 0);
+
     for (i=0; i<readers->nreaders; i++)
     {
         nret += _reader_seek(&readers->readers[i],seq,pos,MAX_CSI_COOR-1);
@@ -849,6 +967,17 @@ int bcf_sr_set_samples(bcf_srs_t *files, const char *fname, int is_file)
     return 1;
 }
 
+// Allocate a new region list structure.
+static bcf_sr_regions_t *bcf_sr_regions_alloc(void)
+{
+    bcf_sr_regions_t *reg = (bcf_sr_regions_t *) calloc(1, sizeof(bcf_sr_regions_t));
+    if ( !reg ) return NULL;
+
+    reg->start = reg->end = -1;
+    reg->prev_start = reg->prev_end = reg->prev_seq = -1;
+    return reg;
+}
+
 // Add a new region into a list. On input the coordinates are 1-based, inclusive, then stored 0-based,
 // inclusive. Sorting and merging step needed afterwards: qsort(..,cmp_regions) and merge_regions().
 static int _regions_add(bcf_sr_regions_t *reg, const char *chr, hts_pos_t start, hts_pos_t end)
@@ -925,20 +1054,36 @@ void _regions_sort_and_merge(bcf_sr_regions_t *reg)
 }
 
 // File name or a list of genomic locations. If file name, NULL is returned.
+// Recognises regions in the form chr, chr:pos, chr:beg-end, chr:beg-, {weird-chr-name}:pos.
+// Cannot use hts_parse_region() as that requires the header and if header is not present,
+// wouldn't learn the chromosome name.
 static bcf_sr_regions_t *_regions_init_string(const char *str)
 {
-    bcf_sr_regions_t *reg = (bcf_sr_regions_t *) calloc(1, sizeof(bcf_sr_regions_t));
-    reg->start = reg->end = -1;
-    reg->prev_start = reg->prev_end = reg->prev_seq = -1;
+    bcf_sr_regions_t *reg = bcf_sr_regions_alloc();
+    if ( !reg ) return NULL;
 
     kstring_t tmp = {0,0,0};
     const char *sp = str, *ep = str;
     hts_pos_t from, to;
     while ( 1 )
     {
-        while ( *ep && *ep!=',' && *ep!=':' ) ep++;
         tmp.l = 0;
-        kputsn(sp,ep-sp,&tmp);
+        if ( *ep=='{' )
+        {
+            while ( *ep && *ep!='}' ) ep++;
+            if ( !*ep )
+            {
+                hts_log_error("Could not parse the region, mismatching braces in: \"%s\"", str);
+                goto exit_nicely;
+            }
+            ep++;
+            kputsn(sp+1,ep-sp-2,&tmp);
+        }
+        else
+        {
+            while ( *ep && *ep!=',' && *ep!=':' ) ep++;
+            kputsn(sp,ep-sp,&tmp);
+        }
         if ( *ep==':' )
         {
             sp = ep+1;
@@ -946,7 +1091,7 @@ static bcf_sr_regions_t *_regions_init_string(const char *str)
             if ( sp==ep )
             {
                 hts_log_error("Could not parse the region(s): %s", str);
-                free(reg); free(tmp.s); return NULL;
+                goto exit_nicely;
             }
             if ( !*ep || *ep==',' )
             {
@@ -957,7 +1102,7 @@ static bcf_sr_regions_t *_regions_init_string(const char *str)
             if ( *ep!='-' )
             {
                 hts_log_error("Could not parse the region(s): %s", str);
-                free(reg); free(tmp.s); return NULL;
+                goto exit_nicely;
             }
             ep++;
             sp = ep;
@@ -965,22 +1110,32 @@ static bcf_sr_regions_t *_regions_init_string(const char *str)
             if ( *ep && *ep!=',' )
             {
                 hts_log_error("Could not parse the region(s): %s", str);
-                free(reg); free(tmp.s); return NULL;
+                goto exit_nicely;
             }
             if ( sp==ep ) to = MAX_CSI_COOR-1;
             _regions_add(reg, tmp.s, from, to);
             if ( !*ep ) break;
             sp = ep;
         }
-        else
+        else if ( !*ep || *ep==',' )
         {
             if ( tmp.l ) _regions_add(reg, tmp.s, -1, -1);
             if ( !*ep ) break;
             sp = ++ep;
         }
+        else
+        {
+            hts_log_error("Could not parse the region(s): %s", str);
+            goto exit_nicely;
+        }
     }
     free(tmp.s);
     return reg;
+
+exit_nicely:
+    bcf_sr_regions_destroy(reg);
+    free(tmp.s);
+    return NULL;
 }
 
 // ichr,ifrom,ito are 0-based;
@@ -1010,7 +1165,7 @@ static int _regions_parse_line(char *line, int ichr, int ifrom, int ito, char **
     if ( k==l )
     {
         *from = *to = hts_parse_decimal(ss, &tmp, 0);
-        if ( tmp==ss ) return -1;
+        if ( tmp==ss || (*tmp && *tmp!='\t') ) return -1;
     }
     else
     {
@@ -1018,7 +1173,7 @@ static int _regions_parse_line(char *line, int ichr, int ifrom, int ito, char **
             *from = hts_parse_decimal(ss, &tmp, 0);
         else
             *to = hts_parse_decimal(ss, &tmp, 0);
-        if ( ss==tmp ) return -1;
+        if ( ss==tmp || (*tmp && *tmp!='\t') ) return -1;
 
         for (i=k; i<l && *se; i++)
         {
@@ -1030,7 +1185,7 @@ static int _regions_parse_line(char *line, int ichr, int ifrom, int ito, char **
             *to = hts_parse_decimal(ss, &tmp, 0);
         else
             *from = hts_parse_decimal(ss, &tmp, 0);
-        if ( ss==tmp ) return -1;
+        if ( ss==tmp || (*tmp && *tmp!='\t') ) return -1;
     }
 
     ss = se = line;
@@ -1055,9 +1210,8 @@ bcf_sr_regions_t *bcf_sr_regions_init(const char *regions, int is_file, int ichr
         return reg;
     }
 
-    reg = (bcf_sr_regions_t *) calloc(1, sizeof(bcf_sr_regions_t));
-    reg->start = reg->end = -1;
-    reg->prev_start = reg->prev_end = reg->prev_seq = -1;
+    reg = bcf_sr_regions_alloc();
+    if ( !reg ) return NULL;
 
     reg->file = hts_open(regions, "rb");
     if ( !reg->file )
@@ -1096,7 +1250,10 @@ bcf_sr_regions_t *bcf_sr_regions_init(const char *regions, int is_file, int ichr
                     hts_close(reg->file); reg->file = NULL; free(reg);
                     return NULL;
                 }
+                ito = ifrom;
             }
+            else if ( ito<0 )
+                ito = abs(ito);
             if ( !ret ) continue;
             if ( is_bed ) from++;
             *chr_end = 0;
@@ -1322,13 +1479,19 @@ static int _regions_match_alleles(bcf_sr_regions_t *reg, int als_idx, bcf1_t *re
 
 int bcf_sr_regions_overlap(bcf_sr_regions_t *reg, const char *seq, hts_pos_t start, hts_pos_t end)
 {
+    return _bcf_sr_regions_overlap(reg,seq,start,end,1);
+}
+
+static int _bcf_sr_regions_overlap(bcf_sr_regions_t *reg, const char *seq, hts_pos_t start, hts_pos_t end, int missed_reg_handler)
+{
     int iseq;
     if ( khash_str2int_get(reg->seq_hash, seq, &iseq)<0 ) return -1;    // no such sequence
+    if ( missed_reg_handler && !reg->missed_reg_handler ) missed_reg_handler = 0;
 
     if ( reg->prev_seq==-1 || iseq!=reg->prev_seq || reg->prev_start > start ) // new chromosome or after a seek
     {
         // flush regions left on previous chromosome
-        if ( reg->missed_reg_handler && reg->prev_seq!=-1 && reg->iseq!=-1 )
+        if ( missed_reg_handler && reg->prev_seq!=-1 && reg->iseq!=-1 )
             bcf_sr_regions_flush(reg);
 
         bcf_sr_regions_seek(reg, seq);
@@ -1342,7 +1505,7 @@ int bcf_sr_regions_overlap(bcf_sr_regions_t *reg, const char *seq, hts_pos_t sta
     {
         if ( bcf_sr_regions_next(reg) < 0 ) return -2;  // no more regions left
         if ( reg->iseq != iseq ) return -1; // does not overlap any regions
-        if ( reg->missed_reg_handler && reg->end < start ) reg->missed_reg_handler(reg, reg->missed_reg_data);
+        if ( missed_reg_handler && reg->end < start ) reg->missed_reg_handler(reg, reg->missed_reg_data);
     }
     if ( reg->start <= end ) return 0;    // region overlap
     return -1;  // no overlap

@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2015, 2018-2020 Genome Research Ltd.
+Copyright (c) 2015, 2018-2020, 2022-2024 Genome Research Ltd.
 Author: James Bonfield <jkb@sanger.ac.uk>
 
 Redistribution and use in source and binary forms, with or without
@@ -40,6 +40,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #define HTS_BUILDING_LIBRARY // Enables HTSLIB_EXPORT, see htslib/hts_defs.h
 #include <config.h>
+#include <stdint.h>
+
+#if defined(HAVE_EXTERNAL_LIBHTSCODECS)
+#include <htscodecs/rANS_static4x16.h>
+#else
+#include "../htscodecs/htscodecs/rANS_static4x16.h"
+#endif
 
 #include "../htslib/hfile.h"
 #include "cram.h"
@@ -82,6 +89,14 @@ void cram_container_set_num_blocks(cram_container *c, int32_t num_blocks) {
     c->num_blocks = num_blocks;
 }
 
+int32_t cram_container_get_num_records(cram_container *c) {
+    return c->num_records;
+}
+
+int64_t cram_container_get_num_bases(cram_container *c) {
+    return c->num_bases;
+}
+
 
 /* Returns the landmarks[] array and the number of elements
  * in num_landmarks.
@@ -104,6 +119,16 @@ void cram_container_set_landmarks(cram_container *c, int32_t num_landmarks,
 /* Returns true if the container is empty (EOF marker) */
 int cram_container_is_empty(cram_fd *fd) {
     return fd->empty_container;
+}
+
+void cram_container_get_coords(cram_container *c,
+                               int *refid, hts_pos_t *start, hts_pos_t *span) {
+    if (refid)
+        *refid = c->ref_seq_id;
+    if (start)
+        *start = c->ref_seq_start;
+    if (span)
+        *span  = c->ref_seq_span;
 }
 
 
@@ -180,6 +205,294 @@ int cram_block_compression_hdr_decoder2encoder(cram_fd *fd,
     return 0;
 }
 
+typedef struct {
+    cram_block_compression_hdr *hdr;
+    cram_map *curr_map;
+    int idx;
+    int is_tag; // phase 2 using tag_encoding_map
+} cram_codec_iter;
+
+static void cram_codec_iter_init(cram_block_compression_hdr *hdr,
+                                 cram_codec_iter *iter) {
+    iter->hdr = hdr;
+    iter->curr_map = NULL;
+    iter->idx = 0;
+    iter->is_tag = 0;
+}
+
+// See enum cram_DS_ID in cram/cram_structs
+static int cram_ds_to_key(enum cram_DS_ID ds) {
+    switch(ds) {
+    case DS_RN: return 256*'R'+'N';
+    case DS_QS: return 256*'Q'+'S';
+    case DS_IN: return 256*'I'+'N';
+    case DS_SC: return 256*'S'+'C';
+    case DS_BF: return 256*'B'+'F';
+    case DS_CF: return 256*'C'+'F';
+    case DS_AP: return 256*'A'+'P';
+    case DS_RG: return 256*'R'+'G';
+    case DS_MQ: return 256*'M'+'Q';
+    case DS_NS: return 256*'N'+'S';
+    case DS_MF: return 256*'M'+'F';
+    case DS_TS: return 256*'T'+'S';
+    case DS_NP: return 256*'N'+'P';
+    case DS_NF: return 256*'N'+'F';
+    case DS_RL: return 256*'R'+'L';
+    case DS_FN: return 256*'F'+'N';
+    case DS_FC: return 256*'F'+'C';
+    case DS_FP: return 256*'F'+'P';
+    case DS_DL: return 256*'D'+'L';
+    case DS_BA: return 256*'B'+'A';
+    case DS_BS: return 256*'B'+'S';
+    case DS_TL: return 256*'T'+'L';
+    case DS_RI: return 256*'R'+'I';
+    case DS_RS: return 256*'R'+'S';
+    case DS_PD: return 256*'P'+'D';
+    case DS_HC: return 256*'H'+'C';
+    case DS_BB: return 256*'B'+'B';
+    case DS_QQ: return 256*'Q'+'Q';
+    case DS_TN: return 256*'T'+'N';
+    case DS_TC: return 256*'T'+'C';
+    case DS_TM: return 256*'T'+'M';
+    case DS_TV: return 256*'T'+'V';
+    default: break;
+    }
+
+    return -1; // unknown
+}
+
+static cram_codec *cram_codec_iter_next(cram_codec_iter *iter,
+                                        int *key) {
+    cram_codec *cc = NULL;
+    cram_block_compression_hdr *hdr = iter->hdr;
+
+    if (!iter->is_tag) {
+        // 1: Iterating through main data-series
+        do {
+            cc = hdr->codecs[iter->idx++];
+        } while(!cc && iter->idx < DS_END);
+        if (cc) {
+            *key = cram_ds_to_key(iter->idx-1);
+            return cc;
+        }
+
+        // Reset index for phase 2
+        iter->idx = 0;
+        iter->is_tag = 1;
+    }
+
+    do {
+        if (!iter->curr_map)
+            iter->curr_map = hdr->tag_encoding_map[iter->idx++];
+
+        cc = iter->curr_map ? iter->curr_map->codec : NULL;
+        if (cc) {
+            *key = iter->curr_map->key;
+            iter->curr_map = iter->curr_map->next;
+            return cc;
+        }
+    } while (iter->idx < CRAM_MAP_HASH);
+
+    // End of codecs
+    return NULL;
+}
+
+/*
+ * A list of data-series, used to create a linked list threaded through
+ * a single array.
+ */
+typedef struct ds_list {
+    int data_series;
+    int next;
+} ds_list;
+
+KHASH_MAP_INIT_INT(cid, int64_t)
+
+// Opaque struct for the CRAM block content-id -> data-series map.
+struct cram_cid2ds_t {
+    ds_list *ds;        // array of data-series with linked lists threading through it
+    int ds_size;
+    int ds_idx;
+    khash_t(cid) *hash; // key=content_id,  value=index to ds array
+    int *ds_a;          // serialised array of data-series returned by queries.
+};
+
+void cram_cid2ds_free(cram_cid2ds_t *cid2ds) {
+    if (cid2ds) {
+        if (cid2ds->hash)
+            kh_destroy(cid, cid2ds->hash);
+        free(cid2ds->ds);
+        free(cid2ds->ds_a);
+        free(cid2ds);
+    }
+}
+
+/*
+ * Map cram block numbers to data-series.  It's normally a 1:1 mapping,
+ * but in rare cases it can be 1:many (or even many:many).
+ * The key is the block number and the value is an index into the data-series
+ * array, which we iterate over until reaching a negative value.
+ *
+ * Provide cid2ds as NULL to allocate a new map or pass in an existing one
+ * to append to this map.  The new (or existing) map is returned.
+ *
+ * Returns the cid2ds (newly allocated or as provided) on success,
+ *         NULL on failure.
+ */
+cram_cid2ds_t *cram_update_cid2ds_map(cram_block_compression_hdr *hdr,
+                                      cram_cid2ds_t *cid2ds) {
+    cram_cid2ds_t *c2d = cid2ds;
+    if (!c2d) {
+        c2d = calloc(1, sizeof(*c2d));
+        if (!c2d)
+            return NULL;
+
+        c2d->hash = kh_init(cid);
+        if (!c2d->hash)
+            goto err;
+    }
+
+    // Iterate through codecs.  Initially primary two-left ones in
+    // rec_encoding_map, and then the three letter in tag_encoding_map.
+    cram_codec_iter citer;
+    cram_codec_iter_init(hdr, &citer);
+    cram_codec *codec;
+    int key;
+
+    while ((codec = cram_codec_iter_next(&citer, &key))) {
+        // Having got a codec, we can then use cram_codec_to_id to get
+        // the block IDs utilised by that codec.  This is then our
+        // map for allocating data blocks to data series, but for shared
+        // blocks we can't separate out how much is used by each DS.
+        int bnum[2];
+        cram_codec_get_content_ids(codec, bnum);
+
+        khiter_t k;
+        int ret, i;
+        for (i = 0; i < 2; i++) {
+            if (bnum[i] > -2) {
+                k = kh_put(cid, c2d->hash, bnum[i], &ret);
+                if (ret < 0)
+                    goto err;
+
+                if (c2d->ds_idx >= c2d->ds_size) {
+                    c2d->ds_size += 100;
+                    c2d->ds_size *= 2;
+                    ds_list *ds_new = realloc(c2d->ds,
+                                              c2d->ds_size * sizeof(*ds_new));
+                    if (!ds_new)
+                        goto err;
+                    c2d->ds = ds_new;
+                }
+
+                if (ret == 0) {
+                    // Shared content_id, so add to list of DS
+
+                    // Maybe data-series should be part of the hash key?
+                    //
+                    // So top-32 bit is content-id, bot-32 bit is key.
+                    // Sort hash by key and then can group all the data-series
+                    // known together. ??
+                    //
+                    // Brute force for now, scan to see if recorded.
+                    // Typically this is minimal effort as we almost always
+                    // have 1 data-series per block content-id, so the list to
+                    // search is of size 1.
+                    int dsi = kh_value(c2d->hash, k);
+                    while (dsi >= 0) {
+                        if (c2d->ds[dsi].data_series == key)
+                            break;
+                        dsi = c2d->ds[dsi].next;
+                    }
+
+                    if (dsi == -1) {
+                        // Block content_id seen before, but not with this DS
+                        c2d->ds[c2d->ds_idx].data_series = key;
+                        c2d->ds[c2d->ds_idx].next = kh_value(c2d->hash, k);
+                        kh_value(c2d->hash, k) = c2d->ds_idx;
+                        c2d->ds_idx++;
+                    }
+                } else {
+                    // First time this content id has been used
+                    c2d->ds[c2d->ds_idx].data_series = key;
+                    c2d->ds[c2d->ds_idx].next = -1;
+                    kh_value(c2d->hash, k) = c2d->ds_idx;
+                    c2d->ds_idx++;
+                }
+            }
+        }
+    }
+
+    return c2d;
+
+ err:
+    if (c2d != cid2ds)
+        cram_cid2ds_free(c2d);
+    return NULL;
+}
+
+/*
+ * Return a list of data series observed as belonging to a block with
+ * the specified content_id.  *n is the number of data series
+ * returned, or 0 if block is unused.
+ * Block content_id of -1 is used to indicate the CORE block.
+ *
+ * The pointer returned is owned by the cram_cid2ds state and should
+ * not be freed by the caller.
+ */
+int *cram_cid2ds_query(cram_cid2ds_t *c2d, int content_id, int *n) {
+    *n = 0;
+    if (!c2d || !c2d->hash)
+        return NULL;
+
+    khiter_t k = kh_get(cid, c2d->hash, content_id);
+    if (k == kh_end(c2d->hash))
+        return NULL;
+
+    if (!c2d->ds_a) {
+        c2d->ds_a = malloc(c2d->ds_idx * sizeof(int));
+        if (!c2d->ds_a)
+            return NULL;
+    }
+
+    int dsi = kh_value(c2d->hash, k); // initial ds array index from hash
+    int idx = 0;
+    while (dsi >= 0) {
+        c2d->ds_a[idx++] = c2d->ds[dsi].data_series;
+        dsi = c2d->ds[dsi].next;      // iterate over list within ds array
+    }
+
+    *n = idx;
+    return c2d->ds_a;
+}
+
+/*
+ * Produces a description of the record and tag encodings held within
+ * a compression header and appends to 'ks'.
+ *
+ * Returns 0 on success,
+ *        <0 on failure.
+ */
+int cram_describe_encodings(cram_block_compression_hdr *hdr, kstring_t *ks) {
+    cram_codec_iter citer;
+    cram_codec_iter_init(hdr, &citer);
+    cram_codec *codec;
+    int key, r = 0;
+
+    while ((codec = cram_codec_iter_next(&citer, &key))) {
+        char key_s[4] = {0};
+        int key_i = 0;
+        if (key>>16) key_s[key_i++] = key>>16;
+        key_s[key_i++] = (key>>8)&0xff;
+        key_s[key_i++] = key&0xff;
+        r |= ksprintf(ks, "\t%s\t", key_s) < 0;
+        r |= cram_codec_describe(codec, ks) < 0;
+        r |= kputc('\n', ks) < 0;
+    }
+
+    return r ? -1 : 0;
+}
+
 /*
  *-----------------------------------------------------------------------------
  * cram_slice
@@ -188,17 +501,35 @@ int32_t cram_slice_hdr_get_num_blocks(cram_block_slice_hdr *hdr) {
     return hdr->num_blocks;
 }
 
+int cram_slice_hdr_get_embed_ref_id(cram_block_slice_hdr *h) {
+    return h->ref_base_id;
+}
+
+void cram_slice_hdr_get_coords(cram_block_slice_hdr *h,
+                               int *refid, hts_pos_t *start, hts_pos_t *span) {
+    if (refid)
+        *refid = h->ref_seq_id;
+    if (start)
+        *start = h->ref_seq_start;
+    if (span)
+        *span  = h->ref_seq_span;
+}
 
 /*
  *-----------------------------------------------------------------------------
  * cram_block
  */
-int32_t cram_block_get_content_id(cram_block *b)  { return b->content_id; }
+int32_t cram_block_get_content_id(cram_block *b)  {
+    return b->content_type == CORE ? -1 : b->content_id;
+}
 int32_t cram_block_get_comp_size(cram_block *b)   { return b->comp_size; }
 int32_t cram_block_get_uncomp_size(cram_block *b) { return b->uncomp_size; }
 int32_t cram_block_get_crc32(cram_block *b)       { return b->crc32; }
 void *  cram_block_get_data(cram_block *b)        { return BLOCK_DATA(b); }
 int32_t cram_block_get_size(cram_block *b)        { return BLOCK_SIZE(b); }
+enum cram_block_method cram_block_get_method(cram_block *b) {
+    return (enum cram_block_method)b->orig_method;
+}
 enum cram_content_type cram_block_get_content_type(cram_block *b) {
     return b->content_type;
 }
@@ -223,6 +554,122 @@ void cram_block_update_size(cram_block *b) { BLOCK_UPLEN(b); }
 size_t cram_block_get_offset(cram_block *b) { return BLOCK_SIZE(b); }
 void cram_block_set_offset(cram_block *b, size_t offset) { BLOCK_SIZE(b) = offset; }
 
+/*
+ * Given a compressed block of data in a specified compression method,
+ * fill out the 'cm' field with meta-data gleaned from the compressed
+ * block.
+ *
+ * If comp is CRAM_COMP_UNKNOWN, we attempt to auto-detect the compression
+ * format, but this doesn't work for all methods.
+ *
+ * Retuns the detected or specified comp method, and fills out *cm
+ * if non-NULL.
+ */
+cram_method_details *cram_expand_method(uint8_t *data, int32_t size,
+                                        enum cram_block_method comp) {
+    cram_method_details *cm = calloc(1, sizeof(*cm));
+    if (!cm)
+        return NULL;
+
+    const char *xz_header = "\xFD""7zXZ"; // including nul
+
+    if (comp == CRAM_COMP_UNKNOWN) {
+        // Auto-detect
+        if (size > 1 && data[0] == 0x1f && data[1] == 0x8b)
+            comp = CRAM_COMP_GZIP;
+        else if (size > 3 && data[1] == 'B' && data[2] == 'Z'
+                 && data[3] == 'h')
+            comp = CRAM_COMP_BZIP2;
+        else if (size > 6 && memcmp(xz_header, data, 6) == 0)
+            comp = CRAM_COMP_LZMA;
+        else
+            comp = CRAM_COMP_UNKNOWN;
+    }
+    cm->method = comp;
+
+    // Interrogate the compressed data stream to fill out additional fields.
+    switch (comp) {
+    case CRAM_COMP_GZIP:
+        if (size > 8) {
+            if (data[8] == 4)
+                cm->level = 1;
+            else if (data[8] == 2)
+                cm->level = 9;
+            else
+                cm->level = 5;
+        }
+        break;
+
+    case CRAM_COMP_BZIP2:
+        if (size > 3 && data[3] >= '1' && data[3] <= '9')
+            cm->level = data[3]-'0';
+        break;
+
+    case CRAM_COMP_RANS4x8:
+        cm->Nway = 4;
+        if (size > 0 && data[0] == 1)
+            cm->order = 1;
+        else
+            cm->order = 0;
+        break;
+
+    case CRAM_COMP_RANSNx16:
+        if (size > 0) {
+            cm->order  = data[0] & 1;
+            cm->Nway   = data[0] & RANS_ORDER_X32    ? 32 : 4;
+            cm->rle    = data[0] & RANS_ORDER_RLE    ?  1 : 0;
+            cm->pack   = data[0] & RANS_ORDER_PACK   ?  1 : 0;
+            cm->cat    = data[0] & RANS_ORDER_CAT    ?  1 : 0;
+            cm->stripe = data[0] & RANS_ORDER_STRIPE ?  1 : 0;
+            cm->nosz   = data[0] & RANS_ORDER_NOSZ   ?  1 : 0;
+        }
+        break;
+
+    case CRAM_COMP_ARITH:
+        if (size > 0) {
+            // Not in a public header, but the same transforms as rANSNx16
+            cm->order  = data[0] & 3;
+            cm->rle    = data[0] & RANS_ORDER_RLE    ?  1 : 0;
+            cm->pack   = data[0] & RANS_ORDER_PACK   ?  1 : 0;
+            cm->cat    = data[0] & RANS_ORDER_CAT    ?  1 : 0;
+            cm->stripe = data[0] & RANS_ORDER_STRIPE ?  1 : 0;
+            cm->nosz   = data[0] & RANS_ORDER_NOSZ   ?  1 : 0;
+            cm->ext    = data[0] & 4 /*external*/    ?  1 : 0;
+        }
+        break;
+
+    case CRAM_COMP_TOK3:
+        if (size > 8) {
+            if (data[8] == 1)
+                cm->level = 11;
+            else if (data[8] == 0)
+                cm->level = 1;
+        }
+        break;
+
+    default:
+        break;
+    }
+
+    return cm;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * cram_codecs
+ */
+
+// -2 is unused.
+// -1 is CORE
+// >= 0 is the block with that Content ID
+void cram_codec_get_content_ids(cram_codec *c, int ids[2]) {
+    ids[0] = cram_codec_to_id(c, &ids[1]);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * Utility functions
+ */
 
 /*
  * Copies the blocks representing the next num_slice slices from a
@@ -246,6 +693,7 @@ int cram_copy_slice(cram_fd *in, cram_fd *out, int32_t num_slice) {
             cram_free_block(blk);
             return -1;
         }
+
         if (cram_write_block(out, blk) != 0) {
             cram_free_block(blk);
             return -1;
@@ -266,6 +714,192 @@ int cram_copy_slice(cram_fd *in, cram_fd *out, int32_t num_slice) {
 
     return 0;
 }
+
+/*
+ * Discards the next containers worth of data.
+ * Only the cram structure has been read so far.
+ *
+ * Returns 0 on success,
+ *        -1 on failure
+ */
+static int cram_skip_container(cram_fd *in, cram_container *c) {
+    // Compression header
+    cram_block *blk;
+    if (!(blk = cram_read_block(in)))
+        return -1;
+    cram_free_block(blk);
+
+    int i;
+    for (i = 0; i < c->num_landmarks; i++) {
+        cram_block_slice_hdr *hdr;
+
+        if (!(blk = cram_read_block(in)))
+            return -1;
+        if (!(hdr = cram_decode_slice_header(in, blk))) {
+            cram_free_block(blk);
+            return -1;
+        }
+        cram_free_block(blk);
+
+        int num_blocks = cram_slice_hdr_get_num_blocks(hdr), j;
+        for (j = 0; j < num_blocks; j++) {
+            blk = cram_read_block(in);
+            if (!blk) {
+                cram_free_slice_header(hdr);
+                return -1;
+            }
+            cram_free_block(blk);
+        }
+        cram_free_slice_header(hdr);
+    }
+
+    return 0;
+}
+
+
+/*
+ * Copies a container, but filtering it down to a specific region,
+ * which has already been set on the 'in' fd.
+ *
+ * This is used in e.g. samtools cat where we specified a region and discover
+ * that a region doesn't entirely span the container, so we have to select
+ * which reads we need to copy out of it.
+ *
+ * If ref_id is non-NULL we also return the last ref_id we filtered.
+ * This can be -2 if it's multi-ref and we observe more than one reference,
+ * and actual ref_id >= -1 if it's multi-ref and we observe just one ref or
+ * it's fixed reference.
+ *
+ * Returns 0 on success
+ *        -1 on error
+ */
+int cram_filter_container(cram_fd *in, cram_fd *out, cram_container *c,
+                          int *ref_id) {
+    int err = 0, fixed_ref = -3;
+
+    if (ref_id)
+        *ref_id = c->ref_seq_id;
+
+    int rid = in->range.refid == -2 ? -1 : in->range.refid;
+    if (rid != c->ref_seq_id ||
+        in->range.start > c->ref_seq_start + c->ref_seq_span-1)
+        // Except for multi-ref cases
+        if (c->ref_seq_id != -2)
+            return cram_skip_container(in, c);
+
+    // Container compression header
+    cram_block *blk = cram_read_block(in);
+    if (!blk)
+        return -1;
+    c->comp_hdr = cram_decode_compression_header(in, blk);
+    in->ctr = c;
+
+    // If it's multi-ref but a constant ref-id, then we can still do
+    // basic level chromosome filtering.  Similarly multi-ref where we're
+    // _already_ in ref "*" (unmapped) means we can just copy the container
+    // as there are no positions to filter on and "*" sorts to the end.
+    // TODO: how to tell "already in" though?
+    if (c->ref_seq_id == -2) {
+        cram_codec *cd = c->comp_hdr->codecs[DS_RI];
+        if (cd && cd->codec == E_HUFFMAN && cd->u.huffman.ncodes == 1 &&
+            // this check should be always true anyway
+            rid == cd->u.huffman.codes[0].symbol)
+            // We're in multi-ref mode, but actually the entire container
+            // matches.  So if we're in whole-chromosome mode we can just
+            // copy.
+            if (in->range.start <= 1 &&
+                in->range.end >= (INT64_MAX&(0xffffffffULL<<32))) {
+                if (ref_id)
+                    *ref_id = rid;
+                err |= cram_write_container(out, c) < 0;
+                err |= cram_write_block(out, blk);
+                return cram_copy_slice(in, out, c->num_landmarks) | -err;
+            }
+    }
+
+    // A simple read-write loop with region filtering automatically due to
+    // an earlier CRAM_OPT_RANGE request.
+    //
+    // We can hit EOF when reaching the end of the range, but we still need
+    // to manually check we don't attempt to read beyond this single container.
+
+    cram_range rng_copy = in->range;
+    in->range.start = INT64_MIN;
+    in->range.end = INT64_MAX;
+
+    bam1_t *b = bam_init1();
+    while ((c->curr_slice < c->max_slice ||
+            c->slice->curr_rec < c->slice->max_rec)) {
+        cram_slice *s;
+        if (c->slice && c->slice->curr_rec < c->slice->max_rec)
+            s = c->slice;
+        else if (c->curr_slice < c->max_slice)
+            s = cram_next_slice(in, &c);
+        else
+            break; // end of container
+        c->slice = s;
+
+        // This is more efficient if we check as a cram record instead of a
+        // bam record as we don't have to parse CIGAR end.
+        cram_record *cr = &c->slice->crecs[c->slice->curr_rec];
+        if (fixed_ref == -3)
+            fixed_ref = cr->ref_id;
+        else if (fixed_ref != cr->ref_id)
+            fixed_ref = -2;
+
+        if (rng_copy.refid != cr->ref_id) {
+            if (rng_copy.refid == -2) {
+                if (cr->ref_id > -1) {
+                    // Want unmapped, but have mapped
+                    c->slice->curr_rec++;
+                    continue;
+                }
+            } else {
+                if (rng_copy.refid > cr->ref_id || rng_copy.refid == -1) {
+                    // multi-ref and not at the correct ref yet
+                    c->slice->curr_rec++;
+                    continue;
+                } else {
+                    // multi-ref and beyond the desired ref
+                    break;
+                }
+            }
+        }
+
+        // Correct ref, but check the desired region
+        if (cr->aend < rng_copy.start) {
+            c->slice->curr_rec++;
+            continue;
+        }
+        if (cr->apos > rng_copy.end)
+            break;
+
+        // Broadly rquivalent to cram_get_bam_seq, but starting from 'cr'
+        err |= cram_to_bam(in->header, in, s, cr, s->curr_rec++, &b) < 0;
+
+        if (cram_put_bam_seq(out, b) < 0) {
+            err |= 1;
+            break;
+        }
+    }
+    bam_destroy1(b);
+
+    if (ref_id)
+        *ref_id = fixed_ref;
+
+    in->range = rng_copy;
+
+    // Avoids double frees as we stole the container from our other
+    // file descriptor.
+    in->ctr    = NULL;
+    in->ctr_mt = NULL;
+
+    err |= cram_flush(out);
+    cram_free_block(blk);
+
+    return -err;
+}
+
 
 /*
  * Renumbers RG numbers in a cram compression header.
@@ -318,7 +952,7 @@ int cram_transcode_rg(cram_fd *in, cram_fd *out,
         return -1;
     if (cram_block_compression_hdr_decoder2encoder(in, ch) != 0)
         return -1;
-    n_blk = cram_encode_compression_header(in, c, ch);
+    n_blk = cram_encode_compression_header(in, c, ch, in->embed_ref);
     cram_free_compression_header(ch);
 
     /*

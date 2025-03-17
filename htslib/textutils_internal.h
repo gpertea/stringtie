@@ -1,6 +1,6 @@
 /* textutils_internal.h -- non-bioinformatics utility routines for text etc.
 
-   Copyright (C) 2016,2018-2020 Genome Research Ltd.
+   Copyright (C) 2016,2018-2020, 2024 Genome Research Ltd.
 
    Author: John Marshall <jm18@sanger.ac.uk>
 
@@ -65,9 +65,11 @@ typedef struct hts_json_token hts_json_token;
 /// Allocate an empty JSON token structure, for use with hts_json_* functions
 /** @return An empty token on success; NULL on failure
  */
+HTSLIB_EXPORT
 hts_json_token *hts_json_alloc_token(void);
 
 /// Free a JSON token
+HTSLIB_EXPORT
 void hts_json_free_token(hts_json_token *token);
 
 /// Accessor function to get JSON token type
@@ -85,6 +87,7 @@ as follows:
   - `!` other errors (e.g. out of memory)
   - `\0` terminator at end of input
 */
+HTSLIB_EXPORT
 char hts_json_token_type(hts_json_token *token);
 
 /// Accessor function to get JSON token in string form
@@ -98,6 +101,7 @@ will point at the kstring_t buffer passed as the third parameter to
 hts_json_fnext().  In that case, the value will only be valid until the
 next call to hts_json_fnext().
  */
+HTSLIB_EXPORT
 char *hts_json_token_str(hts_json_token *token);
 
 /// Read one JSON token from a string
@@ -111,6 +115,7 @@ is modified by having token-terminating characters overwritten as NULs.
 The `state` argument records the current position within `str` after each
 `hts_json_snext()` call, and should be set to 0 before the first call.
 */
+HTSLIB_EXPORT
 char hts_json_snext(char *str, size_t *state, hts_json_token *token);
 
 /// Read and discard a complete JSON value from a string
@@ -123,6 +128,7 @@ char hts_json_snext(char *str, size_t *state, hts_json_token *token);
 Skips a complete JSON value, which may be a single token or an entire object
 or array.
 */
+HTSLIB_EXPORT
 char hts_json_sskip_value(char *str, size_t *state, char type);
 
 struct hFILE;
@@ -137,6 +143,7 @@ The `kstr` buffer is used to store the string value of the token read,
 so `token->str` is only valid until the next time `hts_json_fnext()` is
 called with the same `kstr` argument.
 */
+HTSLIB_EXPORT
 char hts_json_fnext(struct hFILE *fp, hts_json_token *token, kstring_t *kstr);
 
 /// Read and discard a complete JSON value from a file
@@ -148,6 +155,7 @@ char hts_json_fnext(struct hFILE *fp, hts_json_token *token, kstring_t *kstr);
 Skips a complete JSON value, which may be a single token or an entire object
 or array.
 */
+HTSLIB_EXPORT
 char hts_json_fskip_value(struct hFILE *fp, char type);
 
 // The <ctype.h> functions operate on ints such as are returned by fgetc(),
@@ -213,27 +221,43 @@ static inline int64_t hts_str2int(const char *in, char **end, int bits,
     uint32_t fast = (bits - 1) * 1000 / 3322 + 1; // log(10)/log(2) ~= 3.322
     const unsigned char *v = (const unsigned char *) in;
     const unsigned int ascii_zero = '0'; // Prevents conversion to signed
-    unsigned char d;
-    int neg = 1;
+    unsigned int d;
 
+    int neg;
     switch(*v) {
     case '-':
-        neg=-1;
-        limit++; /* fall through */
+        limit++;
+        neg=1;
+        v++;
+        // See "dup" comment below
+        while (--fast && *v>='0' && *v<='9')
+            n = n*10 + *v++ - ascii_zero;
+        break;
+
     case '+':
         v++;
-        break;
+        // fall through
+
     default:
+        neg = 0;
+        // dup of above.  This is somewhat unstable and mainly for code
+        // size cheats to prevent instruction cache lines spanning 32-byte
+        // blocks in the sam_parse_B_vals calling code.  It's been tested
+        // on gcc7, gcc13, clang10 and clang16 with -O2 and -O3.  While
+        // not exhaustive, this code duplication gives stable fast results
+        // while a single copy does not.
+        // (NB: system was "seq4d", so quite old)
+        while (--fast && *v>='0' && *v<='9')
+            n = n*10 + *v++ - ascii_zero;
         break;
     }
 
-    while (--fast && *v>='0' && *v<='9')
-        n = n*10 + *v++ - ascii_zero;
-
-    if (!fast) {
+    // NB gcc7 is slow with (unsigned)(*v - ascii_zero) < 10,
+    // while gcc13 prefers it.
+    if (*v>='0' && !fast) { // rejects ',' and tab
         uint64_t limit_d_10 = limit / 10;
         uint64_t limit_m_10 = limit - 10 * limit_d_10;
-         while ((d = *v - ascii_zero) < 10) {
+        while ((d = *v - ascii_zero) < 10) {
             if (n < limit_d_10 || (n == limit_d_10 && d <= limit_m_10)) {
                 n = n*10 + d;
                 v++;
@@ -248,7 +272,7 @@ static inline int64_t hts_str2int(const char *in, char **end, int bits,
 
     *end = (char *)v;
 
-    return (n && neg < 0) ? -((int64_t) (n - 1)) - 1 : (int64_t) n;
+    return neg ? (int64_t)-n : (int64_t)n;
 }
 
 /// Convert a string to an unsigned integer, with overflow detection
@@ -271,12 +295,12 @@ Both end and failed must be non-NULL.
  */
 
 static inline uint64_t hts_str2uint(const char *in, char **end, int bits,
-                                      int *failed) {
+                                    int *failed) {
     uint64_t n = 0, limit = (bits < 64 ? (1ULL << bits) : 0) - 1;
     const unsigned char *v = (const unsigned char *) in;
     const unsigned int ascii_zero = '0'; // Prevents conversion to signed
     uint32_t fast = bits * 1000 / 3322 + 1; // log(10)/log(2) ~= 3.322
-    unsigned char d;
+    unsigned int d;
 
     if (*v == '+')
         v++;
@@ -284,7 +308,7 @@ static inline uint64_t hts_str2uint(const char *in, char **end, int bits,
     while (--fast && *v>='0' && *v<='9')
         n = n*10 + *v++ - ascii_zero;
 
-    if (!fast) {
+    if ((unsigned)(*v - ascii_zero) < 10 && !fast) {
         uint64_t limit_d_10 = limit / 10;
         uint64_t limit_m_10 = limit - 10 * limit_d_10;
         while ((d = *v - ascii_zero) < 10) {

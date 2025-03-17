@@ -1,7 +1,7 @@
 /// @file htslib/cram.h
 /// CRAM format-specific API functions.
 /*
-    Copyright (C) 2015, 2016, 2018-2020 Genome Research Ltd.
+    Copyright (C) 2015, 2016, 2018-2020, 2022-2024 Genome Research Ltd.
 
     Author: James Bonfield <jkb@sanger.ac.uk>
 
@@ -76,7 +76,58 @@ enum cram_block_method {
     RANS1    = 10,
     GZIP_RLE = 11,
 };
+#else
+
+// Values as defined in the CRAM specifications.
+// See cram/cram_structs.h cram_block_method_int for an expanded version of
+// this with local specialisations assigned to codes.
+enum cram_block_method {
+    CRAM_COMP_UNKNOWN = -1,
+
+    // CRAM 2.x and 3.0
+    CRAM_COMP_RAW      = 0,
+    CRAM_COMP_GZIP     = 1,
+    CRAM_COMP_BZIP2    = 2,
+
+    // CRAM 3.0
+    CRAM_COMP_LZMA     = 3,
+    CRAM_COMP_RANS4x8  = 4, // 4-way interleaving, 8-bit renormalisation
+
+    // CRAM 3.1
+    CRAM_COMP_RANSNx16 = 5, // both 4x16 and 32x16 variants, plus transforms
+    CRAM_COMP_ARITH    = 6, // aka Range coding
+    CRAM_COMP_FQZ      = 7, // FQZComp
+    CRAM_COMP_TOK3     = 8, // Name tokeniser
+};
 #endif
+
+/* NOTE this structure may be expanded in future releases by appending
+ * additional fields.
+ *
+ * Do not assume the size is fixed and avoid using arrays of this struct.
+ */
+typedef struct {
+    enum cram_block_method method;
+
+    // Generic compression level if known (0 if not).
+    // 1 or 9 for gzip min/max flag (else 5).  1-9 for bzip2
+    // 1 or 11 for for tok3 (rans/arith encoder).
+    int level;
+
+    // For rans* and arith codecs
+    int order;
+
+    // ransNx16/arith specific
+    int rle;
+    int pack;
+    int stripe;
+    int cat;
+    int nosz;
+    int Nway;
+
+    // Arithmetic coder only
+    int ext; // external: use gz, xz or bzip2
+} cram_method_details;
 
 enum cram_content_type {
     CT_ERROR           = -1,
@@ -97,6 +148,7 @@ typedef struct cram_slice cram_slice;
 typedef struct cram_metrics cram_metrics;
 typedef struct cram_block_slice_hdr cram_block_slice_hdr;
 typedef struct cram_block_compression_hdr cram_block_compression_hdr;
+typedef struct cram_codec cram_codec;
 typedef struct refs_t refs_t;
 
 struct hFILE;
@@ -147,11 +199,20 @@ int32_t *cram_container_get_landmarks(cram_container *c, int32_t *num_landmarks)
 HTSLIB_EXPORT
 void cram_container_set_landmarks(cram_container *c, int32_t num_landmarks,
                                   int32_t *landmarks);
+HTSLIB_EXPORT
+int32_t cram_container_get_num_records(cram_container *c);
+HTSLIB_EXPORT
+int64_t cram_container_get_num_bases(cram_container *c);
 
 /* Returns true if the container is empty (EOF marker) */
 HTSLIB_EXPORT
 int cram_container_is_empty(cram_fd *fd);
 
+
+/* Returns chromosome and start/span from container struct */
+HTSLIB_EXPORT
+void cram_container_get_coords(cram_container *c,
+                               int *refid, hts_pos_t *start, hts_pos_t *span);
 
 /*
  *-----------------------------------------------------------------------------
@@ -167,9 +228,14 @@ HTSLIB_EXPORT
 int32_t cram_block_get_crc32(cram_block *b);
 HTSLIB_EXPORT
 void *  cram_block_get_data(cram_block *b);
-
 HTSLIB_EXPORT
 enum cram_content_type cram_block_get_content_type(cram_block *b);
+HTSLIB_EXPORT
+enum cram_block_method cram_block_get_method(cram_block *b);
+
+HTSLIB_EXPORT
+cram_method_details *cram_expand_method(uint8_t *data, int32_t size,
+                                        enum cram_block_method comp);
 
 HTSLIB_EXPORT
 void cram_block_set_content_id(cram_block *b, int32_t id);
@@ -199,6 +265,27 @@ void cram_block_set_offset(cram_block *b, size_t offset);
  */
 HTSLIB_EXPORT
 uint32_t cram_block_size(cram_block *b);
+
+/*
+ * Returns the Block Content ID values referred to by a cram_codec in
+ * ids[2].
+ *
+ * -2 is unused.
+ * -1 is CORE
+ * >= 0 is the block with that Content ID
+ */
+HTSLIB_EXPORT
+void cram_codec_get_content_ids(cram_codec *c, int ids[2]);
+
+/*
+ * Produces a human readable description of the codec parameters.
+ * This is appended to an existing kstring 'ks'.
+ *
+ * Returns 0 on succes,
+ *        <0 on failure
+ */
+HTSLIB_EXPORT
+int cram_codec_describe(cram_codec *c, kstring_t *ks);
 
 /*
  * Renumbers RG numbers in a cram compression header.
@@ -246,6 +333,118 @@ int cram_transcode_rg(cram_fd *in, cram_fd *out,
  */
 HTSLIB_EXPORT
 int cram_copy_slice(cram_fd *in, cram_fd *out, int32_t num_slice);
+
+/*
+ * Copies a container, but filtering it down to a specific region (as
+ * already specified in 'in'
+ *
+ * Returns 0 on success
+ *        -1 on EOF
+ *        -2 on error
+ */
+HTSLIB_EXPORT
+int cram_filter_container(cram_fd *in, cram_fd *out, cram_container *c,
+                          int *ref_id);
+
+/*
+ * Decodes a CRAM block compression header.
+ * Returns header ptr on success
+ *         NULL on failure
+ */
+HTSLIB_EXPORT
+cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
+                                                           cram_block *b);
+/*
+ * Frees a cram_block_compression_hdr structure.
+ */
+HTSLIB_EXPORT
+void cram_free_compression_header(cram_block_compression_hdr *hdr);
+
+typedef struct cram_cid2ds_t cram_cid2ds_t;
+
+/*
+ * Map cram block numbers to data-series.  It's normally a 1:1 mapping,
+ * but in rare cases it can be 1:many (or even many:many).
+ * The key is the block number and the value is an index into the data-series
+ * array, which we iterate over until reaching a negative value.
+ *
+ * Provide cid2ds as NULL to allocate a new map or pass in an existing one
+ * to append to this map.  The new (or existing) map is returned.
+ *
+ * Returns the cid2ds (newly allocated or as provided) on success,
+ *         NULL on failure.
+ */
+HTSLIB_EXPORT
+cram_cid2ds_t *cram_update_cid2ds_map(cram_block_compression_hdr *hdr,
+                                      cram_cid2ds_t *cid2ds);
+
+/*
+ * Return a list of data series observed as belonging to a block with
+ * the specified content_id.  *n is the number of data series
+ * returned, or 0 if block is unused.
+ * Block content_id of -1 is used to indicate the CORE block.
+ *
+ * The pointer returned is owned by the cram_cid2ds state and should
+ * not be freed by the caller.
+ */
+HTSLIB_EXPORT
+int *cram_cid2ds_query(cram_cid2ds_t *c2d, int content_id, int *n);
+
+/*
+ * Frees a cram_cid2ds_t allocated by cram_update_cid2ds_map
+ */
+HTSLIB_EXPORT
+void cram_cid2ds_free(cram_cid2ds_t *cid2ds);
+
+/*
+ * Produces a description of the record and tag encodings held within
+ * a compression header and appends to 'ks'.
+ *
+ * Returns 0 on success,
+ *        <0 on failure.
+ */
+HTSLIB_EXPORT
+int cram_describe_encodings(cram_block_compression_hdr *hdr, kstring_t *ks);
+
+/*
+ *-----------------------------------------------------------------------------
+ * cram slice interrogation
+ */
+
+/*
+ * Returns the number of cram blocks within this slice.
+ */
+HTSLIB_EXPORT
+int32_t cram_slice_hdr_get_num_blocks(cram_block_slice_hdr *hdr);
+
+/*
+ * Returns the block content_id for the block containing an embedded reference
+ * sequence.  If none is present, -1 is returned.
+ */
+HTSLIB_EXPORT
+int cram_slice_hdr_get_embed_ref_id(cram_block_slice_hdr *h);
+
+/*
+ * Returns slice reference ID, start and span (length) coordinates.
+ * Return parameters may be NULL in which case they are ignored.
+ */
+HTSLIB_EXPORT
+void cram_slice_hdr_get_coords(cram_block_slice_hdr *h,
+                               int *refid, hts_pos_t *start, hts_pos_t *span);
+
+/*
+ * Decodes a slice header from a cram block.
+ * Returns the opaque cram_block_slice_hdr pointer on success,
+ *         NULL on failure.
+ */
+HTSLIB_EXPORT
+cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b);
+
+/*
+ * Frees a cram_block_slice_hdr structure.
+ */
+HTSLIB_EXPORT
+void cram_free_slice_header(cram_block_slice_hdr *hdr);
 
 /*
  *-----------------------------------------------------------------------------
@@ -561,6 +760,62 @@ static inline void sam_hdr_free(SAM_hdr *hdr) { sam_hdr_destroy(hdr); }
  */
 HTSLIB_EXPORT
 refs_t *cram_get_refs(htsFile *fd);
+
+/*!
+ * Returns the file offsets of CRAM slices covering a specific region
+ * query.  Note both offsets are the START of the slice.
+ *
+ * first will point to the start of the first overlapping slice
+ * last will point to the start of the last overlapping slice
+ *
+ * @return
+ * Returns 0 on success
+ *        <0 on failure
+ */
+HTSLIB_EXPORT
+int cram_index_extents(cram_fd *fd, int refid, hts_pos_t start, hts_pos_t end,
+                       off_t *first, off_t *last);
+
+/*! Returns the total number of containers in the CRAM index.
+ *
+ * Note the index is not required to have an entry for every container, but it
+ * will always have an index entry for the start of each chromosome.
+ * (Although in practice our indices do container one entry per container.)
+ *
+ * This is equivalent to cram_num_containers_between(fd, 0, 0, NULL, NULL)
+ */
+HTSLIB_EXPORT
+int64_t cram_num_containers(cram_fd *fd);
+
+/*! Returns the number of containers in the CRAM index within given offsets.
+ *
+ * The cstart and cend offsets are the locations of the start of containers
+ * as returned by index_container_offset.
+ *
+ * If non-NULL, first and last will hold the inclusive range of container
+ * numbers, counting from zero.
+ *
+ * @return
+ * Returns the number of containers, equivalent to *last-*first+1.
+ */
+HTSLIB_EXPORT
+int64_t cram_num_containers_between(cram_fd *fd,
+                                    off_t cstart, off_t cend,
+                                    int64_t *first, int64_t *last);
+
+/*! Returns the byte offset for the start of the n^th container.
+ *
+ * The index must have previously been loaded, otherwise <0 is returned.
+ */
+HTSLIB_EXPORT
+off_t cram_container_num2offset(cram_fd *fd, int64_t n);
+
+/*! Returns the container number for the first container at offset >= pos.
+ *
+ * The index must have previously been loaded, otherwise <0 is returned.
+ */
+HTSLIB_EXPORT
+int64_t cram_container_offset2num(cram_fd *fd, off_t pos);
 
 /**@}*/
 

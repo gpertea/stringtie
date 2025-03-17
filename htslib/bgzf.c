@@ -2,7 +2,7 @@
 
    Copyright (c) 2008 Broad Institute / Massachusetts Institute of Technology
                  2011, 2012 Attractive Chaos <attractor@live.co.uk>
-   Copyright (C) 2009, 2013-2020 Genome Research Ltd
+   Copyright (C) 2009, 2013-2023 Genome Research Ltd
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -230,41 +230,8 @@ int bgzf_idx_push(BGZF *fp, hts_idx_t *hidx, int tid, hts_pos_t beg, hts_pos_t e
     return 0;
 }
 
-/*
- * bgzf analogue to hts_idx_amend_last.
- *
- * This is needed when multi-threading and writing indices on the fly.
- * At the point of writing a record we know the virtual offset for start
- * and end, but that end virtual offset may be the end of the current
- * block.  In standard indexing our end virtual offset becomes the start
- * of the next block.  Thus to ensure bit for bit compatibility we
- * detect this boundary case and fix it up here.
- *
- * In theory this has no behavioural change, but it also works around
- * a bug elsewhere which causes bgzf_read to return 0 when our offset
- * is the end of a block rather than the start of the next.
- */
-void bgzf_idx_amend_last(BGZF *fp, hts_idx_t *hidx, uint64_t offset) {
-    mtaux_t *mt = fp->mt;
-    if (!mt) {
-        hts_idx_amend_last(hidx, offset);
-        return;
-    }
-
-    pthread_mutex_lock(&mt->idx_m);
-    hts_idx_cache_t *ic = &mt->idx_cache;
-    if (ic->nentries > 0) {
-        hts_idx_cache_entry *e = &ic->e[ic->nentries-1];
-        if ((offset & 0xffff) == 0 && e->offset != 0) {
-            // bumped to next block number
-            e->offset = 0;
-            e->block_number++;
-        }
-    }
-    pthread_mutex_unlock(&mt->idx_m);
-}
-
-static int bgzf_idx_flush(BGZF *fp) {
+static int bgzf_idx_flush(BGZF *fp,
+                          size_t block_uncomp_len, size_t block_comp_len) {
     mtaux_t *mt = fp->mt;
 
     if (!mt->idx_cache.e) {
@@ -280,6 +247,37 @@ static int bgzf_idx_flush(BGZF *fp) {
     assert(mt->idx_cache.nentries == 0 || mt->block_written <= e[0].block_number);
 
     for (i = 0; i < mt->idx_cache.nentries && e[i].block_number == mt->block_written; i++) {
+        if (block_uncomp_len > 0 && e[i].offset == block_uncomp_len) {
+            /*
+             * If the virtual offset is at the end of the current block,
+             * adjust it to point to the start of the next one.  This
+             * is needed when on-the-fly indexing has recorded a virtual
+             * offset just before a new block has been started, and makes
+             * on-the-fly and standard indexing give exactly the same results.
+             *
+             * In theory the two virtual offsets are equivalent, but pointing
+             * to the end of a block is inefficient, and caused problems with
+             * versions of HTSlib before 1.11 where bgzf_read() would
+             * incorrectly return EOF.
+             */
+
+            // Assert that this is the last entry for the current block_number
+            assert(i == mt->idx_cache.nentries - 1
+                   || e[i].block_number < e[i + 1].block_number);
+
+            // Work out where the next block starts.  For this entry, the
+            // offset will be zero.
+            uint64_t next_block_addr = mt->block_address + block_comp_len;
+            if (hts_idx_push(mt->hts_idx, e[i].tid, e[i].beg, e[i].end,
+                             next_block_addr << 16, e[i].is_mapped) < 0) {
+                pthread_mutex_unlock(&mt->idx_m);
+                return -1;
+            }
+            // Count this entry and drop out of the loop
+            i++;
+            break;
+        }
+
         if (hts_idx_push(mt->hts_idx, e[i].tid, e[i].beg, e[i].end,
                          (mt->block_address << 16) + e[i].offset,
                          e[i].is_mapped) < 0) {
@@ -491,7 +489,6 @@ fail:
 BGZF *bgzf_open(const char *path, const char *mode)
 {
     BGZF *fp = 0;
-    assert(compressBound(BGZF_BLOCK_SIZE) < BGZF_MAX_BLOCK_SIZE);
     if (strchr(mode, 'r')) {
         hFILE *fpr;
         if ((fpr = hopen(path, mode)) == 0) return 0;
@@ -514,7 +511,6 @@ BGZF *bgzf_open(const char *path, const char *mode)
 BGZF *bgzf_dopen(int fd, const char *mode)
 {
     BGZF *fp = 0;
-    assert(compressBound(BGZF_BLOCK_SIZE) < BGZF_MAX_BLOCK_SIZE);
     if (strchr(mode, 'r')) {
         hFILE *fpr;
         if ((fpr = hdopen(fd, mode)) == 0) return 0;
@@ -537,7 +533,6 @@ BGZF *bgzf_dopen(int fd, const char *mode)
 BGZF *bgzf_hopen(hFILE *hfp, const char *mode)
 {
     BGZF *fp = NULL;
-    assert(compressBound(BGZF_BLOCK_SIZE) < BGZF_MAX_BLOCK_SIZE);
     if (strchr(mode, 'r')) {
         fp = bgzf_read_init(hfp, NULL);
         if (fp == NULL) return NULL;
@@ -577,6 +572,8 @@ int bgzf_compress(void *_dst, size_t *dlen, const void *src, size_t slen, int le
     } else {
         level = level > 0 ? level : 6; // libdeflate doesn't honour -1 as default
         // NB levels go up to 12 here.
+        int lvl_map[] = {0,1,2,3,5,6,7,8,10,12};
+        level = lvl_map[level>9 ?9 :level];
         struct libdeflate_compressor *z = libdeflate_alloc_compressor(level);
         if (!z) return -1;
 
@@ -617,6 +614,7 @@ int bgzf_compress(void *_dst, size_t *dlen, const void *src, size_t slen, int le
     uint8_t *dst = (uint8_t*)_dst;
 
     if (level == 0) {
+    uncomp:
         // Uncompressed data
         if (*dlen < slen+5 + BLOCK_HEADER_LENGTH + BLOCK_FOOTER_LENGTH) return -1;
         dst[BLOCK_HEADER_LENGTH] = 1; // BFINAL=1, BTYPE=00; see RFC1951
@@ -638,8 +636,20 @@ int bgzf_compress(void *_dst, size_t *dlen, const void *src, size_t slen, int le
             return -1;
         }
         if ((ret = deflate(&zs, Z_FINISH)) != Z_STREAM_END) {
-            hts_log_error("Deflate operation failed: %s", bgzf_zerr(ret, ret == Z_DATA_ERROR ? &zs : NULL));
+            if (ret == Z_OK && zs.avail_out == 0) {
+                deflateEnd(&zs);
+                goto uncomp;
+            } else {
+                hts_log_error("Deflate operation failed: %s", bgzf_zerr(ret, ret == Z_DATA_ERROR ? &zs : NULL));
+            }
             return -1;
+        }
+        // If we used up the entire output buffer, then we either ran out of
+        // room or we *just* fitted, but either way we may as well store
+        // uncompressed for faster decode.
+        if (zs.avail_out == 0) {
+            deflateEnd(&zs);
+            goto uncomp;
         }
         if ((ret = deflateEnd(&zs)) != Z_OK) {
             hts_log_error("Call to deflateEnd failed: %s", bgzf_zerr(ret, NULL));
@@ -721,6 +731,10 @@ static int bgzf_uncompress(uint8_t *dst, size_t *dlen,
     }
 
     uint32_t crc = libdeflate_crc32(0, (unsigned char *)dst, *dlen);
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    // Pretend the CRC was OK so the fuzzer doesn't have to get it right
+    crc = expected_crc;
+#endif
     if (crc != expected_crc) {
         hts_log_error("CRC32 checksum mismatch");
         return -2;
@@ -763,6 +777,10 @@ static int bgzf_uncompress(uint8_t *dst, size_t *dlen,
     *dlen = *dlen - zs.avail_out;
 
     uint32_t crc = crc32(crc32(0L, NULL, 0L), (unsigned char *)dst, *dlen);
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    // Pretend the CRC was OK so the fuzzer doesn't have to get it right
+    crc = expected_crc;
+#endif
     if (crc != expected_crc) {
         hts_log_error("CRC32 checksum mismatch");
         return -2;
@@ -977,6 +995,8 @@ int bgzf_read_block(BGZF *fp)
 {
     hts_tpool_result *r;
 
+    if (fp->errcode) return -1;
+
     if (fp->mt) {
     again:
         if (fp->mt->hit_eof) {
@@ -993,11 +1013,14 @@ int bgzf_read_block(BGZF *fp)
                 if (fp->uncompressed_block == NULL) return -1;
                 fp->compressed_block = (char *)fp->uncompressed_block + BGZF_MAX_BLOCK_SIZE;
             } // else it's already allocated with malloc, maybe even in-use.
-            if (mt_destroy(fp->mt) < 0)
+            if (mt_destroy(fp->mt) < 0) {
                 fp->errcode = BGZF_ERR_IO;
+            }
             fp->mt = NULL;
             hts_tpool_delete_result(r, 0);
-
+            if (fp->errcode) {
+                return -1;
+            }
             goto single_threaded;
         }
 
@@ -1006,13 +1029,14 @@ int bgzf_read_block(BGZF *fp)
             hts_log_error("BGZF decode jobs returned error %d "
                           "for block offset %"PRId64,
                           j->errcode, j->block_address);
+            hts_tpool_delete_result(r, 0);
             return -1;
         }
 
         if (j->hit_eof) {
             if (!fp->last_block_eof && !fp->no_eof_block) {
                 fp->no_eof_block = 1;
-                hts_log_warning("EOF marker is absent. The input is probably truncated");
+                hts_log_warning("EOF marker is absent. The input may be truncated");
             }
             fp->mt->hit_eof = 1;
         }
@@ -1114,7 +1138,7 @@ int bgzf_read_block(BGZF *fp)
         if (count == 0) { // no data read
             if (!fp->last_block_eof && !fp->no_eof_block && !fp->is_gzip) {
                 fp->no_eof_block = 1;
-                hts_log_warning("EOF marker is absent. The input is probably truncated");
+                hts_log_warning("EOF marker is absent. The input may be truncated");
             }
             fp->block_length = 0;
             return 0;
@@ -1397,7 +1421,7 @@ static void *bgzf_mt_writer(void *vp) {
         }
 
         // Flush any cached hts_idx_push calls
-        if (bgzf_idx_flush(fp) < 0)
+        if (bgzf_idx_flush(fp, j->uncomp_len, j->comp_len) < 0)
             goto err;
 
         if (hwrite(fp->fp, j->comp_data, j->comp_len) != j->comp_len)
@@ -1457,7 +1481,7 @@ static void *bgzf_mt_writer(void *vp) {
 int bgzf_mt_read_block(BGZF *fp, bgzf_job *j)
 {
     uint8_t header[BLOCK_HEADER_LENGTH], *compressed_block;
-    int count, size = 0, block_length, remaining;
+    int count, block_length, remaining;
 
     // NOTE: Guaranteed to be compressed as we block multi-threading in
     // uncompressed mode.  However it may be gzip compression instead
@@ -1466,6 +1490,8 @@ int bgzf_mt_read_block(BGZF *fp, bgzf_job *j)
     // Reading compressed file
     int64_t block_address;
     block_address = htell(fp->fp);
+
+    j->block_address = block_address;  // in case we exit with j->errcode
 
     if (fp->cache_size && load_block_from_cache(fp, block_address)) return 0;
     count = hpeek(fp->fp, header, sizeof(header));
@@ -1486,7 +1512,6 @@ int bgzf_mt_read_block(BGZF *fp, bgzf_job *j)
     if (count != sizeof(header)) // no data read
         return -1;
 
-    size = count;
     block_length = unpackInt16((uint8_t*)&header[16]) + 1; // +1 because when writing this number, we used "-1"
     if (block_length < BLOCK_HEADER_LENGTH) {
         j->errcode |= BGZF_ERR_HEADER;
@@ -1500,7 +1525,6 @@ int bgzf_mt_read_block(BGZF *fp, bgzf_job *j)
         j->errcode |= BGZF_ERR_IO;
         return -1;
     }
-    size += count;
     j->comp_len = block_length;
     j->uncomp_len = BGZF_MAX_BLOCK_SIZE;
     j->block_address = block_address;
@@ -1935,6 +1959,11 @@ int bgzf_flush(BGZF *fp)
         return ret;
     }
 #endif
+
+    if (!fp->is_compressed) {
+        return hflush(fp->fp);
+    }
+
     while (fp->block_offset > 0) {
         int block_length;
         if ( fp->idx_build_otf )
@@ -2262,7 +2291,13 @@ int bgzf_getline(BGZF *fp, int delim, kstring_t *str)
             if (fp->block_length == 0) { state = -1; break; }
         }
         unsigned char *buf = fp->uncompressed_block;
-        for (l = fp->block_offset; l < fp->block_length && buf[l] != delim; ++l);
+
+        // Equivalent to a naive byte by byte search from
+        // buf + block_offset to buf + block_length.
+        void *e = memchr(&buf[fp->block_offset], delim,
+                         fp->block_length - fp->block_offset);
+        l = e ? (unsigned char *)e - buf : fp->block_length;
+
         if (l < fp->block_length) state = 1;
         l -= fp->block_offset;
         if (ks_expand(str, l + 2) < 0) { state = -3; break; }
@@ -2275,11 +2310,12 @@ int bgzf_getline(BGZF *fp, int delim, kstring_t *str)
             fp->block_length = 0;
         }
     } while (state == 0);
+    if (state < -1) return state;
     if (str->l == 0 && state < 0) return state;
     fp->uncompressed_address += str->l + 1;
     if ( delim=='\n' && str->l>0 && str->s[str->l-1]=='\r' ) str->l--;
     str->s[str->l] = 0;
-    return str->l;
+    return str->l <= INT_MAX ? (int) str->l : INT_MAX;
 }
 
 void bgzf_index_destroy(BGZF *fp)
@@ -2533,6 +2569,7 @@ int bgzf_useek(BGZF *fp, off_t uoffset, int where)
         else break;
     }
     int i = ilo-1;
+    off_t offset = 0;
     if (bgzf_seek_common(fp, fp->idx->offs[i].caddr, 0) < 0)
         return -1;
 
@@ -2540,9 +2577,14 @@ int bgzf_useek(BGZF *fp, off_t uoffset, int where)
         fp->errcode |= BGZF_ERR_IO;
         return -1;
     }
-    if ( uoffset - fp->idx->offs[i].uaddr > 0 )
+    offset = uoffset - fp->idx->offs[i].uaddr;
+    if ( offset > 0 )
     {
-        fp->block_offset = uoffset - fp->idx->offs[i].uaddr;
+        if (offset > fp->block_length) {
+            fp->errcode |= BGZF_ERR_IO;
+            return -1;                                      //offset outside the available data
+        }
+        fp->block_offset = offset;
         assert( fp->block_offset <= fp->block_length );     // todo: skipped, unindexed, blocks
     }
     fp->uncompressed_address = uoffset;

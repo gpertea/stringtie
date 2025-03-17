@@ -3,7 +3,7 @@
 #
 #     Author : James Bonfield <jkb@sanger.ac.uk>
 #
-#     Copyright (C) 2017-2018 Genome Research Ltd.
+#     Copyright (C) 2017-2018, 2021 Genome Research Ltd.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -24,13 +24,18 @@
 # DEALINGS IN THE SOFTWARE.
 
 # Master version, for use in tarballs or non-git source copies
-VERSION=1.12
+VERSION=1.21
 
 # If we have a git clone, then check against the current tag
-if [ -e .git ]
+srcdir=${0%/version.sh}
+if [ -e $srcdir/.git ]
 then
     # If we ever get to 10.x this will need to be more liberal
-    VERSION=`git describe --match '[0-9].[0-9]*' --dirty`
+    v=`cd $srcdir && git describe --always --match '[0-9].[0-9]*' --dirty`
+    case $v in
+        [0-9]*.[0-9]*) VERSION="$v" ;;
+        [0-9a-f][0-9a-f]*) VERSION="$VERSION-1-g$v" ;;
+    esac
 fi
 
 # Numeric version is for use in .dylib or .so libraries
@@ -43,7 +48,7 @@ then
     v1=`expr "$VERSION" : '\([0-9]*\)'`
     v2=`expr "$VERSION" : '[0-9]*.\([0-9]*\)'`
     v3=`expr "$VERSION" : '[0-9]*.[0-9]*.\([0-9]*\)'`
-    if [ -z "`expr "$VERSION" : '^\([0-9.]*\)$'`" ]
+    if [ -z "`expr "$VERSION" : '\([0-9.]*\)$'`" ]
     then
         VERSION="$v1.$v2.255"
     else

@@ -16,6 +16,7 @@ incdir=$prefix/include
 libdir=$prefix/lib
 mkdir -p $incdir
 mkdir -p $libdir
+
 # -- prepare libdeflate
 if [[ ! -d libdeflate ]]; then
  git clone https://github.com/ebiggers/libdeflate

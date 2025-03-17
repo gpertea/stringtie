@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2008, 2012, 2014, 2021 Genome Research Ltd (GRL).
+   Copyright (c) 2008, 2012, 2014, 2021-2022 Genome Research Ltd (GRL).
                  2010 by Attractive Chaos <attractor@live.co.uk>
 
    Permission is hereby granted, free of charge, to any person obtaining
@@ -42,6 +42,13 @@
 #define netread(fd, ptr, len) recv(fd, ptr, len, 0)
 #define netwrite(fd, ptr, len) send(fd, ptr, len, 0)
 #define netclose(fd) closesocket(fd)
+#endif
+
+// Ensure ssize_t exists within this header. All #includes must precede this,
+// and ssize_t must be undefined again at the end of this header.
+#if defined _MSC_VER && defined _INTPTR_T_DEFINED && !defined _SSIZE_T_DEFINED && !defined ssize_t
+#define HTSLIB_SSIZE_T
+#define ssize_t intptr_t
 #endif
 
 // FIXME: currently I/O is unbuffered
@@ -100,6 +107,11 @@ extern "C" {
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef HTSLIB_SSIZE_T
+#undef HTSLIB_SSIZE_T
+#undef ssize_t
 #endif
 
 #endif

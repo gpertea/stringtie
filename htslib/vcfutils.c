@@ -1,6 +1,6 @@
 /*  vcfutils.c -- allele-related utility functions.
 
-    Copyright (C) 2012-2018, 2020 Genome Research Ltd.
+    Copyright (C) 2012-2018, 2020-2022 Genome Research Ltd.
 
     Author: Petr Danecek <pd3@sanger.ac.uk>
 
@@ -53,6 +53,17 @@ int bcf_calc_ac(const bcf_hdr_t *header, bcf1_t *line, int *ac, int which)
         }
         if ( an>=0 && ac_ptr )
         {
+            if ( ac_len != line->n_allele - 1 )
+            {
+                static int warned = 0;
+                if ( !warned )
+                {
+                    hts_log_warning("Incorrect number of AC fields at %s:%"PRIhts_pos". (This message is printed only once.)\n",
+                            header->id[BCF_DT_CTG][line->rid].key, line->pos+1);
+                    warned = 1;
+                }
+                return 0;
+            }
             int nac = 0;
             #define BRANCH_INT(type_t, convert) {        \
                 for (i=0; i<ac_len; i++)        \
@@ -244,6 +255,8 @@ int bcf_remove_allele_set(const bcf_hdr_t *header, bcf1_t *line, const struct kb
 {
     int *map = (int*) calloc(line->n_allele, sizeof(int));
     uint8_t *dat = NULL;
+
+    bcf_unpack(line, BCF_UN_ALL);
 
     // create map of indexes from old to new ALT numbering and modify ALT
     kstring_t str = {0,0,0};
@@ -496,8 +509,8 @@ int bcf_remove_allele_set(const bcf_hdr_t *header, bcf1_t *line, const struct kb
     }
 
     // Update GT fields, the allele indexes might have changed
-    for (i=1; i<line->n_allele; i++) if ( map[i]!=i ) break;
-    if ( i<line->n_allele )
+    for (i=1; i<nR_ori; i++) if ( map[i]!=i ) break;
+    if ( i<nR_ori )
     {
         mdat = mdat_bytes / 4;  // sizeof(int32_t)
         nret = bcf_get_genotypes(header,line,(void**)&dat,&mdat);
@@ -519,7 +532,9 @@ int bcf_remove_allele_set(const bcf_hdr_t *header, bcf1_t *line, const struct kb
                             bcf_seqname_safe(header,line), line->pos+1, al, nR_ori, map[al]);
                         goto err;
                     }
-                    ptr[j] = (map[al]+1)<<1 | (ptr[j]&1);
+                    // if an allele other than the reference is mapped to 0, it has been removed,
+                    // so translate it to 'missing', while preserving the phasing bit
+                    ptr[j] = ((al>0 && !map[al]) ? bcf_gt_missing : (map[al]+1)<<1) | (ptr[j]&1);
                 }
                 ptr += nret;
             }
@@ -732,7 +747,7 @@ int bcf_remove_allele_set(const bcf_hdr_t *header, bcf1_t *line, const struct kb
                 nnew = nR_new;
             }
 
-            #define BRANCH(type_t,is_vector_end) \
+            #define BRANCH(type_t,is_vector_end,set_missing) \
             { \
                 for (j=0; j<line->n_sample; j++) \
                 { \
@@ -742,7 +757,12 @@ int bcf_remove_allele_set(const bcf_hdr_t *header, bcf1_t *line, const struct kb
                     int k_src, k_dst = 0; \
                     for (k_src=0; k_src<nori; k_src++) \
                     { \
-                        if ( is_vector_end ) { memcpy(ptr_dst+k_dst, ptr_src+k_src, size); break; } \
+                        if ( is_vector_end ) \
+                        { \
+                            if ( k_dst ) memcpy(ptr_dst+k_dst, ptr_src+k_src, size); \
+                            else set_missing; \
+                            break; \
+                        } \
                         if ( kbs_exists(rm_set, k_src+inc) ) continue; \
                         memcpy(ptr_dst+k_dst, ptr_src+k_src, size); \
                         k_dst++; \
@@ -751,8 +771,8 @@ int bcf_remove_allele_set(const bcf_hdr_t *header, bcf1_t *line, const struct kb
             }
             switch (type)
             {
-                case BCF_HT_INT:  BRANCH(int32_t,ptr_src[k_src]==bcf_int32_vector_end); break;
-                case BCF_HT_REAL: BRANCH(float,bcf_float_is_vector_end(ptr_src[k_src])); break;
+                case BCF_HT_INT:  BRANCH(int32_t,ptr_src[k_src]==bcf_int32_vector_end,ptr_dst[k_dst]=bcf_int32_missing); break;
+                case BCF_HT_REAL: BRANCH(float,bcf_float_is_vector_end(ptr_src[k_src]),bcf_float_set_missing(ptr_dst[k_dst])); break;
             }
             #undef BRANCH
         }

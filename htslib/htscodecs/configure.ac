@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(htscodecs, 1.0)
+AC_INIT(htscodecs, 1.4.0)
 
 # Some functions benefit from -O3 optimisation, so if the user didn't
 # explicitly set any compiler flags, we'll plump for O3.
@@ -9,6 +9,7 @@ AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([foreign])
 AM_MAINTAINER_MODE
+AM_EXTRA_RECURSIVE_TARGETS([fuzz])
 
 # For my own benefit, here's a summary of how versioning should work.
 #
@@ -59,9 +60,9 @@ AM_MAINTAINER_MODE
 #       libhtscodecs.so.1 -> libhtscodecs.so.1.1.0
 #       libhtscodecs.so.1.1.0
 
-VERS_CURRENT=2
+VERS_CURRENT=3
 VERS_REVISION=1
-VERS_AGE=0
+VERS_AGE=1
 AC_SUBST(VERS_CURRENT)
 AC_SUBST(VERS_REVISION)
 AC_SUBST(VERS_AGE)
@@ -89,11 +90,24 @@ dnl Turn on C compiler warnings.
 VL_PROG_CC_WARNINGS
 
 dnl Check for libraries
-ZLIB_CHECK_CONFIG(,,[have_zlib=yes], [have_zlib=no])
+AC_ARG_ENABLE([bz2],
+  [AS_HELP_STRING([--disable-bz2],
+                  [omit support for BZ2 within Arith streams])],
+  [], [enable_bz2=yes])
 
-AC_CHECK_LIB([bz2], [BZ2_bzBuffToBuffCompress], [
+if test "$enable_bz2" != no; then
+  bz2_devel=ok
+  AC_CHECK_LIB([bz2], [BZ2_bzBuffToBuffCompress], [
 	LIBS="-lbz2 $LIBS"
-	AC_DEFINE([HAVE_LIBBZ2],1,[Define to 1 if you have the libbz2 library.])])
+	AC_DEFINE([HAVE_LIBBZ2],1,[Define to 1 if you have the libbz2 library.])], [bz2_devel=missing])
+  if test "$bz2_devel" != "ok"; then
+    AC_MSG_ERROR([libbzip2 development files not found.
+
+This is needed for some options of the arithmetic coder.  It can be disabled
+with configure --disable-bz2, but be aware some data streams will become
+unable to be decompressed and arith tests will fail.])
+  fi
+fi
 
 dnl AC_CHECK_LIB([lzma], [lzma_easy_buffer_encode], [
 dnl 	LIBS="-llzma $LIBS"
@@ -104,6 +118,101 @@ dnl AC_CHECK_LIB([bsc], [bsc_compress], [
 dnl 	LIBS="-lbsc $LIBS"
 dnl 	AC_DEFINE([HAVE_LIBBSC],1,[Define to 1 if you have the libbsc library.])])
 
+dnl Count parts needed to build rANS_static32x16pr_sse4.c
+sse4_prerequisites=""
+
+dnl Check if we can use our SSSE3 implementations of rANS 32x16 codec.
+AX_CHECK_COMPILE_FLAG([-mssse3], [
+        MSSSE3=-mssse3
+	sse4_prerequisites="o$sse4_prerequisites"
+	AC_SUBST([MSSSE3])
+        AC_DEFINE([HAVE_SSSE3],1,[Defined to 1 if the compiler can issue SSSE3 instructions.])
+], [], [], [AC_LANG_PROGRAM([[
+	  #include "x86intrin.h"
+	]],[[
+	  __m128i a = _mm_set_epi32(1, 2, 3, 4), b = _mm_set_epi32(4, 3, 2, 1);
+	  __m128i c = _mm_shuffle_epi8(a, b);
+	  return *((char *) &c);
+	]])
+])
+
+dnl Check if we can use popcnt instructions
+AX_CHECK_COMPILE_FLAG([-mpopcnt], [
+        MPOPCNT=-mpopcnt
+	sse4_prerequisites="o$sse4_prerequisites"
+	AC_SUBST([MPOPCNT])
+        AC_DEFINE([HAVE_POPCNT],1,[Defined to 1 if the compiler can issue popcnt instructions.])
+], [], [], [AC_LANG_PROGRAM([[
+	  #include "x86intrin.h"
+	]],[[
+	  unsigned int i = _mm_popcnt_u32(1);
+	  return i != 1;
+	]])
+])
+
+dnl Check if we can use our SSE4.1 too.  This *may* always imply SSSE3?
+dnl It may be easier just to target an old era of cpu than -mssse3 -msse4.1
+dnl -mpopcnt.  Eg -march=nehalem.  I don't know how wide spread that is.
+AX_CHECK_COMPILE_FLAG([-msse4.1], [
+        MSSE4_1=-msse4.1
+	sse4_prerequisites="o$sse4_prerequisites"
+	AC_SUBST([MSSE4_1])
+        AC_DEFINE([HAVE_SSE4_1],1,[Defined to 1 if the compiler can issue SSE4.1 instructions.])
+], [], [], [AC_LANG_PROGRAM([[
+	  #include "x86intrin.h"
+	]],[[
+	  __m128i a = _mm_set_epi32(1, 2, 3, 4), b = _mm_set_epi32(4, 3, 2, 1);
+	  __m128i c = _mm_max_epu32(a, b);
+	  return *((char *) &c);
+	]])
+])
+AM_CONDITIONAL([RANS_32x16_SSE4],[test "x$sse4_prerequisites" = "xooo"])
+
+dnl Check if we can use our AVX2 implementations.
+AX_CHECK_COMPILE_FLAG([-mavx2], [
+        MAVX2=-mavx2
+	AC_SUBST([MAVX2])
+        AC_DEFINE([HAVE_AVX2],1,[Defined to 1 if the compiler can issue AVX2 instructions.])
+], [], [], [AC_LANG_PROGRAM([[
+	  #include "x86intrin.h"
+	]],[[
+	  __m256i a = _mm256_set_epi32(1, 2, 3, 4, 5, 6, 7, 8);
+	  __m256i b = _mm256_add_epi32(a, a);
+	  long long c = _mm256_extract_epi64(b, 0);
+	  return (int) c;
+	]])
+])
+AM_CONDITIONAL([RANS_32x16_AVX2],[test "x$MAVX2" != "x"])
+
+dnl Check also if we have AVX512.  If so this overrides AVX2
+AX_CHECK_COMPILE_FLAG([-mavx512f], [
+        MAVX512=-mavx512f
+	AC_SUBST([MAVX512])
+        AC_DEFINE([HAVE_AVX512],1,[Defined to 1 if the compiler can issue AVX512F instructions.])
+], [], [], [AC_LANG_PROGRAM([[
+	  #include "x86intrin.h"
+	]],[[
+	  __m512i a = _mm512_set1_epi32(1);
+	  __m512i b = _mm512_add_epi32(a, a);
+	  return *((char *) &b);
+	]])
+])
+AM_CONDITIONAL([RANS_32x16_AVX512],[test "x$MAVX512" != "x"])
+
+dnl Detect ARM Neon availability
+AC_CACHE_CHECK([whether C compiler supports ARM Neon], [htscodecs_cv_have_neon], [
+  AC_COMPILE_IFELSE([
+    AC_LANG_PROGRAM([[
+      #include "arm_neon.h"
+    ]], [[
+      int32x4_t a = vdupq_n_s32(1);
+      int32x4_t b = vaddq_s32(a, a);
+      return *((char *) &b);
+    ]])], [htscodecs_cv_have_neon=yes], [htscodecs_cv_have_neon=no])])
+AM_CONDITIONAL([RANS_32x16_NEON],[test "$htscodecs_cv_have_neon" = yes])
+
+AC_SUBST([HTSCODECS_SIMD_SRC])
+
 AX_LIBDEFLATE
 
 dnl Checks for header files.
@@ -112,7 +221,7 @@ AC_CHECK_HEADERS(fcntl.h limits.h unistd.h malloc.h)
 AC_CHECK_HEADER(zlib.h)
 
 dnl Checks for library functions.
-AC_SEARCH_LIBS([pthread_join], [pthread])
+AX_SEARCH_LIBS_REV([pthread_join], [thr pthread])
 
 AC_CONFIG_FILES([Makefile htscodecs/Makefile tests/Makefile])
 AC_OUTPUT

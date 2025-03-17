@@ -1,6 +1,6 @@
 /*  sam.c -- SAM and BAM file I/O and manipulation.
 
-    Copyright (C) 2008-2010, 2012-2021 Genome Research Ltd.
+    Copyright (C) 2008-2010, 2012-2024 Genome Research Ltd.
     Copyright (C) 2010, 2012, 2013 Broad Institute.
 
     Author: Heng Li <lh3@sanger.ac.uk>
@@ -37,6 +37,10 @@ DEALINGS IN THE SOFTWARE.  */
 #include <inttypes.h>
 #include <unistd.h>
 
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+#include "fuzz_settings.h"
+#endif
+
 // Suppress deprecation message for cigar_tab, which we initialise
 #include "htslib/hts_defs.h"
 #undef HTS_DEPRECATED
@@ -54,6 +58,7 @@ DEALINGS IN THE SOFTWARE.  */
 
 #include "htslib/khash.h"
 KHASH_DECLARE(s2i, kh_cstr_t, int64_t)
+KHASH_SET_INIT_INT(tag)
 
 #ifndef EFTYPE
 #define EFTYPE ENOEXEC
@@ -99,7 +104,7 @@ const int8_t bam_cigar_table[256] = {
     -1, -1, -1, -1,  -1, -1, -1, -1,  -1, -1, -1, -1,  -1, -1, -1, -1
 };
 
-sam_hdr_t *sam_hdr_init()
+sam_hdr_t *sam_hdr_init(void)
 {
     sam_hdr_t *bh = (sam_hdr_t*)calloc(1, sizeof(sam_hdr_t));
     if (bh == NULL) return NULL;
@@ -250,6 +255,9 @@ sam_hdr_t *bam_hdr_read(BGZF *fp)
 
     bufsize = h->l_text + 1;
     if (bufsize < h->l_text) goto nomem; // so large that adding 1 overflowed
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (bufsize > FUZZ_ALLOC_LIMIT) goto nomem;
+#endif
     h->text = (char*)malloc(bufsize);
     if (!h->text) goto nomem;
     h->text[h->l_text] = 0; // make sure it is NULL terminated
@@ -263,6 +271,10 @@ sam_hdr_t *bam_hdr_read(BGZF *fp)
     if (h->n_targets < 0) goto invalid;
 
     // read reference sequence names and lengths
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (h->n_targets > (FUZZ_ALLOC_LIMIT - bufsize)/(sizeof(char*)+sizeof(uint32_t)))
+        goto nomem;
+#endif
     if (h->n_targets > 0) {
         h->target_name = (char**)calloc(h->n_targets, sizeof(char*));
         if (!h->target_name) goto nomem;
@@ -338,17 +350,23 @@ int bam_hdr_write(BGZF *fp, const sam_hdr_t *h)
 
     if (h->hrecs) {
         if (sam_hrecs_rebuild_text(h->hrecs, &hdr_ks) != 0) return -1;
-        if (hdr_ks.l > INT32_MAX) {
+        if (hdr_ks.l > UINT32_MAX) {
             hts_log_error("Header too long for BAM format");
             free(hdr_ks.s);
             return -1;
+        } else if (hdr_ks.l > INT32_MAX) {
+            hts_log_warning("Header too long for BAM specification (>2GB)");
+            hts_log_warning("Output file may not be portable");
         }
         text = hdr_ks.s;
         l_text = hdr_ks.l;
     } else {
-        if (h->l_text > INT32_MAX) {
+        if (h->l_text > UINT32_MAX) {
             hts_log_error("Header too long for BAM format");
             return -1;
+        } else if (h->l_text > INT32_MAX) {
+            hts_log_warning("Header too long for BAM specification (>2GB)");
+            hts_log_warning("Output file may not be portable");
         }
         text = h->text;
         l_text = h->l_text;
@@ -403,7 +421,7 @@ const char *sam_parse_region(sam_hdr_t *h, const char *s, int *tid,
  *** BAM alignment I/O ***
  *************************/
 
-bam1_t *bam_init1()
+bam1_t *bam_init1(void)
 {
     return (bam1_t*)calloc(1, sizeof(bam1_t));
 }
@@ -413,11 +431,18 @@ int sam_realloc_bam_data(bam1_t *b, size_t desired)
     uint32_t new_m_data;
     uint8_t *new_data;
     new_m_data = desired;
-    kroundup32(new_m_data);
+    kroundup32(new_m_data); // next power of 2
+    new_m_data += 32; // reduces malloc arena migrations?
     if (new_m_data < desired) {
         errno = ENOMEM; // Not strictly true but we can't store the size
         return -1;
     }
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (new_m_data > FUZZ_ALLOC_LIMIT) {
+        errno = ENOMEM;
+        return -1;
+    }
+#endif
     if ((bam_get_mempolicy(b) & BAM_USER_OWNS_DATA) == 0) {
         new_data = realloc(b->data, new_m_data);
     } else {
@@ -591,9 +616,19 @@ int bam_set1(bam1_t *bam,
     }
     cp += n_cigar * 4;
 
-    for (i = 0; i + 1 < l_seq; i += 2) {
-        *cp++ = (seq_nt16_table[(unsigned char)seq[i]] << 4) | seq_nt16_table[(unsigned char)seq[i + 1]];
+#define NN 16
+    const uint8_t *useq = (uint8_t *)seq;
+    for (i = 0; i + NN < l_seq; i += NN) {
+        int j;
+        const uint8_t *u2 = useq+i;
+        for (j = 0; j < NN/2; j++)
+            cp[j] = (seq_nt16_table[u2[j*2]]<<4) | seq_nt16_table[u2[j*2+1]];
+        cp += NN/2;
     }
+    for (; i + 1 < l_seq; i += 2) {
+        *cp++ = (seq_nt16_table[useq[i]] << 4) | seq_nt16_table[useq[i + 1]];
+    }
+
     for (; i < l_seq; i++) {
         *cp++ = seq_nt16_table[(unsigned char)seq[i]] << 4;
     }
@@ -638,24 +673,36 @@ hts_pos_t bam_endpos(const bam1_t *b)
 static int bam_tag2cigar(bam1_t *b, int recal_bin, int give_warning) // return 0 if CIGAR is untouched; 1 if CIGAR is updated with CG
 {
     bam1_core_t *c = &b->core;
-    uint32_t cigar_st, n_cigar4, CG_st, CG_en, ori_len = b->l_data, *cigar0, CG_len, fake_bytes;
-    uint8_t *CG;
 
-    // test where there is a real CIGAR in the CG tag to move
-    if (c->n_cigar == 0 || c->tid < 0 || c->pos < 0) return 0;
-    cigar0 = bam_get_cigar(b);
-    if (bam_cigar_op(cigar0[0]) != BAM_CSOFT_CLIP || bam_cigar_oplen(cigar0[0]) != c->l_qseq) return 0;
-    fake_bytes = c->n_cigar * 4;
+    // Bail out as fast as possible for the easy case
+    uint32_t test_CG = BAM_CSOFT_CLIP | (c->l_qseq << BAM_CIGAR_SHIFT);
+    if (c->n_cigar == 0 || test_CG != *bam_get_cigar(b))
+        return 0;
+
+    // The above isn't fool proof - we may have old CIGAR tags that aren't used,
+    // but this is much less likely so do as a secondary check.
+    if (c->tid < 0 || c->pos < 0)
+        return 0;
+
+    // Do we have a CG tag?
+    uint8_t *CG = bam_aux_get(b, "CG");
     int saved_errno = errno;
-    CG = bam_aux_get(b, "CG");
     if (!CG) {
         if (errno != ENOENT) return -1;  // Bad aux data
         errno = saved_errno; // restore errno on expected no-CG-tag case
         return 0;
     }
-    if (CG[0] != 'B' || CG[1] != 'I') return 0; // not of type B,I
+
+    // Now we start with the serious work migrating CG to CIGAR
+    uint32_t cigar_st, n_cigar4, CG_st, CG_en, ori_len = b->l_data,
+        *cigar0, CG_len, fake_bytes;
+    cigar0 = bam_get_cigar(b);
+    fake_bytes = c->n_cigar * 4;
+    if (CG[0] != 'B' || !(CG[1] == 'I' || CG[1] == 'i'))
+        return 0; // not of type B,I
     CG_len = le_to_u32(CG + 2);
-    if (CG_len < c->n_cigar || CG_len >= 1U<<29) return 0; // don't move if the real CIGAR length is shorter than the fake cigar length
+    // don't move if the real CIGAR length is shorter than the fake cigar length
+    if (CG_len < c->n_cigar || CG_len >= 1U<<29) return 0;
 
     // move from the CG tag to the right position
     cigar_st = (uint8_t*)cigar0 - b->data;
@@ -664,16 +711,19 @@ static int bam_tag2cigar(bam1_t *b, int recal_bin, int give_warning) // return 0
     CG_st = CG - b->data - 2;
     CG_en = CG_st + 8 + n_cigar4;
     if (possibly_expand_bam_data(b, n_cigar4 - fake_bytes) < 0) return -1;
-    b->l_data = b->l_data - fake_bytes + n_cigar4; // we need c->n_cigar-fake_bytes bytes to swap CIGAR to the right place
-    memmove(b->data + cigar_st + n_cigar4, b->data + cigar_st + fake_bytes, ori_len - (cigar_st + fake_bytes)); // insert c->n_cigar-fake_bytes empty space to make room
-    memcpy(b->data + cigar_st, b->data + (n_cigar4 - fake_bytes) + CG_st + 8, n_cigar4); // copy the real CIGAR to the right place; -fake_bytes for the fake CIGAR
+    // we need c->n_cigar-fake_bytes bytes to swap CIGAR to the right place
+    b->l_data = b->l_data - fake_bytes + n_cigar4;
+    // insert c->n_cigar-fake_bytes empty space to make room
+    memmove(b->data + cigar_st + n_cigar4, b->data + cigar_st + fake_bytes, ori_len - (cigar_st + fake_bytes));
+    // copy the real CIGAR to the right place; -fake_bytes for the fake CIGAR
+    memcpy(b->data + cigar_st, b->data + (n_cigar4 - fake_bytes) + CG_st + 8, n_cigar4);
     if (ori_len > CG_en) // move data after the CG tag
         memmove(b->data + CG_st + n_cigar4 - fake_bytes, b->data + CG_en + n_cigar4 - fake_bytes, ori_len - CG_en);
     b->l_data -= n_cigar4 + 8; // 8: CGBI (4 bytes) and CGBI length (4)
     if (recal_bin)
         b->core.bin = hts_reg2bin(b->core.pos, bam_endpos(b), 14, 5);
     if (give_warning)
-        hts_log_error("%s encodes a CIGAR with %d operators at the CG tag", bam_get_qname(b), c->n_cigar);
+        hts_log_warning("%s encodes a CIGAR with %d operators at the CG tag", bam_get_qname(b), c->n_cigar);
     return 1;
 }
 
@@ -728,27 +778,41 @@ int bam_read1(BGZF *fp, bam1_t *b)
 {
     bam1_core_t *c = &b->core;
     int32_t block_len, ret, i;
-    uint32_t x[8], new_l_data;
+    uint32_t new_l_data;
+    uint8_t tmp[32], *x;
 
     b->l_data = 0;
 
-    if ((ret = bgzf_read(fp, &block_len, 4)) != 4) {
+    if ((ret = bgzf_read_small(fp, &block_len, 4)) != 4) {
         if (ret == 0) return -1; // normal end-of-file
         else return -2; // truncated
     }
     if (fp->is_be)
         ed_swap_4p(&block_len);
     if (block_len < 32) return -4;  // block_len includes core data
-    if (bgzf_read(fp, x, 32) != 32) return -3;
-    if (fp->is_be) {
-        for (i = 0; i < 8; ++i) ed_swap_4p(x + i);
+    if (fp->block_length - fp->block_offset > 32) {
+        // Avoid bgzf_read and a temporary copy to a local buffer
+        x = (uint8_t *)fp->uncompressed_block + fp->block_offset;
+        fp->block_offset += 32;
+    } else {
+        x = tmp;
+        if (bgzf_read(fp, x, 32) != 32) return -3;
     }
-    c->tid = x[0]; c->pos = (int32_t)x[1];
-    c->bin = x[2]>>16; c->qual = x[2]>>8&0xff; c->l_qname = x[2]&0xff;
+
+    c->tid        = le_to_u32(x);
+    c->pos        = le_to_i32(x+4);
+    uint32_t x2   = le_to_u32(x+8);
+    c->bin        = x2>>16;
+    c->qual       = x2>>8&0xff;
+    c->l_qname    = x2&0xff;
     c->l_extranul = (c->l_qname%4 != 0)? (4 - c->l_qname%4) : 0;
-    c->flag = x[3]>>16; c->n_cigar = x[3]&0xffff;
-    c->l_qseq = x[4];
-    c->mtid = x[5]; c->mpos = (int32_t)x[6]; c->isize = (int32_t)x[7];
+    uint32_t x3   = le_to_u32(x+12);
+    c->flag       = x3>>16;
+    c->n_cigar    = x3&0xffff;
+    c->l_qseq     = le_to_u32(x+16);
+    c->mtid       = le_to_u32(x+20);
+    c->mpos       = le_to_i32(x+24);
+    c->isize      = le_to_i32(x+28);
 
     new_l_data = block_len - 32 + c->l_extranul;
     if (new_l_data > INT_MAX || c->l_qseq < 0 || c->l_qname < 1) return -4;
@@ -758,19 +822,20 @@ int bam_read1(BGZF *fp, bam1_t *b)
     if (realloc_bam_data(b, new_l_data) < 0) return -4;
     b->l_data = new_l_data;
 
-    if (bgzf_read(fp, b->data, c->l_qname) != c->l_qname) return -4;
-    if (b->data[c->l_qname - 1] != '\0') { // Try to fix missing NUL termination
+    if (bgzf_read_small(fp, b->data, c->l_qname) != c->l_qname) return -4;
+    if (b->data[c->l_qname - 1] != '\0') { // try to fix missing nul termination
         if (fixup_missing_qname_nul(b) < 0) return -4;
     }
     for (i = 0; i < c->l_extranul; ++i) b->data[c->l_qname+i] = '\0';
     c->l_qname += c->l_extranul;
     if (b->l_data < c->l_qname ||
-        bgzf_read(fp, b->data + c->l_qname, b->l_data - c->l_qname) != b->l_data - c->l_qname)
+        bgzf_read_small(fp, b->data + c->l_qname, b->l_data - c->l_qname) != b->l_data - c->l_qname)
         return -4;
     if (fp->is_be) swap_data(c, b->l_data, b->data, 0);
     if (bam_tag2cigar(b, 0, 0) < 0)
         return -4;
 
+    // TODO: consider making this conditional
     if (c->n_cigar > 0) { // recompute "bin" and check CIGAR-qlen consistency
         hts_pos_t rlen, qlen;
         bam_cigar2rqlens(c->n_cigar, bam_get_cigar(b), &rlen, &qlen);
@@ -817,15 +882,15 @@ int bam_write1(BGZF *fp, const bam1_t *b)
     if (fp->is_be) {
         for (i = 0; i < 8; ++i) ed_swap_4p(x + i);
         y = block_len;
-        if (ok) ok = (bgzf_write(fp, ed_swap_4p(&y), 4) >= 0);
+        if (ok) ok = (bgzf_write_small(fp, ed_swap_4p(&y), 4) >= 0);
         swap_data(c, b->l_data, b->data, 1);
     } else {
-        if (ok) ok = (bgzf_write(fp, &block_len, 4) >= 0);
+        if (ok) ok = (bgzf_write_small(fp, &block_len, 4) >= 0);
     }
-    if (ok) ok = (bgzf_write(fp, x, 32) >= 0);
-    if (ok) ok = (bgzf_write(fp, b->data, c->l_qname - c->l_extranul) >= 0);
+    if (ok) ok = (bgzf_write_small(fp, x, 32) >= 0);
+    if (ok) ok = (bgzf_write_small(fp, b->data, c->l_qname - c->l_extranul) >= 0);
     if (c->n_cigar <= 0xffff) { // no long CIGAR; write normally
-        if (ok) ok = (bgzf_write(fp, b->data + c->l_qname, b->l_data - c->l_qname) >= 0);
+        if (ok) ok = (bgzf_write_small(fp, b->data + c->l_qname, b->l_data - c->l_qname) >= 0);
     } else { // with long CIGAR, insert a fake CIGAR record and move the real CIGAR to the CG:B,I tag
         uint8_t buf[8];
         uint32_t cigar_st, cigar_en, cigar[2];
@@ -844,12 +909,12 @@ int bam_write1(BGZF *fp, const bam1_t *b)
         cigar[1] = (uint32_t)cigreflen << 4 | BAM_CREF_SKIP;
         u32_to_le(cigar[0], buf);
         u32_to_le(cigar[1], buf + 4);
-        if (ok) ok = (bgzf_write(fp, buf, 8) >= 0); // write cigar: <read_length>S<ref_length>N
-        if (ok) ok = (bgzf_write(fp, &b->data[cigar_en], b->l_data - cigar_en) >= 0); // write data after CIGAR
-        if (ok) ok = (bgzf_write(fp, "CGBI", 4) >= 0); // write CG:B,I
+        if (ok) ok = (bgzf_write_small(fp, buf, 8) >= 0); // write cigar: <read_length>S<ref_length>N
+        if (ok) ok = (bgzf_write_small(fp, &b->data[cigar_en], b->l_data - cigar_en) >= 0); // write data after CIGAR
+        if (ok) ok = (bgzf_write_small(fp, "CGBI", 4) >= 0); // write CG:B,I
         u32_to_le(c->n_cigar, buf);
-        if (ok) ok = (bgzf_write(fp, buf, 4) >= 0); // write the true CIGAR length
-        if (ok) ok = (bgzf_write(fp, &b->data[cigar_st], c->n_cigar * 4) >= 0); // write the real CIGAR
+        if (ok) ok = (bgzf_write_small(fp, buf, 4) >= 0); // write the true CIGAR length
+        if (ok) ok = (bgzf_write_small(fp, &b->data[cigar_st], c->n_cigar * 4) >= 0); // write the real CIGAR
     }
     if (fp->is_be) swap_data(c, b->l_data, b->data, 0);
     return ok? 4 + block_len : -1;
@@ -869,8 +934,6 @@ static int bam_write_idx1(htsFile *fp, const sam_hdr_t *h, const bam1_t *b) {
         return -1;
     if (!bfp->mt)
         hts_idx_amend_last(fp->idx, bgzf_tell(bfp));
-    else
-        bgzf_idx_amend_last(bfp, fp->idx, bgzf_tell(bfp));
 
     int ret = bam_write1(bfp, b);
     if (ret < 0)
@@ -1059,14 +1122,14 @@ int sam_idx_save(htsFile *fp) {
             errno = -ret;
             return -1;
         }
-        if (bgzf_flush(fp->fp.bgzf) < 0)
+        if (!fp->is_bgzf || bgzf_flush(fp->fp.bgzf) < 0)
             return -1;
         hts_idx_amend_last(fp->idx, bgzf_tell(fp->fp.bgzf));
 
         if (hts_idx_finish(fp->idx, bgzf_tell(fp->fp.bgzf)) < 0)
             return -1;
 
-        return hts_idx_save_as(fp->idx, NULL, fp->fnidx, hts_idx_fmt(fp->idx));
+        return hts_idx_save_but_not_close(fp->idx, fp->fnidx, hts_idx_fmt(fp->idx));
 
     } else if (fp->format.format == cram) {
         // flushed and closed by cram_close
@@ -1152,12 +1215,24 @@ static int bam_sym_lookup(void *data, char *str, char **end,
             ks_clear(&res->s);
             uint32_t *cigar = bam_get_cigar(b);
             int i, n = b->core.n_cigar, r = 0;
-            for (i = 0; i < n; i++) {
-                r |= kputw (bam_cigar_oplen(cigar[i]), &res->s);
-                r |= kputc_(bam_cigar_opchr(cigar[i]), &res->s);
+            if (n) {
+                for (i = 0; i < n; i++) {
+                    r |= kputw (bam_cigar_oplen(cigar[i]), &res->s) < 0;
+                    r |= kputc_(bam_cigar_opchr(cigar[i]), &res->s) < 0;
+                }
+                r |= kputs("", &res->s) < 0;
+            } else {
+                r |= kputs("*", &res->s) < 0;
             }
-            kputs("", &res->s);
-            return r ? 0 : -1;
+            return r ? -1 : 0;
+        }
+        break;
+
+    case 'e':
+        if (memcmp(str, "endpos", 6) == 0) {
+            *end = str+6;
+            res->d = bam_endpos(b);
+            return 0;
         }
         break;
 
@@ -1197,7 +1272,7 @@ static int bam_sym_lookup(void *data, char *str, char **end,
                     *end = str+5;
                     res->d = b->core.flag & BAM_FREAD1;
                     return 0;
-                } else if (!memcmp(str, "read2", 6)) {
+                } else if (!memcmp(str, "read2", 5)) {
                     *end = str+5;
                     res->d = b->core.flag & BAM_FREAD2;
                     return 0;
@@ -1222,6 +1297,26 @@ static int bam_sym_lookup(void *data, char *str, char **end,
                     return -1;
                 }
             }
+        }
+        break;
+
+    case 'h':
+        if (memcmp(str, "hclen", 5) == 0) {
+            int hclen = 0;
+            uint32_t *cigar = bam_get_cigar(b);
+            uint32_t ncigar = b->core.n_cigar;
+
+            // left
+            if (ncigar > 0 && bam_cigar_op(cigar[0]) == BAM_CHARD_CLIP)
+                hclen = bam_cigar_oplen(cigar[0]);
+
+            // right
+            if (ncigar > 1 && bam_cigar_op(cigar[ncigar-1]) == BAM_CHARD_CLIP)
+                hclen += bam_cigar_oplen(cigar[ncigar-1]);
+
+            *end = str+5;
+            res->d = hclen;
+            return 0;
         }
         break;
 
@@ -1334,6 +1429,33 @@ static int bam_sym_lookup(void *data, char *str, char **end,
             res->s.l = b->core.l_qseq;
             res->is_str = 1;
             return 0;
+        } else if (memcmp(str, "sclen", 5) == 0) {
+            int sclen = 0;
+            uint32_t *cigar = bam_get_cigar(b);
+            int ncigar = b->core.n_cigar;
+            int left = 0;
+
+            // left
+            if (ncigar > 0
+                && bam_cigar_op(cigar[0]) == BAM_CSOFT_CLIP)
+                left = 0, sclen += bam_cigar_oplen(cigar[0]);
+            else if (ncigar > 1
+                     && bam_cigar_op(cigar[0]) == BAM_CHARD_CLIP
+                     && bam_cigar_op(cigar[1]) == BAM_CSOFT_CLIP)
+                left = 1, sclen += bam_cigar_oplen(cigar[1]);
+
+            // right
+            if (ncigar-1 > left
+                && bam_cigar_op(cigar[ncigar-1]) == BAM_CSOFT_CLIP)
+                sclen += bam_cigar_oplen(cigar[ncigar-1]);
+            else if (ncigar-2 > left
+                     && bam_cigar_op(cigar[ncigar-1]) == BAM_CHARD_CLIP
+                     && bam_cigar_op(cigar[ncigar-2]) == BAM_CSOFT_CLIP)
+                sclen += bam_cigar_oplen(cigar[ncigar-2]);
+
+            *end = str+5;
+            res->d = sclen;
+            return 0;
         }
         break;
 
@@ -1407,8 +1529,8 @@ static int bam_sym_lookup(void *data, char *str, char **end,
 int sam_passes_filter(const sam_hdr_t *h, const bam1_t *b, hts_filter_t *filt)
 {
     hb_pair hb = {h, b};
-    hts_expr_val_t res;
-    if (hts_filter_eval(filt, &hb, bam_sym_lookup, &res)) {
+    hts_expr_val_t res = HTS_EXPR_VAL_INIT;
+    if (hts_filter_eval2(filt, &hb, bam_sym_lookup, &res)) {
         hts_log_error("Couldn't process filter expression");
         hts_expr_val_free(&res);
         return -1;
@@ -1702,6 +1824,22 @@ sam_hdr_t *sam_hdr_parse(size_t l_text, const char *text)
     return bh;
 }
 
+static int valid_sam_header_type(const char *s) {
+    if (s[0] != '@') return 0;
+    switch (s[1]) {
+    case 'H':
+        return s[2] == 'D' && s[3] == '\t';
+    case 'S':
+        return s[2] == 'Q' && s[3] == '\t';
+    case 'R':
+    case 'P':
+        return s[2] == 'G' && s[3] == '\t';
+    case 'C':
+        return s[2] == 'O';
+    }
+    return 0;
+}
+
 // Minimal sanitisation of a header to ensure.
 // - null terminated string.
 // - all lines start with @ (also implies no blank lines).
@@ -1776,6 +1914,20 @@ static sam_hdr_t *sam_hdr_sanitise(sam_hdr_t *h) {
     return h;
 }
 
+static void known_stderr(const char *tool, const char *advice) {
+    hts_log_warning("SAM file corrupted by embedded %s error/log message", tool);
+    hts_log_warning("%s", advice);
+}
+
+static void warn_if_known_stderr(const char *line) {
+    if (strstr(line, "M::bwa_idx_load_from_disk") != NULL)
+        known_stderr("bwa", "Use `bwa mem -o file.sam ...` or `bwa sampe -f file.sam ...` instead of `bwa ... > file.sam`");
+    else if (strstr(line, "M::mem_pestat") != NULL)
+        known_stderr("bwa", "Use `bwa mem -o file.sam ...` instead of `bwa mem ... > file.sam`");
+    else if (strstr(line, "loaded/built the index") != NULL)
+        known_stderr("minimap2", "Use `minimap2 -o file.sam ...` instead of `minimap2 ... > file.sam`");
+}
+
 static sam_hdr_t *sam_hdr_create(htsFile* fp) {
     kstring_t str = { 0, 0, NULL };
     khint_t k;
@@ -1829,9 +1981,10 @@ static sam_hdr_t *sam_hdr_create(htsFile* fp) {
                         goto error;
 
                     if (!absent) {
-                        hts_log_warning("Duplicated sequence '%s'", sn);
+                        hts_log_warning("Duplicated sequence \"%s\" in file \"%s\"", sn, fp->fn);
                         free(sn);
                     } else {
+                        sn = NULL;
                         if (ln >= UINT32_MAX) {
                             // Stash away ref length that
                             // doesn't fit in target_len array
@@ -1841,7 +1994,7 @@ static sam_hdr_t *sam_hdr_create(htsFile* fp) {
                                 if (!long_refs)
                                     goto error;
                             }
-                            k2 = kh_put(s2i, long_refs, sn, &absent);
+                            k2 = kh_put(s2i, long_refs, kh_key(d, k), &absent);
                             if (absent < 0)
                                 goto error;
                             kh_val(long_refs, k2) = ln;
@@ -1853,13 +2006,21 @@ static sam_hdr_t *sam_hdr_create(htsFile* fp) {
                     }
                 } else {
                     hts_log_warning("Ignored @SQ SN:%s : bad or missing LN tag", sn);
+                    warn_if_known_stderr(fp->line.s);
                     free(sn);
                 }
             } else {
                 hts_log_warning("Ignored @SQ line with missing SN: tag");
+                warn_if_known_stderr(fp->line.s);
             }
             sn = NULL;
         }
+        else if (!valid_sam_header_type(fp->line.s)) {
+            hts_log_error("Invalid header line: must start with @HD/@SQ/@RG/@PG/@CO");
+            warn_if_known_stderr(fp->line.s);
+            goto error;
+        }
+
         if (kputsn(fp->line.s, fp->line.l, &str) < 0)
             goto error;
 
@@ -1904,19 +2065,25 @@ static sam_hdr_t *sam_hdr_create(htsFile* fp) {
                 continue;
 
             sn = (char*)calloc(tab-line.s+1, 1);
-            if (!sn)
+            if (!sn) {
+                e = 1;
                 break;
+            }
             memcpy(sn, line.s, tab-line.s);
             k = kh_put(s2i, d, sn, &absent);
-            if (absent < 0)
+            if (absent < 0) {
+                e = 1;
                 break;
+            }
 
             ln = strtoll(tab, NULL, 10);
 
             if (!absent) {
-                hts_log_warning("Duplicated sequence '%s'", sn);
+                hts_log_warning("Duplicated sequence \"%s\" in the file \"%s\"", sn, fai_fn);
                 free(sn);
+                sn = NULL;
             } else {
+                sn = NULL;
                 if (ln >= UINT32_MAX) {
                     // Stash away ref length that
                     // doesn't fit in target_len array
@@ -1924,12 +2091,16 @@ static sam_hdr_t *sam_hdr_create(htsFile* fp) {
                     int absent = -1;
                     if (!long_refs) {
                         long_refs = kh_init(s2i);
-                        if (!long_refs)
-                            goto error;
+                        if (!long_refs) {
+                            e = 1;
+                            break;
+                        }
                     }
-                    k2 = kh_put(s2i, long_refs, sn, &absent);
-                    if (absent < 0)
-                        goto error;
+                    k2 = kh_put(s2i, long_refs, kh_key(d, k), &absent);
+                    if (absent < 0) {
+                         e = 1;
+                         break;
+                    }
                     kh_val(long_refs, k2) = ln;
                     kh_val(d, k) = ((int64_t) (kh_size(d) - 1) << 32
                                     | UINT32_MAX);
@@ -2027,6 +2198,10 @@ sam_hdr_t *sam_hdr_read(htsFile *fp)
     case sam:
         return sam_hdr_create(fp);
 
+    case fastq_format:
+    case fasta_format:
+        return sam_hdr_init();
+
     case empty_format:
         errno = EPIPE;
         return NULL;
@@ -2043,9 +2218,6 @@ int sam_hdr_write(htsFile *fp, const sam_hdr_t *h)
         errno = EINVAL;
         return -1;
     }
-
-    if (!h->hrecs && !h->text)
-        return 0;
 
     switch (fp->format.format) {
     case binary_format:
@@ -2070,6 +2242,8 @@ int sam_hdr_write(htsFile *fp, const sam_hdr_t *h)
         fp->format.format = sam;
         /* fall-through */
     case sam: {
+        if (!h->hrecs && !h->text)
+            return 0;
         char *text;
         kstring_t hdr_ks = { 0, 0, NULL };
         size_t l_text;
@@ -2128,6 +2302,11 @@ int sam_hdr_write(htsFile *fp, const sam_hdr_t *h)
             if (hflush(fp->fp.hfile) != 0) return -1;
         }
         }
+        break;
+
+    case fastq_format:
+    case fasta_format:
+        // Nothing to output; FASTQ has no file headers.
         break;
 
     default:
@@ -2234,9 +2413,175 @@ int sam_hdr_change_HD(sam_hdr_t *h, const char *key, const char *val)
  *** SAM record I/O ***
  **********************/
 
-static int sam_parse_B_vals(char type, uint32_t n, char *in, char **end,
-                            char *r, bam1_t *b)
-{
+// The speed of this code can vary considerably depending on minor code
+// changes elsewhere as some of the tight loops are particularly prone to
+// speed changes when the instruction blocks are split over a 32-byte
+// boundary.  To protect against this, we explicitly specify an alignment
+// for this function.  If this is insufficient, we may also wish to
+// consider alignment of blocks within this function via
+// __attribute__((optimize("align-loops=5"))) (gcc) or clang equivalents.
+// However it's not very portable.
+// Instead we break into separate functions so we can explicitly specify
+// use __attribute__((aligned(32))) instead and force consistent loop
+// alignment.
+static inline int64_t grow_B_array(bam1_t *b, uint32_t *n, size_t size) {
+    // Avoid overflow on 32-bit platforms, but it breaks BAM anyway
+    if (*n > INT32_MAX*0.666) {
+        errno = ENOMEM;
+        return -1;
+    }
+
+    size_t bytes = (size_t)size * (size_t)(*n>>1);
+    if (possibly_expand_bam_data(b, bytes) < 0) {
+        hts_log_error("Out of memory");
+        return -1;
+    }
+
+    (*n)+=*n>>1;
+    return 0;
+}
+
+
+// This ensures that q always ends up at the next comma after
+// reading a number even if it's followed by junk.  It
+// prevents the possibility of trying to read more than n items.
+#define skip_to_comma_(q) do { while (*(q) > '\t' && *(q) != ',') (q)++; } while (0)
+
+HTS_ALIGN32
+static char *sam_parse_Bc_vals(bam1_t *b, char *q, uint32_t *nused,
+                               uint32_t *nalloc, int *overflow) {
+    while (*q == ',') {
+        if ((*nused)++ >= (*nalloc)) {
+            if (grow_B_array(b, nalloc, 1) < 0)
+                return NULL;
+        }
+        *(b->data + b->l_data) = hts_str2int(q + 1, &q, 8, overflow);
+        b->l_data++;
+    }
+    return q;
+}
+
+HTS_ALIGN32
+static char *sam_parse_BC_vals(bam1_t *b, char *q, uint32_t *nused,
+                               uint32_t *nalloc, int *overflow) {
+    while (*q == ',') {
+        if ((*nused)++ >= (*nalloc)) {
+            if (grow_B_array(b, nalloc, 1) < 0)
+                return NULL;
+        }
+        if (q[1] != '-') {
+            *(b->data + b->l_data) = hts_str2uint(q + 1, &q, 8, overflow);
+            b->l_data++;
+        } else {
+            *overflow = 1;
+            q++;
+            skip_to_comma_(q);
+        }
+    }
+    return q;
+}
+
+HTS_ALIGN32
+static char *sam_parse_Bs_vals(bam1_t *b, char *q, uint32_t *nused,
+                               uint32_t *nalloc, int *overflow) {
+    while (*q == ',') {
+        if ((*nused)++ >= (*nalloc)) {
+            if (grow_B_array(b, nalloc, 2) < 0)
+                return NULL;
+        }
+        i16_to_le(hts_str2int(q + 1, &q, 16, overflow),
+                  b->data + b->l_data);
+        b->l_data += 2;
+    }
+    return q;
+}
+
+HTS_ALIGN32
+static char *sam_parse_BS_vals(bam1_t *b, char *q, uint32_t *nused,
+                               uint32_t *nalloc, int *overflow) {
+    while (*q == ',') {
+        if ((*nused)++ >= (*nalloc)) {
+            if (grow_B_array(b, nalloc, 2) < 0)
+                return NULL;
+        }
+        if (q[1] != '-') {
+            u16_to_le(hts_str2uint(q + 1, &q, 16, overflow),
+                      b->data + b->l_data);
+            b->l_data += 2;
+        } else {
+            *overflow = 1;
+            q++;
+            skip_to_comma_(q);
+        }
+    }
+    return q;
+}
+
+HTS_ALIGN32
+static char *sam_parse_Bi_vals(bam1_t *b, char *q, uint32_t *nused,
+                               uint32_t *nalloc, int *overflow) {
+    while (*q == ',') {
+        if ((*nused)++ >= (*nalloc)) {
+            if (grow_B_array(b, nalloc, 4) < 0)
+                return NULL;
+        }
+        i32_to_le(hts_str2int(q + 1, &q, 32, overflow),
+                  b->data + b->l_data);
+        b->l_data += 4;
+    }
+    return q;
+}
+
+HTS_ALIGN32
+static char *sam_parse_BI_vals(bam1_t *b, char *q, uint32_t *nused,
+                               uint32_t *nalloc, int *overflow) {
+    while (*q == ',') {
+        if ((*nused)++ >= (*nalloc)) {
+            if (grow_B_array(b, nalloc, 4) < 0)
+                return NULL;
+        }
+        if (q[1] != '-') {
+            u32_to_le(hts_str2uint(q + 1, &q, 32, overflow),
+                      b->data + b->l_data);
+            b->l_data += 4;
+        } else {
+            *overflow = 1;
+            q++;
+            skip_to_comma_(q);
+        }
+    }
+    return q;
+}
+
+HTS_ALIGN32
+static char *sam_parse_Bf_vals(bam1_t *b, char *q, uint32_t *nused,
+                               uint32_t *nalloc, int *overflow) {
+    while (*q == ',') {
+        if ((*nused)++ >= (*nalloc)) {
+            if (grow_B_array(b, nalloc, 4) < 0)
+                return NULL;
+        }
+        float_to_le(strtod(q + 1, &q), b->data + b->l_data);
+        b->l_data += 4;
+    }
+    return q;
+}
+
+HTS_ALIGN32
+static int sam_parse_B_vals_r(char type, uint32_t nalloc, char *in,
+                              char **end, bam1_t *b,
+                              int *ctr) {
+    // Protect against infinite recursion when dealing with invalid input.
+    // An example string is "XX:B:C,-".  The lack of a number means min=0,
+    // but it overflowed due to "-" and so we repeat ad-infinitum.
+    //
+    // Loop detection is the safest solution incase there are other
+    // strange corner cases with malformed inputs.
+    if (++(*ctr) > 2) {
+        hts_log_error("Malformed data in B:%c array", type);
+        return -1;
+    }
+
     int orig_l = b->l_data;
     char *q = in;
     int32_t size;
@@ -2249,80 +2594,60 @@ static int sam_parse_B_vals(char type, uint32_t n, char *in, char **end,
         return -1;
     }
 
-    // Ensure space for type + values
-    bytes = (size_t) n * (size_t) size;
-    if (bytes / size != n
+    // Ensure space for type + values.
+    // The first pass through here we don't know the number of entries and
+    // nalloc == 0.  We start with a small working set and then parse the
+    // data, growing as needed.
+    //
+    // If we have a second pass through we do know the number of entries
+    // and nalloc is already known.  We have no need to expand the bam data.
+    if (!nalloc)
+         nalloc=7;
+
+    // Ensure allocated memory is big enough (for current nalloc estimate)
+    bytes = (size_t) nalloc * (size_t) size;
+    if (bytes / size != nalloc
         || possibly_expand_bam_data(b, bytes + 2 + sizeof(uint32_t))) {
         hts_log_error("Out of memory");
         return -1;
     }
 
+    uint32_t nused = 0;
+
     b->data[b->l_data++] = 'B';
     b->data[b->l_data++] = type;
-    i32_to_le(n, b->data + b->l_data);
+    // 32-bit B-array length is inserted later once we know it.
+    int b_len_idx = b->l_data;
     b->l_data += sizeof(uint32_t);
-    // This ensures that q always ends up at the next comma after
-    // reading a number even if it's followed by junk.  It
-    // prevents the possibility of trying to read more than n items.
-#define skip_to_comma_(q) do { while (*(q) > '\t' && *(q) != ',') (q)++; } while (0)
+
     if (type == 'c') {
-        while (q < r) {
-            *(b->data + b->l_data) = hts_str2int(q + 1, &q, 8, &overflow);
-            b->l_data++;
-            skip_to_comma_(q);
-        }
+        if (!(q = sam_parse_Bc_vals(b, q, &nused, &nalloc, &overflow)))
+            return -1;
     } else if (type == 'C') {
-        while (q < r) {
-            if (*q != '-') {
-                *(b->data + b->l_data) = hts_str2uint(q + 1, &q, 8, &overflow);
-                b->l_data++;
-            } else {
-                overflow = 1;
-            }
-            skip_to_comma_(q);
-        }
+        if (!(q = sam_parse_BC_vals(b, q, &nused, &nalloc, &overflow)))
+            return -1;
     } else if (type == 's') {
-        while (q < r) {
-            i16_to_le(hts_str2int(q + 1, &q, 16, &overflow), b->data + b->l_data);
-            b->l_data += 2;
-            skip_to_comma_(q);
-        }
+        if (!(q = sam_parse_Bs_vals(b, q, &nused, &nalloc, &overflow)))
+            return -1;
     } else if (type == 'S') {
-        while (q < r) {
-            if (*q != '-') {
-                u16_to_le(hts_str2uint(q + 1, &q, 16, &overflow), b->data + b->l_data);
-                b->l_data += 2;
-            } else {
-                overflow = 1;
-            }
-            skip_to_comma_(q);
-        }
+        if (!(q = sam_parse_BS_vals(b, q, &nused, &nalloc, &overflow)))
+            return -1;
     } else if (type == 'i') {
-        while (q < r) {
-            i32_to_le(hts_str2int(q + 1, &q, 32, &overflow), b->data + b->l_data);
-            b->l_data += 4;
-            skip_to_comma_(q);
-        }
+        if (!(q = sam_parse_Bi_vals(b, q, &nused, &nalloc, &overflow)))
+            return -1;
     } else if (type == 'I') {
-        while (q < r) {
-            if (*q != '-') {
-                u32_to_le(hts_str2uint(q + 1, &q, 32, &overflow), b->data + b->l_data);
-                b->l_data += 4;
-            } else {
-                overflow = 1;
-            }
-            skip_to_comma_(q);
-        }
+        if (!(q = sam_parse_BI_vals(b, q, &nused, &nalloc, &overflow)))
+            return -1;
     } else if (type == 'f') {
-        while (q < r) {
-            float_to_le(strtod(q + 1, &q), b->data + b->l_data);
-            b->l_data += 4;
-            skip_to_comma_(q);
-        }
-    } else {
-        hts_log_error("Unrecognized type B:%c", type);
+        if (!(q = sam_parse_Bf_vals(b, q, &nused, &nalloc, &overflow)))
+            return -1;
+    }
+    if (*q != '\t' && *q != '\0') {
+        // Unknown B array type or junk in the numbers
+        hts_log_error("Malformed B:%c", type);
         return -1;
     }
+    i32_to_le(nused, b->data + b_len_idx);
 
     if (!overflow) {
         *end = q;
@@ -2330,6 +2655,7 @@ static int sam_parse_B_vals(char type, uint32_t n, char *in, char **end,
     } else {
         int64_t max = 0, min = 0, val;
         // Given type was incorrect.  Try to rescue the situation.
+        char *r = q;
         q = in;
         overflow = 0;
         b->l_data = orig_l;
@@ -2344,19 +2670,19 @@ static int sam_parse_B_vals(char type, uint32_t n, char *in, char **end,
         if (!overflow) {
             if (min < 0) {
                 if (min >= INT8_MIN && max <= INT8_MAX) {
-                    return sam_parse_B_vals('c', n, in, end, r, b);
+                    return sam_parse_B_vals_r('c', nalloc, in, end, b, ctr);
                 } else if (min >= INT16_MIN && max <= INT16_MAX) {
-                    return sam_parse_B_vals('s', n, in, end, r, b);
+                    return sam_parse_B_vals_r('s', nalloc, in, end, b, ctr);
                 } else if (min >= INT32_MIN && max <= INT32_MAX) {
-                    return sam_parse_B_vals('i', n, in, end, r, b);
+                    return sam_parse_B_vals_r('i', nalloc, in, end, b, ctr);
                 }
             } else {
                 if (max < UINT8_MAX) {
-                    return sam_parse_B_vals('C', n, in, end, r, b);
+                    return sam_parse_B_vals_r('C', nalloc, in, end, b, ctr);
                 } else if (max <= UINT16_MAX) {
-                    return sam_parse_B_vals('S', n, in, end, r, b);
+                    return sam_parse_B_vals_r('S', nalloc, in, end, b, ctr);
                 } else if (max <= UINT32_MAX) {
-                    return sam_parse_B_vals('I', n, in, end, r, b);
+                    return sam_parse_B_vals_r('I', nalloc, in, end, b, ctr);
                 }
             }
         }
@@ -2365,6 +2691,14 @@ static int sam_parse_B_vals(char type, uint32_t n, char *in, char **end,
         return -1;
     }
 #undef skip_to_comma_
+}
+
+HTS_ALIGN32
+static int sam_parse_B_vals(char type, char *in, char **end, bam1_t *b)
+{
+    int ctr = 0;
+    uint32_t nalloc = 0;
+    return sam_parse_B_vals_r(type, nalloc, in, end, b, &ctr);
 }
 
 static inline unsigned int parse_sam_flag(char *v, char **rv, int *overflow) {
@@ -2385,6 +2719,150 @@ static inline unsigned int parse_sam_flag(char *v, char **rv, int *overflow) {
         *rv = v;
         return 0;
     }
+}
+
+// Parse tag line and append to bam object b.
+// Shared by both SAM and FASTQ parsers.
+//
+// The difference between the two is how lenient we are to recognising
+// non-compliant strings.  The FASTQ parser glosses over arbitrary
+// non-SAM looking strings.
+static inline int aux_parse(char *start, char *end, bam1_t *b, int lenient,
+                            khash_t(tag) *tag_whitelist) {
+    int overflow = 0;
+    int checkpoint;
+    char logbuf[40];
+    char *q = start, *p = end;
+
+#define _parse_err(cond, ...)                   \
+    do {                                        \
+        if (cond) {                             \
+            if (lenient) {                      \
+                while (q < p && !isspace_c(*q))   \
+                    q++;                        \
+                while (q < p && isspace_c(*q))    \
+                    q++;                        \
+                b->l_data = checkpoint;         \
+                goto loop;                      \
+            } else {                            \
+                hts_log_error(__VA_ARGS__);     \
+                goto err_ret;                   \
+            }                                   \
+        }                                       \
+    } while (0)
+
+    while (q < p) loop: {
+        char type;
+        checkpoint = b->l_data;
+        if (p - q < 5) {
+            if (lenient) {
+                break;
+            } else {
+                hts_log_error("Incomplete aux field");
+                goto err_ret;
+            }
+        }
+        _parse_err(q[0] < '!' || q[1] < '!', "invalid aux tag id");
+
+        if (lenient && (q[2] | q[4]) != ':') {
+            while (q < p && !isspace_c(*q))
+                q++;
+            while (q < p && isspace_c(*q))
+                q++;
+            continue;
+        }
+
+        if (tag_whitelist) {
+            int tt = q[0]*256 + q[1];
+            if (kh_get(tag, tag_whitelist, tt) == kh_end(tag_whitelist)) {
+                while (q < p && *q != '\t')
+                    q++;
+                continue;
+            }
+        }
+
+        // Copy over id
+        if (possibly_expand_bam_data(b, 2) < 0) goto err_ret;
+        memcpy(b->data + b->l_data, q, 2); b->l_data += 2;
+        q += 3; type = *q++; ++q; // q points to value
+        if (type != 'Z' && type != 'H') // the only zero length acceptable fields
+            _parse_err(*q <= '\t', "incomplete aux field");
+
+        // Ensure enough space for a double + type allocated.
+        if (possibly_expand_bam_data(b, 16) < 0) goto err_ret;
+
+        if (type == 'A' || type == 'a' || type == 'c' || type == 'C') {
+            b->data[b->l_data++] = 'A';
+            b->data[b->l_data++] = *q++;
+        } else if (type == 'i' || type == 'I') {
+            if (*q == '-') {
+                int32_t x = hts_str2int(q, &q, 32, &overflow);
+                if (x >= INT8_MIN) {
+                    b->data[b->l_data++] = 'c';
+                    b->data[b->l_data++] = x;
+                } else if (x >= INT16_MIN) {
+                    b->data[b->l_data++] = 's';
+                    i16_to_le(x, b->data + b->l_data);
+                    b->l_data += 2;
+                } else {
+                    b->data[b->l_data++] = 'i';
+                    i32_to_le(x, b->data + b->l_data);
+                    b->l_data += 4;
+                }
+            } else {
+                uint32_t x = hts_str2uint(q, &q, 32, &overflow);
+                if (x <= UINT8_MAX) {
+                    b->data[b->l_data++] = 'C';
+                    b->data[b->l_data++] = x;
+                } else if (x <= UINT16_MAX) {
+                    b->data[b->l_data++] = 'S';
+                    u16_to_le(x, b->data + b->l_data);
+                    b->l_data += 2;
+                } else {
+                    b->data[b->l_data++] = 'I';
+                    u32_to_le(x, b->data + b->l_data);
+                    b->l_data += 4;
+                }
+            }
+        } else if (type == 'f') {
+            b->data[b->l_data++] = 'f';
+            float_to_le(strtod(q, &q), b->data + b->l_data);
+            b->l_data += sizeof(float);
+        } else if (type == 'd') {
+            b->data[b->l_data++] = 'd';
+            double_to_le(strtod(q, &q), b->data + b->l_data);
+            b->l_data += sizeof(double);
+        } else if (type == 'Z' || type == 'H') {
+            char *end = strchr(q, '\t');
+            if (!end) end = q + strlen(q);
+            _parse_err(type == 'H' && ((end-q)&1) != 0,
+                       "hex field does not have an even number of digits");
+            b->data[b->l_data++] = type;
+            if (possibly_expand_bam_data(b, end - q + 1) < 0) goto err_ret;
+            memcpy(b->data + b->l_data, q, end - q);
+            b->l_data += end - q;
+            b->data[b->l_data++] = '\0';
+            q = end;
+        } else if (type == 'B') {
+            type = *q++; // q points to the first ',' following the typing byte
+            _parse_err(*q && *q != ',' && *q != '\t',
+                       "B aux field type not followed by ','");
+
+            if (sam_parse_B_vals(type, q, &q, b) < 0)
+                goto err_ret;
+        } else _parse_err(1, "unrecognized type %s", hts_strprint(logbuf, sizeof logbuf, '\'', &type, 1));
+
+        while (*q > '\t') { q++; } // Skip any junk to next tab
+        q++;
+    }
+
+    _parse_err(!lenient && overflow != 0, "numeric value out of allowed range");
+#undef _parse_err
+
+    return 0;
+
+err_ret:
+    return -2;
 }
 
 int sam_parse1(kstring_t *s, sam_hdr_t *h, bam1_t *b)
@@ -2469,7 +2947,7 @@ int sam_parse1(kstring_t *s, sam_hdr_t *h, bam1_t *b)
     } else c->tid = -1;
 
     // pos
-    c->pos = hts_str2uint(p, &p, 63, &overflow) - 1;
+    c->pos = hts_str2uint(p, &p, 62, &overflow) - 1;
     if (*p++ != '\t') goto err_ret;
     if (c->pos < 0 && c->tid >= 0) {
         _parse_warn(1, "mapped query cannot have zero coordinate; treated as unmapped");
@@ -2487,7 +2965,6 @@ int sam_parse1(kstring_t *s, sam_hdr_t *h, bam1_t *b)
         int n_cigar = bam_parse_cigar(p, &p, b);
         if (n_cigar < 1 || *p++ != '\t') goto err_ret;
         cigar = (uint32_t *)(b->data + old_l_data);
-        c->n_cigar = n_cigar;
 
         // can't use bam_endpos() directly as some fields not yet set up
         cigreflen = (!(c->flag&BAM_FUNMAP))? bam_cigar2rlen(c->n_cigar, cigar) : 1;
@@ -2513,15 +2990,16 @@ int sam_parse1(kstring_t *s, sam_hdr_t *h, bam1_t *b)
         _parse_warn(c->mtid < 0, "unrecognized mate reference name %s; treated as unmapped", hts_strprint(logbuf, sizeof logbuf, '"', q, SIZE_MAX));
     }
     // mpos
-    c->mpos = hts_str2uint(p, &p, 63, &overflow) - 1;
+    c->mpos = hts_str2uint(p, &p, 62, &overflow) - 1;
     if (*p++ != '\t') goto err_ret;
     if (c->mpos < 0 && c->mtid >= 0) {
         _parse_warn(1, "mapped mate cannot have zero coordinate; treated as unmapped");
         c->mtid = -1;
     }
     // tlen
-    c->isize = hts_str2int(p, &p, 64, &overflow);
+    c->isize = hts_str2int(p, &p, 63, &overflow);
     if (*p++ != '\t') goto err_ret;
+    _parse_err(overflow, "number outside allowed range");
     // seq
     q = _read_token(p);
     if (strcmp(q, "*")) {
@@ -2552,94 +3030,10 @@ int sam_parse1(kstring_t *s, sam_hdr_t *h, bam1_t *b)
         _parse_err(failed, "invalid QUAL character");
         p += c->l_qseq + 1;
     }
+
     // aux
-    q = p;
-    p = s->s + s->l;
-    while (q < p) {
-        char type;
-        _parse_err(p - q < 5, "incomplete aux field");
-        _parse_err(q[0] < '!' || q[1] < '!', "invalid aux tag id");
-        // Copy over id
-        if (possibly_expand_bam_data(b, 2) < 0) goto err_ret;
-        memcpy(b->data + b->l_data, q, 2); b->l_data += 2;
-        q += 3; type = *q++; ++q; // q points to value
-        if (type != 'Z' && type != 'H') // the only zero length acceptable fields
-            _parse_err(*q <= '\t', "incomplete aux field");
-
-        // Ensure enough space for a double + type allocated.
-        if (possibly_expand_bam_data(b, 16) < 0) goto err_ret;
-
-        if (type == 'A' || type == 'a' || type == 'c' || type == 'C') {
-            b->data[b->l_data++] = 'A';
-            b->data[b->l_data++] = *q++;
-        } else if (type == 'i' || type == 'I') {
-            if (*q == '-') {
-                int32_t x = hts_str2int(q, &q, 32, &overflow);
-                if (x >= INT8_MIN) {
-                    b->data[b->l_data++] = 'c';
-                    b->data[b->l_data++] = x;
-                } else if (x >= INT16_MIN) {
-                    b->data[b->l_data++] = 's';
-                    i16_to_le(x, b->data + b->l_data);
-                    b->l_data += 2;
-                } else {
-                    b->data[b->l_data++] = 'i';
-                    i32_to_le(x, b->data + b->l_data);
-                    b->l_data += 4;
-                }
-            } else {
-                uint32_t x = hts_str2uint(q, &q, 32, &overflow);
-                if (x <= UINT8_MAX) {
-                    b->data[b->l_data++] = 'C';
-                    b->data[b->l_data++] = x;
-                } else if (x <= UINT16_MAX) {
-                    b->data[b->l_data++] = 'S';
-                    u16_to_le(x, b->data + b->l_data);
-                    b->l_data += 2;
-                } else {
-                    b->data[b->l_data++] = 'I';
-                    u32_to_le(x, b->data + b->l_data);
-                    b->l_data += 4;
-                }
-            }
-        } else if (type == 'f') {
-            b->data[b->l_data++] = 'f';
-            float_to_le(strtod(q, &q), b->data + b->l_data);
-            b->l_data += sizeof(float);
-        } else if (type == 'd') {
-            b->data[b->l_data++] = 'd';
-            double_to_le(strtod(q, &q), b->data + b->l_data);
-            b->l_data += sizeof(double);
-        } else if (type == 'Z' || type == 'H') {
-            char *end = strchr(q, '\t');
-            if (!end) end = q + strlen(q);
-            _parse_err(type == 'H' && ((end-q)&1) != 0,
-                       "hex field does not have an even number of digits");
-            b->data[b->l_data++] = type;
-            if (possibly_expand_bam_data(b, end - q + 1) < 0) goto err_ret;
-            memcpy(b->data + b->l_data, q, end - q);
-            b->l_data += end - q;
-            b->data[b->l_data++] = '\0';
-            q = end;
-        } else if (type == 'B') {
-            uint32_t n;
-            char *r;
-            type = *q++; // q points to the first ',' following the typing byte
-            _parse_err(*q && *q != ',' && *q != '\t',
-                       "B aux field type not followed by ','");
-
-            for (r = q, n = 0; *r > '\t'; ++r)
-                if (*r == ',') ++n;
-
-            if (sam_parse_B_vals(type, n, q, &q, r, b) < 0)
-                goto err_ret;
-        } else _parse_err(1, "unrecognized type %s", hts_strprint(logbuf, sizeof logbuf, '\'', &type, 1));
-
-        while (*q > '\t') { q++; } // Skip any junk to next tab
-        q++;
-    }
-
-    _parse_err(overflow != 0, "numeric value out of allowed range");
+    if (aux_parse(p, s->s + s->l, b, 0, NULL) < 0)
+        goto err_ret;
 
     if (bam_tag2cigar(b, 1, 1) < 0)
         return -2;
@@ -2747,20 +3141,36 @@ ssize_t bam_parse_cigar(const char *in, char **end, bam1_t *b) {
     }
     if (end) *end = (char *)in;
 
-    if (*in == '*') {
-        if (end) (*end)++;
+    n_cigar = (*in == '*') ? 0 : read_ncigar(in);
+    if (!n_cigar && b->core.n_cigar == 0) {
+        if (end) *end = (char *)in+1;
         return 0;
     }
-    n_cigar = read_ncigar(in);
-    if (!n_cigar) return 0;
-    if (possibly_expand_bam_data(b, n_cigar * sizeof(uint32_t)) < 0) {
+
+    ssize_t cig_diff = n_cigar - b->core.n_cigar;
+    if (cig_diff > 0 &&
+        possibly_expand_bam_data(b, cig_diff * sizeof(uint32_t)) < 0) {
         hts_log_error("Memory allocation error");
         return -1;
     }
 
-    if (!(diff = parse_cigar(in, (uint32_t *)(b->data + b->l_data), n_cigar))) return -1;
-    b->l_data += (n_cigar * sizeof(uint32_t));
-    if (end) *end = (char *)in+diff;
+    uint32_t *cig = bam_get_cigar(b);
+    if ((uint8_t *)cig != b->data + b->l_data) {
+        // Modifying an BAM existing BAM record
+        uint8_t  *seq = bam_get_seq(b);
+        memmove(cig + n_cigar, seq, (b->data + b->l_data) - seq);
+    }
+
+    if (n_cigar) {
+        if (!(diff = parse_cigar(in, cig, n_cigar)))
+            return -1;
+    } else {
+        diff = 1; // handle "*"
+    }
+
+    b->l_data += cig_diff * sizeof(uint32_t);
+    b->core.n_cigar = n_cigar;
+    if (end) *end = (char *)in + diff;
 
     return n_cigar;
 }
@@ -2770,9 +3180,10 @@ ssize_t bam_parse_cigar(const char *in, char **end, bam1_t *b) {
  * SAM threading
  */
 // Size of SAM text block (reading)
-#define NM 240000
-// Number of BAM records (writing)
-#define NB 1000
+#define SAM_NBYTES 240000
+
+// Number of BAM records (writing, up to NB_mem in size)
+#define SAM_NBAM 1000
 
 struct SAM_state;
 
@@ -2782,7 +3193,8 @@ typedef struct sp_bams {
     int serial;
 
     bam1_t *bams;
-    int nbams, abams; // used and alloc
+    int nbams, abams; // used and alloc for bams[] array
+    size_t bam_mem;   // very approximate total size
 
     struct SAM_state *fd;
 } sp_bams;
@@ -3033,6 +3445,7 @@ static void *sam_parse_worker(void *arg) {
             goto err;
         }
         gb->nbams = 0;
+        gb->bam_mem = 0;
     }
     gb->serial = gl->serial;
     gb->next = NULL;
@@ -3085,6 +3498,7 @@ static void *sam_parse_worker(void *arg) {
             cleanup_sp_lines(gl);
             goto err;
         }
+
         cp = nl;
         i++;
     }
@@ -3154,7 +3568,7 @@ static void *sam_dispatcher_read(void *vp) {
             l = calloc(1, sizeof(*l));
             if (!l)
                 goto err;
-            l->alloc = NM;
+            l->alloc = SAM_NBYTES;
             l->data = malloc(l->alloc+8); // +8 for optimisation in sam_parse1
             if (!l->data) {
                 free(l);
@@ -3165,11 +3579,11 @@ static void *sam_dispatcher_read(void *vp) {
         }
         l->next = NULL;
 
-        if (l->alloc < line_frag+NM/2) {
-            char *rp = realloc(l->data, line_frag+NM/2 +8);
+        if (l->alloc < line_frag+SAM_NBYTES/2) {
+            char *rp = realloc(l->data, line_frag+SAM_NBYTES/2 +8);
             if (!rp)
                 goto err;
-            l->alloc = line_frag+NM/2;
+            l->alloc = line_frag+SAM_NBYTES/2;
             l->data = rp;
         }
         memcpy(l->data, line.s, line_frag);
@@ -3308,6 +3722,8 @@ static void *sam_dispatcher_write(void *vp) {
                     i++;
 
                 if (fp->is_bgzf) {
+                    if (bgzf_flush_try(fp->fp.bgzf, i-j) < 0)
+                        goto err;
                     if (bgzf_write(fp->fp.bgzf, &gl->data[j], i-j) != i-j)
                         goto err;
                 } else {
@@ -3347,8 +3763,69 @@ static void *sam_dispatcher_write(void *vp) {
             pthread_mutex_unlock(&fd->lines_m);
         } else {
             if (fp->is_bgzf) {
-                if (bgzf_write(fp->fp.bgzf, gl->data, gl->data_size) != gl->data_size)
-                    goto err;
+                // We keep track of how much in the current block we have
+                // remaining => R.  We look for the last newline in input
+                // [i] to [i+R], backwards => position N.
+                //
+                // If we find a newline, we write out bytes i to N.
+                // We know we cannot fit the next record in this bgzf block,
+                // so we flush what we have and copy input N to i+R into
+                // the start of a new block, and recompute a new R for that.
+                //
+                // If we don't find a newline (i==N) then we cannot extend
+                // the current block at all, so flush whatever is in it now
+                // if it ends on a newline.
+                // We still copy i(==N) to i+R to the next block and
+                // continue as before with a new R.
+                //
+                // The only exception on the flush is when we run out of
+                // data in the input.  In that case we skip it as we don't
+                // yet know if the next record will fit.
+                //
+                // Both conditions share the same code here:
+                // - Look for newline (pos N)
+                // - Write i to N (which maybe 0)
+                // - Flush if block ends on newline and not end of input
+                // - write N to i+R
+
+                int i = 0;
+                BGZF *fb = fp->fp.bgzf;
+                while (i < gl->data_size) {
+                    // remaining space in block
+                    int R = BGZF_BLOCK_SIZE - fb->block_offset;
+                    int eod = 0;
+                    if (R > gl->data_size-i)
+                        R = gl->data_size-i, eod = 1;
+
+                    // Find last newline in input data
+                    int N = i + R;
+                    while (--N > i) {
+                        if (gl->data[N] == '\n')
+                            break;
+                    }
+
+                    if (N != i) {
+                        // Found a newline
+                        N++;
+                        if (bgzf_write(fb, &gl->data[i], N-i) != N-i)
+                            goto err;
+                    }
+
+                    // Flush bgzf block
+                    int b_off = fb->block_offset;
+                    if (!eod && b_off &&
+                        ((char *)fb->uncompressed_block)[b_off-1] == '\n')
+                        if (bgzf_flush_try(fb, BGZF_BLOCK_SIZE) < 0)
+                            goto err;
+
+                    // Copy from N onwards into next block
+                    if (i+R > N)
+                        if (bgzf_write(fb, &gl->data[N], i+R - N)
+                            != i+R - N)
+                            goto err;
+
+                    i = i+R;
+                }
             } else {
                 if (hwrite(fp->fp.hfile, gl->data, gl->data_size) != gl->data_size)
                     goto err;
@@ -3488,6 +3965,270 @@ int sam_set_threads(htsFile *fp, int nthreads) {
     return 0;
 }
 
+typedef struct {
+    kstring_t name;
+    kstring_t comment; // NB: pointer into name, do not free
+    kstring_t seq;
+    kstring_t qual;
+    int casava;
+    int aux;
+    int rnum;
+    char BC[3];         // aux tag ID for barcode
+    khash_t(tag) *tags; // which aux tags to use (if empty, use all).
+    char nprefix;
+    int sra_names;
+} fastq_state;
+
+// Initialise fastq state.
+// Name char of '@' or '>' distinguishes fastq vs fasta variant
+static fastq_state *fastq_state_init(int name_char) {
+    fastq_state *x = (fastq_state *)calloc(1, sizeof(*x));
+    if (!x)
+        return NULL;
+    strcpy(x->BC, "BC");
+    x->nprefix = name_char;
+
+    return x;
+}
+
+void fastq_state_destroy(htsFile *fp) {
+    if (fp->state) {
+        fastq_state *x = (fastq_state *)fp->state;
+        if (x->tags)
+            kh_destroy(tag, x->tags);
+        ks_free(&x->name);
+        ks_free(&x->seq);
+        ks_free(&x->qual);
+        free(fp->state);
+    }
+}
+
+int fastq_state_set(samFile *fp, enum hts_fmt_option opt, ...) {
+    va_list args;
+
+    if (!fp)
+        return -1;
+    if (!fp->state)
+        if (!(fp->state = fastq_state_init(fp->format.format == fastq_format
+                                           ? '@' : '>')))
+            return -1;
+
+    fastq_state *x = (fastq_state *)fp->state;
+
+    switch (opt) {
+    case FASTQ_OPT_CASAVA:
+        x->casava = 1;
+        break;
+
+    case FASTQ_OPT_NAME2:
+        x->sra_names = 1;
+        break;
+
+    case FASTQ_OPT_AUX: {
+        va_start(args, opt);
+        x->aux = 1;
+        char *tag = va_arg(args, char *);
+        va_end(args);
+        if (tag && strcmp(tag, "1") != 0) {
+            if (!x->tags)
+                if (!(x->tags = kh_init(tag)))
+                    return -1;
+
+            size_t i, tlen = strlen(tag);
+            for (i = 0; i+3 <= tlen+1; i += 3) {
+                if (tag[i+0] == ',' || tag[i+1] == ',' ||
+                    !(tag[i+2] == ',' || tag[i+2] == '\0')) {
+                    hts_log_warning("Bad tag format '%.3s'; skipping option", tag+i);
+                    break;
+                }
+                int ret, tcode = tag[i+0]*256 + tag[i+1];
+                kh_put(tag, x->tags, tcode, &ret);
+                if (ret < 0)
+                    return -1;
+            }
+        }
+        break;
+    }
+
+    case FASTQ_OPT_BARCODE: {
+        va_start(args, opt);
+        char *bc = va_arg(args, char *);
+        va_end(args);
+        strncpy(x->BC, bc, 2);
+        x->BC[2] = 0;
+        break;
+    }
+
+    case FASTQ_OPT_RNUM:
+        x->rnum = 1;
+        break;
+
+    default:
+        break;
+    }
+    return 0;
+}
+
+static int fastq_parse1(htsFile *fp, bam1_t *b) {
+    fastq_state *x = (fastq_state *)fp->state;
+    size_t i, l;
+    int ret = 0;
+
+    if (fp->format.format == fasta_format && fp->line.s) {
+        // For FASTA we've already read the >name line; steal it
+        // Not the most efficient, but we don't optimise for fasta reading.
+        if (fp->line.l == 0)
+            return -1; // EOF
+
+        free(x->name.s);
+        x->name = fp->line;
+        fp->line.l = fp->line.m = 0;
+        fp->line.s = NULL;
+    } else {
+        // Read a FASTQ format entry.
+        ret = hts_getline(fp, KS_SEP_LINE, &x->name);
+        if (ret == -1)
+            return -1;  // EOF
+        else if (ret < -1)
+            return ret; // ERR
+    }
+
+    // Name
+    if (*x->name.s != x->nprefix)
+        return -2;
+
+    // Reverse the SRA strangeness of putting the run_name.number before
+    // the read name.
+    i = 0;
+    char *name = x->name.s+1;
+    if (x->sra_names) {
+        char *cp = strpbrk(x->name.s, " \t");
+        if (cp) {
+            while (*cp == ' ' || *cp == '\t')
+                cp++;
+            *--cp = '@';
+            i = cp - x->name.s;
+            name = cp+1;
+        }
+    }
+
+    l = x->name.l;
+    char *s = x->name.s;
+    while (i < l && !isspace_c(s[i]))
+        i++;
+    if (i < l) {
+        s[i] = 0;
+        x->name.l = i++;
+    }
+
+    // Comment; a kstring struct, but pointer into name line.  (Do not free)
+    while (i < l && isspace_c(s[i]))
+        i++;
+    x->comment.s = s+i;
+    x->comment.l = l - i;
+
+    // Seq
+    x->seq.l = 0;
+    for (;;) {
+        if ((ret = hts_getline(fp, KS_SEP_LINE, &fp->line)) < 0)
+            if (fp->format.format == fastq_format || ret < -1)
+                return -2;
+        if (ret == -1 ||
+            *fp->line.s == (fp->format.format == fastq_format ? '+' : '>'))
+            break;
+        if (kputsn(fp->line.s, fp->line.l, &x->seq) < 0)
+            return -2;
+    }
+
+    // Qual
+    if (fp->format.format == fastq_format) {
+        size_t remainder = x->seq.l;
+        x->qual.l = 0;
+        do {
+            if (hts_getline(fp, KS_SEP_LINE, &fp->line) < 0)
+                return -2;
+            if (fp->line.l > remainder)
+                return -2;
+            if (kputsn(fp->line.s, fp->line.l, &x->qual) < 0)
+                return -2;
+            remainder -= fp->line.l;
+        } while (remainder > 0);
+
+        // Decr qual
+        for (i = 0; i < x->qual.l; i++)
+            x->qual.s[i] -= '!';
+    }
+
+    int flag = BAM_FUNMAP; int pflag = BAM_FMUNMAP | BAM_FPAIRED;
+    if (x->name.l > 2 &&
+        x->name.s[x->name.l-2] == '/' &&
+        isdigit_c(x->name.s[x->name.l-1])) {
+        switch(x->name.s[x->name.l-1]) {
+        case '1': flag |= BAM_FREAD1 | pflag; break;
+        case '2': flag |= BAM_FREAD2 | pflag; break;
+        default : flag |= BAM_FREAD1 | BAM_FREAD2 | pflag; break;
+        }
+        x->name.s[x->name.l-=2] = 0;
+    }
+
+    // Convert to BAM
+    ret = bam_set1(b,
+                   x->name.s + x->name.l - name, name,
+                   flag,
+                   -1, -1, 0, // ref '*', pos, mapq,
+                   0, NULL,     // no cigar,
+                   -1, -1, 0,    // mate
+                   x->seq.l, x->seq.s, x->qual.s,
+                   0);
+
+    // Identify Illumina CASAVA strings.
+    // <read>:<is_filtered>:<control_bits>:<barcode_sequence>
+    char *barcode = NULL;
+    int barcode_len = 0;
+    kstring_t *kc = &x->comment;
+    char *endptr;
+    if (x->casava &&
+        // \d:[YN]:\d+:[ACGTN]+
+        kc->l > 6 && (kc->s[1] | kc->s[3]) == ':' && isdigit_c(kc->s[0]) &&
+        strtol(kc->s+4, &endptr, 10) >= 0 && endptr != kc->s+4
+        && *endptr == ':') {
+
+        // read num
+        switch(kc->s[0]) {
+        case '1': b->core.flag |= BAM_FREAD1 | pflag; break;
+        case '2': b->core.flag |= BAM_FREAD2 | pflag; break;
+        default : b->core.flag |= BAM_FREAD1 | BAM_FREAD2 | pflag; break;
+        }
+
+        if (kc->s[2] == 'Y')
+            b->core.flag |= BAM_FQCFAIL;
+
+        // Barcode, maybe numeric in which case we skip it
+        if (!isdigit_c(endptr[1])) {
+            barcode = endptr+1;
+            for (i = barcode - kc->s; i < kc->l; i++)
+                if (isspace_c(kc->s[i]))
+                    break;
+
+            kc->s[i] = 0;
+            barcode_len = i+1-(barcode - kc->s);
+        }
+    }
+
+    if (ret >= 0 && barcode_len)
+        if (bam_aux_append(b, x->BC, 'Z', barcode_len, (uint8_t *)barcode) < 0)
+            ret = -2;
+
+    if (!x->aux)
+        return ret;
+
+    // Identify any SAM style aux tags in comments too.
+    if (aux_parse(&kc->s[barcode_len], kc->s + kc->l, b, 1, x->tags) < 0)
+        ret = -2;
+
+    return ret;
+}
+
 // Internal component of sam_read1 below
 static inline int sam_read1_bam(htsFile *fp, sam_hdr_t *h, bam1_t *b) {
     int ret = bam_read1(fp->fp.bgzf, b);
@@ -3587,6 +4328,9 @@ static inline int sam_read1_sam(htsFile *fp, sam_hdr_t *h, bam1_t *b) {
 
             fd->curr_bam = NULL;
             fd->curr_idx = 0;
+        // Consider prefetching next record?  I.e.
+        // } else {
+        //     __builtin_prefetch(&b_array[fd->curr_idx], 0, 3);
         }
 
         ret = 0;
@@ -3600,7 +4344,7 @@ static inline int sam_read1_sam(htsFile *fp, sam_hdr_t *h, bam1_t *b) {
         fp->line.l = 0;
         if (ret < 0) {
             hts_log_warning("Parse error at line %lld", (long long)fp->lineno);
-            if (h->ignore_sam_err) goto err_recover;
+            if (h && h->ignore_sam_err) goto err_recover;
         }
     }
 
@@ -3628,6 +4372,18 @@ int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *b)
             ret = sam_read1_sam(fp, h, b);
             break;
 
+        case fasta_format:
+        case fastq_format: {
+            fastq_state *x = (fastq_state *)fp->state;
+            if (!x) {
+                if (!(fp->state = fastq_state_init(fp->format.format
+                                                   == fastq_format ? '@' : '>')))
+                    return -2;
+            }
+
+            return fastq_parse1(fp, b);
+        }
+
         case empty_format:
             errno = EPIPE;
             return -3;
@@ -3645,6 +4401,15 @@ int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *b)
     return pass_filter < 0 ? -2 : ret;
 }
 
+// With gcc, -O3 or -ftree-loop-vectorize is really key here as otherwise
+// this code isn't vectorised and runs far slower than is necessary (even
+// with the restrict keyword being used).
+static inline void HTS_OPT3
+add33(uint8_t *a, const uint8_t * b, int32_t len) {
+    uint32_t i;
+    for (i = 0; i < len; i++)
+        a[i] = b[i]+33;
+}
 
 static int sam_format1_append(const bam_hdr_t *h, const bam1_t *b, kstring_t *str)
 {
@@ -3695,10 +4460,8 @@ static int sam_format1_append(const bam_hdr_t *h, const bam1_t *b, kstring_t *st
         if (s[0] == 0xff) {
             cp[i++] = '*';
         } else {
-            // local copy of c->l_qseq to aid unrolling
-            uint32_t lqseq = c->l_qseq;
-            for (i = 0; i < lqseq; ++i)
-                cp[i]=s[i]+33;
+            add33((uint8_t *)cp, s, c->l_qseq); // cp[i] = s[i]+33;
+            i = c->l_qseq;
         }
         cp[i] = 0;
         cp += i;
@@ -3719,8 +4482,8 @@ static int sam_format1_append(const bam_hdr_t *h, const bam1_t *b, kstring_t *st
     return str->l;
 
  bad_aux:
-    hts_log_error("Corrupted aux data for read %.*s",
-                  b->core.l_qname, bam_get_qname(b));
+    hts_log_error("Corrupted aux data for read %.*s flag %d",
+                  b->core.l_qname, bam_get_qname(b), b->core.flag);
     errno = EINVAL;
     return -1;
 
@@ -3734,6 +4497,112 @@ int sam_format1(const bam_hdr_t *h, const bam1_t *b, kstring_t *str)
 {
     str->l = 0;
     return sam_format1_append(h, b, str);
+}
+
+static inline uint8_t *skip_aux(uint8_t *s, uint8_t *end);
+int fastq_format1(fastq_state *x, const bam1_t *b, kstring_t *str)
+{
+    unsigned flag = b->core.flag;
+    int i, e = 0, len = b->core.l_qseq;
+    uint8_t *seq, *qual;
+
+    str->l = 0;
+
+    // Name
+    if (kputc(x->nprefix, str) == EOF || kputs(bam_get_qname(b), str) == EOF)
+        return -1;
+
+    // /1 or /2 suffix
+    if (x && x->rnum && (flag & BAM_FPAIRED)) {
+        int r12 = flag & (BAM_FREAD1 | BAM_FREAD2);
+        if (r12 == BAM_FREAD1) {
+            if (kputs("/1", str) == EOF)
+                return -1;
+        } else if (r12 == BAM_FREAD2) {
+            if (kputs("/2", str) == EOF)
+                return -1;
+        }
+    }
+
+    // Illumina CASAVA tag.
+    // This is <rnum>:<Y/N qcfail>:<control-bits>:<barcode-or-zero>
+    if (x && x->casava) {
+        int rnum = (flag & BAM_FREAD1)? 1 : (flag & BAM_FREAD2)? 2 : 0;
+        char filtered = (flag & BAM_FQCFAIL)? 'Y' : 'N';
+        uint8_t *bc = bam_aux_get(b, x->BC);
+        if (ksprintf(str, " %d:%c:0:%s", rnum, filtered,
+                     bc ? (char *)bc+1 : "0") < 0)
+            return -1;
+
+        if (bc && (*bc != 'Z' || (!isupper_c(bc[1]) && !islower_c(bc[1])))) {
+            hts_log_warning("BC tag starts with non-sequence base; using '0'");
+            str->l -= strlen((char *)bc)-2; // limit to 1 char
+            str->s[str->l-1] = '0';
+            str->s[str->l] = 0;
+            bc = NULL;
+        }
+
+        // Replace any non-alpha with '+'.  Ie seq-seq to seq+seq
+        if (bc) {
+            int l = strlen((char *)bc+1);
+            char *c = (char *)str->s + str->l - l;
+            for (i = 0; i < l; i++) {
+                if (!isalpha_c(c[i]))
+                    c[i] = '+';
+                else if (islower_c(c[i]))
+                    c[i] = toupper_c(c[i]);
+            }
+        }
+    }
+
+    // Aux tags
+    if (x && x->aux) {
+        uint8_t *s = bam_get_aux(b), *end = b->data + b->l_data;
+        while (s && end - s >= 4) {
+            int tt = s[0]*256 + s[1];
+            if (x->tags == NULL ||
+                kh_get(tag, x->tags, tt) != kh_end(x->tags)) {
+                e |= kputc_('\t', str) < 0;
+                if (!(s = (uint8_t *)sam_format_aux1(s, s[2], s+3, end, str)))
+                    return -1;
+            } else {
+                s = skip_aux(s+2, end);
+            }
+        }
+        e |= kputsn("", 0, str) < 0; // nul terminate
+    }
+
+    if (ks_resize(str, str->l + 1 + len+1 + 2 + len+1 + 1) < 0) return -1;
+    e |= kputc_('\n', str) < 0;
+
+    // Seq line
+    seq = bam_get_seq(b);
+    if (flag & BAM_FREVERSE)
+        for (i = len-1; i >= 0; i--)
+            e |= kputc_("!TGKCYSBAWRDMHVN"[bam_seqi(seq, i)], str) < 0;
+    else
+        for (i = 0; i < len; i++)
+            e |= kputc_(seq_nt16_str[bam_seqi(seq, i)], str) < 0;
+
+
+    // Qual line
+    if (x->nprefix == '@') {
+        kputsn("\n+\n", 3, str);
+        qual = bam_get_qual(b);
+        if (qual[0] == 0xff)
+            for (i = 0; i < len; i++)
+                e |= kputc_('B', str) < 0;
+        else if (flag & BAM_FREVERSE)
+            for (i = len-1; i >= 0; i--)
+                e |= kputc_(33 + qual[i], str) < 0;
+        else
+            for (i = 0; i < len; i++)
+                e |= kputc_(33 + qual[i], str) < 0;
+
+    }
+    e |= kputc('\n', str) < 0;
+
+    return e ? -1 : str->l;
 }
 
 // Sadly we need to be able to modify the bam_hdr here so we can
@@ -3792,16 +4661,18 @@ int sam_write1(htsFile *fp, const sam_hdr_t *h, const bam1_t *b)
                     fd->bams = gb->next;
                     gb->next = NULL;
                     gb->nbams = 0;
+                    gb->bam_mem = 0;
                     pthread_mutex_unlock(&fd->lines_m);
                 } else {
                     pthread_mutex_unlock(&fd->lines_m);
                     if (!(gb = calloc(1, sizeof(*gb)))) return -1;
-                    if (!(gb->bams = calloc(NB, sizeof(*gb->bams)))) {
+                    if (!(gb->bams = calloc(SAM_NBAM, sizeof(*gb->bams)))) {
                         free(gb);
                         return -1;
                     }
                     gb->nbams = 0;
-                    gb->abams = NB;
+                    gb->abams = SAM_NBAM;
+                    gb->bam_mem = 0;
                     gb->fd = fd;
                     fd->curr_idx = 0;
                     fd->curr_bam = gb;
@@ -3810,11 +4681,11 @@ int sam_write1(htsFile *fp, const sam_hdr_t *h, const bam1_t *b)
 
             if (!bam_copy1(&gb->bams[gb->nbams++], b))
                 return -2;
+            gb->bam_mem += b->l_data + sizeof(*b);
 
             // Dispatch if full
-            if (gb->nbams == NB) {
+            if (gb->nbams == SAM_NBAM || gb->bam_mem > SAM_NBYTES*0.8) {
                 gb->serial = fd->serial++;
-                //fprintf(stderr, "Dispatch another %d bams\n", NB);
                 pthread_mutex_lock(&fd->command_m);
                 if (fd->errcode != 0) {
                     pthread_mutex_unlock(&fd->command_m);
@@ -3838,6 +4709,8 @@ int sam_write1(htsFile *fp, const sam_hdr_t *h, const bam1_t *b)
             if (sam_format1(h, b, &fp->line) < 0) return -1;
             kputc('\n', &fp->line);
             if (fp->is_bgzf) {
+                if (bgzf_flush_try(fp->fp.bgzf, fp->line.l) < 0)
+                    return -1;
                 if ( bgzf_write(fp->fp.bgzf, fp->line.s, fp->line.l) != fp->line.l ) return -1;
             } else {
                 if ( hwrite(fp->fp.hfile, fp->line.s, fp->line.l) != fp->line.l ) return -1;
@@ -3863,6 +4736,30 @@ int sam_write1(htsFile *fp, const sam_hdr_t *h, const bam1_t *b)
 
             return fp->line.l;
         }
+
+
+    case fasta_format:
+    case fastq_format: {
+        fastq_state *x = (fastq_state *)fp->state;
+        if (!x) {
+            if (!(fp->state = fastq_state_init(fp->format.format
+                                               == fastq_format ? '@' : '>')))
+                return -2;
+        }
+
+        if (fastq_format1(fp->state, b, &fp->line) < 0)
+            return -1;
+        if (fp->is_bgzf) {
+            if (bgzf_flush_try(fp->fp.bgzf, fp->line.l) < 0)
+                return -1;
+            if (bgzf_write(fp->fp.bgzf, fp->line.s, fp->line.l) != fp->line.l)
+                return -1;
+        } else {
+            if (hwrite(fp->fp.hfile, fp->line.s, fp->line.l) != fp->line.l)
+                return -1;
+        }
+        return fp->line.l;
+    }
 
     default:
         errno = EBADF;
@@ -3976,56 +4873,75 @@ static inline uint8_t *skip_aux(uint8_t *s, uint8_t *end)
     }
 }
 
-uint8_t *bam_aux_get(const bam1_t *b, const char tag[2])
+uint8_t *bam_aux_first(const bam1_t *b)
 {
-    uint8_t *s, *end, *t = (uint8_t *) tag;
-    uint16_t y = (uint16_t) t[0]<<8 | t[1];
-    s = bam_get_aux(b);
-    end = b->data + b->l_data;
-    while (s != NULL && end - s >= 3) {
-        uint16_t x = (uint16_t) s[0]<<8 | s[1];
-        s += 2;
-        if (x == y) {
-            // Check the tag value is valid and complete
-            uint8_t *e = skip_aux(s, end);
-            if ((*s == 'Z' || *s == 'H') && *(e - 1) != '\0') {
-                goto bad_aux;  // Unterminated string
-            }
-            if (e != NULL) {
-                return s;
-            } else {
-                goto bad_aux;
-            }
-        }
-        s = skip_aux(s, end);
-    }
-    if (s == NULL) goto bad_aux;
-    errno = ENOENT;
-    return NULL;
+    uint8_t *s = bam_get_aux(b);
+    uint8_t *end = b->data + b->l_data;
+    if (end - s <= 2) { errno = ENOENT; return NULL; }
+    return s+2;
+}
+
+uint8_t *bam_aux_next(const bam1_t *b, const uint8_t *s)
+{
+    uint8_t *end = b->data + b->l_data;
+    uint8_t *next = s? skip_aux((uint8_t *) s, end) : end;
+    if (next == NULL) goto bad_aux;
+    if (end - next <= 2) { errno = ENOENT; return NULL; }
+    return next+2;
 
  bad_aux:
-    hts_log_error("Corrupted aux data for read %s", bam_get_qname(b));
+    hts_log_error("Corrupted aux data for read %s flag %d",
+                  bam_get_qname(b), b->core.flag);
     errno = EINVAL;
     return NULL;
 }
 
-// s MUST BE returned by bam_aux_get()
-int bam_aux_del(bam1_t *b, uint8_t *s)
+uint8_t *bam_aux_get(const bam1_t *b, const char tag[2])
 {
-    uint8_t *p, *aux;
-    int l_aux = bam_get_l_aux(b);
-    aux = bam_get_aux(b);
-    p = s - 2;
-    s = skip_aux(s, aux + l_aux);
-    if (s == NULL) goto bad_aux;
-    memmove(p, s, l_aux - (s - aux));
-    b->l_data -= s - p;
-    return 0;
+    uint8_t *s;
+    for (s = bam_aux_first(b); s; s = bam_aux_next(b, s))
+        if (s[-2] == tag[0] && s[-1] == tag[1]) {
+            // Check the tag value is valid and complete
+            uint8_t *e = skip_aux(s, b->data + b->l_data);
+            if (e == NULL) goto bad_aux;
+            if ((*s == 'Z' || *s == 'H') && *(e - 1) != '\0') goto bad_aux;
+
+            return s;
+        }
+
+    // errno now as set by bam_aux_first()/bam_aux_next()
+    return NULL;
 
  bad_aux:
-    hts_log_error("Corrupted aux data for read %s", bam_get_qname(b));
+    hts_log_error("Corrupted aux data for read %s flag %d",
+                  bam_get_qname(b), b->core.flag);
     errno = EINVAL;
-    return -1;
+    return NULL;
+}
+
+int bam_aux_del(bam1_t *b, uint8_t *s)
+{
+    s = bam_aux_remove(b, s);
+    return (s || errno == ENOENT)? 0 : -1;
+}
+
+uint8_t *bam_aux_remove(bam1_t *b, uint8_t *s)
+{
+    uint8_t *end = b->data + b->l_data;
+    uint8_t *next = skip_aux(s, end);
+    if (next == NULL) goto bad_aux;
+
+    b->l_data -= next - (s-2);
+    if (next >= end) { errno = ENOENT; return NULL; }
+
+    memmove(s-2, next, end - next);
+    return s;
+
+ bad_aux:
+    hts_log_error("Corrupted aux data for read %s flag %d",
+                  bam_get_qname(b), b->core.flag);
+    errno = EINVAL;
+    return NULL;
 }
 
 int bam_aux_update_str(bam1_t *b, const char tag[2], int len, const char *data)
@@ -4330,6 +5246,14 @@ int sam_open_mode(char *mode, const char *fn, const char *format)
     else if (strcasecmp(format, "cram") == 0) strcpy(mode, "c");
     else if (strcasecmp(format, "sam") == 0) strcpy(mode, "");
     else if (strcasecmp(format, "sam.gz") == 0) strcpy(mode, "z");
+    else if (strcasecmp(format, "fastq") == 0 ||
+             strcasecmp(format, "fq") == 0) strcpy(mode, "f");
+    else if (strcasecmp(format, "fastq.gz") == 0 ||
+             strcasecmp(format, "fq.gz") == 0) strcpy(mode, "fz");
+    else if (strcasecmp(format, "fasta") == 0 ||
+             strcasecmp(format, "fa") == 0) strcpy(mode, "F");
+    else if (strcasecmp(format, "fasta.gz") == 0 ||
+             strcasecmp(format, "fa.gz") == 0) strcpy(mode, "Fz");
     else return -1;
 
     return 0;
@@ -4390,6 +5314,20 @@ char *sam_open_mode_opts(const char *fn,
     } else if (strncmp(format, "sam", format_len) == 0) {
         ; // format mode=""
     } else if (strncmp(format, "sam.gz", format_len) == 0) {
+        *cp++ = 'z';
+    } else if (strncmp(format, "fastq", format_len) == 0 ||
+               strncmp(format, "fq", format_len) == 0) {
+        *cp++ = 'f';
+    } else if (strncmp(format, "fastq.gz", format_len) == 0 ||
+               strncmp(format, "fq.gz", format_len) == 0) {
+        *cp++ = 'f';
+        *cp++ = 'z';
+    } else if (strncmp(format, "fasta", format_len) == 0 ||
+               strncmp(format, "fa", format_len) == 0) {
+        *cp++ = 'F';
+    } else if (strncmp(format, "fasta.gz", format_len) == 0 ||
+               strncmp(format, "fa", format_len) == 0) {
+        *cp++ = 'F';
         *cp++ = 'z';
     } else {
         free(mode_opts);
@@ -4533,7 +5471,7 @@ static inline int resolve_cigar2(bam_pileup1_t *p, hts_pos_t pos, cstate_t *s)
     uint32_t *cigar = bam_get_cigar(b);
     int k;
     // determine the current CIGAR operation
-    //fprintf(stderr, "%s\tpos=%d\tend=%d\t(%d,%d,%d)\n", bam_get_qname(b), pos, s->end, s->k, s->x, s->y);
+    //fprintf(stderr, "%s\tpos=%ld\tend=%ld\t(%d,%ld,%d)\n", bam_get_qname(b), pos, s->end, s->k, s->x, s->y);
     if (s->k == -1) { // never processed
         p->qpos = 0;
         if (c->n_cigar == 1) { // just one operation, save a loop
@@ -4578,9 +5516,24 @@ static inline int resolve_cigar2(bam_pileup1_t *p, hts_pos_t pos, cstate_t *s)
         if (s->x + l - 1 == pos && s->k + 1 < c->n_cigar) { // peek the next operation
             int op2 = _cop(cigar[s->k+1]);
             int l2 = _cln(cigar[s->k+1]);
-            if (op2 == BAM_CDEL) p->indel = -(int)l2;
-            else if (op2 == BAM_CINS) p->indel = l2;
-            else if (op2 == BAM_CPAD && s->k + 2 < c->n_cigar) { // no working for adjacent padding
+            if (op2 == BAM_CDEL && op != BAM_CDEL) {
+                // At start of a new deletion, merge e.g. 1D2D to 3D.
+                // Within a deletion (the 2D in 1D2D) we keep p->indel=0
+                // and rely on is_del=1 as we would for 3D.
+                p->indel = -(int)l2;
+                for (k = s->k+2; k < c->n_cigar; ++k) {
+                    op2 = _cop(cigar[k]); l2 = _cln(cigar[k]);
+                    if (op2 == BAM_CDEL) p->indel -= l2;
+                    else break;
+                }
+            } else if (op2 == BAM_CINS) {
+                p->indel = l2;
+                for (k = s->k+2; k < c->n_cigar; ++k) {
+                    op2 = _cop(cigar[k]); l2 = _cln(cigar[k]);
+                    if (op2 == BAM_CINS) p->indel += l2;
+                    else if (op2 != BAM_CPAD) break;
+                }
+            } else if (op2 == BAM_CPAD && s->k + 2 < c->n_cigar) {
                 int l3 = 0;
                 for (k = s->k + 2; k < c->n_cigar; ++k) {
                     op2 = _cop(cigar[k]); l2 = _cln(cigar[k]);
@@ -4610,11 +5563,16 @@ static inline int resolve_cigar2(bam_pileup1_t *p, hts_pos_t pos, cstate_t *s)
  * Fills out the kstring with the padded insertion sequence for the current
  * location in 'p'.  If this is not an insertion site, the string is blank.
  *
- * Returns the length of insertion string on success;
+ * This variant handles base modifications, but only when "m" is non-NULL.
+ *
+ * Returns the number of inserted base on success, with string length being
+ *        accessable via ins->l;
  *        -1 on failure.
  */
-int bam_plp_insertion(const bam_pileup1_t *p, kstring_t *ins, int *del_len) {
-    int j, k, indel;
+int bam_plp_insertion_mod(const bam_pileup1_t *p,
+                          hts_base_mod_state *m,
+                          kstring_t *ins, int *del_len) {
+    int j, k, indel, nb = 0;
     uint32_t *cigar;
 
     if (p->indel <= 0) {
@@ -4644,7 +5602,7 @@ int bam_plp_insertion(const bam_pileup1_t *p, kstring_t *ins, int *del_len) {
         }
         k++;
     }
-    ins->l = indel;
+    nb = ins->l = indel;
 
     // Produce sequence
     if (ks_resize(ins, indel+1) < 0)
@@ -4661,9 +5619,43 @@ int bam_plp_insertion(const bam_pileup1_t *p, kstring_t *ins, int *del_len) {
             break;
         case BAM_CINS:
             for (l = 0; l < (cigar[k]>>BAM_CIGAR_SHIFT); l++, j++) {
-                c = seq_nt16_str[bam_seqi(bam_get_seq(p->b),
-                                          p->qpos + j - p->is_del)];
+                c = p->qpos + j - p->is_del < p->b->core.l_qseq
+                    ? seq_nt16_str[bam_seqi(bam_get_seq(p->b),
+                                            p->qpos + j - p->is_del)]
+                    : 'N';
                 ins->s[indel++] = c;
+                int nm;
+                hts_base_mod mod[256];
+                if (m && (nm = bam_mods_at_qpos(p->b, p->qpos + j - p->is_del,
+                                                m, mod, 256)) > 0) {
+                    int o_indel = indel;
+                    if (ks_resize(ins, ins->l + nm*16+3) < 0)
+                        return -1;
+                    ins->s[indel++] = '[';
+                    int j;
+                    for (j = 0; j < nm; j++) {
+                        char qual[20];
+                        if (mod[j].qual >= 0)
+                            snprintf(qual, sizeof(qual), "%d", mod[j].qual);
+                        else
+                            *qual=0;
+                        if (mod[j].modified_base < 0)
+                            // ChEBI
+                            indel += snprintf(&ins->s[indel], ins->m - indel,
+                                              "%c(%d)%s",
+                                              "+-"[mod[j].strand],
+                                              -mod[j].modified_base,
+                                              qual);
+                        else
+                            indel += snprintf(&ins->s[indel], ins->m - indel,
+                                              "%c%c%s",
+                                              "+-"[mod[j].strand],
+                                              mod[j].modified_base,
+                                              qual);
+                    }
+                    ins->s[indel++] = ']';
+                    ins->l += indel - o_indel; // grow by amount we used
+                }
             }
             break;
         case BAM_CDEL:
@@ -4678,8 +5670,23 @@ int bam_plp_insertion(const bam_pileup1_t *p, kstring_t *ins, int *del_len) {
         k++;
     }
     ins->s[indel] = '\0';
+    ins->l = indel; // string length
 
-    return indel;
+    return nb;      // base length
+}
+
+/*
+ * Fills out the kstring with the padded insertion sequence for the current
+ * location in 'p'.  If this is not an insertion site, the string is blank.
+ *
+ * This is the original interface with no capability for reporting base
+ * modifications.
+ *
+ * Returns the length of insertion string on success;
+ *        -1 on failure.
+ */
+int bam_plp_insertion(const bam_pileup1_t *p, kstring_t *ins, int *del_len) {
+    return bam_plp_insertion_mod(p, NULL, ins, del_len);
 }
 
 /***********************
@@ -4737,6 +5744,8 @@ void bam_plp_destroy(bam_plp_t iter)
     lbnode_t *p, *pnext;
     if ( iter->overlaps ) kh_destroy(olap_hash, iter->overlaps);
     for (p = iter->head; p != NULL; p = pnext) {
+        if (iter->plp_destruct && p != iter->tail)
+            iter->plp_destruct(iter->data, &p->b, &p->cd);
         pnext = p->next;
         mp_free(iter->mp, p);
     }
@@ -4840,10 +5849,18 @@ static inline int cigar_iref2iseq_next(const uint32_t **cigar,
     return -1;
 }
 
+// Given overlapping read 'a' (left) and 'b' (right) on the same
+// template, adjust quality values to zero for either a or b.
+// Note versions 1.12 and earlier always removed quality from 'b' for
+// matching bases.  Now we select a or b semi-randomly based on name hash.
+// Returns 0 on success,
+//        -1 on failure
 static int tweak_overlap_quality(bam1_t *a, bam1_t *b)
 {
-    const uint32_t *a_cigar = bam_get_cigar(a), *a_cigar_max = a_cigar + a->core.n_cigar;
-    const uint32_t *b_cigar = bam_get_cigar(b), *b_cigar_max = b_cigar + b->core.n_cigar;
+    const uint32_t *a_cigar = bam_get_cigar(a),
+        *a_cigar_max = a_cigar + a->core.n_cigar;
+    const uint32_t *b_cigar = bam_get_cigar(b),
+        *b_cigar_max = b_cigar + b->core.n_cigar;
     hts_pos_t a_icig = 0, a_iseq = 0;
     hts_pos_t b_icig = 0, b_iseq = 0;
     uint8_t *a_qual = bam_get_qual(a), *b_qual = bam_get_qual(b);
@@ -4852,69 +5869,130 @@ static int tweak_overlap_quality(bam1_t *a, bam1_t *b)
     hts_pos_t iref   = b->core.pos;
     hts_pos_t a_iref = iref - a->core.pos;
     hts_pos_t b_iref = iref - b->core.pos;
-    int a_ret = cigar_iref2iseq_set(&a_cigar, a_cigar_max, &a_icig, &a_iseq, &a_iref);
-    if ( a_ret<0 ) return a_ret<-1 ? -1:0;  // no overlap or error
-    int b_ret = cigar_iref2iseq_set(&b_cigar, b_cigar_max, &b_icig, &b_iseq, &b_iref);
-    if ( b_ret<0 ) return b_ret<-1 ? -1:0;  // no overlap or error
 
-    #if DBG
-        fprintf(stderr,"tweak %s  n_cigar=%d %d  .. %d-%d vs %"PRIhts_pos"-%"PRIhts_pos"\n", bam_get_qname(a), a->core.n_cigar, b->core.n_cigar,
-            a->core.pos+1,a->core.pos+bam_cigar2rlen(a->core.n_cigar,bam_get_cigar(a)), b->core.pos+1, b->core.pos+bam_cigar2rlen(b->core.n_cigar,bam_get_cigar(b)));
-    #endif
+    int a_ret = cigar_iref2iseq_set(&a_cigar, a_cigar_max,
+                                    &a_icig, &a_iseq, &a_iref);
+    if ( a_ret<0 )
+        // no overlap or error
+        return a_ret<-1 ? -1:0;
 
+    int b_ret = cigar_iref2iseq_set(&b_cigar, b_cigar_max,
+                                    &b_icig, &b_iseq, &b_iref);
+    if ( b_ret<0 )
+        // no overlap or error
+        return b_ret<-1 ? -1:0;
+
+    // Determine which seq is the one getting modified qualities.
+    uint8_t amul, bmul;
+    if (__ac_Wang_hash(__ac_X31_hash_string(bam_get_qname(a))) & 1) {
+        amul = 1;
+        bmul = 0;
+    } else {
+        amul = 0;
+        bmul = 1;
+    }
+
+    // Loop over the overlapping region nulling qualities in either
+    // seq a or b.
     int err = 0;
-    while ( 1 )
-    {
-        // Increment reference position
+    while ( 1 ) {
+        // Step to next matching reference position in a and b
         while ( a_ret >= 0 && a_iref>=0 && a_iref < iref - a->core.pos )
-            a_ret = cigar_iref2iseq_next(&a_cigar, a_cigar_max, &a_icig, &a_iseq, &a_iref);
-        if ( a_ret<0 ) { err = a_ret<-1?-1:0; break; }   // done
-        if ( iref < a_iref + a->core.pos ) iref = a_iref + a->core.pos;
+            a_ret = cigar_iref2iseq_next(&a_cigar, a_cigar_max,
+                                         &a_icig, &a_iseq, &a_iref);
+        if ( a_ret<0 ) { // done
+            err = a_ret<-1?-1:0;
+            break;
+        }
 
         while ( b_ret >= 0 && b_iref>=0 && b_iref < iref - b->core.pos )
-            b_ret = cigar_iref2iseq_next(&b_cigar, b_cigar_max, &b_icig, &b_iseq, &b_iref);
-        if ( b_ret<0 ) { err = b_ret<-1?-1:0; break; }  // done
-        if ( iref < b_iref + b->core.pos ) iref = b_iref + b->core.pos;
+            b_ret = cigar_iref2iseq_next(&b_cigar, b_cigar_max, &b_icig,
+                                         &b_iseq, &b_iref);
+        if ( b_ret<0 ) { // done
+            err = b_ret<-1?-1:0;
+            break;
+        }
+
+        if ( iref < a_iref + a->core.pos )
+            iref = a_iref + a->core.pos;
+
+        if ( iref < b_iref + b->core.pos )
+            iref = b_iref + b->core.pos;
 
         iref++;
-        if ( a_iref+a->core.pos != b_iref+b->core.pos ) continue;   // only CMATCH positions, don't know what to do with indels
+
+        // If A or B has a deletion then we catch up the other to this point.
+        // We also amend quality values using the same rules for mismatch.
+        if (a_iref+a->core.pos != b_iref+b->core.pos) {
+            if (a_iref+a->core.pos < b_iref+b->core.pos
+                && b_cigar > bam_get_cigar(b)
+                && bam_cigar_op(b_cigar[-1]) == BAM_CDEL) {
+                // Del in B means it's moved on further than A
+                do {
+                    a_qual[a_iseq] = amul
+                        ? a_qual[a_iseq]*0.8
+                        : 0;
+                    a_ret = cigar_iref2iseq_next(&a_cigar, a_cigar_max,
+                                                 &a_icig, &a_iseq, &a_iref);
+                    if (a_ret < 0)
+                        return -(a_ret<-1); // 0 or -1
+                } while (a_iref + a->core.pos < b_iref+b->core.pos);
+            } else if (a_cigar > bam_get_cigar(a)
+                       && bam_cigar_op(a_cigar[-1]) == BAM_CDEL) {
+                // Del in A means it's moved on further than B
+                do {
+                    b_qual[b_iseq] = bmul
+                        ? b_qual[b_iseq]*0.8
+                        : 0;
+                    b_ret = cigar_iref2iseq_next(&b_cigar, b_cigar_max,
+                                                 &b_icig, &b_iseq, &b_iref);
+                    if (b_ret < 0)
+                        return -(b_ret<-1); // 0 or -1
+                } while (b_iref + b->core.pos < a_iref+a->core.pos);
+            } else {
+                // Anything else, eg ref-skip, we don't support here
+                continue;
+            }
+        }
+
+        // fprintf(stderr, "a_cig=%ld,%ld b_cig=%ld,%ld iref=%ld "
+        //         "a_iref=%ld b_iref=%ld a_iseq=%ld b_iseq=%ld\n",
+        //         a_cigar-bam_get_cigar(a), a_icig,
+        //         b_cigar-bam_get_cigar(b), b_icig,
+        //         iref, a_iref+a->core.pos+1, b_iref+b->core.pos+1,
+        //         a_iseq, b_iseq);
 
         if (a_iseq > a->core.l_qseq || b_iseq > b->core.l_qseq)
-            return -1;  // Fell off end of sequence, bad CIGAR?
+            // Fell off end of sequence, bad CIGAR?
+            return -1;
 
-        if ( bam_seqi(a_seq,a_iseq) == bam_seqi(b_seq,b_iseq) )
-        {
-            #if DBG
-                fprintf(stderr,"%c",seq_nt16_str[bam_seqi(a_seq,a_iseq)]);
-            #endif
-            // we are very confident about this base
+        // We're finally at the same ref base in both a and b.
+        // Check if the bases match (confident) or mismatch
+        // (not so confident).
+        if ( bam_seqi(a_seq,a_iseq) == bam_seqi(b_seq,b_iseq) ) {
+            // We are very confident about this base.  Use sum of quals
             int qual = a_qual[a_iseq] + b_qual[b_iseq];
-            a_qual[a_iseq] = qual>200 ? 200 : qual;
-            b_qual[b_iseq] = 0;
-        }
-        else
-        {
-            if ( a_qual[a_iseq] >= b_qual[b_iseq] )
-            {
-                #if DBG
-                    fprintf(stderr,"[%c/%c]",seq_nt16_str[bam_seqi(a_seq,a_iseq)],tolower_c(seq_nt16_str[bam_seqi(b_seq,b_iseq)]));
-                #endif
-                a_qual[a_iseq] = 0.8 * a_qual[a_iseq];  // not so confident about a_qual anymore given the mismatch
+            a_qual[a_iseq] = amul * (qual>200 ? 200 : qual);
+            b_qual[b_iseq] = bmul * (qual>200 ? 200 : qual);;
+        } else {
+            // Not so confident about anymore given the mismatch.
+            // Reduce qual for lowest quality base.
+            if ( a_qual[a_iseq] > b_qual[b_iseq] ) {
+                // A highest qual base; keep
+                a_qual[a_iseq] = 0.8 * a_qual[a_iseq];
                 b_qual[b_iseq] = 0;
-            }
-            else
-            {
-                #if DBG
-                    fprintf(stderr,"[%c/%c]",tolower_c(seq_nt16_str[bam_seqi(a_seq,a_iseq)]),seq_nt16_str[bam_seqi(b_seq,b_iseq)]);
-                #endif
+            } else if (a_qual[a_iseq] < b_qual[b_iseq] ) {
+                // B highest qual base; keep
                 b_qual[b_iseq] = 0.8 * b_qual[b_iseq];
                 a_qual[a_iseq] = 0;
+            } else {
+                // Both equal, so pick randomly
+                a_qual[a_iseq] = amul * 0.8 * a_qual[a_iseq];
+                b_qual[b_iseq] = bmul * 0.8 * b_qual[b_iseq];
             }
         }
     }
-    #if DBG
-        fprintf(stderr,"\n");
-    #endif
+
     return err;
 }
 
@@ -5086,9 +6164,14 @@ int bam_plp_push(bam_plp_t iter, const bam1_t *b)
                 iter->error = 1;
                 return -1;
             }
-            if (iter->plp_construct)
-                iter->plp_construct(iter->data, &iter->tail->b,
-                                    &iter->tail->cd);
+            if (iter->plp_construct) {
+                if (iter->plp_construct(iter->data, &iter->tail->b,
+                                        &iter->tail->cd) < 0) {
+                    mp_free(iter->mp, next);
+                    iter->error = 1;
+                    return -1;
+                }
+            }
             if (overlap_push(iter, iter->tail) < 0) {
                 mp_free(iter->mp, next);
                 iter->error = 1;

@@ -1,6 +1,6 @@
 /*  realn.c -- BAQ calculation and realignment.
 
-    Copyright (C) 2009-2011, 2014-2016, 2018 Genome Research Ltd.
+    Copyright (C) 2009-2011, 2014-2016, 2018, 2021, 2023 Genome Research Ltd.
     Portions copyright (C) 2009-2011 Broad Institute.
 
     Author: Heng Li <lh3@sanger.ac.uk>
@@ -91,25 +91,44 @@ int sam_cap_mapq(bam1_t *b, const char *ref, hts_pos_t ref_len, int thres)
 static int realn_check_tag(const uint8_t *tg, enum htsLogLevel severity,
                            const char *type, const bam1_t *b) {
     if (*tg != 'Z') {
-        hts_log(severity, "Incorrect %s tag type (%c) for read %s",
+        hts_log(severity, __func__, "Incorrect %s tag type (%c) for read %s",
                 type, *tg, bam_get_qname(b));
         return -1;
     }
     if (b->core.l_qseq != strlen((const char *) tg + 1)) {
-        hts_log(severity, "Read %s %s tag is wrong length",
+        hts_log(severity, __func__, "Read %s %s tag is wrong length",
                 bam_get_qname(b), type);
         return -1;
     }
     return 0;
 }
 
-int sam_prob_realn(bam1_t *b, const char *ref, hts_pos_t ref_len, int flag)
-{
-    int k, bw, y, yb, ye, xb, xe, apply_baq = flag&1, extend_baq = flag>>1&1, redo_baq = flag&4, fix_bq = 0;
+int sam_prob_realn(bam1_t *b, const char *ref, hts_pos_t ref_len, int flag) {
+    int k, bw, y, yb, ye, xb, xe, fix_bq = 0, apply_baq = flag & BAQ_APPLY,
+        extend_baq = flag & BAQ_EXTEND, redo_baq = flag & BAQ_REDO;
+    enum htsRealnFlags system = flag & (0xff << 3);
     hts_pos_t i, x;
     uint32_t *cigar = bam_get_cigar(b);
     bam1_core_t *c = &b->core;
-    probaln_par_t conf = { 0.001, 0.1, 10 };
+
+    // d(I) e(M) band
+    probaln_par_t conf = { 0.001, 0.1, 10 }; // Illumina
+
+    if (b->core.l_qseq > 1000 || system > BAQ_ILLUMINA) {
+        // Params that work well on PacBio CCS 15k.  Unknown if they
+        // help other long-read platforms yet, but likely better than
+        // the short-read tuned ones.
+        //
+        // This function has no access to the SAM header.
+        // Ideally the calling function would check for e.g.
+        // @RG PL = "PACBIO" and DS contains "READTYPE=CCS".
+        //
+        // In the absense of this, we simply auto-detect via a crude
+        // short vs long strategy.
+        conf.d = 1e-7;
+        conf.e = 1e-1;
+    }
+
     uint8_t *bq = NULL, *zq = NULL, *qual = bam_get_qual(b);
     int *state = NULL;
     if ((c->flag & BAM_FUNMAP) || b->core.l_qseq == 0 || qual[0] == (uint8_t)-1)
@@ -177,6 +196,7 @@ int sam_prob_realn(bam1_t *b, const char *ref, hts_pos_t ref_len, int flag)
     if (abs((xe - xb) - (ye - yb)) > bw)
         bw = abs((xe - xb) - (ye - yb)) + 3;
     conf.bw = bw;
+
     xb -= yb + bw/2; if (xb < 0) xb = 0;
     xe += c->l_qseq - ye + bw/2;
     if (xe - xb - c->l_qseq > bw)
@@ -248,8 +268,28 @@ int sam_prob_realn(bam1_t *b, const char *ref, hts_pos_t ref_len, int flag)
             // tseq,tref are no longer needed, so we can steal them to avoid mallocs
             uint8_t *left = tseq;
             uint8_t *rght = tref;
+            int len = 0;
+
             for (k = 0, x = c->pos, y = 0; k < c->n_cigar; ++k) {
                 int op = cigar[k]&0xf, l = cigar[k]>>4;
+
+                // concatenate alignment matches (including sequence (mis)matches)
+                // otherwise 50M50M gives a different result to 100M
+                if (op == BAM_CMATCH || op == BAM_CEQUAL || op == BAM_CDIFF) {
+                    if ((k + 1) < c->n_cigar) {
+                        int next_op = bam_cigar_op(cigar[k + 1]);
+
+                        if (next_op == BAM_CMATCH || next_op == BAM_CEQUAL || next_op == BAM_CDIFF) {
+                            len += l;
+                            continue;
+                        }
+                    }
+
+                    // last of M/X/= ops
+                    l += len;
+                    len = 0;
+                }
+
                 if (l == 0) continue;
                 if (op == BAM_CMATCH || op == BAM_CEQUAL || op == BAM_CDIFF) {
                     // Sanity check running off the end of the sequence
@@ -282,6 +322,7 @@ int sam_prob_realn(bam1_t *b, const char *ref, hts_pos_t ref_len, int flag)
         } else bam_aux_append(b, "BQ", 'Z', c->l_qseq + 1, bq);
         free(bq); free(state);
     }
+
     return 0;
 
  fail:

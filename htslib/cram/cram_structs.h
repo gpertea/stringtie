@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2012-2016, 2018-2020 Genome Research Ltd.
+Copyright (c) 2012-2016, 2018-2020, 2023 Genome Research Ltd.
 Author: James Bonfield <jkb@sanger.ac.uk>
 
 Redistribution and use in source and binary forms, with or without
@@ -88,7 +88,7 @@ struct hFILE;
 #define BASES_PER_SLICE (SEQS_PER_SLICE*500)
 #define SLICE_PER_CNT  1
 
-#define CRAM_SUBST_MATRIX "CGTNAGTNACTNACGNACGT"
+#define CRAM_SUBST_MATRIX "CGTNGTANCATNGCANACGT"
 
 #define MAX_STAT_VAL 1024
 //#define MAX_STAT_VAL 16
@@ -289,6 +289,7 @@ struct cram_metrics {
 
     // aggregate sizes during trials
     int sz[CRAM_MAX_METHOD];
+    int input_avg_sz, input_avg_delta;
 
     // resultant method from trials
     int method, revised_method;
@@ -454,8 +455,11 @@ struct cram_container {
     int qs_seq_orient;           // 1 => same as seq. 0 => original orientation
 
     /* Copied from fd before encoding, to allow multi-threading */
-    int ref_start, first_base, last_base, ref_id, ref_end;
+    int ref_id;
+    hts_pos_t ref_start, first_base, last_base, ref_end;
     char *ref;
+    int embed_ref;               // 1 if embedding ref, 2 if embedding cons
+    int no_ref;                  // true if referenceless
     //struct ref_entry *ref;
 
     /* For multi-threading */
@@ -470,8 +474,10 @@ struct cram_container {
     uint32_t crc32;       // CRC32
 
     uint64_t s_num_bases; // number of bases in this slice
+    uint64_t s_aux_bytes; // number of bytes of aux in BAM
 
     uint32_t n_mapped;    // Number of mapped reads
+    int ref_free;         // whether 'ref' is owned by us and must be freed.
 };
 
 /*
@@ -496,8 +502,8 @@ typedef struct cram_record {
 
     // Auxiliary data
     int32_t ntags;        // TC
-    int32_t aux;          // idx to s->aux_blk
-    int32_t aux_size;     // total size of packed ntags in aux_blk
+    uint32_t aux;         // idx to s->aux_blk
+    uint32_t aux_size;    // total size of packed ntags in aux_blk
 #ifndef TN_external
     int32_t TN_idx;       // TN; idx to s->TN;
 #else
@@ -505,15 +511,15 @@ typedef struct cram_record {
 #endif
     int     TL;
 
-    int32_t seq;          // idx to s->seqs_blk
-    int32_t qual;         // idx to s->qual_blk
-    int32_t cigar;        // idx to s->cigar
+    uint32_t seq;         // idx to s->seqs_blk
+    uint32_t qual;        // idx to s->qual_blk
+    uint32_t cigar;       // idx to s->cigar
     int32_t ncigar;
     int64_t aend;         // alignment end
     int32_t mqual;        // MQ
 
-    int32_t feature;      // idx to s->feature
-    int32_t nfeature;     // number of features
+    uint32_t feature;     // idx to s->feature
+    uint32_t nfeature;    // number of features
     int32_t mate_flags;   // MF
 } cram_record;
 
@@ -619,8 +625,8 @@ struct cram_slice {
     uint32_t   ncigar;
 
     cram_feature *features;
-    int           nfeatures;
-    int           afeatures; // allocated size of features
+    uint32_t      nfeatures;
+    uint32_t      afeatures; // allocated size of features
 
 #ifndef TN_external
     // TN field (Tag Name)
@@ -643,8 +649,8 @@ struct cram_slice {
     khash_t(m_s2i) *pair[2];   // for identifying read-pairs in this slice.
 
     char *ref;                 // slice of current reference
-    int ref_start;             // start position of current reference;
-    int ref_end;               // end position of current reference;
+    hts_pos_t ref_start;       // start position of current reference;
+    hts_pos_t ref_end;         // end position of current reference;
     int ref_id;
 
     // For going from BAM to CRAM; an array of auxiliary blocks per type
@@ -673,6 +679,7 @@ typedef struct ref_entry {
     char *seq;
     mFILE *mf;
     int is_md5;            // Reference comes from a raw seq found by MD5
+    int validated_md5;
 } ref_entry;
 
 KHASH_MAP_INIT_STR(refs, ref_entry*)
@@ -720,7 +727,10 @@ typedef struct cram_index {
     int     slice;  // 1.0 landmark index, 1.1 landmark value
     int     len;    //                     1.1 - size of slice in bytes
     int64_t offset; // 1.0                 1.1
-    int64_t next;   // derived: offset of next container.
+
+    // Linked list of cram_index entries. Used to convert recursive
+    // NCList back to a linear list.
+    struct cram_index *e_next;
 } cram_index;
 
 typedef struct {
@@ -753,10 +763,10 @@ typedef struct varint_vec {
     int64_t (*varint_get64s)(char **cp, const char *endp, int *err);
 
     // Returns the number of bytes written, <= 0 on error.
-    int (*varint_put32) (char *cp, const char *endp, int32_t val_p);
-    int (*varint_put32s)(char *cp, const char *endp, int32_t val_p);
-    int (*varint_put64) (char *cp, const char *endp, int64_t val_p);
-    int (*varint_put64s)(char *cp, const char *endp, int64_t val_p);
+    int (*varint_put32) (char *cp, char *endp, int32_t val_p);
+    int (*varint_put32s)(char *cp, char *endp, int32_t val_p);
+    int (*varint_put64) (char *cp, char *endp, int64_t val_p);
+    int (*varint_put64s)(char *cp, char *endp, int64_t val_p);
 
     // Returns the number of bytes written, <= 0 on error.
     int (*varint_put32_blk) (cram_block *blk, int32_t val_p);
@@ -790,15 +800,15 @@ struct cram_fd {
     cram_container *ctr_mt;
 
     // positions for encoding or decoding
-    int first_base, last_base;
+    int first_base, last_base; // copied to container
 
     // cached reference portion
-    refs_t *refs;              // ref meta-data structure
-    char *ref, *ref_free;      // current portion held in memory
-    int   ref_id;
-    int   ref_start;
-    int   ref_end;
-    char *ref_fn;   // reference fasta filename
+    refs_t   *refs;                // ref meta-data structure
+    char     *ref, *ref_free;      // current portion held in memory
+    int       ref_id;              // copied to container
+    hts_pos_t ref_start;           // copied to container
+    hts_pos_t ref_end;             // copied to container
+    char     *ref_fn;              // reference fasta filename
 
     // compression level and metrics
     int level;
@@ -810,8 +820,9 @@ struct cram_fd {
     int seqs_per_slice;
     int bases_per_slice;
     int slices_per_container;
-    int embed_ref;
-    int no_ref;
+    int embed_ref; // copied to container
+    int no_ref;    // copied to container
+    int no_ref_counter; // decide if permanent switch
     int ignore_md5;
     int use_bz2;
     int use_rans;

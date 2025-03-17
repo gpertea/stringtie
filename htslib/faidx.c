@@ -1,6 +1,6 @@
 /*  faidx.c -- FASTA and FASTQ random access.
 
-    Copyright (C) 2008, 2009, 2013-2020 Genome Research Ltd.
+    Copyright (C) 2008, 2009, 2013-2020, 2022, 2024 Genome Research Ltd.
     Portions copyright (C) 2011 Broad Institute.
 
     Author: Heng Li <lh3@sanger.ac.uk>
@@ -42,6 +42,29 @@ DEALINGS IN THE SOFTWARE.  */
 #include "htslib/khash.h"
 #include "htslib/kstring.h"
 #include "hts_internal.h"
+
+// Faster isgraph; assumes ASCII
+static inline int isgraph_(unsigned char c) {
+    return c > ' ' && c <= '~';
+}
+
+#ifdef isgraph
+#  undef isgraph
+#endif
+#define isgraph isgraph_
+
+// An optimised bgzf_getc.
+// We could consider moving this to bgzf.h, but our own code uses it here only.
+static inline int bgzf_getc_(BGZF *fp) {
+    if (fp->block_offset+1 < fp->block_length) {
+        int c = ((unsigned char*)fp->uncompressed_block)[fp->block_offset++];
+        fp->uncompressed_address++;
+        return c;
+    }
+
+    return bgzf_getc(fp);
+}
+#define bgzf_getc bgzf_getc_
 
 typedef struct {
     int id; // faidx_t->name[id] is for this struct.
@@ -190,7 +213,7 @@ static faidx_t *fai_build_core(BGZF *bgzf) {
                 kputsn("", 0, &name);
 
                 if (c < 0) {
-                    hts_log_error("The last entry '%s' has no sequence", name.s);
+                    hts_log_error("The last entry '%s' has no sequence at line %d", name.s, line_num);
                     goto fail;
                 }
 
@@ -247,7 +270,7 @@ static faidx_t *fai_build_core(BGZF *bgzf) {
                         state = SEQ_END;
 
                 } else if (line_len < ll) {
-                    hts_log_error("Different line length in sequence '%s'", name.s);
+                    hts_log_error("Different line length in sequence '%s' at line %d", name.s, line_num);
                     goto fail;
                 }
 
@@ -269,7 +292,7 @@ static faidx_t *fai_build_core(BGZF *bgzf) {
             case IN_QUAL:
                 if (c == '\n') {
                     if (!read_done) {
-                        hts_log_error("Inlined empty line is not allowed in quality of sequence '%s'", name.s);
+                        hts_log_error("Inlined empty line is not allowed in quality of sequence '%s' at line %d", name.s, line_num);
                         goto fail;
                     }
 
@@ -312,6 +335,7 @@ static faidx_t *fai_build_core(BGZF *bgzf) {
         if (fai_insert_index(idx, name.s, seq_len, line_len, char_len, seq_offset, qual_offset) != 0)
             goto fail;
     } else {
+        hts_log_error("File truncated at line %d", line_num);
         goto fail;
     }
 
@@ -446,7 +470,7 @@ static int fai_build3_core(const char *fn, const char *fnfai, const char *fngzi)
     bgzf = bgzf_open(fn, "r");
 
     if ( !bgzf ) {
-        hts_log_error("Failed to open the file %s", fn);
+        hts_log_error("Failed to open the file %s : %s", fn, strerror(errno));
         goto fail;
     }
 
@@ -691,13 +715,18 @@ faidx_t *fai_load_format(const char *fn, enum fai_format_options format) {
 
 static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
                           uint64_t offset, hts_pos_t beg, hts_pos_t end, hts_pos_t *len) {
-    char *s;
-    size_t l;
-    int c = 0;
+    char *buffer, *s;
+    ssize_t nread, remaining, firstline_len, firstline_blen;
     int ret;
 
     if ((uint64_t) end - (uint64_t) beg >= SIZE_MAX - 2) {
         hts_log_error("Range %"PRId64"..%"PRId64" too big", beg, end);
+        *len = -1;
+        return NULL;
+    }
+
+    if (val->line_blen <= 0) {
+        hts_log_error("Invalid line length in index: %d", val->line_blen);
         *len = -1;
         return NULL;
     }
@@ -713,26 +742,57 @@ static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
         return NULL;
     }
 
-    l = 0;
-    s = (char*)malloc((size_t) end - beg + 2);
-    if (!s) {
+    // Over-allocate so there is extra space for one end-of-line sequence
+    buffer = (char*)malloc((size_t) end - beg + val->line_len - val->line_blen + 1);
+    if (!buffer) {
         *len = -1;
         return NULL;
     }
 
-    while ( l < end - beg && (c=bgzf_getc(fai->bgzf))>=0 )
-        if (isgraph(c)) s[l++] = c;
-    if (c < 0) {
-        hts_log_error("Failed to retrieve block: %s",
-            c == -1 ? "unexpected end of file" : "error reading file");
-        free(s);
-        *len = -1;
-        return NULL;
+    remaining = *len = end - beg;
+    firstline_blen = val->line_blen - beg % val->line_blen;
+
+    // Special case when the entire interval requested is within a single FASTA/Q line
+    if (remaining <= firstline_blen) {
+        nread = bgzf_read_small(fai->bgzf, buffer, remaining);
+        if (nread < remaining) goto error;
+        buffer[nread] = '\0';
+        return buffer;
     }
 
-    s[l] = '\0';
-    *len = l < INT_MAX ? l : INT_MAX;
-    return s;
+    s = buffer;
+    firstline_len = val->line_len - beg % val->line_blen;
+
+    // Read the (partial) first line and its line terminator, but increment  s  past the
+    // line contents only, so the terminator characters will be overwritten by the next line.
+    nread = bgzf_read_small(fai->bgzf, s, firstline_len);
+    if (nread < firstline_len) goto error;
+    s += firstline_blen;
+    remaining -= firstline_blen;
+
+    // Similarly read complete lines and their line terminator characters, but overwrite the latter.
+    while (remaining > val->line_blen) {
+        nread = bgzf_read_small(fai->bgzf, s, val->line_len);
+        if (nread < (ssize_t) val->line_len) goto error;
+        s += val->line_blen;
+        remaining -= val->line_blen;
+    }
+
+    if (remaining > 0) {
+        nread = bgzf_read_small(fai->bgzf, s, remaining);
+        if (nread < remaining) goto error;
+        s += remaining;
+    }
+
+    *s = '\0';
+    return buffer;
+
+error:
+    hts_log_error("Failed to retrieve block: %s",
+                  (nread == 0)? "unexpected end of file" : "error reading file");
+    free(buffer);
+    *len = -1;
+    return NULL;
 }
 
 static int fai_get_val(const faidx_t *fai, const char *str,
@@ -766,6 +826,22 @@ static int fai_get_val(const faidx_t *fai, const char *str,
     return 0;
 }
 
+/*
+ *  The internal still has line_blen as uint32_t, but our references
+ *  can be longer, so for future proofing we use hts_pos_t.  We also needed
+ *  a signed value so we can return negatives as an error.
+ */
+hts_pos_t fai_line_length(const faidx_t *fai, const char *str)
+{
+    faidx1_t val;
+    int64_t beg, end;
+    hts_pos_t len;
+
+    if (fai_get_val(fai, str, &len, &val, &beg, &end))
+        return -1;
+    else
+        return val.line_blen;
+}
 
 char *fai_fetch64(const faidx_t *fai, const char *str, hts_pos_t *len)
 {
@@ -784,7 +860,7 @@ char *fai_fetch(const faidx_t *fai, const char *str, int *len)
 {
     hts_pos_t len64;
     char *ret = fai_fetch64(fai, str, &len64);
-    *len = len64; // trunc
+    *len = len64 < INT_MAX ? len64 : INT_MAX; // trunc
     return ret;
 }
 
@@ -803,7 +879,7 @@ char *fai_fetchqual64(const faidx_t *fai, const char *str, hts_pos_t *len) {
 char *fai_fetchqual(const faidx_t *fai, const char *str, int *len) {
     hts_pos_t len64;
     char *ret = fai_fetchqual64(fai, str, &len64);
-    *len = len64; // trunc
+    *len = len64 < INT_MAX ? len64 : INT_MAX; // trunc
     return ret;
 }
 
@@ -822,26 +898,40 @@ const char *faidx_iseq(const faidx_t *fai, int i)
     return fai->name[i];
 }
 
-int faidx_seq_len(const faidx_t *fai, const char *seq)
+hts_pos_t faidx_seq_len64(const faidx_t *fai, const char *seq)
 {
     khint_t k = kh_get(s, fai->hash, seq);
     if ( k == kh_end(fai->hash) ) return -1;
     return kh_val(fai->hash, k).len;
 }
 
-static int faidx_adjust_position(const faidx_t *fai, faidx1_t *val, const char *c_name, hts_pos_t *p_beg_i, hts_pos_t *p_end_i, hts_pos_t *len) {
+int faidx_seq_len(const faidx_t *fai, const char *seq)
+{
+    hts_pos_t len = faidx_seq_len64(fai, seq);
+    return len < INT_MAX ? len : INT_MAX;
+}
+
+static int faidx_adjust_position(const faidx_t *fai, int end_adjust,
+                                 faidx1_t *val_out, const char *c_name,
+                                 hts_pos_t *p_beg_i, hts_pos_t *p_end_i,
+                                 hts_pos_t *len) {
     khiter_t iter;
+    faidx1_t *val;
 
     // Adjust position
     iter = kh_get(s, fai->hash, c_name);
 
     if (iter == kh_end(fai->hash)) {
-        *len = -2;
+        if (len)
+            *len = -2;
         hts_log_error("The sequence \"%s\" was not found", c_name);
         return 1;
     }
 
-    *val = kh_value(fai->hash, iter);
+    val = &kh_value(fai->hash, iter);
+
+    if (val_out)
+        *val_out = *val;
 
     if(*p_end_i < *p_beg_i)
         *p_beg_i = *p_end_i;
@@ -849,14 +939,34 @@ static int faidx_adjust_position(const faidx_t *fai, faidx1_t *val, const char *
     if(*p_beg_i < 0)
         *p_beg_i = 0;
     else if(val->len <= *p_beg_i)
-        *p_beg_i = val->len - 1;
+        *p_beg_i = val->len;
 
     if(*p_end_i < 0)
         *p_end_i = 0;
     else if(val->len <= *p_end_i)
-        *p_end_i = val->len - 1;
+        *p_end_i = val->len - end_adjust;
 
     return 0;
+}
+
+int fai_adjust_region(const faidx_t *fai, int tid,
+                      hts_pos_t *beg, hts_pos_t *end)
+{
+    hts_pos_t orig_beg, orig_end;
+
+    if (!fai || !beg || !end || tid < 0 || tid >= fai->n)
+        return -1;
+
+    orig_beg = *beg;
+    orig_end = *end;
+    if (faidx_adjust_position(fai, 0, NULL, fai->name[tid], beg, end, NULL) != 0) {
+        hts_log_error("Inconsistent faidx internal state - couldn't find \"%s\"",
+                      fai->name[tid]);
+        return -1;
+    }
+
+    return ((orig_beg != *beg ? 1 : 0) |
+            (orig_end != *end && orig_end < HTS_POS_MAX ? 2 : 0));
 }
 
 char *faidx_fetch_seq64(const faidx_t *fai, const char *c_name, hts_pos_t p_beg_i, hts_pos_t p_end_i, hts_pos_t *len)
@@ -864,7 +974,7 @@ char *faidx_fetch_seq64(const faidx_t *fai, const char *c_name, hts_pos_t p_beg_
     faidx1_t val;
 
     // Adjust position
-    if (faidx_adjust_position(fai, &val, c_name, &p_beg_i, &p_end_i, len)) {
+    if (faidx_adjust_position(fai, 1, &val, c_name, &p_beg_i, &p_end_i, len)) {
         return NULL;
     }
 
@@ -876,7 +986,7 @@ char *faidx_fetch_seq(const faidx_t *fai, const char *c_name, int p_beg_i, int p
 {
     hts_pos_t len64;
     char *ret = faidx_fetch_seq64(fai, c_name, p_beg_i, p_end_i, &len64);
-    *len = len64;  // trunc
+    *len = len64 < INT_MAX ? len64 : INT_MAX;  // trunc
     return ret;
 }
 
@@ -885,7 +995,7 @@ char *faidx_fetch_qual64(const faidx_t *fai, const char *c_name, hts_pos_t p_beg
     faidx1_t val;
 
     // Adjust position
-    if (faidx_adjust_position(fai, &val, c_name, &p_beg_i, &p_end_i, len)) {
+    if (faidx_adjust_position(fai, 1, &val, c_name, &p_beg_i, &p_end_i, len)) {
         return NULL;
     }
 
@@ -897,7 +1007,7 @@ char *faidx_fetch_qual(const faidx_t *fai, const char *c_name, int p_beg_i, int 
 {
     hts_pos_t len64;
     char *ret = faidx_fetch_qual64(fai, c_name, p_beg_i, p_end_i, &len64);
-    *len = len64;  // trunc
+    *len = len64 < INT_MAX ? len64 : INT_MAX;  // trunc
     return ret;
 }
 
@@ -917,6 +1027,11 @@ const char *fai_parse_region(const faidx_t *fai, const char *s,
 
 void fai_set_cache_size(faidx_t *fai, int cache_size) {
     bgzf_set_cache_size(fai->bgzf, cache_size);
+}
+
+// Adds a thread pool to the underlying BGZF layer.
+int fai_thread_pool(faidx_t *fai, struct hts_tpool *pool, int qsize) {
+    return bgzf_thread_pool(fai->bgzf, pool, qsize);
 }
 
 char *fai_path(const char *fa) {

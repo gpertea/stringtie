@@ -1,7 +1,7 @@
 /// @file htslib/hfile.h
 /// Buffered low-level input/output streams.
 /*
-    Copyright (C) 2013-2020 Genome Research Ltd.
+    Copyright (C) 2013-2022 Genome Research Ltd.
 
     Author: John Marshall <jm18@sanger.ac.uk>
 
@@ -32,6 +32,13 @@ DEALINGS IN THE SOFTWARE.  */
 
 #include "hts_defs.h"
 
+// Ensure ssize_t exists within this header. All #includes must precede this,
+// and ssize_t must be undefined again at the end of this header.
+#if defined _MSC_VER && defined _INTPTR_T_DEFINED && !defined _SSIZE_T_DEFINED && !defined ssize_t
+#define HTSLIB_SSIZE_T
+#define ssize_t intptr_t
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -50,7 +57,7 @@ typedef struct hFILE {
     char *buffer, *begin, *end, *limit;
     const struct hFILE_backend *backend;
     off_t offset;
-    unsigned at_eof:1, mobile:1, readonly:1;
+    unsigned at_eof:1, mobile:1, readonly:1, preserve:1;
     int has_errno;
     // @endcond
 } hFILE;
@@ -72,6 +79,10 @@ hFILE *hopen(const char *filename, const char *mode, ...) HTS_RESULT_USED;
 Note that the file must be opened in binary mode, or else
 there will be problems on platforms that make a difference
 between text and binary mode.
+
+By default, the returned hFILE "takes ownership" of the file descriptor
+and _fd_ will be closed by hclose(). When _mode_ contains `S` (shared fd),
+hclose() will destroy the hFILE but not close the underlying _fd_.
 
 For socket descriptors (on Windows), _mode_ should contain `s`.
 */
@@ -151,6 +162,7 @@ static inline off_t htell(hFILE *fp)
 */
 static inline int hgetc(hFILE *fp)
 {
+    HTSLIB_EXPORT
     extern int hgetc2(hFILE *);
     return (fp->end > fp->begin)? (unsigned char) *(fp->begin++) : hgetc2(fp);
 }
@@ -222,6 +234,7 @@ or I/O errors.
 static inline ssize_t HTS_RESULT_USED
 hread(hFILE *fp, void *buffer, size_t nbytes)
 {
+    HTSLIB_EXPORT
     extern ssize_t hread2(hFILE *, void *, size_t, size_t);
 
     size_t n = fp->end - fp->begin;
@@ -236,6 +249,7 @@ hread(hFILE *fp, void *buffer, size_t nbytes)
 */
 static inline int hputc(int c, hFILE *fp)
 {
+    HTSLIB_EXPORT
     extern int hputc2(int, hFILE *);
     if (fp->begin < fp->limit) *(fp->begin++) = c;
     else c = hputc2(c, fp);
@@ -247,6 +261,7 @@ static inline int hputc(int c, hFILE *fp)
 */
 static inline int hputs(const char *text, hFILE *fp)
 {
+    HTSLIB_EXPORT
     extern int hputs2(const char *, size_t, size_t, hFILE *);
 
     size_t nbytes = strlen(text), n = fp->limit - fp->begin;
@@ -264,7 +279,9 @@ In the absence of I/O errors, the full _nbytes_ will be written.
 static inline ssize_t HTS_RESULT_USED
 hwrite(hFILE *fp, const void *buffer, size_t nbytes)
 {
+    HTSLIB_EXPORT
     extern ssize_t hwrite2(hFILE *, const void *, size_t, size_t);
+    HTSLIB_EXPORT
     extern int hfile_set_blksize(hFILE *fp, size_t bufsiz);
 
     if (!fp->mobile) {
@@ -366,6 +383,11 @@ int hfile_has_plugin(const char *name);
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef HTSLIB_SSIZE_T
+#undef HTSLIB_SSIZE_T
+#undef ssize_t
 #endif
 
 #endif

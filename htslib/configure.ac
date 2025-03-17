@@ -1,6 +1,6 @@
 # Configure script for htslib, a C library for high-throughput sequencing data.
 #
-#    Copyright (C) 2015-2021 Genome Research Ltd.
+#    Copyright (C) 2015-2024 Genome Research Ltd.
 #
 #    Author: John Marshall <jm18@sanger.ac.uk>
 #
@@ -30,11 +30,12 @@ AC_CONFIG_SRCDIR(hts.c)
 AC_CONFIG_HEADERS(config.h)
 
 m4_include([m4/hts_prog_cc_warnings.m4])
+m4_include([m4/hts_check_compile_flags_needed.m4])
 m4_include([m4/hts_hide_dynamic_syms.m4])
 m4_include([m4/pkg.m4])
 
 dnl Copyright notice to be copied into the generated configure script
-AC_COPYRIGHT([Portions copyright (C) 2020-2021 Genome Research Ltd.
+AC_COPYRIGHT([Portions copyright (C) 2020-2024 Genome Research Ltd.
 
 This configure script is free software: you are free to change and
 redistribute it.  There is NO WARRANTY, to the extent permitted by law.])
@@ -69,6 +70,126 @@ dnl Flags to treat warnings as errors.  These need to be applied to CFLAGS
 dnl later as they can interfere with some of the tests (notably AC_SEARCH_LIBS)
 HTS_PROG_CC_WERROR(hts_late_cflags)
 
+# HTSlib uses X/Open-only facilities (M_SQRT2 etc, drand48() etc), and
+# various POSIX functions that are provided by various _POSIX_C_SOURCE values
+# or by _XOPEN_SOURCE >= 500. It also uses usleep(), which is removed when
+# _XOPEN_SOURCE >= 700. Additionally, some definitions may require
+# _XOPEN_SOURCE >= 600 on some platforms (snprintf on MinGW,
+# PTHREAD_MUTEX_RECURSIVE on some Linux distributions). Hence we set it to 600.
+
+# Define _XOPEN_SOURCE unless the user has already done so via $CPPFLAGS etc.
+AC_CHECK_DECL([_XOPEN_SOURCE], [],
+  [AC_DEFINE([_XOPEN_SOURCE], [600], [Specify X/Open requirements])],
+  [])
+
+dnl Check that we have cpuid, and if so run the x86 SIMD checks
+AC_CHECK_DECLS([__get_cpuid_max, __cpuid_count], [
+   hts_have_cpuid=yes
+], [
+   hts_have_cpuid=no
+], [[#include <cpuid.h>]])
+
+AS_IF(test "x$hts_have_cpuid" = "xyes", [
+dnl Options for rANS32x16 sse4.1 version - sse4.1
+HTS_CHECK_COMPILE_FLAGS_NEEDED([sse4.1], [-msse4.1 -mssse3 -mpopcnt],
+ [AC_LANG_PROGRAM([[
+    #ifdef __x86_64__
+    #include "x86intrin.h"
+    #endif
+  ]],[[
+    #ifdef __x86_64__
+    __m128i a = _mm_set_epi32(1, 2, 3, 4), b = _mm_set_epi32(4, 3, 2, 1);
+    __m128i c = _mm_shuffle_epi8(_mm_max_epu32(a, b), b);
+    return _mm_popcnt_u32(*((char *) &c));
+    #endif
+  ]])], [
+  hts_cflags_sse4="$flags_needed"
+  AC_DEFINE([HAVE_SSSE3],1,[Defined to 1 if rANS source using SSSE3 can be compiled.])
+  AC_DEFINE([HAVE_POPCNT],1,[Defined to 1 if rANS source using popcnt can be compiled.])
+  AC_DEFINE([HAVE_SSE4_1],1,[Defined to 1 if rANS source using SSE4.1 can be compiled.
+])
+
+dnl Propagate HTSlib's unaligned access preference to htscodecs
+  AH_VERBATIM([UBSAN],[
+/* Prevent unaligned access in htscodecs SSE4 rANS codec */
+#if defined(HTS_ALLOW_UNALIGNED) && HTS_ALLOW_UNALIGNED == 0
+#undef UBSAN
+#endif])
+  AC_DEFINE([UBSAN],1,[])
+])
+AC_SUBST([hts_cflags_sse4])
+
+dnl Options for rANS32x16 avx2 version
+HTS_CHECK_COMPILE_FLAGS_NEEDED([avx2], [-mavx2 -mpopcnt], [AC_LANG_PROGRAM([[
+    #ifdef __x86_64__
+    #include "x86intrin.h"
+    #endif
+  ]],[[
+    #ifdef __x86_64__
+    __m256i a = _mm256_set_epi32(1, 2, 3, 4, 5, 6, 7, 8);
+    __m256i b = _mm256_add_epi32(a, a);
+    long long c = _mm256_extract_epi64(b, 0);
+    return _mm_popcnt_u32((int) c);
+    #endif
+  ]])], [
+  hts_cflags_avx2="$flags_needed"
+  AC_SUBST([hts_cflags_avx2])
+  AC_DEFINE([HAVE_POPCNT],1,[Defined to 1 if rANS source using popcnt can be compiled.])
+  AC_DEFINE([HAVE_AVX2],1,[Defined to 1 if rANS source using AVX2 can be compiled.])
+])
+
+dnl Options for rANS32x16 avx512 version
+HTS_CHECK_COMPILE_FLAGS_NEEDED([avx512f], [-mavx512f -mpopcnt],
+ [AC_LANG_PROGRAM([[
+    #ifdef __x86_64__
+    #include "x86intrin.h"
+    #endif
+  ]],[[
+    #ifdef __x86_64__
+    __m512i a = _mm512_set1_epi32(1);
+    __m512i b = _mm512_add_epi32(a, a);
+    __m256i c = _mm512_castsi512_si256(b);
+    __m256i d = _mm512_extracti64x4_epi64(a, 1);
+    return _mm_popcnt_u32(*((char *) &c)) + (*(char *) &d);
+    #endif
+  ]])], [
+  hts_cflags_avx512="$flags_needed"
+  AC_SUBST([hts_cflags_avx512])
+  AC_DEFINE([HAVE_POPCNT],1,[Defined to 1 if rANS source using popcnt can be compiled.])
+  AC_DEFINE([HAVE_AVX512],1,[Defined to 1 if rANS source using AVX512F can be compiled.])
+])
+
+dnl Check for working __builtin_cpu_supports (ssse3 is broken on some clangs)
+AC_MSG_CHECKING([for working __builtin_cpu_supports("ssse3")])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([],[
+  if (__builtin_cpu_supports("ssse3")) {
+    return 0;
+  }
+])], [
+  AC_MSG_RESULT([yes])
+  AC_DEFINE([HAVE_BUILTIN_CPU_SUPPORT_SSSE3], 1,
+            [Defined to 1 if __builtin_cpu_supports("ssse3") works])
+], [
+  AC_MSG_RESULT([no])
+])
+
+dnl Check for function attribute used in conjunction with __builtin_cpu_supports
+AC_MSG_CHECKING([for __attribute__((target))])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+  __attribute__((target("ssse3")))
+  int zero(void) {
+    return 0;
+  }
+]], [[zero();]])], [
+  AC_MSG_RESULT([yes])
+  AC_DEFINE([HAVE_ATTRIBUTE_TARGET], 1,
+            [Define if __attribute__((target(...))) is available.])
+], [
+  AC_MSG_RESULT([no])
+])
+
+]) dnl End of AS_IF(hts_have_cpuid)
+
 dnl Avoid chicken-and-egg problem where pkg-config supplies the
 dnl PKG_PROG_PKG_CONFIG macro, but we want to use it to check
 dnl for pkg-config...
@@ -79,6 +200,11 @@ pc_requires=
 static_LDFLAGS=$LDFLAGS
 static_LIBS='-lpthread -lz -lm'
 private_LIBS=$LDFLAGS
+
+AC_ARG_ENABLE([versioned-symbols],
+  [AS_HELP_STRING([--disable-versioned-symbols],
+                  [disable versioned symbols in shared library])],
+  [], [enable_versioned_symbols=yes])
 
 AC_ARG_ENABLE([bz2],
   [AS_HELP_STRING([--disable-bz2],
@@ -163,7 +289,9 @@ case $basic_host in
     # This also sets __USE_MINGW_ANSI_STDIO which in turn makes PRId64,
     # %lld and %z printf formats work.  It also enforces the snprintf to
     # be C99 compliant so it returns the correct values (in kstring.c).
-    CPPFLAGS="$CPPFLAGS -D_XOPEN_SOURCE=600"
+
+    # Now set by default, so no need to do it here.
+    # CPPFLAGS="$CPPFLAGS -D_XOPEN_SOURCE=600"
     ;;
   *)
     host_result="plain .so"
@@ -173,6 +301,24 @@ case $basic_host in
 esac
 AC_MSG_RESULT([$host_result])
 AC_SUBST([PLATFORM])
+
+dnl Check for versioned symbol support
+dnl Only try for .so shared libraries as other types won't work
+AS_IF([test x"$PLATFORM" = xdefault && test x"$enable_versioned_symbols" = xyes],
+  [AC_CACHE_CHECK([whether the linker supports versioned symbols],
+    [hts_cv_have_versioned_symbols], [
+      save_LDFLAGS=$LDFLAGS
+      LDFLAGS="-Wl,-version-script,$srcdir/htslib.map $LDFLAGS"
+      AC_LINK_IFELSE([AC_LANG_PROGRAM()],
+                     [hts_cv_have_versioned_symbols=yes],
+                     [hts_cv_have_versioned_symbols=no])
+      LDFLAGS=$save_LDFLAGS
+    ])
+   AS_IF([test "x$hts_cv_have_versioned_symbols" = xyes],[
+     VERSION_SCRIPT_LDFLAGS='-Wl,-version-script,$(srcprefix)htslib.map'
+     AC_SUBST([VERSION_SCRIPT_LDFLAGS])
+   ])
+])
 
 dnl Try to get more control over which symbols are exported in the shared
 dnl library.
@@ -184,6 +330,25 @@ AC_CHECK_FUNCS([gmtime_r fsync drand48 srand48_deterministic])
 
 # Darwin has a dubious fdatasync() symbol, but no declaration in <unistd.h>
 AC_CHECK_DECL([fdatasync(int)], [AC_CHECK_FUNCS(fdatasync)])
+
+AC_MSG_CHECKING([for __attribute__((constructor))])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+  static __attribute__((constructor)) void noop(void) {}
+]], [])], [
+  AC_MSG_RESULT([yes])
+  AC_DEFINE([HAVE_ATTRIBUTE_CONSTRUCTOR], 1,
+            [Define if __attribute__((constructor)) is available.])
+], [AC_MSG_RESULT([no])])
+
+AC_MSG_CHECKING([for clock_gettime with CLOCK_PROCESS_CPUTIME_ID])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[#include <time.h>]], [[
+  struct timespec ts;
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+]])], [
+  AC_MSG_RESULT([yes])
+  AC_DEFINE([HAVE_CLOCK_GETTIME_CPUTIME], 1,
+            [Define if clock_gettime exists and accepts CLOCK_PROCESS_CPUTIME_ID.])
+], [AC_MSG_RESULT([no])])
 
 if test $enable_plugins != no; then
   AC_SEARCH_LIBS([dlsym], [dl], [],
@@ -234,7 +399,16 @@ AC_SEARCH_LIBS([recv], [socket ws2_32], [
 if test "$ac_cv_search_recv" != "none required"
 then
   static_LIBS="$static_LIBS $ac_cv_search_recv"
-fi], [MSG_ERROR([unable to find the recv() function])])
+fi],
+  dnl on MinGW-i686, checking recv() linking requires an annotated declaration
+  [AC_MSG_CHECKING([for library containing recv using declaration])
+   LIBS="-lws2_32 $LIBS"
+   AC_LINK_IFELSE(
+     [AC_LANG_PROGRAM([[#include <winsock2.h>]], [[recv(0, 0, 0, 0);]])],
+     [AC_MSG_RESULT([-lws2_32])
+      static_LIBS="$static_LIBS -lws2_32"],
+     [AC_MSG_RESULT([no])
+      MSG_ERROR([unable to find the recv() function])])])
 
 if test "$enable_bz2" != no; then
   bz2_devel=ok
@@ -326,7 +500,6 @@ in  the top-level htslib directory to update it, and then re-run configure.
 You have an incomplete distribution.  Please try downloading one of the
 official releases from https://www.htslib.org
 ])])])])
-AC_SUBST([selected_htscodecs_mk])
 
 AS_IF([test "x$with_libdeflate" != "xno"],
   [libdeflate=ok
@@ -351,15 +524,20 @@ HTSlib.])])])])
 
 libcurl=disabled
 if test "$enable_libcurl" != no; then
-  AC_CHECK_LIB([curl], [curl_easy_pause],
-    [AC_DEFINE([HAVE_LIBCURL], 1, [Define if libcurl file access is enabled.])
-     libcurl=enabled],
+  libcurl_devel=ok
+  AC_CHECK_HEADER([curl/curl.h], [], [libcurl_devel="headers not found"], [;])
+  AC_CHECK_LIB([curl], [curl_easy_pause], [:],
     [AC_CHECK_LIB([curl], [curl_easy_init],
-       [message="library is too old (7.18+ required)"],
-       [message="library not found"])
-     case "$enable_libcurl" in
-       check) AC_MSG_WARN([libcurl not enabled: $message]) ;;
-       *) MSG_ERROR([libcurl $message
+       [libcurl_devel="library is too old (7.18+ required)"],
+       [libcurl_devel="library not found"])])
+
+  if test "$libcurl_devel" = ok; then
+    AC_DEFINE([HAVE_LIBCURL], 1, [Define if libcurl file access is enabled.])
+    libcurl=enabled
+  elif test "$enable_libcurl" = check; then
+    AC_MSG_WARN([libcurl not enabled: $libcurl_devel])
+  else
+    MSG_ERROR([libcurl $libcurl_devel
 
 Support for HTTPS and other SSL-based URLs requires routines from the libcurl
 library <http://curl.se/libcurl/>.  Building HTSlib with libcurl enabled
@@ -369,8 +547,8 @@ Debian or Ubuntu Linux) or libcurl-devel (on RPM-based Linux distributions
 or Cygwin) is installed.
 
 Either configure with --disable-libcurl or resolve this error to build HTSlib.])
-       ;;
-     esac])
+  fi
+
 dnl -lcurl is only needed for static linking if hfile_libcurl is not a plugin
   if test "$libcurl" = enabled ; then
     if test "$enable_plugins" != yes ; then
@@ -452,7 +630,8 @@ AC_SEARCH_LIBS(regcomp, regex, [libregex=needed], [])
 
 dnl Look for PTHREAD_MUTEX_RECURSIVE.
 dnl This is normally in pthread.h except on some broken glibc implementations.
-AC_CHECK_DECL(PTHREAD_MUTEX_RECURSIVE, [], [AC_DEFINE([_XOPEN_SOURCE],[600], [Needed for PTHREAD_MUTEX_RECURSIVE])], [[#include <pthread.h>]])
+dnl Now set by default
+dnl AC_CHECK_DECL(PTHREAD_MUTEX_RECURSIVE, [], [AC_DEFINE([_XOPEN_SOURCE],[600], [Needed for PTHREAD_MUTEX_RECURSIVE])], [[#include <pthread.h>]])
 
 if test "$s3" = enabled ; then
    AC_DEFINE([ENABLE_S3], 1, [Define if HTSlib should enable S3 support.])
@@ -469,5 +648,28 @@ AC_SUBST([private_LIBS])
 AC_SUBST([static_LDFLAGS])
 AC_SUBST([static_LIBS])
 
-AC_CONFIG_FILES([config.mk htscodecs.mk htslib.pc.tmp:htslib.pc.in])
+AC_CONFIG_FILES([config.mk htslib.pc.tmp:htslib.pc.in])
+AC_CONFIG_LINKS([htscodecs.mk:$selected_htscodecs_mk])
+
+if test "$srcdir" != .; then
+  # Set up for a separate build directory. As HTSlib uses a non-recursive
+  # makefile, we need to create additional build subdirectories explicitly.
+  AC_CONFIG_LINKS([Makefile:Makefile htslib.mk:htslib.mk])
+  AC_CONFIG_FILES([htslib_vars.mk:builddir_vars.mk.in])
+  AC_CONFIG_COMMANDS([mkdir],
+    [AS_MKDIR_P([cram])
+     AS_MKDIR_P([htscodecs/htscodecs])
+     AS_MKDIR_P([htscodecs/tests])
+     AS_MKDIR_P([test/fuzz])
+     AS_MKDIR_P([test/longrefs])
+     AS_MKDIR_P([test/tabix])])
+fi
+
+# @HTSDIRslash_if_relsrcdir@ will be empty when $srcdir is absolute
+case "$srcdir" in
+  /*) HTSDIRslash_if_relsrcdir= ;;
+  *)  HTSDIRslash_if_relsrcdir='$(HTSDIR)/' ;;
+esac
+AC_SUBST([HTSDIRslash_if_relsrcdir])
+
 AC_OUTPUT

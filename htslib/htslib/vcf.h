@@ -2,7 +2,7 @@
 /// High-level VCF/BCF variant calling file operations.
 /*
     Copyright (C) 2012, 2013 Broad Institute.
-    Copyright (C) 2012-2020 Genome Research Ltd.
+    Copyright (C) 2012-2020, 2022-2023 Genome Research Ltd.
 
     Author: Heng Li <lh3@sanger.ac.uk>
 
@@ -123,6 +123,7 @@ typedef struct bcf_hdr_t {
     int32_t m[3];          // m: allocated size of the dictionary block in use (see n above)
 } bcf_hdr_t;
 
+HTSLIB_EXPORT
 extern uint8_t bcf_type_shift[];
 
 /**************
@@ -137,13 +138,16 @@ extern uint8_t bcf_type_shift[];
 #define BCF_BT_FLOAT    5
 #define BCF_BT_CHAR     7
 
-#define VCF_REF      0
-#define VCF_SNP      1
-#define VCF_MNP      2
-#define VCF_INDEL    4
-#define VCF_OTHER    8
-#define VCF_BND     16    // breakend
-#define VCF_OVERLAP 32    // overlapping deletion, ALT=*
+#define VCF_REF         0
+#define VCF_SNP     (1<<0)
+#define VCF_MNP     (1<<1)
+#define VCF_INDEL   (1<<2)
+#define VCF_OTHER   (1<<3)
+#define VCF_BND     (1<<4)      // breakend
+#define VCF_OVERLAP (1<<5)      // overlapping deletion, ALT=*
+#define VCF_INS     (1<<6)      // implies VCF_INDEL
+#define VCF_DEL     (1<<7)      // implies VCF_INDEL
+#define VCF_ANY     (VCF_SNP|VCF_MNP|VCF_INDEL|VCF_OTHER|VCF_BND|VCF_OVERLAP|VCF_INS|VCF_DEL)       // any variant type (but not VCF_REF)
 
 typedef struct bcf_variant_t {
     int type, n;    // variant type and the number of bases affected, negative for deletions
@@ -200,6 +204,22 @@ typedef struct bcf_dec_t {
 #define BCF_ERR_CHAR     16
 #define BCF_ERR_CTG_INVALID   32
 #define BCF_ERR_TAG_INVALID   64
+
+/// Get error description for bcf error code
+/** @param errorcode  The error code which is to be described
+    @param buffer     The buffer in which description to be added
+    @param maxbuffer  The size of buffer passed
+    @return NULL on invalid buffer; buffer on other cases
+
+The buffer will be an empty string when @p errorcode is 0.
+Description of errors present in code will be appended to @p buffer with ',' separation.
+The buffer has to be at least 4 characters long. NULL will be returned if it is smaller or when buffer is NULL.
+
+'...' will be appended if the description doesn't fit in the given buffer.
+ */
+
+HTSLIB_EXPORT
+const char *bcf_strerror(int errorcode, char *buffer, size_t maxbuffer);
 
 /*
     The bcf1_t structure corresponds to one VCF/BCF line. Reading from VCF file
@@ -304,6 +324,7 @@ typedef struct bcf1_t {
     typedef htsFile vcfFile;
     #define bcf_open(fn, mode) hts_open((fn), (mode))
     #define vcf_open(fn, mode) hts_open((fn), (mode))
+    #define bcf_flush(fp) hts_flush((fp))
     #define bcf_close(fp) hts_close(fp)
     #define vcf_close(fp) hts_close(fp)
 
@@ -575,7 +596,8 @@ set to one of BCF_ERR* codes and must be checked before calling bcf_write().
     int bcf_hdr_append(bcf_hdr_t *h, const char *line);
 
     HTSLIB_EXPORT
-    int bcf_hdr_printf(bcf_hdr_t *h, const char *format, ...);
+    int bcf_hdr_printf(bcf_hdr_t *h, const char *format, ...)
+    HTS_FORMAT(HTS_PRINTF_FMT, 2, 3);
 
     /** VCF version, e.g. VCFv4.2 */
     HTSLIB_EXPORT
@@ -615,7 +637,11 @@ set to one of BCF_ERR* codes and must be checked before calling bcf_write().
     HTSLIB_EXPORT
     bcf_hdr_t *bcf_hdr_subset(const bcf_hdr_t *h0, int n, char *const* samples, int *imap);
 
-    /** Creates a list of sequence names. It is up to the caller to free the list (but not the sequence names) */
+    /**
+     *  Creates a list of sequence names. It is up to the caller to free the list (but not the sequence names).
+     *  NB: sequence name indexes returned by bcf_hdr_seqnames() may not correspond to bcf1_t.rid, use
+     *  bcf_hdr_id2name() or bcf_seqname() instead.
+     */
     HTSLIB_EXPORT
     const char **bcf_hdr_seqnames(const bcf_hdr_t *h, int *nseqs);
 
@@ -665,6 +691,22 @@ set to one of BCF_ERR* codes and must be checked before calling bcf_write().
      */
     HTSLIB_EXPORT
     int bcf_hrec_format(const bcf_hrec_t *hrec, kstring_t *str);
+
+    /// Add a header record into a header
+    /**
+     *  @param hdr  Destination header
+     *  @param hrec Header record
+     *  @return 0 on success, -1 on failure
+     *
+     *  If this function returns success, ownership of @p hrec will have
+     *  been transferred to the header structure.  It may also have been
+     *  freed if it was a duplicate of a record already in the header.
+     *  Therefore the @p hrec pointer should not be used after a successful
+     *  return from this function.
+     *
+     *  If this function returns failure, ownership will not have been taken
+     *  and the caller is responsible for cleaning up @p hrec.
+     */
 
     HTSLIB_EXPORT
     int bcf_hdr_add_hrec(bcf_hdr_t *hdr, bcf_hrec_t *hrec);
@@ -748,14 +790,101 @@ set to one of BCF_ERR* codes and must be checked before calling bcf_write().
     HTSLIB_EXPORT
     int bcf_translate(const bcf_hdr_t *dst_hdr, bcf_hdr_t *src_hdr, bcf1_t *src_line);
 
+    /// Get variant types in a BCF record
     /**
-     *  bcf_get_variant_type[s]()  - returns one of VCF_REF, VCF_SNP, etc
+     *  @param rec   BCF/VCF record
+     *  @return Types of variant present
+     *
+     *  The return value will be a bitwise-or of VCF_SNP, VCF_MNP,
+     *  VCF_INDEL, VCF_OTHER, VCF_BND or VCF_OVERLAP.  If will return
+     *  VCF_REF (i.e. 0) if none of the other types is present.
+     *  @deprecated Please use bcf_has_variant_types() instead
      */
     HTSLIB_EXPORT
     int bcf_get_variant_types(bcf1_t *rec);
 
+    /// Get variant type in a BCF record, for a given allele
+    /**
+     *  @param  rec        BCF/VCF record
+     *  @param  ith_allele Allele to check
+     *  @return Type of variant present
+     *
+     *  The return value will be one of VCF_REF, VCF_SNP, VCF_MNP,
+     *  VCF_INDEL, VCF_OTHER, VCF_BND or VCF_OVERLAP.
+     *  @deprecated Please use bcf_has_variant_type() instead
+     */
     HTSLIB_EXPORT
     int bcf_get_variant_type(bcf1_t *rec, int ith_allele);
+
+    /// Match mode for bcf_has_variant_types()
+    enum bcf_variant_match {
+        bcf_match_exact,   ///< Types present exactly match tested for
+        bcf_match_overlap, ///< At least one variant type in common
+        bcf_match_subset,  ///< Test set is a subset of types present
+    };
+
+    /// Check for presence of variant types in a BCF record
+    /**
+     *  @param rec      BCF/VCF record
+     *  @param bitmask  Set of variant types to test for
+     *  @param mode     Match mode
+     *  @return >0 if the variant types are present,
+     *           0 if not present,
+     *          -1 on error
+     *
+     *  @p bitmask should be the bitwise-or of the variant types (VCF_SNP,
+     *     VCF_MNP, etc.) to test for.
+     *
+     *  The return value is the bitwise-and of the set of types present
+     *  and @p bitmask.  Callers that want to check for the presence of more
+     *  than one type can avoid function call overhead by passing all the
+     *  types to be checked for in a single call to this function, in
+     *  bcf_match_overlap mode, and then check for them individually in the
+     *  returned value.
+     *
+     *  As VCF_REF is represented by 0 (i.e. the absence of other variants)
+     *  it should be tested for using
+     *    bcf_has_variant_types(rec, VCF_REF, bcf_match_exact)
+     *  which will return 1 if no other variant type is present, otherwise 0.
+     */
+    HTSLIB_EXPORT
+    int bcf_has_variant_types(bcf1_t *rec, uint32_t bitmask, enum bcf_variant_match mode);
+
+    /// Check for presence of variant types in a BCF record, for a given allele
+    /**
+     *  @param rec         BCF/VCF record
+     *  @param ith_allele  Allele to check
+     *  @param bitmask     Set of variant types to test for
+     *  @return >0 if one of the variant types is present,
+     *           0 if not present,
+     *          -1 on error
+     *
+     *  @p bitmask should be the bitwise-or of the variant types (VCF_SNP,
+     *     VCF_MNP, etc.) to test for, or VCF_REF on its own.
+     *
+     *  The return value is the bitwise-and of the set of types present
+     *  and @p bitmask.  Callers that want to check for the presence of more
+     *  than one type can avoid function call overhead by passing all the
+     *  types to be checked for in a single call to this function, and then
+     *  check for them individually in the returned value.
+     *
+     *  As a special case, if @p bitmask is VCF_REF (i.e. 0), the function
+     *  tests for an exact match.  The return value will be 1 if the
+     *  variant type calculated for the allele is VCF_REF, otherwise if
+     *  any other type is present it will be 0.
+     */
+    HTSLIB_EXPORT
+    int bcf_has_variant_type(bcf1_t *rec, int ith_allele, uint32_t bitmask);
+
+    /// Return the number of bases affected by a variant, for a given allele
+    /**
+     *  @param rec         BCF/VCF record
+     *  @param ith_allele  Allele index
+     *  @return The number of bases affected (negative for deletions),
+     *          or bcf_int32_missing on error.
+     */
+    HTSLIB_EXPORT
+    int bcf_variant_length(bcf1_t *rec, int ith_allele);
 
     HTSLIB_EXPORT
     int bcf_is_snp(bcf1_t *v);
@@ -1118,7 +1247,7 @@ set to one of BCF_ERR* codes and must be checked before calling bcf_write().
     #define bcf_hdr_id2number(hdr,type,int_id)  ((hdr)->id[BCF_DT_ID][int_id].val->info[type]>>12)
     #define bcf_hdr_id2type(hdr,type,int_id)    (uint32_t)((hdr)->id[BCF_DT_ID][int_id].val->info[type]>>4 & 0xf)
     #define bcf_hdr_id2coltype(hdr,type,int_id) (uint32_t)((hdr)->id[BCF_DT_ID][int_id].val->info[type] & 0xf)
-    #define bcf_hdr_idinfo_exists(hdr,type,int_id)  ((int_id)>=0 && bcf_hdr_id2coltype((hdr),(type),(int_id))!=0xf)
+    #define bcf_hdr_idinfo_exists(hdr,type,int_id)  ((int_id)>=0 && (int_id)<(hdr)->n[BCF_DT_ID] && (hdr)->id[BCF_DT_ID][int_id].val && bcf_hdr_id2coltype((hdr),(type),(int_id))!=0xf)
     #define bcf_hdr_id2hrec(hdr,dict_type,col_type,int_id)    ((hdr)->id[(dict_type)==BCF_DT_CTG?BCF_DT_CTG:BCF_DT_ID][int_id].val->hrec[(dict_type)==BCF_DT_CTG?0:(col_type)])
     /// Convert BCF FORMAT data to string form
     /**
@@ -1328,7 +1457,14 @@ which works for both BCF and VCF.
 #define bcf_int16_missing    (-32767-1)      /* INT16_MIN */
 #define bcf_int32_missing    (-2147483647-1) /* INT32_MIN */
 #define bcf_int64_missing    (-9223372036854775807LL - 1LL)  /* INT64_MIN */
-#define bcf_str_missing      0x07
+
+// All of the above are values, which may occur multiple times in lists of
+// integers or lists of floating point.  Strings in VCF don't have
+// lists - a list of strings is just another (comma-separated) string.
+//
+// Hence bcf_str_missing is the whole string being missing rather than
+// an element of a list.  Ie a string of length zero: (0<<4)|BCF_BT_CHAR.
+#define bcf_str_missing      BCF_BT_CHAR
 
 // Limits on BCF values stored in given types.  Max values are the same
 // as for the underlying type.  Min values are slightly different as
@@ -1340,7 +1476,9 @@ which works for both BCF and VCF.
 #define BCF_MIN_BT_INT16 (-32760)      /* INT16_MIN + 8 */
 #define BCF_MIN_BT_INT32 (-2147483640) /* INT32_MIN + 8 */
 
+HTSLIB_EXPORT
 extern uint32_t bcf_float_vector_end;
+HTSLIB_EXPORT
 extern uint32_t bcf_float_missing;
 static inline void bcf_float_set(float *ptr, uint32_t value)
 {
@@ -1366,21 +1504,23 @@ static inline int bcf_float_is_vector_end(float f)
 static inline int bcf_format_gt(bcf_fmt_t *fmt, int isample, kstring_t *str)
 {
     uint32_t e = 0;
-    #define BRANCH(type_t, missing, vector_end) { \
-        type_t *ptr = (type_t*) (fmt->p + isample*fmt->size); \
+    #define BRANCH(type_t, convert, missing, vector_end) { \
+        uint8_t *ptr = fmt->p + isample*fmt->size; \
         int i; \
-        for (i=0; i<fmt->n && ptr[i]!=vector_end; i++) \
+        for (i=0; i<fmt->n; i++, ptr += sizeof(type_t)) \
         { \
-            if ( i ) e |= kputc("/|"[ptr[i]&1], str) < 0; \
-            if ( !(ptr[i]>>1) ) e |= kputc('.', str) < 0; \
-            else e |= kputw((ptr[i]>>1) - 1, str) < 0; \
+            type_t val = convert(ptr); \
+            if ( val == vector_end ) break; \
+            if ( i ) e |= kputc("/|"[val&1], str) < 0; \
+            if ( !(val>>1) ) e |= kputc('.', str) < 0; \
+            else e |= kputw((val>>1) - 1, str) < 0; \
         } \
         if (i == 0) e |= kputc('.', str) < 0; \
     }
     switch (fmt->type) {
-        case BCF_BT_INT8:  BRANCH(int8_t,  bcf_int8_missing, bcf_int8_vector_end); break;
-        case BCF_BT_INT16: BRANCH(int16_t, bcf_int16_missing, bcf_int16_vector_end); break;
-        case BCF_BT_INT32: BRANCH(int32_t, bcf_int32_missing, bcf_int32_vector_end); break;
+        case BCF_BT_INT8:  BRANCH(int8_t,  le_to_i8,  bcf_int8_missing, bcf_int8_vector_end); break;
+        case BCF_BT_INT16: BRANCH(int16_t, le_to_i16, bcf_int16_missing, bcf_int16_vector_end); break;
+        case BCF_BT_INT32: BRANCH(int32_t, le_to_i32, bcf_int32_missing, bcf_int32_vector_end); break;
         case BCF_BT_NULL:  e |= kputc('.', str) < 0; break;
         default: hts_log_error("Unexpected type %d", fmt->type); return -2;
     }
@@ -1390,26 +1530,37 @@ static inline int bcf_format_gt(bcf_fmt_t *fmt, int isample, kstring_t *str)
 
 static inline int bcf_enc_size(kstring_t *s, int size, int type)
 {
-    uint32_t e = 0;
-    uint8_t x[4];
-    if (size >= 15) {
-        e |= kputc(15<<4|type, s) < 0;
-        if (size >= 128) {
-            if (size >= 32768) {
-                i32_to_le(size, x);
-                e |= kputc(1<<4|BCF_BT_INT32, s) < 0;
-                e |= kputsn((char*)&x, 4, s) < 0;
-            } else {
-                i16_to_le(size, x);
-                e |= kputc(1<<4|BCF_BT_INT16, s) < 0;
-                e |= kputsn((char*)&x, 2, s) < 0;
-            }
+    // Most common case is first
+    if (size < 15) {
+        if (ks_resize(s, s->l + 1) < 0)
+            return -1;
+        uint8_t *p = (uint8_t *)s->s + s->l;
+        *p++ = (size<<4) | type;
+        s->l++;
+        return 0;
+    }
+
+    if (ks_resize(s, s->l + 6) < 0)
+        return -1;
+    uint8_t *p = (uint8_t *)s->s + s->l;
+    *p++ = 15<<4|type;
+
+    if (size < 128) {
+        *p++ = 1<<4|BCF_BT_INT8;
+        *p++ = size;
+        s->l += 3;
+    } else {
+        if (size < 32768) {
+            *p++ = 1<<4|BCF_BT_INT16;
+            i16_to_le(size, p);
+            s->l += 4;
         } else {
-            e |= kputc(1<<4|BCF_BT_INT8, s) < 0;
-            e |= kputc(size, s) < 0;
+            *p++ = 1<<4|BCF_BT_INT32;
+            i32_to_le(size, p);
+            s->l += 6;
         }
-    } else e |= kputc(size<<4|type, s) < 0;
-    return e == 0 ? 0 : -1;
+    }
+    return 0;
 }
 
 static inline int bcf_enc_inttype(long x)
@@ -1421,27 +1572,35 @@ static inline int bcf_enc_inttype(long x)
 
 static inline int bcf_enc_int1(kstring_t *s, int32_t x)
 {
-    uint32_t e = 0;
-    uint8_t z[4];
+    if (ks_resize(s, s->l + 5) < 0)
+        return -1;
+    uint8_t *p = (uint8_t *)s->s + s->l;
+
     if (x == bcf_int32_vector_end) {
-        e |= bcf_enc_size(s, 1, BCF_BT_INT8);
-        e |= kputc(bcf_int8_vector_end, s) < 0;
+        // An inline implementation of bcf_enc_size with size==1 and
+        // memory allocation already accounted for.
+        *p = (1<<4) | BCF_BT_INT8;
+        p[1] = bcf_int8_vector_end;
+        s->l+=2;
     } else if (x == bcf_int32_missing) {
-        e |= bcf_enc_size(s, 1, BCF_BT_INT8);
-        e |= kputc(bcf_int8_missing, s) < 0;
+        *p = (1<<4) | BCF_BT_INT8;
+        p[1] = bcf_int8_missing;
+        s->l+=2;
     } else if (x <= BCF_MAX_BT_INT8 && x >= BCF_MIN_BT_INT8) {
-        e |= bcf_enc_size(s, 1, BCF_BT_INT8);
-        e |= kputc(x, s) < 0;
+        *p = (1<<4) | BCF_BT_INT8;
+        p[1] = x;
+        s->l+=2;
     } else if (x <= BCF_MAX_BT_INT16 && x >= BCF_MIN_BT_INT16) {
-        i16_to_le(x, z);
-        e |= bcf_enc_size(s, 1, BCF_BT_INT16);
-        e |= kputsn((char*)&z, 2, s) < 0;
+        *p = (1<<4) | BCF_BT_INT16;
+        i16_to_le(x, p+1);
+        s->l+=3;
     } else {
-        i32_to_le(x, z);
-        e |= bcf_enc_size(s, 1, BCF_BT_INT32);
-        e |= kputsn((char*)&z, 4, s) < 0;
+        *p = (1<<4) | BCF_BT_INT32;
+        i32_to_le(x, p+1);
+        s->l+=5;
     }
-    return e == 0 ? 0 : -1;
+
+    return 0;
 }
 
 /// Return the value of a single typed integer.

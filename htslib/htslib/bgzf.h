@@ -3,7 +3,7 @@
 /*
    Copyright (c) 2008 Broad Institute / Massachusetts Institute of Technology
                  2011, 2012 Attractive Chaos <attractor@live.co.uk>
-   Copyright (C) 2009, 2013, 2014, 2017, 2018-2019 Genome Research Ltd
+   Copyright (C) 2009, 2013, 2014, 2017, 2018-2019, 2022-2024 Genome Research Ltd
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -31,9 +31,17 @@
 #define HTSLIB_BGZF_H
 
 #include <stdint.h>
+#include <string.h>
 #include <sys/types.h>
 
 #include "hts_defs.h"
+
+// Ensure ssize_t exists within this header. All #includes must precede this,
+// and ssize_t must be undefined again at the end of this header.
+#if defined _MSC_VER && defined _INTPTR_T_DEFINED && !defined _SSIZE_T_DEFINED && !defined ssize_t
+#define HTSLIB_SSIZE_T
+#define ssize_t intptr_t
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -136,6 +144,26 @@ typedef struct BGZF BGZF;
     HTSLIB_EXPORT
     ssize_t bgzf_read(BGZF *fp, void *data, size_t length) HTS_RESULT_USED;
 
+/**
+ * bgzf_read optimised for small quantities, as a static inline
+ * See bgzf_read() normal function for return values.
+ */
+static inline ssize_t bgzf_read_small(BGZF *fp, void *data, size_t length) {
+    // A block length of 0 implies current block isn't loaded (see
+    // bgzf_seek_common).  That gives negative available so careful on types
+    if ((ssize_t)length < fp->block_length - fp->block_offset) {
+        // Short cut the common and easy mode
+        memcpy((uint8_t *)data,
+               (uint8_t *)fp->uncompressed_block + fp->block_offset,
+               length);
+        fp->block_offset += length;
+        fp->uncompressed_address += length;
+        return length;
+    } else {
+        return bgzf_read(fp, data, length);
+    }
+}
+
     /**
      * Write _length_ bytes from _data_ to the file.  If no I/O errors occur,
      * the complete _length_ bytes will be written (or queued for writing).
@@ -147,6 +175,24 @@ typedef struct BGZF BGZF;
      */
     HTSLIB_EXPORT
     ssize_t bgzf_write(BGZF *fp, const void *data, size_t length) HTS_RESULT_USED;
+
+/**
+ * bgzf_write optimised for small quantities, as a static inline
+ * See bgzf_write() normal function for return values.
+ */
+static inline
+ssize_t bgzf_write_small(BGZF *fp, const void *data, size_t length) {
+    if (fp->is_compressed
+        && (size_t) (BGZF_BLOCK_SIZE - fp->block_offset) > length) {
+        // Short cut the common and easy mode
+        memcpy((uint8_t *)fp->uncompressed_block + fp->block_offset,
+               data, length);
+        fp->block_offset += length;
+        return length;
+    } else {
+        return bgzf_write(fp, data, length);
+    }
+}
 
     /**
      * Write _length_ bytes from _data_ to the file, the index will be used to
@@ -296,7 +342,8 @@ typedef struct BGZF BGZF;
      * @param fp     BGZF file handler
      * @param delim  delimiter
      * @param str    string to write to; must be initialized
-     * @return       length of the string; -1 on end-of-file; <= -2 on error
+     * @return       length of the string (capped at INT_MAX);
+     *               -1 on end-of-file; <= -2 on error
      */
     HTSLIB_EXPORT
     int bgzf_getline(BGZF *fp, int delim, struct kstring_t *str);
@@ -308,23 +355,24 @@ typedef struct BGZF BGZF;
     int bgzf_read_block(BGZF *fp) HTS_RESULT_USED;
 
     /**
-     * Enable multi-threading (when compiled with -DBGZF_MT) via a shared
-     * thread pool.  This means both encoder and decoder can balance
-     * usage across a single pool of worker jobs.
+     * Enable multi-threading via a shared thread pool.  This means
+     * both encoder and decoder can balance usage across a single pool
+     * of worker jobs.
      *
-     * @param fp          BGZF file handler; must be opened for writing
+     * @param fp          BGZF file handler
      * @param pool        The thread pool (see hts_create_threads)
+     * @param qsize       The size of the job queue.  If 0 this is twice the
+     *                    number of threads in the pool.
      */
     HTSLIB_EXPORT
     int bgzf_thread_pool(BGZF *fp, struct hts_tpool *pool, int qsize);
 
     /**
-     * Enable multi-threading (only effective when the library was compiled
-     * with -DBGZF_MT)
+     * Enable multi-threading
      *
-     * @param fp          BGZF file handler; must be opened for writing
-     * @param n_threads   #threads used for writing
-     * @param n_sub_blks  #blocks processed by each thread; a value 64-256 is recommended
+     * @param fp          BGZF file handler
+     * @param n_threads   #threads used for reading / writing
+     * @param n_sub_blks  Unused (was #blocks processed by each thread)
      */
     HTSLIB_EXPORT
     int bgzf_mt(BGZF *fp, int n_threads, int n_sub_blks);
@@ -448,6 +496,11 @@ typedef struct BGZF BGZF;
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef HTSLIB_SSIZE_T
+#undef HTSLIB_SSIZE_T
+#undef ssize_t
 #endif
 
 #endif
