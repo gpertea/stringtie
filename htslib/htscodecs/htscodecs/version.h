@@ -1,1 +1,0 @@
-#define HTSCODECS_VERSION_TEXT "3.0.0-3-gcfd704d"
