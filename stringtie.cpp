@@ -147,6 +147,7 @@ bool viral=false;
 bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
 bool longreads=false;
 bool rawreads=false;
+bool scell=false;
 bool nomulti=false;
 bool enableNames=false;
 bool includecov=false;
@@ -317,7 +318,7 @@ int main(int argc, char* argv[]) {
  // == Process arguments.
  GArgs args(argc, argv,
    "debug;help;version;viral;conservative;mix;nasc;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
-   "exclude=zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
+   "exclude=zihvteuLRSNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
 	/**
@@ -1180,6 +1181,8 @@ void processOptions(GArgs& args) {
 		 readthr=0;
 
 	 }
+
+	 scell=(args.getOpt('S')!=NULL);
 
 	 s=args.getOpt('c');
 	 if (!s.is_empty()) {

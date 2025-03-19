@@ -170,6 +170,8 @@ struct CReadAln:public GSeg {
 	// GStr name;
 	char strand; // 1, 0 (unkown), -1 (reverse)
 	short int nh;
+	GStr bc;
+	GStr ub;
 	uint len;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
 	bool unitig:1;			// set if read come from an unitig
@@ -183,13 +185,15 @@ struct CReadAln:public GSeg {
 		bool in_guide;
 	};
 
-	CReadAln(char _strand=0, short int _nh=0,
+	CReadAln(char _strand=0, short int _nh=0,char *_bc=NULL, char *_ub=NULL,
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
-					strand(_strand),nh(_nh), len(0), read_count(0), unitig(false),longread(false),pair_count(),pair_idx(),
+					strand(_strand),nh(_nh), bc(_bc),ub(_ub),len(0), read_count(0), unitig(false),longread(false),pair_count(),pair_idx(),
 					segs(), juncs(false), tinfo(tif) { }
 	CReadAln(CReadAln &rd):GSeg(rd.start,rd.end) { // copy contructor
 		strand=rd.strand;
 		nh=rd.nh;
+		bc=rd.bc;
+		ub=rd.ub;
 		len=rd.len;
 		read_count=rd.read_count;
 		unitig=rd.unitig;

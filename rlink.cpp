@@ -30,6 +30,7 @@ extern float isofrac;
 extern bool isunitig;
 extern bool longreads;
 extern bool rawreads;
+extern bool scell;
 extern float mcov;
 extern int mintranscriptlen; // minimum number for a transcript to be printed
 extern uint junctionsupport; // anchor length for junction to be considered well supported <- consider shorter??
@@ -432,12 +433,14 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	double nm=(double)brec.tag_int("NM"); // read mismatch
 	float unitig_cov=0;
 	unitig_cov=brec.tag_float("YK");
+	char *bc=brec.tag_str("BC");
+	char *ub=brec.tag_str("UB");
 
 	bool match=false;  // true if current read matches a previous read
 	int n=readlist.Count()-1;
 
 	if(!mergeMode) while(n>-1 && readlist[n]->start==brec.start) {
-		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig)) {
+		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig) && readlist[n]->bc==bc && readlist[n]->ub==ub) {
 			match=exonmatch(readlist[n]->segs,brec.exons);
 			if(match && (longreads || mixedMode)) match=deljuncmatch(readlist[n],brec.juncsdel); //DEL AWARE
 		}
@@ -466,7 +469,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			for (int i=0;i<brec.exons.Count();i++) len+=brec.exons[i].len();
 			if(len<mintranscriptlen) return;
 		}
-		readaln=new CReadAln(strand, nh, brec.start, brec.end, alndata.tinfo);
+		readaln=new CReadAln(strand, nh, bc,ub,brec.start, brec.end, alndata.tinfo);
 		readaln->longread=longr;
 		alndata.tinfo=NULL; //alndata.tinfo was passed to CReadAln
 		for (int i=0;i<brec.exons.Count();i++) {
@@ -15296,7 +15299,9 @@ int build_graphs(BundleData* bdata) {
     	// because of this going throu
     	// compute probabilities for stranded bundles
 
-    	for (int n=0;n<readlist.Count();n++) {
+    	GStr bc("CAACCTCACAAGAGGT");
+
+    	for (int n=0;n<readlist.Count();n++) if(readlist[n]->bc==bc){ // only process a single cell
 
 	  /*if(readlist[n]->unitig) { // super-reads are unpaired
     			float srcov=0;
@@ -15491,7 +15496,7 @@ CReadAln *guide_to_read(GffObj *t, int g, GList<CJunction>& junction, int refend
 	TAlnInfo *tif=new TAlnInfo();
 	tif->g=g;
 
-	CReadAln *r=new CReadAln(s,1,t->start,t->end,tif);
+	CReadAln *r=new CReadAln(s,1,NULL,NULL,t->start,t->end,tif);
 	r->read_count=0;
 
 	// add junction from start here --> needs to be specially handled in build_merge
@@ -19482,6 +19487,9 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 	pred.setSorted(predCmp); // order based on start; the one with higher coverage comes first; fewer exons first; nascents are at the end
 
+
+	/****/// to print unprocessed predictions from one cell -> just call stringtie with -R
+
 	while(npred>0 && pred[npred-1]->mergename=="n") npred--;
 
 	GVec<CGene> predgene;
@@ -19489,7 +19497,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	GVec<float>* bpcov = bundleData->bpcov;
 	int startgno=geneno+1;
 
-	if(rawreads) { //-R mode
+
+	if(rawreads || scell) { //-R mode
 		// assign gene numbers
 		GVec<int> genes; // for each prediction remembers it's geneno
 		genes.Resize(npred,-1);
