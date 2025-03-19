@@ -6,6 +6,9 @@
 #include "usgread.h"
 
 extern uint sserror;
+extern int mintranscriptlen; // minimum number for a transcript to be printed
+extern bool longreads;
+extern uint bundledist;  // reads at what distance should be considered part of separate bundles
 
 void mark_usgstart(GList<CJunction>& junction,int &js,int &jend,uint start,uint end,int val) {
 	int je=jend;
@@ -72,7 +75,7 @@ int find_junction_start_in_USG(GList<CJunction>& junction,int &js,int &je,CJunct
 
 }
 
-int find_USG_predecessor(SGBundle* usgbundle,int low,int high,int val) {
+int find_USG_predecessor(SGBundle* usgbundle,int low,int high,uint val) {
 	int predecessor = low;  // Default value if no smaller element is found
 
 	while(low<=high) {
@@ -89,6 +92,22 @@ int find_USG_predecessor(SGBundle* usgbundle,int low,int high,int val) {
 	}
 
 	return(-3-predecessor);
+}
+
+int find_node_in_array(int n,GArray<int> &result,int low, int high) { // binary search of n node position in result
+
+	while(low<=high) {
+		int mid = low + (high - low) / 2; // Find the middle index
+		if(result[mid]==n) {
+			return(mid);
+		}
+		else if(result[mid]<n) {
+			low=mid+1;
+		}
+		else high=mid-1;
+	}
+
+	return(-1); // did not find the node
 }
 
 // finds a USG node of a certain type that is within the required distance; assumes node u->position is <= than val; but u+1 is > val
@@ -244,7 +263,7 @@ void find_junction_in_USG(GList<CJunction>& junction,int &js,int &je,CReadAln & 
 	}
 }
 
-int add2child(UCNode *node,char s,UCNode *child) {
+int add2child(UCNode *node,int s,UCNode *child) {
 
 	int low=0;
 	int high=node->childlink[s].Count()-1;
@@ -267,8 +286,31 @@ int add2child(UCNode *node,char s,UCNode *child) {
 
 }
 
+int add2parent(UCNode *node,int s,UCNode *parent) {
 
-void insert_covlink(GPVec<UCNode> &SG2UCnode,int n,int nx,char s,float count) {
+	int low=0;
+	int high=node->parentlink[s].Count()-1;
+
+	while(low<=high) {
+		int mid = low + (high - low) / 2; // Find the middle index
+		int midvalue=node->parentlink[s][mid]->prevSGnode; // Value at the middle index
+		if(midvalue==parent->prevSGnode) { // Target found at index mid -> only can happen if junction start is not in USG
+			return(mid);
+		}
+		else if(midvalue < parent->prevSGnode) {
+			low=mid +1; // Narrow search to the right half
+		}
+		else high=mid-1; // Narrow search to the left half
+	}
+
+	node->parentlink[s].Insert(low,parent);
+
+	return(low);
+
+}
+
+
+void insert_covlink(GPVec<UCNode> &SG2UCnode,int n,int nx,int s,float count) {
 	if(!SG2UCnode[n]) {
 		SG2UCnode[n]= new UCNode();
 		SG2UCnode[n]->prevSGnode=n;
@@ -278,144 +320,116 @@ void insert_covlink(GPVec<UCNode> &SG2UCnode,int n,int nx,char s,float count) {
 		SG2UCnode[n]->prevSGnode=nx;
 	}
 	// search if SG2UCnode[nx] was inserted before
-	int p=add2child(SG2UCnode[n],s,SG2UCnode[nx]);
-	SG2UCnode[n]->childlink[s]=SG2UCnode[nx];
+	int p=add2child(SG2UCnode[n],s,SG2UCnode[nx]); // and child nx to n
+	SG2UCnode[n]->childlink[s][p]=SG2UCnode[nx];
 	SG2UCnode[n]->childcov[s][p]+=count;
+	add2parent(SG2UCnode[nx],s,SG2UCnode[n]); // add parent n to nx
 }
 
-void add_cov2UCNode(GPVec<UCNode> &SG2UCnode,int n,uint start,uint end,char s,float count) {
-	if(!SG2UCnode[n]) {
+void merge_UCNodecov(GPVec<UCNode> &SG2UCnode,int n,uint end,uint start) {
+
+	// TODO: write this --> merge all coverages in SG2UCnode that end at >=end and start >=start
+	// first: extend the coverage that ends at  >=end to have an end at start if not already goes beyond
+
+}
+
+// do intervals that come right after one another need to be merged? -> no if I employ bundledist -> TODO: maybe use a smaller bundledist for USG? and merge stranded ones no matter what?
+void add_cov2UCNode(GPVec<UCNode> &SG2UCnode,int n,uint start,uint end,int s,float count) {
+
+	if(!SG2UCnode[n]) { // node is NULL
 		SG2UCnode[n]= new UCNode();
 		SG2UCnode[n]->prevSGnode=n;
-		//SG2UCnode[n]->
 	}
 
-	/*
-	UCov *prevcov=NULL;
+	if(!SG2UCnode[n]->covintv[s]) { // node has no coverage yet
+		UCov *cov=new UCov(start,end,count*(end-start+1));
+		SG2UCnode[n]->covintv[s]=cov;
+		return;
+	}
+
 	UCov *cov=SG2UCnode[n]->covintv[s];
-	while(cov && start>cov->end) {
+	if(end<cov->start) { // insert new coverage before
+		UCov *prevcov=new UCov(start,end,count*(end-start+1));
+		prevcov->next=cov;
+		SG2UCnode[n]->covintv[s]=prevcov;
+		return;
+	}
+
+	UCov *prevcov=NULL;
+	while(cov && start>cov->end) { // skip intervals that new coverage does not overlap
 		prevcov=cov;
 		cov=cov->next; // skip cov until I get to the one that overlaps my coverage interval or after it
 	}
 
-	UCov *nextcov;
-	if(cov) { // start <= cov->end, start > prevcov->end ; there might be overlap with maxint
+	if(!cov || end<cov->start) { // no overlap: start > prevcov->end end<cov->start or cov is null
 
-		if(end<cov->start) { // --> no overlap -> covintv is in between covg of node -> I need to keep previous cov for this
-				if(!prevmaxint) { // this shouldn't happen due to maxint construction
-					GError("No overlap with exon in printing results!\n");
-				}
-				nextmaxint=new CMaxIntv(start,end);
-				nextmaxint->node.Add(ex);
-				nextmaxint->next=maxint;
-				prevmaxint->next=nextmaxint;
-				return nextmaxint;
-			}
-			else { // end>=maxint->start --> there is overlap
+		UCov *newcov=new UCov(start,end,count*(end-start+1));
+		newcov->next=cov;
+		prevcov->next=newcov;
+	}
+	else { // end>=cov->start --> there is overlap
 
-				if(maxint->start<start) { // some region of maxint comes before exon
-					nextmaxint=new CMaxIntv(maxint->node,start,maxint->end,0,maxint->next);
-					maxint->next=nextmaxint;
-					maxint->end=start-1;
-				}
-				else if(start<maxint->start) { // this does nothing to maxint
-					nextmaxint=new CMaxIntv(start,maxint->start-1);
-					nextmaxint->next=maxint;
-					if(prevmaxint) prevmaxint->next=nextmaxint;
-				}
-				else { // start==maxint->start and this does nothing to maxint
-					nextmaxint=maxint;
-				}
-
-				update_overlap(pred,p,e,nextmaxint->node, overlaps);
-				nextmaxint->node.Add(ex);
-
-				if(end<nextmaxint->end) { // nextmaxint now ends where previous maxint ended
-					maxint=new CMaxIntv(nextmaxint->node,end+1,nextmaxint->end,0,nextmaxint->next);
-					nextmaxint->end=end;
-					maxint->node.Pop();
-					nextmaxint->next=maxint;
-				}
-				else if(end>nextmaxint->end) {
-					maxint=nextmaxint;
-					while(maxint->next && end>=maxint->next->start) {
-						if(maxint->end+1<maxint->next->start) {
-							CMaxIntv *newintv=new CMaxIntv(maxint->end+1,maxint->next->start-1);
-							newintv->node.Add(ex);
-							newintv->next=maxint->next;
-							maxint->next=newintv;
-							maxint=newintv;
-						}
-						update_overlap(pred,p,e,maxint->next->node, overlaps);
-						maxint->next->node.Add(ex);
-						maxint=maxint->next;
-					}
-
-					// end<maxint->next->start or maxint->next is NULL
-
-					if(end>maxint->end) {
-						CMaxIntv *newintv=new CMaxIntv(maxint->end+1,end);
-						newintv->node.Add(ex);
-						newintv->next=maxint->next;
-						maxint->next=newintv;
-					}
-					else if(end<maxint->end) {
-						CMaxIntv *newintv=new CMaxIntv(maxint->node,end+1,maxint->end,0,maxint->next);
-						newintv->node.Pop();
-						maxint->next=newintv;
-						maxint->end=end;
-					}
-				}
-			}
+		if(start<cov->start) {
+			cov->start=start;
 		}
-		else { // start > prevmaxint->end and maxint is NULL --> no overlap here
-			nextmaxint=new CMaxIntv(start,end);
-			nextmaxint->node.Add(ex);
-			prevmaxint->next=nextmaxint;
+		cov->cov+=(end-start+1)*count;
+		UCov *nextcov=cov->next;
+
+		while(nextcov && end>=nextcov->start) { // merge while the new interval intersect the existing coverages
+			cov->end=nextcov->end;
+			cov->cov+=nextcov->cov;
+			cov->next=nextcov->next;
+			delete nextcov;
+			nextcov=cov->next;
 		}
 
-		return nextmaxint;
-	}*/
+		if(end>cov->end) cov->end=end;
+
+	}
 
 }
 
-void add_to_UCNode(char s,GList<CReadAln>& readlist,int n,int np,float count,GVec<int> &read2unode,SGBundle* usgbundle,int nu,GPVec<UCNode> &SG2UCnode) {
+
+void add_to_UCNode(int s,GList<CReadAln>& readlist,int n,int np,float count,GVec<int> &read2unode,SGBundle* usgbundle,int nu,GPVec<UCNode> &SG2UCnode) {
 
 	CReadAln & rd=*(readlist[n]);
 	int u=read2unode[n]; // previous node in USG bundle from read
 	if(u<0) u=0; // start unode
 
-	int nex=rd.segs.Count();
+	int nex=rd.segs.Count(); // number of exons in read
 
 	int i=0;
-	while(i<nex) {
+	int lu=u; // last USG node spanned by read
+
+	while(i<nex) { // process exon i
 
 		if(rd.segs[i].end<usgbundle->nodes[0]->position) continue; // skip exons before the start of bundle
-		if(u==nu-1) return; // I do not need to create links after this node
+		if(u==nu-1) return; // I do not need to create links after this node which is the last in the USG (terminal node)
 
-		uint start=rd.segs[i].start;
-		uint end=rd.segs[i].end;
+		uint start=rd.segs[i].start; // start of exon
+		uint end=rd.segs[i].end; // end of exon
 
-		int su=u;
-		uint pos=usgbundle->nodes[0]->position;
+		int su=u; // remember u
 
-		//if(usgbundle->nodes[0]->type==JSTART || usgbundle->nodes[0]->type==TEND) pos++; // TODO: check -> assuming that I need my nodes to start at jstart
-
+		// adjust start to be after the start USG node -> start might be before in case of a junction nearby
 		if(start<usgbundle->nodes[su]->position) start=usgbundle->nodes[su]->position;
-		int lu=nu;
+
 		if(i+1<nex) { // there is another exon after this one
-			// how far would this read exon go
-			if(rd.juncs[i]->usg_start>-1) lu=rd.juncs[i]->usg_start;
-			else {
+
+			// how far would this read exon go; lu=rd.juncs[i]->usg_start; if rd.juncs[i]->usg_start>-1
+			if(rd.juncs[i]->usg_start<0) { // correct end of exon is it passes junction start by a bit
 				lu=-3-rd.juncs[i]->usg_start;
-				if(end-usgbundle->nodes[lu]->position<sserror && usgbundle->nodes[lu]->type==JSTART) end=usgbundle->nodes[lu]->position-1;
+				if(end-usgbundle->nodes[lu]->position<sserror && usgbundle->nodes[lu]->type==JSTART)
+					end=usgbundle->nodes[lu]->position-1;
 			}
 
-			// calculate next exon in read
+			// calculate next exon's start USG node
 			if(rd.juncs[i]->usg_end>-1) u=rd.juncs[i]->usg_end;
 			else u=-3-rd.juncs[i]->usg_end;
 
 		}
+
+		if(start>end) continue; // this is an empty exon -> would this ever happen?
 
 		while(start<=end && su<nu) { // start>=usgbundle->nodes[su]->position
 			uint minend = end;
@@ -432,6 +446,8 @@ void add_to_UCNode(char s,GList<CReadAln>& readlist,int n,int np,float count,GVe
 		}
 		su--;
 
+		lu=su; // last node spanned by exon
+
 		// link su to u
 		if(su<u) {
 			if(!SG2UCnode[u]) {
@@ -444,7 +460,12 @@ void add_to_UCNode(char s,GList<CReadAln>& readlist,int n,int np,float count,GVe
 	}
 
 	// add link to pair if present
-	if(np>-1 && u<read2unode[np]) insert_covlink(SG2UCnode,u,read2unode[np],s,count);
+	if(np>-1) {
+		if(lu<read2unode[np]) insert_covlink(SG2UCnode,lu,read2unode[np],s,count);
+		else if(rd.end<readlist[np]->start) { // if paired read is within the same USG node -> I need to merge coverages in node u up to this point
+			merge_UCNodecov(SG2UCnode,lu,rd.end,readlist[np]->start);
+		}
+	}
 
 }
 
@@ -484,8 +505,6 @@ void populate_UCNodes(BundleData* bdata, GPVec<UCNode> &SG2UCnode,GVec<int> &rea
 		float rdcount=rd.read_count;
 		int nex=rd.segs.Count();
 
-		char rdstrand=rd.strand; // -1,0,1: I need to populate nodes but I can't do this until I know that the strand of the read is confirmed -> need to do 2 passes when nex=1
-
 		if(nex>1) {
 			char rdstrand=0;
 			bool juncstrand=false; // did not find a junction strand
@@ -501,6 +520,7 @@ void populate_UCNodes(BundleData* bdata, GPVec<UCNode> &SG2UCnode,GVec<int> &rea
 					else {
 						rdstrand=rd.juncs[i-1]->strand;
 						rd.strand=rdstrand;
+						juncstrand=true;
 					}
 				}
 
@@ -561,7 +581,7 @@ void populate_UCNodes(BundleData* bdata, GPVec<UCNode> &SG2UCnode,GVec<int> &rea
 		for(int p=0;p<readlist[n]->pair_idx.Count();p++) { // for all pairs of read
 
 			// for each pair I have to pretend strand is independent of the previous one since I grouped together several reads which might be independent
-			char sno=readlist[n]->strand+1; // 0: negative strand; 1: zero strand; 2: positive strand (starting from -1,0,1) // I have to reset sno every time because it might change due to snop
+			int sno=(int)readlist[n]->strand+1; // 0: negative strand; 1: zero strand; 2: positive strand (starting from -1,0,1) // I have to reset sno every time because it might change due to snop
 
 			// check if I've seen read's pair and if yes get its readcol; at the least get read's pair strand if available
 			int np=readlist[n]->pair_idx[p]; // pair read number
@@ -569,7 +589,7 @@ void populate_UCNodes(BundleData* bdata, GPVec<UCNode> &SG2UCnode,GVec<int> &rea
 			if(np>-1) { // read pair still exists  -> need to update counts even if pair came before
 
 				// see if I have the correct read strand
-				char snop=readlist[np]->strand+1;  // snop is the strand of pair read
+				int snop=(int)readlist[np]->strand+1;  // snop is the strand of pair read
 				if(sno!=snop) { // different strands for read and pair
 
 					if(sno==1) { // read n is on zero (neutral) strand, but pair has strand
@@ -609,6 +629,419 @@ void populate_UCNodes(BundleData* bdata, GPVec<UCNode> &SG2UCnode,GVec<int> &rea
 
 }
 
+void add_neutral_pred(int start,int end,float pcov,int n,BundleData* bdata,int &geneno) {
+
+	int len=end-start+1;
+
+	if(len>mintranscriptlen) {
+		//fprintf(stderr,"1 Store single prediction:%d - %d with cov=%f\n",cov->start, cov->end, cov->cov/cov->len());
+		geneno++;
+		char sign='.';
+		CPrediction *p=new CPrediction(geneno-1, NULL, start, end, pcov, sign, len,n);
+
+		GSeg exon(start, end);
+		p->exons.Add(exon);
+		p->exoncov.Add(pcov);
+		if(longreads) {
+			p->tlen=-p->tlen;
+			p->longcov=pcov*len;
+		}
+
+		GList<CPrediction>& pred = bdata->pred;
+		pred.Add(p);
+	}
+}
+
+// s is strand; if neutral is 1;
+void find_connected_cov(UCov *cov,GPVec<UCNode> &SG2UCnode,int i,int s,GArray<int> &result,GBitVec &visited) {
+
+	if(cov->next) {
+		int v=2*i;
+		result.Add(v); // first in graph
+		return;
+	}
+
+	// visited.reset(); // No need to do this if I take care of reset in a smarter way
+	// visited keeps two elements for each node i: 2i and 2i+1 for first in cov and last in cov
+	GVec <int> queue;
+
+	int p=0;
+	int v=2*i+1; // last in graph
+	visited[v]=1;
+	queue.Add(v);
+
+	while(p<queue.Count()) {
+		int q=queue[p];
+		p++;
+		result.Add(q);
+
+		int r=q % 2; // if r then coverage is last; otherwise it is first
+		q=int(q/2);
+
+		if(r || !SG2UCnode[q]->covintv[s]->next) // if last in coverage or coverage is unique -> look at the children
+			for(int j=0;j<SG2UCnode[q]->childlink[s];j++) {
+				int u=SG2UCnode[q]->childlink[s][j]->prevSGnode;
+				v=2*u; // first in coverage
+				if(!visited[v] && SG2UCnode[u]->covintv[s]) {
+					queue.Add(v);
+					visited[v]=1;
+				}
+			}
+
+		if(!r || !SG2UCnode[q]->covintv[s]->next)  // if first in coverage or the coverage node is unique -> also look at the parents
+			for(int j=0;j<SG2UCnode[q]->parentlink[s];j++) {
+				int u=SG2UCnode[q]->parentlink[s][j]->prevSGnode;
+				v=2*u+1; // last in coverage
+				if(!visited[v] && SG2UCnode[u]->covintv[s]) {
+					queue.Add(v);
+					visited[v]=1;
+				}
+			}
+	}
+
+	// now result contains all UCnodes that are connected to last interval cov in SG2UCnode[i] -> make sure it is sorted
+	// result.Sort(); // I used a sorted GArray -> everytime I add it should be in order
+}
+
+
+// distributes connected components and coverages and return next node to procecss from SG2UCnode
+int get_neutral_proportions(UCov *cov,BundleData* bdata,GPVec<UCNode> &SG2UCnode,int i,GBitVec &visited,int &geneno) {
+
+	GArray<int> result(true,true);	// contains all the nodes that are connected to cov making sure they are sorted
+	find_connected_cov(cov,SG2UCnode,i,1,result,visited);
+
+	int n=result.Count(); // n should at least have one componnent
+	GVec <float> perbp; // perbp coverages of the result intervals
+ 	GVec<float> pos; // positive proportions of the result intervals
+	GVec<float> neg; // negative proportions of the result intervals
+	GVec<int> covend;
+ 	float zero=0;
+	GVec<float> poscovxlink(n,zero); // sum of all positive coverage_proportions x links entering the nodes in result
+	GVec<float> negcovxlink(n,zero); // sum of all positive coverage_proportions x links entering the nodes in result
+	GVec<float> sumlink(n,zero); // sum of all links entering the nodes in result
+
+	// compute the c's
+	int j=0;
+	uint start=cov->start;
+	uint end=cov->end;
+	float c=cov->cov;
+	while(j<n) {
+
+		visited[j]=0;
+		int k=j+1;
+		while(k<n && result[k]==result[k-1]+1) { // consecutive node
+
+			int q=result[k]/2;
+			UCov *qcov=SG2UCnode[q]->covintv[1];
+			if(result[k]%2) { // k is the last node in cov interval
+				while(qcov->next) { // only add coverages that I did not see before
+					qcov=qcov->next; // get to last coverage interval
+					c+=qcov->cov;
+				}
+			}
+			else { // first in interval
+				c+=qcov->cov;
+			}
+			end=qcov->end;
+
+			visited[k]=0;
+			k++;
+		}
+
+		covend.Add(k);
+
+		c/=(end-start+1); // perbp coverage of interval
+		float posprop=get_cov(2, start-bdata->start, end-bdata->start, bdata->bpcov);
+		float negprop=get_cov(0, start-bdata->start, end-bdata->start, bdata->bpcov);
+
+		if(posprop) {
+			posprop=posprop/(posprop+negprop);
+			if(posprop<epsilon) { posprop=0; negprop=1;}
+			else {
+				negprop=1-posprop;
+				if(negprop<epsilon) negprop=0;
+			}
+		}
+		else if(negprop) {
+			negprop=negprop/(posprop+negprop);
+			if(negprop<epsilon) { posprop=1; negprop=0;}
+			else {
+				posprop=1-negprop;
+				if(posprop<epsilon) posprop=0;
+			}
+		}
+
+
+		// I know links coming here from before
+
+		perbp.Add(c);
+
+		for(int u=j;u<k;u++) { // find all connections that leave nodes in interval
+
+			// compute covxlink and sumlink
+			if(result[u]%2>1 && (posprop || negprop)) { // if at last node
+				int x=result[u]/2; // I am at node x
+				for(int l=0;l<SG2UCnode[x]->childlink[1].Count();l++) {
+					int lx=2*SG2UCnode[x]->childlink[1][l]->prevSGnode;
+					if(visited[lx]) { // if lx is outside of my j to k interval
+						int p=find_node_in_array(lx,result,k,n-1); // binary search of lx node position in result
+						if(p<0) GError("Node %d in bundle starting at %d not among connected components\n",lx/2,bdata->start); // this should never happen
+						if(posprop || negprop) {
+							poscovxlink[p]+=posprop*SG2UCnode[x]->childcov[1][l];
+							negcovxlink[p]+=negprop*SG2UCnode[x]->childcov[1][l];
+							sumlink[p]+=SG2UCnode[x]->childcov[1][l];
+						}
+					}
+				}
+			}
+			pos.Add(posprop);
+			neg.Add(negprop);
+		}
+
+		if(k<n) {
+			int q=result[k]/2;
+			UCov *qcov=SG2UCnode[q]->covintv[1];
+			if(result[k]%2) {
+				while(qcov->next) qcov=qcov->next;
+			}
+			start=qcov->start;
+			end=qcov->end;
+			c=qcov->cov;
+		}
+
+		j=k;
+
+	} // visited should be reset now
+
+	// now I have to compute for each node the new coverages and covlinks
+	j=0;
+	int jj=0;
+	start=cov->start;
+	end=cov->end;
+	while(j<n) {
+
+		float jcov=perbp[jj];
+		int jk=covend[jj];
+		jj++;
+
+		float posprop=0;
+		float negprop=0;
+		float sumbp=0;
+		if(pos[j] || neg[j]) {
+			posprop+=pos[j]*jcov;
+			negprop+=neg[j]*jcov;
+			sumbp+=jcov;
+		}
+
+		for(int u=j;u<jk;u++) { // consecutive coverages
+
+			if(poscovxlink[u] || negcovxlink[u]) {
+				posprop+=poscovxlink[u];
+				negprop+=negcovxlink[u];
+				sumbp+=sumlink[u];
+			}
+
+			if(result[u]%2>1) { // if at last node -> see if it connects to stranded interval
+				int x=result[u]/2; // I am at node x
+				for(int l=0;l<SG2UCnode[x]->childlink[1].Count();l++) {
+					int lx=2*SG2UCnode[x]->childlink[1][l]->prevSGnode;
+					if(lx>result[jk-1]) { // if lx is outside of my j to k interval
+						int p=find_node_in_array(lx,result,jk,n-1); // binary search of lx node position in result
+						if(p<0) GError("Node %d in bundle starting at %d not among connected components\n",lx/2,bdata->start); // this should never happen
+						if(pos[p] || neg[p]) {
+							posprop+=pos[p]*SG2UCnode[x]->childcov[1][l];
+							negprop+=neg[p]*SG2UCnode[x]->childcov[1][l];
+							sumbp+=sumlink[p];
+						}
+					}
+				}
+			}
+		}
+
+		// distribute coverages for nodes from j to k
+		if(posprop || negprop) { // distribute coverages among the strands
+
+
+
+			for(int k=j;k<jk;k++) {
+				int q=result[k]/2;
+				UCov *qcov=SG2UCnode[q]->covintv[1];
+				if(qcov) {
+					if(k>j && result[k]%2) { // k is the last node in cov interval
+						while(qcov->next) { // add all coverages up to this point
+
+							if(posprop) add_cov2UCNode(SG2UCnode,q,qcov->start,qcov->end,2,posprop*qcov->cov);
+							if(negprop) add_cov2UCNode(SG2UCnode,q,qcov->start,qcov->end,0,negprop*qcov->cov);
+							qcov=qcov->next; // get to last coverage interval
+						}
+					}
+					else { // first in interval
+
+
+						if(posprop) add_cov2UCNode(SG2UCnode,q,qcov->start,qcov->end,2,posprop*qcov->cov);
+						if(negprop) add_cov2UCNode(SG2UCnode,q,qcov->start,qcov->end,0,negprop*qcov->cov);
+					}
+
+				// also distribute the coveragelinks
+				for(int l=0;l<SG2UCnode[x]->childlink[1].Count();l++) {
+					int lx=SG2UCnode[x]->childlink[1][l]->prevSGnode;
+
+					if(posprop) insert_covlink(SG2UCnode,x,lx,2,posprop*SG2UCnode[x]->childcov[1]);
+					if(negprop) insert_covlink(SG2UCnode,x,lx,0,negprop*SG2UCnode[x]->childcov[1]);
+
+				}
+
+				// delete coverages from node?
+
+
+
+
+		}
+		else { // neutral prediction
+			if(jk-2>j && result[jk-1]%2) {
+				int q=result[jk-1]/2;
+				UCov *qcov=SG2UCnode[q]->covintv[1];
+				while(qcov->next) qcov=qcov->next; // get to last coverage interval
+				end=qcov->end;
+			}
+
+			int x=result[j]/2; // I am at node x
+			add_neutral_pred(start,end,jcov,x,bdata,geneno);
+			}
+
+		if(jk<n) {
+
+			int q=result[jk]/2;
+			UCov *qcov=SG2UCnode[q]->covintv[1];
+			if(result[jk]%2) {
+				while(qcov->next) qcov=qcov->next;
+			}
+			start=qcov->start;
+			end=qcov->end;
+			}
+
+		j=jk;
+
+	}
+}
+
+
+void predict_neutral(BundleData* bdata,GPVec<UCNode> &SG2UCnode, int &geneno) {
+
+	//int refstart = bdata->start;  // reference start
+
+	int n=SG2UCnode.Count();
+	float zero=0;
+	GVec<float> pospropprior(n,zero); // remember positive prior proportions from previous nodes if priorcov are also present
+	GVec<float> perbpprior(n,zero); // if this is non-negative then p-=1-p+
+
+	GBitVec visited(2*n); // set it here so I don't have to recreate and reset it all the time
+
+	for(int i=0;i<SG2UCnode.Count();i++) {
+		if(SG2UCnode[i] && SG2UCnode[i]->covintv[1]) { // there are nodes covered in interval
+
+			UCov *cov=SG2UCnode[i]->covintv[1];
+			UCov *prevcov=NULL;
+
+			/**** to do with stranded coverages, but should I do this with neutral ones too? */
+			UCov *nextcov=NULL;
+
+			// merge nearby coverages together
+			while(nextcov) {
+				if(nextcov->start-cov->end<bundledist) {
+					float covleft=cov->cov/cov->len();
+					float covright=nextcov->cov/nextcov->len();
+					if(covleft>DROP*covright || covright>DROP*covleft) { // comparable coverages -> I might comment this out
+						cov->cov+=nextcov->cov;
+						cov->end=nextcov->end;
+						cov->next=nextcov->next;
+						delete nextcov;
+						continue;
+					}
+				}
+				cov=nextcov;
+				nextcov=nextcov->next;
+			}
+			cov=SG2UCnode[i][1];
+			/**** end merging */
+
+			while(cov) { // this is not the last coverage for node
+				bool toprint=true;
+
+				float posprop=0;
+				float negprop=0;
+				get_strand_proportions(cov,bdata,SG2UCnode,i,posprop,negprop);
+
+				float posprop=get_cov(2, cov->start-refstart, cov->end-refstart, bdata->bpcov);
+				float negprop=get_cov(0, cov->start-refstart, cov->end-refstart, bdata->bpcov);
+
+				float perbp=0;
+				if(posprop||negprop) {
+					posprop=posprop/(posprop+negprop);
+					if(posprop<epsilon) { posprop=0; negprop=1;}
+					else {
+						negprop=1-posprop;
+						if(negprop<epsilon) negprop=0;
+					}
+					perbp=cov->cov/cov->len;
+				}
+
+				if(perbpprior[i]) { // there is coverage coming in
+					posprop=(posprop*perbp+pospropprior[i])/(perbp+perbpprior[i]);
+					if(posprop<epsilon) { posprop=0; negprop=1;}
+					else {
+						negprop=1-posprop;
+						if(negprop<epsilon) negprop=0;
+					}
+					perbpprior[i]=0; // used the priors
+				}
+
+
+				if(!cov->next) { // this is the last coverage in interval -> I need to compute future priors
+
+					// now cov is the last covered interval in UCnode
+
+					for(int i=0;i<SG2UCnode[i]->childlink[1].Count();i++) {
+
+					}
+
+				}
+
+				if(posprop) {
+					add_cov2UCNode(SG2UCnode,i,cov->start,cov->end,2,posprop*cov->cov);
+					toprint=false;
+				}
+				if(negprop) {
+					add_cov2UCNode(SG2UCnode,i,cov->start,cov->end,0,negprop*cov->cov);
+					toprint=false;
+				}
+
+				if(toprint) { // add neutral bundle to predictions if needed
+					add_neutral_pred(cov,i,bdata,geneno);
+				}
+				else { // cov was distributed among the +/-
+					if(prevcov) prevcov->next=cov->next;
+					else SG2UCnode[i]->covintv[1]=cov->next;
+				}
+
+				// I delete processed coverages
+				UCNode* tmpcov=cov;
+				cov=cov->next;
+				delete tmpcov;
+
+			}
+
+
+
+
+
+
+
+		}
+	}
+
+}
+
 // WIP FIXME
 int build_usg(BundleData* bdata) {
 
@@ -626,23 +1059,12 @@ int build_usg(BundleData* bdata) {
 	GVec<int> read2unode; // remembers position of read in USG
 	populate_UCNodes(bdata,SG2UCnode,read2unode);
 
+	int geneno=0;
 
-	for(int i=0;i<usgbundle->nodes.Count();i++) { // mark junctions that are in the USG
-		if(usgbundle->nodes[i]->type==JSTART) { // junction
-			for(int j=0;j<usgbundle->nodes[i]->jxLinks.Count();j++) {
-				char s=0; // unknown strand
-				if(usgbundle->nodes[i]->jxLinks[j].strand=='+') s=1; // junction on positive strand
-				else if(usgbundle->nodes[i]->jxLinks[j].strand=='-') s=-1; // guide on negative strand
-				CJunction jn(usgbundle->nodes[i]->position,usgbundle->nodes[i]->jxLinks[j].pos,s);
-				int oidx=-1;
-				if (junction.Found(&jn, oidx)) { // junction present in data
-					junction[oidx]->usg_start=i;
-					junction[oidx]->usg_end=usgbundle->nodes[i]->jxLinks[j].jx->bidx;
-				}
-			}
+	// merge and predict neutral groups
+	predict_neutral(bdata,SG2UCnode,geneno);
 
-		}
-	}
+	// build stranded groups
 
 
 	for(int n=0;n<readlist.Count();n++) { // for all reads in bundle

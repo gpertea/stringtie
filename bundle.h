@@ -14,6 +14,7 @@ extern bool genNascent; // generate nascent synthetic transcripts for each bundl
 #define BSIZE 10000 // bundle size
 
 struct CReadAln;
+struct SGBundle;
 
 // usg related functions
 float get_cov(int s, uint start, uint end, GVec<float>* bpcov);
@@ -317,18 +318,19 @@ struct CPrediction:public GSeg {
 	char strand;
 	//float frag; // counted number of fragments associated with prediction
 	int tlen;
+	int unode; // USG start node for prediction
 	bool flag;
 	CPrediction* linkpred; // for nascent RNAs prediction of transcript that it is linked to and viceversa
 	GVec<GSeg> exons;
 	GVec<float> exoncov;
 	GStr mergename;
 	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
-	int _len=0,bool f=true, CPrediction* lp=NULL):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
+	int _len=0,int _unode=0,bool f=true, CPrediction* lp=NULL):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
 	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
-			tlen(_len),flag(f),linkpred(lp),exons(),exoncov(),mergename() {}
+			tlen(_len),unode(_unode),flag(f),linkpred(lp),exons(),exoncov(),mergename() {}
 	void init(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
-	          int _len=0,bool f=true, CPrediction* lp=NULL) {
+	          int _len=0,int _unode=0,bool f=true, CPrediction* lp=NULL) {
 		geneno=_geneno;
 		t_eq=guide;
 		start=gstart;
@@ -336,6 +338,7 @@ struct CPrediction:public GSeg {
 		cov=_cov;
 		strand=_strand;
 		tlen=_len;
+		unode=_unode;
 		flag=f;
 		linkpred=lp;
 		exons.Clear();
@@ -345,10 +348,19 @@ struct CPrediction:public GSeg {
 
 	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
 //			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
-			t_eq(c.t_eq), cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), flag(c.flag),linkpred(c.linkpred),
-	      exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename) {}
+			t_eq(c.t_eq), cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), unode(c.unode),
+			flag(c.flag),linkpred(c.linkpred),exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename) {}
 	~CPrediction() { //GFREE(id);
 		}
+};
+
+struct CMPrediction {
+	CPrediction *p;
+	GVec<int> nodes;
+	GBitVec pat; // pattern of nodes and introns in prediction
+	GBitVec b; // not retained introns
+	CMPrediction(CPrediction* _p=NULL): p(_p),nodes(),pat(),b() {}
+	CMPrediction(CPrediction* _p,GVec<int>& _nodes,GBitVec& _pat, GBitVec& _b): p(_p),nodes(_nodes),pat(_pat),b(_b) {}
 };
 
 // bundle data structure, holds all input data parsed from BAM file

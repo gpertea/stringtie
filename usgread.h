@@ -191,15 +191,16 @@ class SGReader {
 struct UCov: public GSeg {
 	float cov;
 	UCov *next;
-	UCov(int cstart=0, int cend=0, float _cov=0):GSeg(cstart, cend),next(NULL),
-			cov(_cov) {}
+	UCov(int cstart=0, int cend=0, float _cov=0):GSeg(cstart, cend),
+			cov(_cov),next(NULL) {}
 };
 
 
 
 struct UCNode { // a universal graph "coverage node" (might actually contain more than one node)
 	int prevSGnode; // index of previous SGnode in USG bundle
-	GPVec<UCov> covintv[3]; // covered regions in this UCNode on 0:-, 1:., and 2:+
+	UCov *covintv[3]; // covered regions in this UCNode on 0:-, 1:., and 2:+
+	GPVec<UCNode> parentlink[3]; // links to linked nodes in the same bundle that came before the node -> needed in order to find connected components
 	GPVec<UCNode> childlink[3]; // links to coverage nodes in the same bundle
 	GVec<float> childcov[3]; // coverage linking this UCNode to child UCNode
 
@@ -207,8 +208,9 @@ struct UCNode { // a universal graph "coverage node" (might actually contain mor
 	UCNode(int u = 0): prevSGnode(u) {
 		// Initialize childlink pointers to nullptr (default is null pointer)
 		for (int s = 0; s < 3; s++) {
+			covintv[s]=NULL;
+			parentlink[s] = GPVec<UCNode>(); // TODO: do I need this?
 			childlink[s] = GPVec<UCNode>(); // TODO: do I need this?
-			covintv[s]=GPVec<UCov>(); // TODO: do I need this?
 			childcov[s]=GVec<float>(); // TODO: do I need this?
 		}
 	}
@@ -223,7 +225,7 @@ struct UGroup: public GSeg { // universal group -> links several UNode's togethe
 
 struct BundleData;
 
-void build_usg(BundleData* bdata);
+int build_usg(BundleData* bdata);
 
 
 #endif /* USGREAD_H_ */

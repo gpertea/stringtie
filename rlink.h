@@ -45,6 +45,9 @@ extern bool forceBAM; //for stdin alignment data
 extern bool verbose;
 extern bool debugMode;
 
+struct CPrediction;
+struct CReadAln;
+
 struct CBundlenode:public GSeg {
 	float cov;
 	int bid; // bundle node id in bnode -> to easy retrieve it
@@ -174,14 +177,6 @@ struct CLongTrf{
 	CLongTrf(int tno=0,float c=0):t(tno),cov(c),group() {}
 };
 
-struct CMPrediction {
-	CPrediction *p;
-	GVec<int> nodes;
-	GBitVec pat; // pattern of nodes and introns in prediction
-	GBitVec b; // not retained introns
-	CMPrediction(CPrediction* _p=NULL): p(_p),nodes(),pat(),b() {}
-	CMPrediction(CPrediction* _p,GVec<int>& _nodes,GBitVec& _pat, GBitVec& _b): p(_p),nodes(_nodes),pat(_pat),b(_b) {}
-};
 
 struct CNodeCapacity {
 	int id;
@@ -207,6 +202,12 @@ struct CGraphinfo {
 	int ngraph;
 	int nodeno;
 	CGraphinfo(int ng=-1,int nnode=-1):ngraph(ng),nodeno(nnode){}
+	// Define operator< if needed
+	/*bool operator<(const CGraphinfo& other) const {
+		if(ngraph != other.ngraph)
+			return ngraph<other.ngraph;
+		return nodeno < other.nodeno;  // Compare based on value
+	}*/
 };
 
 struct CGJunc {
@@ -351,7 +352,7 @@ struct CGraphnode:public GSeg {
 	bool hardstart:1; // verified/strong start
 	bool hardend:1;	// verified/strong end
 	//CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float cap=0,float r=0,float f=0):GSeg(s,e),nodeid(id),cov(nodecov),capacity(cap),rate(r),frag(f),child(),parent(),childpat(),parentpat(),trf(){}
-	CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float in=0,float out=0,float r):GSeg(s,e),
+	CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float in=0,float out=0,float r=0):GSeg(s,e),
 			nodeid(id),cov(nodecov),abundin(in),abundout(out),rate(r),child(),parent(),childpat(),parentpat(),trf(),hardstart(false),hardend(false){}
 };
 
