@@ -108,9 +108,9 @@ the following options are available:\n\
  -U unitigs are treated as reads and not as guides \n\ \\ not used now
  -d disable adaptive read coverage mode (default: yes)\n\
  -n sensitivity level: 0,1, or 2, 3, with 3 the most sensitive level (default 1)\n\ \\ deprecated for now
- -O disable the coverage saturation limit and use a slower two-pass approach\n\
-    to process the input alignments, collapsing redundant reads\n\
-  -i the reference annotation contains partial transcripts\n\
+ -O single (one) cell processing mode \n\ \\SCELL
+ --sq3 smart-seq3 assumptions \n\ \\SCELL
+ -i the reference annotation contains partial transcripts\n\
  -w weight the maximum flow algorithm towards the transcript with higher rate (abundance); default: no\n\
  -y include EM algorithm in max flow estimation; default: no\n\
  -z don't include source in the max flow algorithm\n\
@@ -147,7 +147,8 @@ bool viral=false;
 bool eonly=false; // parameter -e ; for mergeMode includes estimated coverage sum in the merged transcripts
 bool longreads=false;
 bool rawreads=false;
-bool scell=false;
+bool scell=false; // SCELL
+bool smartseq3=false; // SCELL
 bool nomulti=false;
 bool enableNames=false;
 bool includecov=false;
@@ -317,8 +318,8 @@ int main(int argc, char* argv[]) {
 
  // == Process arguments.
  GArgs args(argc, argv,
-   "debug;help;version;viral;conservative;mix;nasc;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
-   "exclude=zihvteuLRSNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
+   "debug;help;version;viral;conservative;sq3;mix;nasc;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;" // SCELL
+   "exclude=zihvteuLRSONx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:"); // SCELL
  args.printError(USAGE, true);
 
 	/**
@@ -1035,12 +1036,14 @@ void processOptions(GArgs& args) {
 		 bundledist=0;
 		 //singlethr=1.5;
 	 }
+
 	 mixedMode=(args.getOpt("mix")!=NULL);
 	 if(mixedMode) {
 		 bundledist=0;
 		 //isofrac=0.02; // allow mixedMode to be more conservative
 	 }
 
+	 smartseq3=(args.getOpt("sq3")!=NULL); // SCELL
 
 	 // get genNascent option from -N or --nasc
 	 if (args.getOpt('N') || args.getOpt("isnascent")) {
@@ -1182,7 +1185,7 @@ void processOptions(GArgs& args) {
 
 	 }
 
-	 scell=(args.getOpt('S')!=NULL);
+	 scell=(args.getOpt('O')!=NULL); // SCELL
 
 	 s=args.getOpt('c');
 	 if (!s.is_empty()) {
