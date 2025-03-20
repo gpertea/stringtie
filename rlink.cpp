@@ -2494,7 +2494,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 			prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
 			graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
 			float tmp=graphno-1;
-			float sourceabundance=trimpoint[i].abundance+trthr;
+			float sourceabundance=trimpoint[i].abundance; // SCELL prev:float sourceabundance=trimpoint[i].abundance+trthr;
 			//fprintf(stderr,"store trimmnode_all source futuretr[%d] 0-%d %f\n",futuretr.Count()/3,(int)tmp,sourceabundance);
 			futuretr.cAdd(0.0);
 			futuretr.Add(tmp);
@@ -2502,7 +2502,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 			//fprintf(stderr,"store trimmnode_all source futuretr[%d] %d-%d %f\n",futuretr.Count()/3,prevnode->nodeid,graphnode->nodeid,trthr);
 			tmp=prevnode->nodeid;futuretr.Add(tmp);
 			tmp=graphnode->nodeid;futuretr.Add(tmp);
-			tmp=trthr;futuretr.Add(tmp);
+			tmp=0;futuretr.Add(tmp); // SCELL v2 prev: tmp=trthr;futuretr.Add(tmp);
 			// COUNT 2 EDGES HERE
 			edgeno+=2;
 		}
@@ -2517,7 +2517,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 			prevnode->hardend=true;
 			// remember to create transfrag as well -> I don't know the gno yet, so I can not create it here
 			float tmp=graphno-2;
-			float sinkabundance=trimpoint[i].abundance+trthr;
+			float sinkabundance=trimpoint[i].abundance; // SCELL v2 prev: float sinkabundance=trimpoint[i].abundance+trthr;
 			//fprintf(stderr,"store trimmnode_all sink futuretr[%d] %d- -1 %f\n",futuretr.Count()/3,(int)tmp,sinkabundance);
 			futuretr.Add(tmp);
 			futuretr.cAdd(-1.0);
@@ -2525,7 +2525,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 			//fprintf(stderr,"store trimmnode_all sink futuretr[%d] %d-%d %f\n",futuretr.Count()/3,prevnode->nodeid,graphnode->nodeid,trthr);
 			tmp=prevnode->nodeid;futuretr.Add(tmp);
 			tmp=graphnode->nodeid;futuretr.Add(tmp);
-			tmp=trthr;futuretr.Add(tmp);
+			tmp=0;futuretr.Add(tmp); // SCELL v2 prev: tmp=trthr;futuretr.Add(tmp);
 			// COUNT 2 EDGES HERE
 			edgeno+=2;
 		}
@@ -4527,7 +4527,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 		GVec<CGraphinfo> **bundle2graph,GVec<int> *graphno,GVec<int> *edgeno, GIntHash<int> **gpos,GPVec<CGraphnode> **no2gnode,
 		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no,GPVec<CGroup> &group) {
 
-	/*fprintf(stderr,"get fragment for read[%d]:%d-%d-%d-%d-%f with pair[%d] and longread=%d and exons: ",n,readlist[n]->start,readlist[n]->end,int(readlist[n]->strand),readlist[n]->nh,readlist[n]->read_count,np,readlist[n]->longread);
+	/*fprintf(stderr,"get fragment for read[%d]:%d-%d-%d-%d-%f with pair[%d] and bc=%s and exons: ",n,readlist[n]->start,readlist[n]->end,int(readlist[n]->strand),readlist[n]->nh,readlist[n]->read_count,np,readlist[n]->bc.chars());
 	for(int i=0;i<readlist[n]->segs.Count();i++) fprintf(stderr," %d-%d",readlist[n]->segs[i].start,readlist[n]->segs[i].end);
 	if(np>-1) for(int i=0;i<readlist[np]->segs.Count();i++) fprintf(stderr," %d-%d",readlist[np]->segs[i].start,readlist[np]->segs[i].end);
 	fprintf(stderr,"\n");*/
@@ -6403,7 +6403,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 				trpat[i]=1;
 				trpat[n->child[c]]=1;
 				trpat[*pos]=1;
-				CTransfrag *t=new CTransfrag(nodes,trpat,trthr);
+				CTransfrag *t=new CTransfrag(nodes,trpat,0); // SCELL v2 prev: CTransfrag *t=new CTransfrag(nodes,trpat,trthr);
 				if(longreads) t->longread=true;
 				transfrag.Add(t);
 			}
@@ -15325,6 +15325,20 @@ int build_graphs(BundleData* bdata) {
     		bundle[sno].Clear();
     	}
 
+    	/*
+    	{ // DEBUG ONLY
+    		for(int s=0;s<2;s++) {
+    			for(int b=0;b<bno[s];b++) {
+    				fprintf(stderr, "Graph[%d][%d] - transfrags no=%d\n",s,b,transfrag[s][b].Count());
+    				for(int i=0;i<transfrag[s][b].Count();i++) {
+    					fprintf(stderr,"transfrag[%d](%f): ",i,transfrag[s][b][i]->abundance);
+    					for(int j=0;j<transfrag[s][b][i]->nodes.Count();j++) fprintf(stderr," %d",transfrag[s][b][i]->nodes[j]);
+    					fprintf(stderr,"\n");
+    				}
+    			}
+    		}
+    	}
+    	*/
 
     	// because of this going throu
     	// compute probabilities for stranded bundles
@@ -15432,7 +15446,7 @@ int build_graphs(BundleData* bdata) {
     					}
 
     				}
-					*/
+    				*/
 
 /*
 #ifdef GMEMTRACE
