@@ -439,6 +439,17 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	char *bc=brec.tag_str("BC");
 	char *ub=brec.tag_str("UB");
 
+	if(!strlen(bc)) {
+		fprintf(stderr,"No barcode present in read %s - ignoring\n",brec.name());
+		return;
+	}
+
+	const int* nbc=bdata.cellname[bc];
+	if(!nbc) { // did not see cellname before in bundle -> need to assign an id
+		int ncell=bdata.cellname.Count();
+		bdata.cellname.Add(bc,ncell);
+	}
+
 	if(smartseq3) { // SCELL start v1
 		if(strlen(ub)) { // read has UMI bar code
 			char ustrand=0; // -1, 0, 1
@@ -459,7 +470,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 				}
 			}
 			if(strand && ustrand !=strand) { // conflicting strands -> read is probably incorrect
-				fprintf(stderr,"UMI read %s with ub=%s has conflicting transcript strand; ustrand=%d\n",brec.name(),ub,ustrand);
+				//fprintf(stderr,"UMI read %s with ub=%s has conflicting transcript strand; ustrand=%d\n",brec.name(),ub,ustrand);
 				return;
 			}
 			strand=ustrand;
@@ -470,7 +481,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	int n=readlist.Count()-1;
 
 	if(!mergeMode) while(n>-1 && readlist[n]->start==brec.start) {
-		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig) && readlist[n]->bc==bc && readlist[n]->ub==ub) { // SCELL
+		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig) && readlist[n]->bc==*nbc && readlist[n]->ub==ub) { // SCELL
 			match=exonmatch(readlist[n]->segs,brec.exons);
 			if(match && (longreads || mixedMode)) match=deljuncmatch(readlist[n],brec.juncsdel); //DEL AWARE
 		}
@@ -499,7 +510,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			for (int i=0;i<brec.exons.Count();i++) len+=brec.exons[i].len();
 			if(len<mintranscriptlen) return;
 		}
-		readaln=new CReadAln(strand, nh, bc,ub,brec.start, brec.end, alndata.tinfo);
+		readaln=new CReadAln(strand, nh, *nbc,ub,brec.start, brec.end, alndata.tinfo);
 		readaln->longread=longr;
 		alndata.tinfo=NULL; //alndata.tinfo was passed to CReadAln
 		for (int i=0;i<brec.exons.Count();i++) {
@@ -2186,7 +2197,7 @@ CGraphnode *source2guide(int s, int g, int refstart,uint newstart,uint newend, C
 		//fprintf(stderr,"store source2guide futuretr[%d] %d-%d 1.0\n",futuretr.Count()/3,prevnode->nodeid,graphnode->nodeid);
 		float tmp=prevnode->nodeid;futuretr.Add(tmp);
 		tmp=graphnode->nodeid;futuretr.Add(tmp);
-		tmp=trthr;futuretr.Add(tmp);
+		tmp=0;futuretr.Add(tmp); // SCELL prev: tmp=trthr;futuretr.Add(tmp);
 		prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
 		graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
 	}
@@ -2255,7 +2266,7 @@ CGraphnode *guide2sink(int s, int g, int refstart,uint newstart,uint newend, CGr
 	//fprintf(stderr,"store sink2guide futuretr[%d] %d-%d 1.0\n",futuretr.Count()/3,prevnode->nodeid,graphnode->nodeid);
 	tmp=prevnode->nodeid;futuretr.Add(tmp);
 	tmp=graphnode->nodeid;futuretr.Add(tmp);
-	tmp=trthr;futuretr.Add(tmp);
+	tmp=0;futuretr.Add(tmp); // SCELL prev: tmp=trthr;futuretr.Add(tmp);
 	// COUNT 1 EDGE HERE because the source to guide edge was already included in our count
 	edgeno++;
 
@@ -2354,6 +2365,7 @@ CGraphnode *longtrim(int s, int g, int refstart,int nodeend, int &nls, int &nle,
 	return(graphnode);
 }
 
+/*
 CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphnode,CGraphnode *source, CGraphnode *sink, GVec<float>* bpcov,
 		GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno) {
 
@@ -2474,7 +2486,7 @@ CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphno
 
 	return(graphnode);
 }
-
+*/
 
 CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *graphnode,CGraphnode *source, CGraphnode *sink, GVec<float>* bpcov,
 		GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno,GVec<CTrimPoint> &tstartend,int &f) {
@@ -2540,7 +2552,7 @@ inline int edge(int min, int max, int gno) {
 }
 
 GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec parents,int gno, GVec<bool>& visit,
-		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag, int &edgeno,GIntHash<int> **gpos,int &lastgpos){
+		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag, int &edgeno,GIntHash<int> **gpos,int &lastgpos,int ncell){ // SCELL
 
 	//fprintf(stderr,"Traverse node %d gno=%d\n",node->nodeid,gno);
 
@@ -2577,7 +2589,7 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 			GVec<int> nodes;
 			nodes.cAdd(0);
 			nodes.Add(node->nodeid);
-			CTransfrag *tr=new CTransfrag(nodes,trpat,trthr);
+			CTransfrag *tr=new CTransfrag(ncell,nodes,trpat,trthr); // SCELL
 
 			/*
 			{ // DEBUG ONLY
@@ -2592,7 +2604,7 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 
 			transfrag[s][g].Add(tr);
 			if(mixedMode) { // I need to add a long read as well
-				CTransfrag *longtr=new CTransfrag(nodes,trpat,trthr);
+				CTransfrag *longtr=new CTransfrag(ncell,nodes,trpat,trthr); // SCELL
 				longtr->longread=true;
 				transfrag[s][g].Add(longtr);
 			} else
@@ -2622,7 +2634,7 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 			GVec<int> nodes;
 			nodes.Add(node->nodeid);
 			nodes.Add(sink->nodeid);
-			CTransfrag *tr=new CTransfrag(nodes,trpat,trthr);
+			CTransfrag *tr=new CTransfrag(ncell,nodes,trpat,trthr); // SCELL
 
 			/*
 			{ // DEBUG ONLY
@@ -2638,7 +2650,7 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 
 			transfrag[s][g].Add(tr);
 			if(mixedMode) { // I need to add a long read as well
-				CTransfrag *longtr=new CTransfrag(nodes,trpat,trthr);
+				CTransfrag *longtr=new CTransfrag(ncell,nodes,trpat,trthr); // SCELL
 				longtr->longread=true;
 				transfrag[s][g].Add(longtr);
 			}
@@ -2686,7 +2698,7 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 			}
 
 			//fprintf(stderr,"Call for child %d with id=%d\n",node->child[i],no2gnode[s][g][node->child[i]]->nodeid);
-	    	node->childpat = node->childpat | traverse_dfs(s,g,no2gnode[s][g][node->child[i]],sink,childparents,gno,visit,no2gnode,transfrag,edgeno,gpos,lastgpos);
+	    	node->childpat = node->childpat | traverse_dfs(s,g,no2gnode[s][g][node->child[i]],sink,childparents,gno,visit,no2gnode,transfrag,edgeno,gpos,lastgpos,ncell); // SCELL
 	    }
 	} // end else from if(visit[node->nodeid])
 
@@ -3256,6 +3268,8 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	CGraphnode* sink=new CGraphnode();
 
 	int njunctions=junction.Count();
+
+	int ncell=bdata->cellname.Count(); // SCELL
 
 	//fprintf(stderr,"Start graph[%d][%d] with %d edgeno and lastgpos=%d\n",s,g,edgeno,lastgpos);
 
@@ -3961,7 +3975,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 				nodes.cAdd(n1);
 				nodes.Add(n2);
 			}
-			CTransfrag *tr=new CTransfrag(nodes,trpat,futuretr[i+2]);
+			CTransfrag *tr=new CTransfrag(ncell,nodes,trpat,futuretr[i+2]); // SCELL
 
 			/*
 			{ // DEBUG ONLY
@@ -3977,7 +3991,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 			transfrag[s][g].Add(tr);
 			if(mixedMode) {
-				CTransfrag *longtr=new CTransfrag(nodes,trpat,futuretr[i+2]);
+				CTransfrag *longtr=new CTransfrag(ncell,nodes,trpat,futuretr[i+2]); // SCELL
 				longtr->longread=true;
 				transfrag[s][g].Add(longtr);
 			}
@@ -3993,7 +4007,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	GBitVec parents(graphno+edgeno);
 
 	//fprintf(stderr,"traverse graph[%d][%d] now with %d nodes, %d edges and lastgpos=%d....\n",s,g,graphno,edgeno,lastgpos);//edgeno=0;
-	traverse_dfs(s,g,source,sink,parents,graphno,visit,no2gnode,transfrag,edgeno,gpos,lastgpos);
+	traverse_dfs(s,g,source,sink,parents,graphno,visit,no2gnode,transfrag,edgeno,gpos,lastgpos,ncell); // SCELL
 	//fprintf(stderr,"done traversing with edgeno=%d lastgpos=%d\n",edgeno,lastgpos);
 
 	/*
@@ -4344,7 +4358,8 @@ CTransfrag *findtrf_in_treepat(int gno,GIntHash<int>& gpos,GVec<int>& node,GBitV
 
 
 CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pattern,float abundance,GVec<int>& node,
-		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no, GPVec<CGraphnode>& no2gnode,uint rstart,uint rend,bool is_sr=false,bool is_lr=false){
+		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no, GPVec<CGraphnode>& no2gnode,uint rstart,uint rend,int ncell, // SCELL
+		bool is_sr=false,bool is_lr=false){
 
 	/*
 	{ // DEBUG ONLY
@@ -4477,7 +4492,7 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 
 	CTransfrag *t=findtrf_in_treepat(gno,gpos,node,pattern,tr2no[s][g]);
 	if(!t) { // t is NULL
-	  t=new CTransfrag(node,pattern,0);
+	  t=new CTransfrag(ncell,node,pattern,0); // SCELL
 
 	  /*
 		{ // DEBUG ONLY
@@ -4525,7 +4540,7 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 
 void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,GVec<int> *readgroup,GVec<int>& merge, GVec<int> *group2bundle,
 		GVec<CGraphinfo> **bundle2graph,GVec<int> *graphno,GVec<int> *edgeno, GIntHash<int> **gpos,GPVec<CGraphnode> **no2gnode,
-		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no,GPVec<CGroup> &group) {
+		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no,GPVec<CGroup> &group,int ncell) { // SCELL
 
 	/*fprintf(stderr,"get fragment for read[%d]:%d-%d-%d-%d-%f with pair[%d] and bc=%s and exons: ",n,readlist[n]->start,readlist[n]->end,int(readlist[n]->strand),readlist[n]->nh,readlist[n]->read_count,np,readlist[n]->bc.chars());
 	for(int i=0;i<readlist[n]->segs.Count();i++) fprintf(stderr," %d-%d",readlist[n]->segs[i].start,readlist[n]->segs[i].end);
@@ -4653,7 +4668,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 									node.Add(rnode[r][o]);
 								}
 								update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,node,transfrag,tr2no,
-										no2gnode[s][rgno[r]],rstart, rend,readlist[n]->unitig,readlist[n]->longread);
+										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
 								rpat.reset();
 								rpat[rnode[r][j]]=1; // restart the pattern
 								clear_rnode=j;
@@ -4679,7 +4694,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 									node.Add(rnode[r][o]);
 								}
 								update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,node,transfrag,tr2no,
-										no2gnode[s][rgno[r]],rstart, rend,readlist[n]->unitig,readlist[n]->longread);
+										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
 								rpat.reset();
 								rpat[rnode[r][j]]=1; // restart the pattern
 								clear_rnode=j;
@@ -4730,19 +4745,19 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 					while(i<pnode[p].Count()) { rnode[r].Add(pnode[p][i]);i++;}
 					rpat=rpat|ppat;
 					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,
-							no2gnode[s][rgno[r]],rstart, rend,readlist[n]->unitig,readlist[n]->longread);
+							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
 				}
 				else { // update both patterns separately
 					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,
-							no2gnode[s][rgno[r]],rstart, rend,readlist[n]->unitig,readlist[n]->longread);
+							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
 					update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no,
-							no2gnode[s][pgno[p]],rstart, rend,readlist[n]->unitig,readlist[n]->longread);
+							no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
 				}
 				pgno[p]=-1;
 			}
 			else { // pair has no valid pattern in this graph
 				update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,
-						no2gnode[s][rgno[r]],rstart, rend,readlist[n]->unitig,readlist[n]->longread);
+						no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
 			}
 		}
 
@@ -4771,7 +4786,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 					}
 				}
 				update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no,
-						no2gnode[s][pgno[p]],rstart, rend,readlist[n]->unitig,readlist[n]->longread);
+						no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
 			}
 		delete [] rnode;
 		if(pnode) delete [] pnode;
@@ -4808,7 +4823,7 @@ void get_read_to_transfrag(GList<CReadAln>& readlist,int n,GVec<int> *readgroup,
 	for(int s=0;s<2;s++)
 		if(rgno[s]>-1) { // read is valid (has pattern) on strand s
 			// update transfrag
-			CTransfrag *t=update_abundance(s,rgno[s],graphno[s][rgno[s]],gpos[s][rgno[s]],rpat[s],rprop[s]*readlist[n]->read_count,rnode[s],transfrag,tr2no,no2gnode[s][rgno[s]],readlist[n]->start,readlist[n]->end);
+			CTransfrag *t=update_abundance(s,rgno[s],graphno[s][rgno[s]],gpos[s][rgno[s]],rpat[s],rprop[s]*readlist[n]->read_count,rnode[s],transfrag,tr2no,no2gnode[s][rgno[s]],readlist[n]->start,readlist[n]->end,0); // SCELL
 
 			// if I want to inset source/sink maybe here would be the place
 
@@ -5448,6 +5463,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 		GIntHash<int> &gpos,GVec<CGuide>& guidetrf,GList<CPrediction>& pred,GVec<int>& trflong,BundleData* bdata,GVec<float>& abundleft,GVec<float>& abundright) {
 
 	GPVec<GffObj>& guides = bdata->keepguides;
+	int ncell = bdata->cellname.Count(); // SCELL
 
 	/*
 	{ // DEBUG ONLY
@@ -5487,7 +5503,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 				// do this for longreads too -> sometimes a guide is only partially covered but I still want to give it credit
 				//float abund=trthr*ERROR_PERC;
 				float abund=0;
-				t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund);
+				t=new CTransfrag(ncell,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,abund); // SCELL
 				t->longread=true;
 				// I need to add abund to start and ends too in order for it to work
 			}
@@ -5495,7 +5511,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 
 		}
 		else {
-			t=new CTransfrag(guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC);
+			t=new CTransfrag(ncell,guidetrf[i].trf->nodes,guidetrf[i].trf->pattern,trthr*ERROR_PERC); // SCELL
 		}
 
 		//if(!longreads) {
@@ -5947,7 +5963,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 					nodes.Add(source);
 					nodes.Add(i);
 					//CTransfrag *t=new CTransfrag(nodes,allpat,abund);
-					CTransfrag *t=new CTransfrag(nodes,allpat,addsource[i]);
+					CTransfrag *t=new CTransfrag(ncell,nodes,allpat,addsource[i]); // SCELL
 					t->pattern[source]=1;
 					t->pattern[i]=1;
 					t->longread=true;
@@ -5981,7 +5997,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 					GVec<int> nodes;
 					nodes.Add(i);
 					nodes.Add(sink);
-					CTransfrag *t=new CTransfrag(nodes,allpat,addsink[i]);
+					CTransfrag *t=new CTransfrag(ncell,nodes,allpat,addsink[i]); // SCELL
 					t->pattern[sink]=1;
 					t->pattern[i]=1;
 					t->longread=true;
@@ -6307,7 +6323,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 						nodes.Add(source);
 						nodes.Add(i);
 						//CTransfrag *t=new CTransfrag(nodes,allpat,abund);
-						CTransfrag *t=new CTransfrag(nodes,allpat,addsource[i]);
+						CTransfrag *t=new CTransfrag(ncell,nodes,allpat,addsource[i]); // SCELL
 						t->pattern[source]=1;
 						t->pattern[i]=1;
 						t->longread=true; /// this is only true for longreads;
@@ -6344,7 +6360,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 						GVec<int> nodes;
 						nodes.Add(i);
 						nodes.Add(sink);
-						CTransfrag *t=new CTransfrag(nodes,allpat,addsink[i]);
+						CTransfrag *t=new CTransfrag(ncell,nodes,allpat,addsink[i]); // SCELL
 						t->pattern[sink]=1;
 						t->pattern[i]=1;
 						t->longread=true; //// this is only true for longreads
@@ -6403,7 +6419,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 				trpat[i]=1;
 				trpat[n->child[c]]=1;
 				trpat[*pos]=1;
-				CTransfrag *t=new CTransfrag(nodes,trpat,0); // SCELL v2 prev: CTransfrag *t=new CTransfrag(nodes,trpat,trthr);
+				CTransfrag *t=new CTransfrag(ncell,nodes,trpat,0); // SCELL v2 prev: CTransfrag *t=new CTransfrag(nodes,trpat,trthr);
 				if(longreads) t->longread=true;
 				transfrag.Add(t);
 			}
@@ -9847,7 +9863,7 @@ float best_trf_match(CTransfrag *t,GVec<CTransfrag>& keeptrf,GPVec<CGraphnode>& 
 */
 
 void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<int> &checktrf,GVec<int>& trflong,GVec<int> &path, GBitVec &pathpat,GPVec<CTransfrag>& transfrag,
-		GIntHash<int> &gpos, GBitVec& istranscript,GPVec<CGraphnode>& no2gnode,GPVec<GffObj>& guides,GList<CPrediction>& pred,GVec<float> &nodecov,GVec<float> noderate,bool &first,bool nasc) {
+		GIntHash<int> &gpos, GBitVec& istranscript,GPVec<CGraphnode>& no2gnode,GPVec<GffObj>& guides,GList<CPrediction>& pred,GVec<float> &nodecov,GVec<float> noderate,bool &first,bool nasc,int ncell) { // SCELL
 
 	//fprintf(stderr,"parse_trflong w/nasc=%d\n",nasc);
 	for(int f=trflong.Count()-1;f>=0;f--) { //if((!transfrag[trflong[f]]->guide && !nasc) || isNascent(guides[int(transfrag[trflong[f]]->guide-1)])==nasc) { // if this is a guide it should be reflected in the prediction downstream
@@ -10080,7 +10096,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 						for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
 						fprintf(stderr,"\n");*/
 
-						CTransfrag u(path,pathpat,cov/len);
+						CTransfrag u(ncell,path,pathpat,cov/len); // SCELL
 						//u.weak=pred.Count()-1;
 						u.guide=transfrag[t]->guide;
 						if(p->mergename=="N") u.guide=-u.guide;
@@ -10240,6 +10256,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 		GList<CPrediction>& pred,GVec<int>& trflong,GVec<float>& nodecovall,GBitVec& istranscript,GBitVec& prevpath,BundleData *bdata,bool &first) {
 
 	GPVec<GffObj>& guides = bdata->keepguides;
+	int ncell=bdata->cellname.Count(); // SCELL
 
 	/*
 	{ // DEBUG ONLY
@@ -10313,8 +10330,8 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 	GVec<CTransfrag> keeptrf;
 	GVec<int> checktrf;
 
-	parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,false);
-	if(!eonly && isnascent && guides.Count()) parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,true);
+	parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,false,ncell); // SCELL
+	if(!eonly && isnascent && guides.Count()) parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,true,ncell); // SCELL
 
 	//keeptrf.Sort(longtrCmp); // most abundant transfrag in the graph come first, then the ones with most nodes, then the ones more complete
 
@@ -10477,7 +10494,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 if(g&&isNascent(g)) p->mergename="N";
 						 pred.Add(p);
 
-						 CTransfrag u(path,pathpat,cov/len);
+						 CTransfrag u(ncell,path,pathpat,cov/len);
 						 //u.weak=pred.Count()-1;
 						 u.guide=transfrag[t]->guide;
 						 if(p->mergename=="N") u.guide=-u.guide;
@@ -10675,6 +10692,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 		int& geneno,int strand,GList<CPrediction>& pred,GVec<int>& trflong,BundleData *bdata) {
 
 	GPVec<GffObj>& guides = bdata->keepguides;
+	int ncell = bdata->cellname.Count();
 
 	GVec<float> nodecov; // the coverage of all transfrags entering a node
 	GVec<float> noderate;
@@ -10724,8 +10742,8 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 
 	 bool first=true;
 
-	 parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,false);
-	 if(!eonly && isnascent && guides.Count()) parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,true);
+	 parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,false,ncell); // SCELL
+	 if(!eonly && isnascent && guides.Count()) parse_trflong(gno,geneno,sign,keeptrf,checktrf,trflong,path,pathpat,transfrag,gpos,istranscript,no2gnode,guides,pred,nodecov,noderate,first,true,ncell); // SCELL
 
 	 //keeptrf.Sort(longtrCmp); // most abundant transfrag in the graph come first, then the ones with most nodes, then the ones more complete
 
@@ -10890,7 +10908,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 				 fprintf(stderr,"\n");*/
 
 
-				 CTransfrag u(path,pathpat,cov/len);
+				 CTransfrag u(ncell,path,pathpat,cov/len); // SCELL
 				 u.guide=transfrag[t]->guide;
 				 if(p->mergename=="N") u.guide=-u.guide;
 				 keeptrf.Add(u);
@@ -11487,6 +11505,8 @@ void remove_nascent_transcription(GList<CPrediction>& pred,GVec<CGuide>& nascent
 void create_nascent(GVec<CGuide>& nascent,int s,GVec<int>& path,int gno,int edgeno,
 		GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,BundleData* bdata) {
 
+	int ncell=bdata->cellname.Count(); // SCELL
+
 	/*
 	{ // DEBUG ONLY
 		fprintf(stderr,"\nCreate nascents:\n");
@@ -11525,7 +11545,7 @@ void create_nascent(GVec<CGuide>& nascent,int s,GVec<int>& path,int gno,int edge
 					}
 					else break;
 				}
-				tnascent=new CTransfrag(nodes,nascpat);
+				tnascent=new CTransfrag(ncell,nodes,nascpat); // SCELL
 
 				//if(no2gnode[nodes.Last()]->end+1==no2gnode[guidetrf[g].trf->nodes[i]]->start) // last node is right before the next one in guide
 				//	tnascent->guide=1; // mark that it's continuous
@@ -11572,7 +11592,7 @@ void create_nascent(GVec<CGuide>& nascent,int s,GVec<int>& path,int gno,int edge
 					}
 				}
 
-				tnascent=new CTransfrag(nodes,nascpat);
+				tnascent=new CTransfrag(ncell,nodes,nascpat); // SCELL
 
 				//if(no2gnode[nodes[0]]->start==no2gnode[guidetrf[g].trf->nodes[i-1]]->end+1) // last node is right before the next one in guide
 				//	tnascent->guide=1; // mark that it's continuous
@@ -11740,7 +11760,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 }
 
 
-CTransfrag *find_guide_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int gno,int edgeno,GIntHash<int> &gpos) {
+CTransfrag *find_guide_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int gno,int edgeno,GIntHash<int> &gpos,int ncell) { // SCELL
 
 	CTransfrag *trguide=NULL;
 
@@ -11766,12 +11786,12 @@ CTransfrag *find_guide_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int gno,int
 		int n=guide->exons.Count();
 		while(j<n) {
 			if(guide->exons[j]->end<inode->end) {
-				if(j==n-1) trguide=new CTransfrag(nodes,guidepat); // only find guide abundance later if necessary
+				if(j==n-1) trguide=new CTransfrag(ncell,nodes,guidepat); // SCELL: only find guide abundance later if necessary
 				return(trguide);
 			}
 			else if(guide->exons[j]->end==inode->end) {
 				if(j==n-1) {
-					trguide=new CTransfrag(nodes,guidepat);
+					trguide=new CTransfrag(ncell,nodes,guidepat); // SCELL
 					return(trguide);
 				}
 				j++;
@@ -11801,7 +11821,7 @@ CTransfrag *find_guide_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int gno,int
 					else return(trguide);
 				}
 				else { // node doesn't continue
-					if(j==n-1) trguide=new CTransfrag(nodes,guidepat); // only find guide abundance later if necessary
+					if(j==n-1) trguide=new CTransfrag(ncell,nodes,guidepat); // SCELL : only find guide abundance later if necessary
 					return(trguide);
 				}
 			}
@@ -11810,7 +11830,7 @@ CTransfrag *find_guide_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int gno,int
 	return(trguide);
 }
 
-CTransfrag *find_guide_partial_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int gno,int edgeno,GIntHash<int> &gpos,GVec<int>& olen,int &olensum) {
+CTransfrag *find_guide_partial_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int gno,int edgeno,GIntHash<int> &gpos,GVec<int>& olen,int &olensum,int ncell) { // SCELL
 
 	CTransfrag *trguide=NULL;
 	GBitVec guidepat(gno+edgeno);
@@ -11860,7 +11880,7 @@ CTransfrag *find_guide_partial_pat(GffObj *guide,GPVec<CGraphnode>& no2gnode,int
 	}
 
 	if(olensum) { // guide intersects at least one node in graph
-		trguide=new CTransfrag(nodes,guidepat,0,false);
+		trguide=new CTransfrag(ncell,nodes,guidepat,0,false); // SCELL
 	}
 
 	return(trguide);
@@ -11871,6 +11891,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 		GPVec<CTransfrag>& transfrag,int s,GVec<CGuide>& guidetrf,BundleData *bdata) {
 
 	GPVec<GffObj>& guides = bdata->keepguides;
+	int ncell = bdata->cellname.Count(); // SCELL
 
 	//fprintf(stderr,"In refguides with %d guides\n",guides.Count());
 
@@ -11885,7 +11906,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 		//if((guides[g]->strand==strand || guides[g]->strand=='.') && ((RC_TData*)(guides[g]->uptr))->in_bundle>=2 && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
 		if((guides[g]->strand==strand || guides[g]->strand=='.') && 
 		      getGuideStatus(guides[g])>=GBST_ALL_INTR_COV && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
-			CTransfrag *trguide=find_guide_pat(guides[g],no2gnode,gno,edgeno,gpos);
+			CTransfrag *trguide=find_guide_pat(guides[g],no2gnode,gno,edgeno,gpos,ncell); // SCELL
 			if(trguide) { // the guide can be found among the graph nodes
 				/*if(longreads) { // do not allow guide to be too far away from start/end of the transfrag
 					if(abs((int)(no2gnode[trguide->nodes[0]]->start-guides[g]->start))<CHI_WIN+CHI_THR &&  abs((int)(guides[g]->end-no2gnode[trguide->nodes.Last()]->end))<CHI_WIN+CHI_THR) {
@@ -12120,7 +12141,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 				trpat[0]=1;
 				trpat[nodei]=1;
 				trpat[*pos]=1;
-				CTransfrag *tr=new CTransfrag(nodes,trpat,maxabund);
+				CTransfrag *tr=new CTransfrag(ncell,nodes,trpat,maxabund); // SCELL
 				//fprintf(stderr,"introduce node from source to %d wih abundance=%g where pos=%d\n",nodei,maxabund,*pos);
 				if(longreads) tr->longread=true;
 				transfrag.Add(tr);
@@ -12195,7 +12216,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 				trpat[sink]=1;
 				trpat[*pos]=1;
 				//fprintf(stderr,"introduce node from %d to sink=%d wih abundance=%g where pos=%d\n",nodei,sink,maxabund,*pos);
-				CTransfrag *tr=new CTransfrag(nodes,trpat,maxabund);
+				CTransfrag *tr=new CTransfrag(ncell,nodes,trpat,maxabund); // SCELL
 				if(longreads) tr->longread=true;
 				transfrag.Add(tr);
 
@@ -12740,6 +12761,8 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 		GVec<CGuide>& guidetrf,int& geneno,int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,
 		bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred, BundleData *bdata) {
 
+	int ncell=bdata->cellname.Count(); // SCELL
+
 	GVec<int> printed_guides; // remembers the multi-exons guidetrf's that were printed here
 
 	guides_pushmaxflow_onestep(gno,gpos,no2gnode,transfrag,guidetrf,geneno,s,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,printed_guides,false);
@@ -12776,7 +12799,7 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 				//fprintf(stderr,"...there is overlap\n");
 				olen.Clear();
 				int olensum;
-				CTransfrag *trguide=find_guide_partial_pat(guides[g],no2gnode,gno,edgeno,gpos,olen,olensum);
+				CTransfrag *trguide=find_guide_partial_pat(guides[g],no2gnode,gno,edgeno,gpos,olen,olensum,ncell); // SCELL
 				if(trguide) { // the guide can be found among the graph nodes
 					//fprintf(stderr,"...partial pattern found!\n");
 					CGuide newguide(trguide,g);
@@ -13776,6 +13799,7 @@ void continue_read(GList<CReadAln>& readlist,int n,int idx) {
 
 int build_graphs(BundleData* bdata) {
 	int refstart = bdata->start;
+	int ncell=bdata->cellname.Count(); // SCELL
 	GList<CReadAln>& readlist = bdata->readlist;
 	GList<CJunction>& junction = bdata->junction;
 	GPVec<GffObj>& guides = bdata->keepguides;
@@ -15325,20 +15349,22 @@ int build_graphs(BundleData* bdata) {
     		bundle[sno].Clear();
     	}
 
-    	/*
-    	{ // DEBUG ONLY
+
+    	{ // SCELL --> // set total abundances
     		for(int s=0;s<2;s++) {
     			for(int b=0;b<bno[s];b++) {
-    				fprintf(stderr, "Graph[%d][%d] - transfrags no=%d\n",s,b,transfrag[s][b].Count());
+    				//fprintf(stderr, "Graph[%d][%d] - transfrags no=%d\n",s,b,transfrag[s][b].Count());
     				for(int i=0;i<transfrag[s][b].Count();i++) {
-    					fprintf(stderr,"transfrag[%d](%f): ",i,transfrag[s][b][i]->abundance);
+    					/*fprintf(stderr,"transfrag[%d](%f): ",i,transfrag[s][b][i]->abundance);
     					for(int j=0;j<transfrag[s][b][i]->nodes.Count();j++) fprintf(stderr," %d",transfrag[s][b][i]->nodes[j]);
-    					fprintf(stderr,"\n");
+    					fprintf(stderr,"\n");*/
+    					transfrag[s][b][i]->tabundance=transfrag[s][b][i]->abundance;
+    					transfrag[s][b][i]->abundance=0;
     				}
     			}
     		}
-    	}
-    	*/
+    	} // end SCELL
+
 
     	// because of this going throu
     	// compute probabilities for stranded bundles
@@ -15361,12 +15387,12 @@ int build_graphs(BundleData* bdata) {
     				if(np>-1) {
     					single_count-=readlist[n]->pair_count[j];
     					if(n<np) {
-    						get_fragment_pattern(readlist,n,np,readlist[n]->pair_count[j],readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group);
+    						get_fragment_pattern(readlist,n,np,readlist[n]->pair_count[j],readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell);
     					}
     				}
     			}
     			if(single_count>epsilon) {
-    				get_fragment_pattern(readlist,n,-1,single_count,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group);
+    				get_fragment_pattern(readlist,n,-1,single_count,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell);
     			}
 			//}
     	}

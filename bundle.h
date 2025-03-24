@@ -170,7 +170,7 @@ struct CReadAln:public GSeg {
 	// GStr name;
 	char strand; // 1, 0 (unkown), -1 (reverse)
 	short int nh;
-	GStr bc; // SCELL
+	int bc; // SCELL -1 if uninitiated
 	GStr ub; // SCELL
 	uint len;
 	float read_count;       // keeps count for all reads (including paired and unpaired)
@@ -185,7 +185,7 @@ struct CReadAln:public GSeg {
 		bool in_guide;
 	};
 
-	CReadAln(char _strand=0, short int _nh=0,char *_bc=NULL, char *_ub=NULL,
+	CReadAln(char _strand=0, short int _nh=0,char _bc=-1, char *_ub=NULL, // SCELL
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
 					strand(_strand),nh(_nh), bc(_bc),ub(_ub),len(0), read_count(0), unitig(false),longread(false),pair_count(),pair_idx(), // SCELL
 					segs(), juncs(false), tinfo(tif) { }
@@ -339,12 +339,13 @@ struct BundleData {
  GList<CPrediction> pred;
  int numNascents=0; //number of nascent transcripts generated for this bundle
  RC_BundleData* rc_data; // read count data for this bundle
+ GHash<int> cellname; // SCELL links cell names to position in array for all different structures (e.g. readlist,CTransfrag)
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 numreads(0),
 		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
 		 refseq(), gseq(NULL), readlist(false,true), //bpcov(1024),
 		 junction(true, true, true),
-		 keepguides(false), ptfs(false), pred(false), rc_data(NULL) {
+		 keepguides(false), ptfs(false), pred(false), rc_data(NULL),cellname() { // SCELL
 	 for(int i=0;i<3;i++) 	bpcov[i].setCapacity(4096);
  }
 
