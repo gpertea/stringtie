@@ -1415,7 +1415,7 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 }
 
 CGraphnode *create_graphnode(int s, int g, uint start,uint end,int nodeno,CBundlenode *bundlenode,
-		GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode) {
+		GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode,int ncell) { // SCELL
 
 	/*
 	{ // DEBUG ONLY
@@ -1424,7 +1424,7 @@ CGraphnode *create_graphnode(int s, int g, uint start,uint end,int nodeno,CBundl
 	*/
 
 
-	CGraphnode* gnode=new CGraphnode(start,end,nodeno);
+	CGraphnode* gnode=new CGraphnode(ncell,start,end,nodeno); // SCELL
 	CGraphinfo ginfo(g,nodeno);
 	bundle2graph[s][bundlenode->bid].Add(ginfo);
 	no2gnode[s][g].Add(gnode);
@@ -2103,6 +2103,7 @@ int find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,G
 	return(f);
 }
 
+/*
 CGraphnode *add_trim_to_graph(int s, int g,uint lastpos,CTrimPoint& mytrim,CGraphnode *graphnode,CGraphnode *source,CGraphnode *sink,GVec<float>& futuretr,
 		int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode) {
 
@@ -2148,11 +2149,12 @@ CGraphnode *add_trim_to_graph(int s, int g,uint lastpos,CTrimPoint& mytrim,CGrap
 
 	return(graphnode);
 }
+*/
 
 // cummulative bpcov
 CGraphnode *source2guide(int s, int g, int refstart,uint newstart,uint newend, CGraphnode *graphnode,CGraphnode *source,
 		GVec<float>* bpcov,GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,
-		GPVec<CGraphnode> **no2gnode, int &edgeno) {
+		GPVec<CGraphnode> **no2gnode, int &edgeno,int ncell) { // SCELL
 
 	if(graphnode->start+longintronanchor>newstart) { // newstart is very close to graphnode start
 		for(int p=0;p<graphnode->parent.Count();p++) if(!graphnode->parent[p]) return(graphnode);
@@ -2192,7 +2194,7 @@ CGraphnode *source2guide(int s, int g, int refstart,uint newstart,uint newend, C
 		uint prevend=graphnode->end;
 		graphnode->end=newstart-1;
 		CGraphnode *prevnode=graphnode;
-		graphnode=create_graphnode(s,g,newstart,prevend,graphno,bundlenode,bundle2graph,no2gnode);
+		graphnode=create_graphnode(s,g,newstart,prevend,graphno,bundlenode,bundle2graph,no2gnode,ncell); // SCELL
 		graphno++;
 		//fprintf(stderr,"store source2guide futuretr[%d] %d-%d 1.0\n",futuretr.Count()/3,prevnode->nodeid,graphnode->nodeid);
 		float tmp=prevnode->nodeid;futuretr.Add(tmp);
@@ -2218,7 +2220,7 @@ CGraphnode *source2guide(int s, int g, int refstart,uint newstart,uint newend, C
 // cummulative version
 CGraphnode *guide2sink(int s, int g, int refstart,uint newstart,uint newend, CGraphnode *graphnode,CGraphnode *sink,
 		GVec<float>* bpcov,GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,
-		GPVec<CGraphnode> **no2gnode, int &edgeno) {
+		GPVec<CGraphnode> **no2gnode, int &edgeno, int ncell) { // SCELL
 
 	// compute maxabund
 	float leftcov=0;
@@ -2254,7 +2256,7 @@ CGraphnode *guide2sink(int s, int g, int refstart,uint newstart,uint newend, CGr
 	uint prevend=graphnode->end;
 	graphnode->end=newstart;
 	CGraphnode *prevnode=graphnode;
-	graphnode=create_graphnode(s,g,newstart+1,prevend,graphno,bundlenode,bundle2graph,no2gnode);
+	graphnode=create_graphnode(s,g,newstart+1,prevend,graphno,bundlenode,bundle2graph,no2gnode,ncell); // SCELL
 	graphno++;
 	prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
 	graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
@@ -2276,7 +2278,7 @@ CGraphnode *guide2sink(int s, int g, int refstart,uint newstart,uint newend, CGr
 
 CGraphnode *longtrim(int s, int g, int refstart,int nodeend, int &nls, int &nle, bool &startcov, bool endcov, GVec<CPred> &lstart, GVec<CPred> &lend,
 		CGraphnode *graphnode,CGraphnode *source, CGraphnode *sink, GVec<float>& futuretr, int& graphno, GVec<float>* bpcov,
-		CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno) {
+		CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno, int ncell) { // SCELL
 
 	while(nls<lstart.Count() && lstart[nls].predno<(int)graphnode->start) nls++;
 	while(nle<lend.Count() && lend[nle].predno<(int)graphnode->start) nle++;
@@ -2299,7 +2301,7 @@ CGraphnode *longtrim(int s, int g, int refstart,int nodeend, int &nls, int &nle,
 				uint prevend=graphnode->end;
 				graphnode->end=lstart[nls].predno-1;
 				CGraphnode *prevnode=graphnode;
-				graphnode=create_graphnode(s,g,lstart[nls].predno,prevend,graphno,bundlenode,bundle2graph,no2gnode);
+				graphnode=create_graphnode(s,g,lstart[nls].predno,prevend,graphno,bundlenode,bundle2graph,no2gnode,ncell); // SCELL
 				graphnode->hardstart=true;
 				graphno++;
 				source->child.Add(graphnode->nodeid);  // this node is the child of source
@@ -2342,7 +2344,7 @@ CGraphnode *longtrim(int s, int g, int refstart,int nodeend, int &nls, int &nle,
 				graphnode->end=lend[nle].predno;
 				CGraphnode *prevnode=graphnode;
 				graphnode->hardend=true;
-				graphnode=create_graphnode(s,g,lend[nle].predno+1,prevend,graphno,bundlenode,bundle2graph,no2gnode);
+				graphnode=create_graphnode(s,g,lend[nle].predno+1,prevend,graphno,bundlenode,bundle2graph,no2gnode,ncell); // SCELL
 				graphno++;
 				prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
 				graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
@@ -2489,7 +2491,7 @@ CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphno
 */
 
 CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *graphnode,CGraphnode *source, CGraphnode *sink, GVec<float>* bpcov,
-		GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno,GVec<CTrimPoint> &tstartend,int &f) {
+		GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno,GVec<CTrimPoint> &tstartend,int &f,int ncell) { // SCELL
 
 	GVec<CTrimPoint> trimpoint;
 	f=find_all_trims(refstart,2*s,graphnode->start,newend,bpcov,trimpoint,tstartend,f);
@@ -2498,7 +2500,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 			graphnode->end=trimpoint[i].pos-1;
 			//fprintf(stderr,"Create source trim:%d-%d and %d-%d\n",graphnode->start,graphnode->end,trimpoint[i].pos,newend);
 			CGraphnode *prevnode=graphnode;
-			graphnode=create_graphnode(s,g,trimpoint[i].pos,newend,graphno,bundlenode,bundle2graph,no2gnode);
+			graphnode=create_graphnode(s,g,trimpoint[i].pos,newend,graphno,bundlenode,bundle2graph,no2gnode,ncell); // SCELL
 			graphnode->hardstart=true;
 			graphno++;
 			source->child.Add(graphnode->nodeid);  // this node is the child of source
@@ -2521,7 +2523,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 		else { // this is sink
 			graphnode->end=trimpoint[i].pos;
 			CGraphnode *prevnode=graphnode;
-			graphnode=create_graphnode(s,g,trimpoint[i].pos+1,newend,graphno,bundlenode,bundle2graph,no2gnode);
+			graphnode=create_graphnode(s,g,trimpoint[i].pos+1,newend,graphno,bundlenode,bundle2graph,no2gnode,ncell); // SCELL
 			graphno++;
 			prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
 			graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
@@ -3263,13 +3265,14 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	GVec<float>* bpcov = bdata ? bdata->bpcov : NULL; // I might want to use a different type of data for bpcov to save memory in the case of very long bundles
 
-	CGraphnode* source=new CGraphnode(0,0,0);
+	int ncell=bdata->cellname.Count(); // SCELL
+
+	CGraphnode* source=new CGraphnode(ncell,0,0,0); // SCELL
 	no2gnode[s][g].Add(source);
-	CGraphnode* sink=new CGraphnode();
+	CGraphnode* sink=new CGraphnode(ncell,0,0,0); // SCELL
 
 	int njunctions=junction.Count();
 
-	int ncell=bdata->cellname.Count(); // SCELL
 
 	//fprintf(stderr,"Start graph[%d][%d] with %d edgeno and lastgpos=%d\n",s,g,edgeno,lastgpos);
 
@@ -3527,7 +3530,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    }
 
 	    //fprintf(stderr,"create graph 1\n");
-	    CGraphnode *graphnode=create_graphnode(s,g,currentstart,endbundle,graphno,bundlenode,bundle2graph,no2gnode); // creates a $graphno graphnode  with start at bundle start, and end at bundle end
+	    CGraphnode *graphnode=create_graphnode(s,g,currentstart,endbundle,graphno,bundlenode,bundle2graph,no2gnode,ncell); // SCELL creates a $graphno graphnode  with start at bundle start, and end at bundle end
 	    graphno++;
 
 	    if(end) { // I might have nodes finishing here; but I have a junction finishing here for sure
@@ -3616,15 +3619,15 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    					// I need to check there is no other trimming needed due to drops from longreads
 	    					if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,gstart,nls,nle,dropcov,!sourceguide,lstart,lend,
-	    							graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
+	    							graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
 
 
 	    					if(sourceguide)	{
-	    						graphnode=source2guide(s,g,refstart,gstart,gend,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+	    						graphnode=source2guide(s,g,refstart,gstart,gend,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
 	    						dropcov=false;
 	    					}
 	    					else {
-	    						graphnode=guide2sink(s,g,refstart,gstart,gend,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+	    						graphnode=guide2sink(s,g,refstart,gstart,gend,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
 	    						dropcov=true;
 	    					}
 
@@ -3634,8 +3637,8 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    		}
 	    		//if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 	    		else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,junction[njs]->start,nls,nle,dropcov,true,lstart,lend,
-							graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    		if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
+							graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
+	    		if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f,ncell); // SCELL do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 
 	    		dropcov=true;
@@ -3681,7 +3684,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    			if(!completed) {
 	    				//fprintf(stderr,"create graph 2\n");
-	    				CGraphnode *nextnode = create_graphnode(s,g,pos+1,endbundle,graphno,bundlenode,bundle2graph,no2gnode);
+	    				CGraphnode *nextnode = create_graphnode(s,g,pos+1,endbundle,graphno,bundlenode,bundle2graph,no2gnode,ncell); // SCELL
 	    				graphno++;
 	    				graphnode->child.Add(nextnode->nodeid); // make nextnode a child of current graphnode
 	    				nextnode->parent.Add(graphnode->nodeid);// make graphnode a parent of nextnode
@@ -3726,24 +3729,24 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    						// I need to check there is no other trimming needed due to drops from longreads
 	    						if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,start,nls,nle,dropcov,!sourceguide,lstart,lend,
-	    								graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
+	    								graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
 
-	    						if(sourceguide)	graphnode=source2guide(s,g,refstart,start,end,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
-	    						else graphnode=guide2sink(s,g,refstart,start,end,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+	    						if(sourceguide)	graphnode=source2guide(s,g,refstart,start,end,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
+	    						else graphnode=guide2sink(s,g,refstart,start,end,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
 
 	    					}
 	    				}
 	    			}
 	    			//if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 	    			else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,pos-1,nls,nle,dropcov,false,lstart,lend,
-	    						graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    			if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
+	    						graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
+	    			if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f,ncell); // SCELL do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 
 	    			graphnode->end=pos-1; // set end of current graphnode here
 	    			dropcov=false;
 	    			//fprintf(stderr,"create graph 3\n");
-	    			CGraphnode *nextnode = create_graphnode(s,g,pos,endbundle,graphno,bundlenode,bundle2graph,no2gnode);
+	    			CGraphnode *nextnode = create_graphnode(s,g,pos,endbundle,graphno,bundlenode,bundle2graph,no2gnode,ncell); // SCELL
 	    			graphno++;
 	    			graphnode->child.Add(nextnode->nodeid); // make nextnode a child of current graphnode
 	    			nextnode->parent.Add(graphnode->nodeid);// make graphnode a parent of nextnode
@@ -3797,18 +3800,18 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    				// I need to check there is no other trimming needed due to drops from longreads
 	    				if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,start,nls,nle,dropcov,!sourceguide,lstart,lend,
-	    						graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
+	    						graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
 
-	    				if(sourceguide)	graphnode=source2guide(s,g,refstart,start,end,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
-	    				else graphnode=guide2sink(s,g,refstart,start,end,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);
+	    				if(sourceguide)	graphnode=source2guide(s,g,refstart,start,end,graphnode,source,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
+	    				else graphnode=guide2sink(s,g,refstart,start,end,graphnode,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
 
 	    			}
 	    		}
 	    	}
 	    	// if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
 	    	else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,endbundle,nls,nle,dropcov,true,lstart,lend,
-	    				graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    	if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
+	    				graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno,ncell); // SCELL
+	    	if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f,ncell); // SCELL do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 	    	graphnode->end=endbundle;
 	    	// COUNT EDGE HERE (this is an edge to sink)
@@ -4358,7 +4361,7 @@ CTransfrag *findtrf_in_treepat(int gno,GIntHash<int>& gpos,GVec<int>& node,GBitV
 
 
 CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pattern,float abundance,GVec<int>& node,
-		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no, GPVec<CGraphnode>& no2gnode,uint rstart,uint rend,int ncell, // SCELL
+		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no, GPVec<CGraphnode>& no2gnode,uint rstart,uint rend,int ncell,int thiscell, // SCELL
 		bool is_sr=false,bool is_lr=false){
 
 	/*
@@ -4530,7 +4533,10 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 	}
 
 	if(is_sr) t->srabund+=abundance;
-	else t->abundance+=abundance;
+	else {
+		t->abundance+=abundance;
+		t->abundance[thiscell]+=abundance; // SCELL
+	}
 
 	if(no2gnode[node[0]]->start<=rstart) if(!t->longstart || rstart<t->longstart) t->longstart=rstart; // value of longstart inside node; the other extensions could come from spliced nodes
 	if(no2gnode[node.Last()]->end>=rend) if(!t->longend|| rend>t->longend) t->longend=rend; // value of longend inside node; the other extensions could come from spliced nodes
@@ -4668,7 +4674,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 									node.Add(rnode[r][o]);
 								}
 								update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,node,transfrag,tr2no,
-										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
+										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
 								rpat.reset();
 								rpat[rnode[r][j]]=1; // restart the pattern
 								clear_rnode=j;
@@ -4694,7 +4700,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 									node.Add(rnode[r][o]);
 								}
 								update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,node,transfrag,tr2no,
-										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
+										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
 								rpat.reset();
 								rpat[rnode[r][j]]=1; // restart the pattern
 								clear_rnode=j;
@@ -4745,19 +4751,19 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 					while(i<pnode[p].Count()) { rnode[r].Add(pnode[p][i]);i++;}
 					rpat=rpat|ppat;
 					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,
-							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
+							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
 				}
 				else { // update both patterns separately
 					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,
-							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
+							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
 					update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no,
-							no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
+							no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
 				}
 				pgno[p]=-1;
 			}
 			else { // pair has no valid pattern in this graph
 				update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,
-						no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
+						no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
 			}
 		}
 
@@ -4786,7 +4792,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 					}
 				}
 				update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no,
-						no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->unitig,readlist[n]->longread); // SCELL
+						no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
 			}
 		delete [] rnode;
 		if(pnode) delete [] pnode;
@@ -4823,7 +4829,7 @@ void get_read_to_transfrag(GList<CReadAln>& readlist,int n,GVec<int> *readgroup,
 	for(int s=0;s<2;s++)
 		if(rgno[s]>-1) { // read is valid (has pattern) on strand s
 			// update transfrag
-			CTransfrag *t=update_abundance(s,rgno[s],graphno[s][rgno[s]],gpos[s][rgno[s]],rpat[s],rprop[s]*readlist[n]->read_count,rnode[s],transfrag,tr2no,no2gnode[s][rgno[s]],readlist[n]->start,readlist[n]->end,0); // SCELL
+			CTransfrag *t=update_abundance(s,rgno[s],graphno[s][rgno[s]],gpos[s][rgno[s]],rpat[s],rprop[s]*readlist[n]->read_count,rnode[s],transfrag,tr2no,no2gnode[s][rgno[s]],readlist[n]->start,readlist[n]->end,0,0); // SCELL
 
 			// if I want to inset source/sink maybe here would be the place
 
@@ -11609,7 +11615,7 @@ void create_nascent(GVec<CGuide>& nascent,int s,GVec<int>& path,int gno,int edge
 
 void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,
 		int& geneno,bool first,int strand,GList<CPrediction>& pred,GVec<float>& nodecov,
-		GBitVec& istranscript,GBitVec& usednode,float maxcov,GBitVec& prevpath,BundleData* bdata) {
+		GBitVec& istranscript,GBitVec& usednode,float maxcov,GBitVec& prevpath,BundleData* bdata,int thiscell) { // SCELL
 
 	 GVec<int> path;
 	 path.Add(maxi);
@@ -11942,7 +11948,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 		}
 	} //for g
 
-	/*if(longreads && guidetrf.Count()) { // if a guide is not matching any transcript the best do not include TODO: rewrite this!!
+	/*if(longreads && guidetrf.Count()) { // if a guide is not matching any transcript the best do not include - should rewrite this!!
 		int ng=guidetrf.Count();
 		GVec<bool> covered(ng,false);
 		GVec<int> gcount; // count number of bits set in each guide's pattern
@@ -13314,7 +13320,7 @@ void collect_path(GPVec<CMTransfrag>& mgt,GVec<int>& alltr,GVec<int>& path,GPVec
 
 
 int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,int geneno,int strand,
-		GVec<CGuide>& guidetrf,GPVec<GffObj>& guides,GVec<int>& guidepred,BundleData* bdata,GVec<int>& trflong,
+		GVec<CGuide>& guidetrf,GPVec<GffObj>& guides,GVec<int>& guidepred,BundleData* bdata,int thiscell,GVec<int>& trflong, // SCELL
 		GVec<float>& abundleft,GVec<float>& abundright) {
 
 	GList<CPrediction>& pred = bdata->pred;
@@ -13323,7 +13329,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 	if(trflong.Count()) get_trf_long(gno,edgeno, gpos,no2gnode,transfrag,geneno,strand,pred,trflong,bdata);
 	if(longreads) return(geneno);*/
 
-	if(longreads) {
+	if(longreads) { // SCELL TODO: address thiscell here -> not done yet
 		if(trflong.Count()) get_trf_long(gno,edgeno, gpos,no2gnode,transfrag,geneno,strand,pred,trflong,bdata);
 		return(geneno);
 	}
@@ -13355,7 +13361,9 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 
 		    int nn=inode->trf.Count();
 
-		    if(i<gno-1 && inode->len()) nodecov[i]=inode->cov/inode->len(); // sink also has 0 coverage
+		    if(i<gno-1 && inode->len()) { // SCELL --> start
+		    	nodecov[i]=inode->cellcov[thiscell]/inode->len(); // sink also has 0 coverage
+		    } // SCELL <-- end
 		    if(nodecov[i]>nodecov[maxi]) maxi=i;
 
 		    float abundin=0;
@@ -13413,7 +13421,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 
 		    }
 
-		    inode->abundin=abundin+abundthrough;
+		    inode->abundin=abundin+abundthrough;   // SCELL TODO: consider computing this entities based on cell abundances and not total abundance as done now
 		    inode->abundout=abundout+abundthrough;
 
 		} // end if i
@@ -13451,11 +13459,11 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 	//fprintf(stderr,"guide count=%d\n",guidetrf.Count());
 
 	if (eonly)
-		guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata);
+		guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata); // SCELL TODO: this also needs to be adjusted for single cell
 	else { //if(!eonly) {
-		if(mixedMode && trflong.Count()) get_trf_long_mix(gno,edgeno, gpos,no2gnode,transfrag,geneno,strand,pred,trflong,nodecov,istranscript,pathpat,bdata,first);
+		if(mixedMode && trflong.Count()) get_trf_long_mix(gno,edgeno, gpos,no2gnode,transfrag,geneno,strand,pred,trflong,nodecov,istranscript,pathpat,bdata,first); // SCELL TODO: adjust for single cell
 
-		if(!mixedMode && guidetrf.Count()) maxi=guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata);
+		if(!mixedMode && guidetrf.Count()) maxi=guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata); // SCELL TODO: adjust for single cell
 
 		{ // DEBUG ONLY
 			if(mixedMode) {
@@ -13485,7 +13493,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 		if(nodecov[maxi]>=1) { // sensitive mode only; otherwise >=readthr
 
 			GBitVec usednode(gno+edgeno);
-			parse_trf(maxi,gno,edgeno,gpos,no2gnode,transfrag,geneno,first,strand,pred,nodecov,istranscript,usednode,0,pathpat,bdata);
+			parse_trf(maxi,gno,edgeno,gpos,no2gnode,transfrag,geneno,first,strand,pred,nodecov,istranscript,usednode,0,pathpat,bdata,thiscell); // SCELL
 
 		}
 
@@ -15350,51 +15358,49 @@ int build_graphs(BundleData* bdata) {
     	}
 
 
-    	{ // SCELL --> // set total abundances
+    	/*
+    	{ // DEBUG ONLY SCELL --> // set total abundances
     		for(int s=0;s<2;s++) {
     			for(int b=0;b<bno[s];b++) {
     				//fprintf(stderr, "Graph[%d][%d] - transfrags no=%d\n",s,b,transfrag[s][b].Count());
     				for(int i=0;i<transfrag[s][b].Count();i++) {
-    					/*fprintf(stderr,"transfrag[%d](%f): ",i,transfrag[s][b][i]->abundance);
+    					fprintf(stderr,"transfrag[%d](%f): ",i,transfrag[s][b][i]->abundance);
     					for(int j=0;j<transfrag[s][b][i]->nodes.Count();j++) fprintf(stderr," %d",transfrag[s][b][i]->nodes[j]);
-    					fprintf(stderr,"\n");*/
-    					transfrag[s][b][i]->tabundance=transfrag[s][b][i]->abundance;
-    					transfrag[s][b][i]->abundance=0;
+    					fprintf(stderr,"\n");
     				}
     			}
     		}
     	} // end SCELL
-
+    	*/
 
     	// because of this going throu
     	// compute probabilities for stranded bundles
 
-    	GStr bc("CAACCTCACAAGAGGT"); // SCELL
 
-    	for (int n=0;n<readlist.Count();n++) if(readlist[n]->bc==bc){ // only process a single cell // SCELL
+    	for (int n=0;n<readlist.Count();n++) {
 
-	  /*if(readlist[n]->unitig) { // super-reads are unpaired
+    		if(readlist[n]->unitig) { // super-reads are unpaired
     			float srcov=0;
     			for(int i=0;i<readlist[n]->segs.Count();i++)
     				srcov+=get_cov(1,readlist[n]->segs[i].start-refstart,readlist[n]->segs[i].end-refstart,bpcov)/readlist[n]->segs[i].len();
-    			if(srcov) get_fragment_pattern(readlist,n,-1,readlist[n]->read_count/srcov,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group);
+    			if(srcov) get_fragment_pattern(readlist,n,-1,readlist[n]->read_count/srcov,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell); // SCELL
 
     		}
-    		else {*/
+    		else {
     			float single_count=readlist[n]->read_count;
     			for(int j=0; j<readlist[n]->pair_idx.Count();j++) {
     				int np=readlist[n]->pair_idx[j];
     				if(np>-1) {
     					single_count-=readlist[n]->pair_count[j];
     					if(n<np) {
-    						get_fragment_pattern(readlist,n,np,readlist[n]->pair_count[j],readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell);
+    						get_fragment_pattern(readlist,n,np,readlist[n]->pair_count[j],readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell); // SCELL
     					}
     				}
     			}
     			if(single_count>epsilon) {
     				get_fragment_pattern(readlist,n,-1,single_count,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell);
     			}
-			//}
+			}
     	}
 
 
@@ -15486,8 +15492,11 @@ int build_graphs(BundleData* bdata) {
 
     				//if(!longreads) {
     				// find transcripts now
-    				if(!rawreads) geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
-    						geneno,s,guidetrf,guides,guidepred,bdata,trflong,abundleft,abundright);
+    				if(!rawreads) { // SCELL --> start
+    					for(int c=0;c<ncell;c++)
+    						geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
+    								geneno,s,guidetrf,guides,guidepred,bdata,c,trflong,abundleft,abundright);
+    				} // SCELL <-- end
     				//}
     				for(int g=0;g<guidetrf.Count();g++) delete guidetrf[g].trf;
 

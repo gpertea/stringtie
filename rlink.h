@@ -353,6 +353,7 @@ struct GEdge { // guide edge
 struct CGraphnode:public GSeg {
 	int nodeid;
 	float cov;
+	GVec<float> cellcov; // SCELL defines single cell coverage of node
 	float abundin; //sum of all transfrags entering node
 	float abundout; //sum of all transfrags exiting node
 	//float frag; // number of fragments included in node
@@ -364,8 +365,10 @@ struct CGraphnode:public GSeg {
 	bool hardstart:1; // verified/strong start
 	bool hardend:1;	// verified/strong end
 	//CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float cap=0,float r=0,float f=0):GSeg(s,e),nodeid(id),cov(nodecov),capacity(cap),rate(r),frag(f),child(),parent(),childpat(),parentpat(),trf(){}
-	CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float in=0,float out=0):GSeg(s,e),
-			nodeid(id),cov(nodecov),abundin(in),abundout(out),child(),parent(),childpat(),parentpat(),trf(),hardstart(false),hardend(false){}
+	CGraphnode(int ncell=0,int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float in=0,float out=0):GSeg(s,e),
+			nodeid(id),cov(nodecov),abundin(in),abundout(out),child(),parent(),childpat(),parentpat(),trf(),hardstart(false),hardend(false){
+		cellcov.Resize(ncell,0.0); // SCELL : set all cell coverages to 0 initially
+	}
 };
 
 
