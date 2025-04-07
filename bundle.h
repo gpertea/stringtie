@@ -267,6 +267,7 @@ struct CPrediction:public GSeg {
 	int geneno;
 	GffObj* t_eq; //equivalent reference transcript (guide)
 	//char *id;
+	int cell; // SCELL id; -1 if uninitiated
 	float cov;
 	float longcov;
 	char strand;
@@ -277,15 +278,17 @@ struct CPrediction:public GSeg {
 	GVec<GSeg> exons;
 	GVec<float> exoncov;
 	GStr mergename;
-	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
-	int _len=0,bool f=true, CPrediction* lp=NULL):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
+	GVec<float> cellcov; // SCELL this will stay empty until printResults
+	CPrediction(int _geneno=0, GffObj* guide=NULL, int _cell=-1,int gstart=0, int gend=0, float _cov=0, char _strand='.', // SCELL
+	int _len=0,bool f=true, CPrediction* lp=NULL):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cell(_cell),cov(_cov),longcov(0),strand(_strand), // SCELL
 	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
-			tlen(_len),flag(f),linkpred(lp),exons(),exoncov(),mergename() {}
-	void init(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
+			tlen(_len),flag(f),linkpred(lp),exons(),exoncov(),mergename(),cellcov() {} // SCELL
+	void init(int _geneno=0, GffObj* guide=NULL, int _cell=-1,int gstart=0, int gend=0, float _cov=0, char _strand='.', // SCELL
 	          int _len=0,bool f=true, CPrediction* lp=NULL) {
 		geneno=_geneno;
 		t_eq=guide;
+		cell=_cell, // SCELL
 		start=gstart;
 		end=gend;
 		cov=_cov;
@@ -296,12 +299,13 @@ struct CPrediction:public GSeg {
 		exons.Clear();
 		exoncov.Clear();
 		mergename.clear();
+		cellcov.Clear(); // SCELL
 	}
 
 	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
 //			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
-			t_eq(c.t_eq), cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), flag(c.flag),linkpred(c.linkpred),
-	      exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename) {}
+			t_eq(c.t_eq), cell(c.cell),cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), flag(c.flag),linkpred(c.linkpred), // SCELL
+	      exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename),cellcov(c.cellcov) {} // SCELL
 	~CPrediction() { //GFREE(id);
 		}
 };
