@@ -8164,8 +8164,9 @@ bool back_to_source_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GB
 }
 
 bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,
-		GVec<float>& nodecov,int gno,GIntHash<int>& gpos){
-	// find all parents -> if parent is source then go back
+		GVec<float>& nodecov,int gno,GIntHash<int>& gpos,int cell,bool &empty){ // SCELL
+
+	// find all children -> if child is sink then go back
 	CGraphnode *inode=no2gnode[i];
 
 	int nchildren=inode->child.Count(); // number of children
@@ -8178,6 +8179,7 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 
 	if(!nchildren) return true; // node is sink
 	int maxc=-1;
+	int maxcempty=-1; // SCELL if there are missing spliced reads between node and child I still want to consider them
 
 	/* I can not do this because then I don't check for continuity
 	if(nchildren==1) {
@@ -8186,23 +8188,17 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 	else {
 	*/
 	float maxcov=0;
-	//int maxchild=inode->child[0];
-	//float maxchildcov=-1;
+	float maxcovempty=0; // SCELL if there are missing spliced reads between node and parent I still want to consider them
+
 	bool exclude=false;
 	for(int c=0;c<nchildren;c++) {
 		float childcov=0;
+		float childcovempty=0; // SCELL if there are missing spliced reads between node and child I still want to consider them
 		CGraphnode *cnode=no2gnode[inode->child[c]];
-		/*
-			if(nodecov[inode->child[c]]>maxchildcov) {
-				maxchildcov=nodecov[inode->child[c]];
-				maxchild=inode->child[c];
-			}
-		*/
 
-		if(inode->child[c]==i+1 && i<gno-2 && inode->end+1==cnode->start &&
-				nodecov[i+1]/cnode->len() <1000 && nodecov[i]*(DROP+ERROR_PERC)>nodecov[i+1])  { // adjacent to child
-				// cnode->len() this is redundant because i<gno-2
-				//((nodecov[i+1]/cnode->len() <1000 && nodecov[i]*DROP>nodecov[i+1]) || (cnode->len()<longintronanchor && cnode->child.Count()==1 && cnode->child[0]==gno-1 ) ))  { // adjacent to child
+		if(inode->child[c]==i+1 && i<gno-2 && inode->end+1==cnode->start && // adjacent to child
+				cnode->cov/cnode->len() < DBL_ERROR && inode->cov*DROP>inode->cov)  { // SCELL : checked the nodes in the graph instead of the single cell nodes
+				// nodecov[i+1]/cnode->len() <1000 && nodecov[i]*(DROP+ERROR_PERC)>nodecov[i+1])  { // SCELL
 			exclude=true;
 		}
 		else {
@@ -8212,15 +8208,17 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 	    	else if(inode->child[c]<gno-1) GError("1 Found parent-child: %d-%d not linked by edge!\n",i,inode->child[c]); // have more tolerance if this is link to sink
 			for(int j=0;j<cnode->trf.Count();j++) { // for all transfrags going through child
 				int t=cnode->trf[j];
-				if(transfrag[t]->abundance<epsilon) { // this transfrag was used before -> needs to be deleted
+				/* SCELL : can't check for this anymore since I am depleting single cell coverages not total abundances of transcripts
+					if(transfrag[t]->abundance<epsilon) { // this transfrag was used before -> needs to be deleted
 					cnode->trf.Delete(j);
 					j--;
 				}
-				else if(transfrag[t]->nodes[0]<=i && transfrag[t]->nodes.Last()>=inode->child[c] &&   // transfrag goes from i to c
-						//(transfrag[t]->pattern[inode->child[c]] || transfrag[t]->pattern[i]) &&    // transfrag is not incomplete through these nodes
+				else */
+				if(transfrag[t]->nodes[0]<=i && transfrag[t]->nodes.Last()>=inode->child[c] &&   // transfrag goes from i to c
 						onpath(transfrag[t]->pattern,transfrag[t]->nodes,pathpat,path[0],inode->child[c],no2gnode,gno,gpos)) { // transfrag is compatible with path
 					//fprintf(stderr,"add transfr[%d]->abund=%f\n",t,transfrag[t]->abundance);
-					childcov+=transfrag[t]->abundance;
+					if(transfrag[t]->cellabundance[cell]<epsilon) childcovempty+=transfrag[t]->abundance; // SCELL
+					else { childcov+=transfrag[t]->cellabundance[cell]; empty=false; } // SCELL
 				}
 			}
 
@@ -8234,29 +8232,47 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 				}
 			}
 
+			// SCELL ---> start
+			if(childcovempty>maxcovempty) {
+				maxcovempty=childcovempty;
+				maxcempty=inode->child[c];
+			}
+			else if(childcovempty==maxcovempty && maxcempty!=-1) {
+				if(nodecov[maxcempty]<nodecov[inode->child[c]]) {
+					maxcempty=inode->child[c];
+				}
+			}
+			// SCELL <--- end
+
 			pathpat[inode->child[c]]=0;
 			if(pos) pathpat[*pos]=0;
 		}
 	}
+	if(maxc==-1) maxc=maxcempty; // SCELL
 	if(maxc==-1) {
 		//bool goback=false;
-		if(exclude && nodecov[i+1]) {
+		if(exclude) { // SCELL
+			//if(!nodecov[i+1]) empty=true; // SCELL
 			CGraphnode *cnode=no2gnode[i+1];
 			float childcov=0;
+			float childcovempty=0;
 			pathpat[i+1]=1;
 	    	int *pos=gpos[edge(i,i+1,gno)];
 	    	if(pos) pathpat[*pos]=1;
 	    	else if(i) GError("2 Found parent-child: %d-%d not linked by edge\n",i,i+1);
 			for(int j=0;j<cnode->trf.Count();j++) { // for all transfrags going through child
 				int t=cnode->trf[j];
+				/* SCELL
 				if(transfrag[t]->abundance<epsilon) { // this transfrag was used before -> needs to be deleted
 					cnode->trf.Delete(j);
 					j--;
 				}
-				else if(transfrag[t]->nodes[0]<=i && transfrag[t]->nodes.Last()>=i+1 &&   // transfrag goes from i to c
+				else */
+					if(transfrag[t]->nodes[0]<=i && transfrag[t]->nodes.Last()>=i+1 &&   // transfrag goes from i to c
 						//(transfrag[t]->pattern[i+1] || transfrag[t]->pattern[i]) &&    // transfrag is not incomplete through these nodes
 						onpath(transfrag[t]->pattern,transfrag[t]->nodes,pathpat,path[0],i+1,no2gnode,gno,gpos)) { // transfrag is compatible with path
-					childcov+=transfrag[t]->abundance;
+						if(transfrag[t]->cellabundance[cell]<epsilon) childcovempty+=transfrag[t]->abundance; // SCELL
+						else { childcov+=transfrag[t]->cellabundance[cell]; empty=false;} // SCELL
 				}
 			}
 			pathpat[i+1]=0; // these were 1 in the previous code, but it doesn't make sense -> I hope it was wrong
@@ -8265,6 +8281,7 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 			if(childcov) {
 				maxc=i+1;
 			}
+			else if(childcovempty) maxc=i+1; // SCELL
 			else {
 				//goback=true;
 				//fprintf(stderr,"fwd: return false\n");
@@ -8323,11 +8340,11 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 	if(pos) pathpat[*pos]=1;
 	else GError("3 Found parent-child %d-%d not linked by edge\n",i,maxc);
 
-	return fwd_to_sink_fast(maxc,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos);
+	return fwd_to_sink_fast(maxc,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,cell,empty); // SCELL
 }
 
 bool back_to_source_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,
-		GVec<float>& nodecov,int gno,GIntHash<int>& gpos,int cell){ // SCELL
+		GVec<float>& nodecov,int gno,GIntHash<int>& gpos,int cell,bool &empty){ // SCELL
 
 	// find all parents -> if parent is source then go back
 	CGraphnode *inode=no2gnode[i];
@@ -8378,7 +8395,7 @@ bool back_to_source_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag
 					// comment: I need to check for the parent to make sure I am not going through another node!!
 					//fprintf(stderr,"parent=%d add transfr[%d]->abund=%f\n",inode->parent[p],t,transfrag[t]->abundance);
 					if(transfrag[t]->cellabundance[cell]<epsilon) parentcovempty+=transfrag[t]->abundance; // SCELL
-					else parentcov+=transfrag[t]->abundance; // SCELL
+					else {parentcov+=transfrag[t]->cellabundance[cell]; empty=false;}// SCELL
 				}
 			}
 
@@ -8408,11 +8425,14 @@ bool back_to_source_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag
 			if(pos) pathpat[*pos]=0;
 		}
 	}
+	if(maxp==-1) maxp=maxpempty; // SCELL  TODO: might adjust this to a better path
 	if(maxp==-1) {
-		//bool goback=false;
-		if(exclude && nodecov[i-1]) {
+
+		if(exclude) { // SCELL
+			//if(!nodecov[i-1]) empty=true; // SCELL
 			CGraphnode *pnode=no2gnode[i-1];
 			float parentcov=0;
+			float parentcovempty=0;
 			pathpat[i-1]=1;
 			int *pos=gpos[edge(i-1,i,gno)];
 			if(pos) pathpat[*pos]=1;
@@ -8420,16 +8440,18 @@ bool back_to_source_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag
 
 			for(int j=0;j<pnode->trf.Count();j++) { // for all transfrags going through parent
 				int t=pnode->trf[j];
+				/* SCELL
 				if(transfrag[t]->abundance<epsilon) { // this transfrag was used before -> needs to be deleted
 					pnode->trf.Delete(j);
 					j--;
 				}
-				else if(transfrag[t]->nodes[0]<=i-1 && transfrag[t]->nodes.Last()>=i &&   // transfrag goes from p to i
-						//(transfrag[t]->pattern[i-1]||transfrag[t]->pattern[i]) &&    // transfrag is not incomplete through these nodes
-						onpath(transfrag[t]->pattern,transfrag[t]->nodes,pathpat,i-1,path[0],no2gnode,gno,gpos)) { // transfrag is compatible with path
+				else */
+				if(transfrag[t]->nodes[0]<=i-1 && transfrag[t]->nodes.Last()>=i &&   // transfrag goes from p to i
+          						onpath(transfrag[t]->pattern,transfrag[t]->nodes,pathpat,i-1,path[0],no2gnode,gno,gpos)) { // transfrag is compatible with path
 					// comment: I need to check for the parent to make sure I am not going through another node!!
 					//fprintf(stderr,"parent=%d add transfr[%d]->abund=%f\n",i-1,t,transfrag[t]->abundance);
-					parentcov+=transfrag[t]->abundance;
+					if(transfrag[t]->cellabundance[cell]<epsilon) parentcovempty+=transfrag[t]->abundance; // SCELL
+					else { parentcov+=transfrag[t]->cellabundance[cell]; empty=false;}// SCELL
 				}
 			}
 			pathpat[i-1]=0;
@@ -8438,14 +8460,13 @@ bool back_to_source_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag
 			if(parentcov) {
 				maxp=i-1;
 			}
+			else if(parentcovempty) maxp=i-1; // SCELL
 			else {
-				//goback=true;
 				//fprintf(stderr,"return false\n");
 				return false;
 			}
 		}
 		else {
-			//goback=true;
 			//fprintf(stderr,"return false maxp=maxparent=%d\n",maxp);
 			return false; //maxp=maxparent;
 		}
@@ -8468,7 +8489,7 @@ bool back_to_source_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag
 	if(pos) pathpat[*pos]=1;
 	else GError("6 Found parent-child %d-%d not linked by edge\n",maxp,i);
 
-	return back_to_source_fast(maxp,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos);
+	return back_to_source_fast(maxp,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,cell,empty); // SCELL
 }
 
 
@@ -8750,7 +8771,7 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 
 // version of push_max_flow where I weight the incomplete transfrags
 float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,
-		GVec<float>& nodeflux,GBitVec& pathpat, GIntHash<int> &gpos, bool &full) {
+		GVec<float>& nodeflux,GBitVec& pathpat, GIntHash<int> &gpos,int cell) { // SCELL
 
 	int n=path.Count();
 	GVec<int> node2path;
@@ -8768,8 +8789,6 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 	sumleft.Resize(n);
 	sumright.Resize(n);
 
-	//bool full=true;
-	//if(longreads && path.Count()>3) full=false;
 
 	/*
 	{ // DEBUG ONLY
@@ -8819,37 +8838,6 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 							pi++;
 						}
 					}
-
-					if(keeptr && !full) { // check if transcript fully supports path (full is false means I have not found any transcript to fully support path)
-						full=true;
-						int p=1;
-						if(!transfrag[t]->longstart || !transfrag[t]->longend) full=false;
-						if(full) while(path[p]<transfrag[t]->nodes[0]) {
-							if(no2gnode[path[p]]->end+1<no2gnode[path[p+1]]->start) {
-								full=false;
-								break;
-							}
-							p++;
-						}
-						if(full) {
-							p=path.Count()-2;
-							while(path[p]>transfrag[t]->nodes.Last()) {
-								if(no2gnode[path[p-1]]->end+1<no2gnode[path[p]]->start) {
-									full=false;
-									break;
-								}
-								p--;
-							}
-						}
-						if(full) {
-							for(p=2;p<path.Count()-2;p++) {
-								if(!transfrag[t]->pattern[path[p]] && no2gnode[path[p]]->len()>longintronanchor) {
-									full=false;
-									break;
-								}
-							}
-						}
-					}
 				}
 
 				if(keeptr) { // transcript on path
@@ -8872,25 +8860,25 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 
 
 					if(transfrag[t]->nodes[0]<path[i]) { // transfrag starts before this node
-						sumleft[i]+=transfrag[t]->abundance;
-						if(transfrag[t]->real) capacityleft[i]+=transfrag[t]->abundance;
+						sumleft[i]+=transfrag[t]->cellabundance[cell]; // SCELL
+						if(transfrag[t]->real) capacityleft[i]+=transfrag[t]->cellabundance[cell]; // SCELL
 						else if(transfrag[t]->usepath>-1 && int(transfrag[t]->usepath)<transfrag[t]->path.Count()) { //TODO: this crashes with intv.gtf guides -> to fix
-							capacityleft[i]+=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+							capacityleft[i]+=transfrag[t]->cellabundance[cell]*transfrag[t]->path[int(transfrag[t]->usepath)].abundance; // SCELL
 						}
 
 						//fprintf(stderr,"add transfrag t=%d i=%d sumleft=%f capacityleft=%f\n",t,i,sumleft[i],capacityleft[i]);
 					}
 					if(transfrag[t]->nodes.Last()>path[i]) { // transfrag ends after this node
-						sumright[i]+=transfrag[t]->abundance;
-						if(transfrag[t]->real) capacityright[i]+=transfrag[t]->abundance;
+						sumright[i]+=transfrag[t]->cellabundance[cell]; // SCELL
+						if(transfrag[t]->real) capacityright[i]+=transfrag[t]->cellabundance[cell]; // SCELL
 						else if(transfrag[t]->usepath>-1 && int(transfrag[t]->usepath)<transfrag[t]->path.Count())
-							capacityright[i]+=transfrag[t]->abundance*transfrag[t]->path[int(transfrag[t]->usepath)].abundance;
+							capacityright[i]+=transfrag[t]->cellabundance[cell]*transfrag[t]->path[int(transfrag[t]->usepath)].abundance; // SCELL
 						//fprintf(stderr,"add transfrag t=%d i=%d sumright=%f capacityright=%f\n",t,i,sumright[i],capacityright[i]);
 					}
 				}
 				else { // transfrag not on path
-					if(path[i]>transfrag[t]->nodes[0]) sumleft[i]+=transfrag[t]->abundance;
-					if(path[i]<transfrag[t]->nodes.Last()) sumright[i]+=transfrag[t]->abundance;
+					if(path[i]>transfrag[t]->nodes[0]) sumleft[i]+=transfrag[t]->cellabundance[cell];
+					if(path[i]<transfrag[t]->nodes.Last()) sumright[i]+=transfrag[t]->abundance[cell];
 				}
 			}
 		}
@@ -8906,12 +8894,13 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 		}
 		*/
 
+		/* SCELL: I might have sparse coverage
 		if(!capacityleft[i]) return(0);
 		if(!capacityright[i]) return(0);
+		*/
 
 	}
 
-	//if(!full) return(0);
 
 	/*
 	{ // DEBUG ONLY
@@ -10261,7 +10250,7 @@ void find_nascent_link(GList<CPrediction>& pred,int npred,int p) {
 }
 
 void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,int& geneno,int strand,
-		GList<CPrediction>& pred,GVec<int>& trflong,GVec<float>& nodecovall,GBitVec& istranscript,GBitVec& prevpath,BundleData *bdata,bool &first) {
+		GList<CPrediction>& pred,GVec<int>& trflong,GVec<float>& nodecovall,GBitVec& istranscript,GBitVec& prevpath,BundleData *bdata,bool &first,int thiscell) { // SCELL
 
 	GPVec<GffObj>& guides = bdata->keepguides;
 	int ncell=bdata->cellname.Count(); // SCELL
@@ -10616,7 +10605,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 	 for(int i=0;i<nkeep;i++) { // compute flux from short read data here
 		 istranscript.reset();
 		 nodeflux.Clear();
-		 bool full=true;
+
 		 // make sure source and sink are present and they are connected in the pattern of the prediction
 		 if(keeptrf[i].nodes[0]) {
 			 keeptrf[i].nodes.Insert(0,0);
@@ -10636,7 +10625,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 		 key=edge(keeptrf[i].nodes[n-2],sink,gno);
 		 if(pos!=NULL) keeptrf[i].pattern[*pos]=1;
 
-		 flux=push_max_flow(gno,keeptrf[i].nodes,istranscript,transfrag,no2gnode,nodeflux,keeptrf[i].pattern,gpos,full);
+		 flux=push_max_flow(gno,keeptrf[i].nodes,istranscript,transfrag,no2gnode,nodeflux,keeptrf[i].pattern,gpos);
 
 		 /*
 		 { // DEBUG ONLY
@@ -11644,15 +11633,14 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 }
 	 */
 
-
-	if(back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,thiscell)) { // SCELL
+	bool empty=true; // SCELL -- checks if the path contains any non-empty transfrags, otherwise do not compute flow
+	if(back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,thiscell,empty)) { // SCELL
 		 	 if(includesource) path.cAdd(0);
 	 		 path.Reverse(); // back to source adds the nodes at the end to avoid pushing the list all the time
 
-			if(fwd_to_sink_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,thiscell)) { // SCELL
-	 			 bool full=true;
+			if(fwd_to_sink_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,thiscell,empty)) { // SCELL
 
-				 flux=push_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,gpos,full,thiscell); // SCELL
+				 if(!empty) flux=push_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,gpos,thiscell); // SCELL
 
 				 /*
 	 			 { // DEBUG ONLY
@@ -12450,7 +12438,7 @@ void store_guide_nascent(GList<CPrediction>& pred,GffObj *g,int geneno,float min
 
 void guides_pushmaxflow_onestep(int gno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GVec<CGuide>& guidetrf,int& geneno,
 		int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred,
-		BundleData *bdata,GVec<int> &printed_guides,bool nasc) {
+		BundleData *bdata,GVec<int> &printed_guides,bool nasc,int thiscell) { // SCELL
 
 	//int maxi=1;
 	int ng=guidetrf.Count();
@@ -12460,11 +12448,10 @@ void guides_pushmaxflow_onestep(int gno,GIntHash<int>& gpos,GPVec<CGraphnode>& n
 
 			GVec<float> nodeflux;
 			//float fragno=0;
-			bool full=true;
 
 			//fprintf(stderr,"push flow for guide=%s\n",guides[guidetrf[0].g]->getID());
 
-			float flux= push_max_flow(gno,guidetrf[0].trf->nodes,istranscript,transfrag,no2gnode,nodeflux,guidetrf[0].trf->pattern,gpos,full);
+			float flux= push_max_flow(gno,guidetrf[0].trf->nodes,istranscript,transfrag,no2gnode,nodeflux,guidetrf[0].trf->pattern,gpos);
 			istranscript.reset();
 
 			/*
@@ -12767,18 +12754,18 @@ void guides_pushmaxflow_onestep(int gno,GIntHash<int>& gpos,GPVec<CGraphnode>& n
 
 int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,
 		GVec<CGuide>& guidetrf,int& geneno,int s,GList<CPrediction>& pred,GVec<float>& nodecov,GBitVec& istranscript,GBitVec& pathpat,
-		bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred, BundleData *bdata) {
+		bool &first,GPVec<GffObj>& guides,GVec<int> &guidepred, BundleData *bdata,int thiscell) { // SCELL
 
 	int ncell=bdata->cellname.Count(); // SCELL
 
 	GVec<int> printed_guides; // remembers the multi-exons guidetrf's that were printed here
 
-	guides_pushmaxflow_onestep(gno,gpos,no2gnode,transfrag,guidetrf,geneno,s,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,printed_guides,false);
+	guides_pushmaxflow_onestep(gno,gpos,no2gnode,transfrag,guidetrf,geneno,s,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,printed_guides,false,thiscell); // SCELL
 
 	//fprintf(stderr,"%d guides generated in %d predictions\n",printed_guides.Count(),pred.Count());
 
 	// consider nascents only after mature guides
-	if(!eonly && isnascent) 	guides_pushmaxflow_onestep(gno,gpos,no2gnode,transfrag,guidetrf,geneno,s,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,printed_guides,true);
+	if(!eonly && isnascent) 	guides_pushmaxflow_onestep(gno,gpos,no2gnode,transfrag,guidetrf,geneno,s,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,printed_guides,true,thiscell); // SCELL
 
 	int maxi=1;
 	// Node coverages:
@@ -13461,11 +13448,11 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 	//fprintf(stderr,"guide count=%d\n",guidetrf.Count());
 
 	if (eonly)
-		guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata); // SCELL TODO: this also needs to be adjusted for single cell
+		guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,thiscell); // SCELL
 	else { //if(!eonly) {
-		if(mixedMode && trflong.Count()) get_trf_long_mix(gno,edgeno, gpos,no2gnode,transfrag,geneno,strand,pred,trflong,nodecov,istranscript,pathpat,bdata,first); // SCELL TODO: adjust for single cell
+		if(mixedMode && trflong.Count()) get_trf_long_mix(gno,edgeno, gpos,no2gnode,transfrag,geneno,strand,pred,trflong,nodecov,istranscript,pathpat,bdata,first,thiscell); // SCELL
 
-		if(!mixedMode && guidetrf.Count()) maxi=guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata); // SCELL TODO: adjust for single cell
+		if(!mixedMode && guidetrf.Count()) maxi=guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,thiscell); // SCELL
 
 		{ // DEBUG ONLY
 			if(mixedMode) {
@@ -15495,7 +15482,7 @@ int build_graphs(BundleData* bdata) {
     				//if(!longreads) {
     				// find transcripts now
     				if(!rawreads) { // SCELL --> start
-    					for(int c=0;c<ncell;c++)
+    					for(int c=0;c<ncell;c++) // for all single cells in the bundle compute their transcripts independently
     						geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
     								geneno,s,guidetrf,guides,guidepred,bdata,c,trflong,abundleft,abundright);
     				} // SCELL <-- end
