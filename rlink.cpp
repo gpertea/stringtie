@@ -4535,7 +4535,7 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 	if(is_sr) t->srabund+=abundance;
 	else {
 		t->abundance+=abundance;
-		t->abundance[thiscell]+=abundance; // SCELL
+		t->cellabundance[thiscell]+=abundance; // SCELL
 	}
 
 	if(no2gnode[node[0]]->start<=rstart) if(!t->longstart || rstart<t->longstart) t->longstart=rstart; // value of longstart inside node; the other extensions could come from spliced nodes
@@ -19780,7 +19780,12 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			//fprintf(stderr,"print pred[%d] gene_id %s transcript_id %s\n",n,geneid.chars(),trid.chars());
 
-			fprintf(f_out,"cov \"%.6f\";\n",pred[n]->cov);
+			fprintf(f_out,"cov \"%.6f\";",pred[n]->cov);
+			// print cell coverages
+			for(int j=0;j<pred[n]->cellcov.Count();j++) if(pred[n]->cellcov[j]) { // if there is coverage in cell j
+				fprintf(f_out," cell \"%s:%f\";",bundleData->cellname.key(j),pred[n]->cellcov[j]); // TODO: check that key retrieves the actual key at position j
+			}
+			fprintf(f_out,"\n");
 			for(int j=0;j<pred[n]->exons.Count();j++) {
 				fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; exon_number \"%d\"; ",
 						refname.chars(),pred[n]->exons[j].start,pred[n]->exons[j].end,pred[n]->strand,geneid.chars(),

@@ -63,6 +63,7 @@ struct CPath {
 };
 
 struct CTransfrag {
+	int ncell;
 	GVec<int> nodes;
 	GBitVec pattern;
 	float abundance;
@@ -77,11 +78,11 @@ struct CTransfrag {
 	int guide;
 	uint longstart; // for long reads: min start of all longreads sharing transfrag
 	uint longend; // for long reads: max end of all longreads sharing transfrag
-	CTransfrag(int ncell=0,GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, int tguide=0,float sr=0):nodes(_nodes), // SCELL
+	CTransfrag(int _ncell,GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, int tguide=0,float sr=0):ncell(_ncell),nodes(_nodes), // SCELL
 			pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),longread(false),shortread(false),guide(tguide),longstart(false),longend(false) {
-		cellabundance.Resize(ncell,0.0); // SCELL : set all cell abundances to 0 initially
+		cellabundance.Resize(_ncell,0.0); // SCELL : set all cell abundances to 0 initially
 	}
-	CTransfrag(int ncell=0,float abund=0, bool treal=false,int tguide=0):nodes(),pattern(),abundance(abund),cellabundance(),srabund(0),path(),usepath(-1),weak(-1),real(treal),longread(false),shortread(false),guide(tguide),longstart(false),longend(false) { // SCELL
+	CTransfrag(int _ncell=0,float abund=0, bool treal=false,int tguide=0):ncell(_ncell),nodes(),pattern(),abundance(abund),cellabundance(),srabund(0),path(),usepath(-1),weak(-1),real(treal),longread(false),shortread(false),guide(tguide),longstart(false),longend(false) { // SCELL
 		cellabundance.Resize(ncell,0.0); // SCELL : set all cell abundances to 0 initially
 	}
 };
