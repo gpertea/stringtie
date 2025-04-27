@@ -18798,9 +18798,12 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 				if(!pred[n]->cov) printpred=false;
 				else prog+="nascentRNA";
 			}
+		} else prog+="StringTie";
+		  //else if(pred[n]->mergename=="P") printpred=false;
+
+    if (eonly && pred[n]->t_eq && !printNascent && isNascent(pred[n]->t_eq)) {
+			printpred=false;
 		}
-		//else if(pred[n]->mergename=="P") printpred=false;
-		else prog+="StringTie";
 
 		if(printpred) {
 
