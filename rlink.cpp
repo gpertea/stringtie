@@ -89,7 +89,7 @@ void printBitVec(GBitVec& bv) {
 }
 
 //  tracking overlaps between predictions in a bundle
-// using a triangular matrix representation based on total number of predictions npred 
+// using a triangular matrix representation based on total number of predictions npred
 class OvlTracker {
   int count; // total number of items to track overlaps between
   GBitVec ovls; // triangular matrix representation of overlaps
@@ -104,11 +104,11 @@ public:
   OvlTracker(int n) : count(n), ovls((n * (n - 1)) / 2) {}
   bool get(int i, int j) {
 	int index = get_index(i, j);
-    return ovls[index]; 
+    return ovls[index];
   }
   void set(int i, int j, bool val=true) {
 	int index = get_index(i, j);
-    ovls[index]=val; 
+    ovls[index]=val;
   }
 
 };
@@ -10820,7 +10820,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 					 //		 RC_TData &td = *(RC_TData*) (g->uptr);
 					 //		 td.in_bundle=3;
 					 if (g) {
-					 		setGuideStatus(g, GBST_STORED);	 
+					 		setGuideStatus(g, GBST_STORED);
 							//fprintf(stderr,"sg guide %s is stored\n",g->getID());
 					 		if(exons[0].start != g->start && g->start <= exons[0].end) {
 					 			len+=(int)exons[0].start-(int)g->start;
@@ -10832,7 +10832,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 					 		}
 					 }
 				 }
-				 
+
 
 				 /*
 				 { // DEBUG ONLY
@@ -11850,7 +11850,7 @@ void process_refguides(int gno,int edgeno,GIntHash<int>& gpos,int& lastgpos,GPVe
 		for(int e=0;e<guides[g]->exons.Count();e++) fprintf(stderr," %d-%d",guides[g]->exons[e]->start,guides[g]->exons[e]->end);
 		fprintf(stderr,"\n");*/
 		//if((guides[g]->strand==strand || guides[g]->strand=='.') && ((RC_TData*)(guides[g]->uptr))->in_bundle>=2 && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
-		if((guides[g]->strand==strand || guides[g]->strand=='.') && 
+		if((guides[g]->strand==strand || guides[g]->strand=='.') &&
 		      getGuideStatus(guides[g])>=GBST_ALL_INTR_COV && (guides[g]->overlap(no2gnode[1]->start,no2gnode[gno-2]->end))) {
 			CTransfrag *trguide=find_guide_pat(guides[g],no2gnode,gno,edgeno,gpos);
 			if(trguide) { // the guide can be found among the graph nodes
@@ -13570,7 +13570,7 @@ bool guide_exon_overlap(GPVec<GffObj>& guides,int sno,uint start,uint end) {
 	if(sno==2) strand='+';
 	else if(sno==0) strand='-';
 
-	for(int g=0;g<guides.Count();g++) 
+	for(int g=0;g<guides.Count();g++)
 	  //if (((RC_TData *)(guides[g]->uptr))->in_bundle>=2 ) {
 	  if (!isNascent(guides[g]) && getGuideStatus(guides[g])>=GBST_ALL_INTR_COV) {
 
@@ -13586,7 +13586,7 @@ bool guide_exon_overlap(GPVec<GffObj>& guides,int sno,uint start,uint end) {
 					}
 				}
 			}
-		} 
+		}
 
 	return false;
 }
@@ -13864,7 +13864,7 @@ int build_graphs(BundleData* bdata) {
 			}
 
 			if(covered) { // all introns are covered by long or short reads
-				//tdata->in_bundle=2; 
+				//tdata->in_bundle=2;
 				setGuideStatus(guides[g], GBST_ALL_INTR_COV);
 				int s=-1; // unknown strand
 				if(guides[g]->strand=='+') s=1; // guide on positive strand
@@ -17665,13 +17665,13 @@ CNascIntv* add_to_nascent(GList<CPrediction>& pred,int n,CNascIntv* intrreg,Bund
 }
 
 bool safe_pred(CPrediction *pn,CNascIntv *intv) {
-	
+
 	/*fprintf(stderr,"\ncheck safe prediction %d ",n);
 	if(pred[n]->t_eq) fprintf(stderr," refid=%s",pred[n]->t_eq->getID());
 	if(pred[n]->flag) fprintf(stderr," with true flag");
 	fprintf(stderr," with geneno=%d and exons:",pred[n]->geneno);
 	for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," %d-%d",pred[n]->exons[i].start,pred[n]->exons[i].end);
-	fprintf(stderr,"\n");*/	
+	fprintf(stderr,"\n");*/
 
 	if(!pn->flag) return false;
 	if((pn->mergename=="p" || (guided && pn->mergename=="n")) && pn->start==intv->start) { // only in this case I check potential nascent prediction that it is safe
@@ -18242,7 +18242,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 
 						} // end pred[n1]->strand != pred[n2]->strand
 	    				//else if(pred[n2]->cov<isofrac*pred[n1]->cov) pred[n2]->flag=false;  // I am only considering inclusions here since this might change allocations
-	    				else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() && 
+	    				else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() &&
 						        pred[n1]->cov>pred[n2]->cov*DROP && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) {
 	    					pred[n2]->flag=false;
 	    					//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
@@ -18256,9 +18256,9 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    					break;
 	    				}
 					}
-	    			else if(!pred[n1]->t_eq && n1 && ((pred[n1]->tlen>0 && pred[n1]->exons.Count()<=2 && 
+	    			else if(!pred[n1]->t_eq && n1 && ((pred[n1]->tlen>0 && pred[n1]->exons.Count()<=2 &&
 					          pred[n2]->cov>lowisofrac*pred[n1]->cov*pred[n1]->exons.Count()) ||
-	    					((pred[n2]->cov>singlethr || pred[n1]->cov<singlethr) && 
+	    					((pred[n2]->cov>singlethr || pred[n1]->cov<singlethr) &&
 							  pred[n1]->cov < pred[n2]->cov+singlethr)) && pred[n1]->exons.Count()<=pred[n2]->exons.Count() && included_pred(pred,n2,n1,(uint)bundleData->start,bpcov)) {
 	    				//fprintf(stderr,"falseflag: ...included elimination of pred[%d] n1=%d(%f) by n2=%d(%f)\n",n1,n1,pred[n1]->cov,n2,pred[n2]->cov);
 	    				pred[n1]->flag=false;
@@ -18298,8 +18298,8 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 	    						}
 	    					}
 	    					if(pred[n2]->flag) {
-	    						if((mixedMode || pred[n1]->strand==pred[n2]->strand) && 
-								   ((mixedMode && pred[n2]->cov<singlethr) || pred[n2]->cov<pred[n1]->cov*ERROR_PERC) && 
+	    						if((mixedMode || pred[n1]->strand==pred[n2]->strand) &&
+								   ((mixedMode && pred[n2]->cov<singlethr) || pred[n2]->cov<pred[n1]->cov*ERROR_PERC) &&
 								     pred[n1]->start<=pred[n2]->start && pred[n2]->end<=pred[n1]->end && intronic(pred,n2,n1)) { // n2 is an intronic prediction to n1
 	    							//fprintf(stderr,"falseflag: eliminate pred[%d] is intronic into pred[%d]\n",n2,n1);
 	    							pred[n2]->flag=false;
@@ -19568,8 +19568,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 				m++;
 			}
 		}
-
-		for(int n=0;n<npred;n++) if(pred[n]->flag){
+    // print predictions
+		for(int n=0;n<npred;n++) if (pred[n]->flag){
 
 			/*
 			{ // DEBUG ONLY
@@ -19721,7 +19721,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			if (eonly) { // if eonly I need to print all guides that were not printed yet
 			    //if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
-				if (guides[i]->uptr && getGuideStatus(guides[i])<GBST_STORED) { 
+				//these are all 0 coverage guides so they should not be printed if they are nascents
+				if (!isNascent(guides[i]) && guides[i]->uptr && getGuideStatus(guides[i])<GBST_STORED) {
 
 					fprintf(f_out,"1 %d %d %d 0.0\n",guides[i]->exons.Count()+1,guides[i]->covlen, ((RC_TData*)guides[i]->uptr)->t_id);
 					fprintf(f_out, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",refname.chars(),
@@ -19783,7 +19784,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		for(int n=0;n<npred;n++) {
 
 			if(pred[n] && pred[n]->t_eq) { // this is a guided prediction
-
 				/*
 				//if(mixedMode && pred[n]->cov<DROP) { // need to be more strict with mixed data since we introduced the guides by default
 				//if(mixedMode && pred[n]->cov<ERROR_PERC) { // need to be more strict with mixed data since we introduced the guides by default
@@ -20060,7 +20060,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							//fprintf(stderr,"--ndel pred[%d] start=%d end=%d\n",m,pred[m]->start,pred[m]->end);
 						}
 						else {
-
 							/*fprintf(stderr,"Add pred %d(",n);
 							if(pred[n]->t_eq) fprintf(stderr,"%s ",pred[n]->t_eq->getID());
 							fprintf(stderr,", tlen=%d) mergename=%s to pred %d(",pred[n]->tlen,pred[n]->mergename.chars(),m);

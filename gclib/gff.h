@@ -996,6 +996,10 @@ public:
    const char* getTrackName() {
      return names->tracks.getName(track_id);
    }
+   void setTrackName(const char* newname) {
+      if (newname==NULL) return;
+      track_id=names->tracks.addName(newname);
+   }
    bool exonOverlap(uint s, uint e) {//check if ANY exon overlaps given segment
       //ignores strand!
       if (s>e) Gswap(s,e);

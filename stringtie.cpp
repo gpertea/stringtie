@@ -206,10 +206,10 @@ bool havePtFeatures=false;
 bool mergeMode = false; //--merge option
 bool keepTempFiles = false; //--keeptmp
 bool genNascent = false; // -N/--nasc : internally generate synthetic nascent transcripts
+bool isnascent = false; // used in rlink.cpp, same with genNascent
 bool printNascent = false; // output nascents
 
 bool mixedMode = false; // both short and long read data alignments are provided
-bool isnascent=false;
 
 int GeneNo=0; //-- global "gene" counter
 double Num_Fragments=0; //global fragment counter (aligned pairs)
@@ -338,10 +338,6 @@ int main(int argc, char* argv[]) {
 
  int bamcount=bamreader.start(); //setup and open input files
 
-
- //TODO: TEST ONLY!
- //genNascent=true;
- // ----
 
 #ifndef GFF_DEBUG
  if (bamcount<1) {
@@ -1042,12 +1038,12 @@ void processOptions(GArgs& args) {
 
 
 	 // get genNascent option from -N or --nasc
-	 if (args.getOpt('N') || args.getOpt("isnascent")) {
-		 genNascent=true; // this is not needed -> keep it for now but look to replace it with the next one later
+	 if (args.getOpt('N')) {
+		 genNascent=true;
 		 isnascent=true;
 	 }
-	 if (args.getOpt("nasc")) {
-		 genNascent=true; // this is not needed -> keep it for now but look to replace it with the next one later
+	 if (args.getOpt("nasc")) { // --nasc option sets -N but also enable output of nascents
+		 genNascent=true;
 		 isnascent=true;
 		 printNascent=true;
 	 }
