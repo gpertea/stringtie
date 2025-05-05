@@ -445,6 +445,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	}
 
 	const int* nbc=bdata.cellname[bc];
+	
 	if(!nbc) { // did not see cellname before in bundle -> need to assign an id
 		int ncell=bdata.cellname.Count();
 		bdata.cellname.Add(bc,ncell);
@@ -595,6 +596,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	//nm+=brec.clipL; Note: this clippings were to aggressive
 	//nm+=brec.clipR;
 
+	
 	if(readlist[n]->juncs.Count()) {
 		bool mismatch=false;
 		if(readlist[n]->longread) mismatch=true;
