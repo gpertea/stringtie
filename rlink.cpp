@@ -411,9 +411,9 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	CReadAln* readaln=NULL;                        // readaln is initialized with NULL
 	//bool covSaturated=false;                       // coverage is set to not saturated
 
-	/*
+	/*			
 	{ // DEBUG ONLY
-		fprintf(stderr,"Process read %s with strand=%d and exons:",brec.name(),strand);
+		fprintf(stderr,"Process read %s BC:%s UB:%s with strand=%d and exons:",brec.name(),brec.tag_str("BC"),brec.tag_str("UB"),strand);
 		for (int i=0;i<brec.exons.Count();i++) {
 			fprintf(stderr," %d-%d", brec.exons[i].start, brec.exons[i].end);
 		}
@@ -449,6 +449,11 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	if(!nbc) { // did not see cellname before in bundle -> need to assign an id
 		int ncell=bdata.cellname.Count();
 		bdata.cellname.Add(bc,ncell);
+		nbc=bdata.cellname[bc];
+		if(!nbc) {
+			fprintf(stderr,"Error: could not add cellname %s to bundle\n",bc);
+			return;
+		}
 	}
 
 	if(smartseq3) { // SCELL start v1
@@ -4373,6 +4378,22 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 		fprintf(stderr," with abundance=%f in graph[%d][%d]\n",abundance,s,g);
 	}
 	*/
+
+	// SCELL start---> 
+	// update no2gnode coverages for this single cell
+	for(int i=0;i<node.Count();i++) {
+		CGraphnode *gnode=no2gnode[node[i]];
+		int len=gnode->len();
+		if(gnode->start<rstart) { // read starts after gnode
+			len-=rstart-gnode->start;
+		}
+		if(gnode->end>rend) { // read ends before gnode
+			len-=gnode->end-rend;
+		}
+		if(len<0) len=0;
+		gnode->cellcov[thiscell]+=abundance*len;
+	}
+	// SCELL <--- end
 
 	if(is_lr) { // see if I need to adjust nodes in pattern
 		if(node.Count()>1) { // correct longreads that extend inside introns or past nodes that link back to source or sink
@@ -8792,7 +8813,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 	sumright.Resize(n);
 
 
-	/*
+	
 	{ // DEBUG ONLY
 		//printTime(stderr);
 		fprintf(stderr,"Start push max flow algorithm for path ");
@@ -8804,7 +8825,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 		//for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d(%f)",i,transfrag[i]->abundance);
 		//fprintf(stderr,"\n");
 	}
-	*/
+	
 
 	// compute capacities and sums for all nodes
 	for(int i=1;i<n-1;i++) {
@@ -8885,7 +8906,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 			}
 		}
 
-		/*
+		
 		{ // DEBUG ONLY
 			fprintf(stderr,"* Node %d LEFT: capacity=%f total=%f ",path[i],capacityleft[i],sumleft[i]);
 			if(sumleft[i]) fprintf(stderr,"perc=%f ",capacityleft[i]/sumleft[i]);
@@ -8894,7 +8915,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 			if(sumright[i]) fprintf(stderr,"perc=%f\n",capacityright[i]/sumright[i]);
 			else fprintf(stderr,"perc=n/a\n");
 		}
-		*/
+		
 
 		/* *** SCELL: I might have sparse coverage: force flow to go through node --->start */
 		if(!capacityleft[i]) { capacityleft[i]=1; if(sumleft[i]<1) sumleft[i]=1;}
@@ -8904,7 +8925,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 	}
 
 
-	/*
+	
 	{ // DEBUG ONLY
 		for(int i=1;i<n-1;i++) {
 			fprintf(stderr,"Node %d LEFT: capacity=%f total=%f ",path[i],capacityleft[i],sumleft[i]);
@@ -8918,7 +8939,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 		for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d(%f)",i,transfrag[i]->abundance);
 		fprintf(stderr,"\n");
 	}
-	*/
+	
 
 	// compute flow
 	float prevflow=capacityleft[1];
@@ -9026,7 +9047,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 		}
 	}
 
-	/*
+	
 	{ // DEBUG ONLY
 		fprintf(stderr,"Flow:\n");
 		for(int i=0;i<n;i++)
@@ -9035,7 +9056,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 		for(int i=0;i<transfrag.Count();i++) if(istranscript[i]) fprintf(stderr," %d(%f)",i,transfrag[i]->abundance);
 		fprintf(stderr,"\n");
 	}
-	*/
+	
 
 	return(nodeflux[1]);
 
@@ -11625,7 +11646,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 //float fragno=0;
 	 GVec<float> nodeflux;
 
-	 /*
+	 
 	 { // DEBUG ONLY
 	 	 fprintf(stderr,"\n\n***Start parse_trf with maxi=%d and cov=%f\n",maxi,nodecov[maxi]);
 		 //fprintf(stderr,"Transcripts before path:");
@@ -11638,7 +11659,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 	 GMessage("\t\tM(s):parse_trf memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
 	 }
-	 */
+	 
 
 	bool empty=true; // SCELL -- checks if the path contains any non-empty transfrags, otherwise do not compute flow
 	if(back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,thiscell,empty)) { // SCELL
@@ -11649,14 +11670,14 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 
 				 if(!empty) flux=push_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,gpos,thiscell); // SCELL
 
-				 /*
+				 
 	 			 { // DEBUG ONLY
 	 				 //printTime(stderr);
 	 				 fprintf(stderr,"flux=%g Path:",flux);
 	 				 for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
 	 				 fprintf(stderr,"***\n");
 	 			 }
-	 			 */
+	 			 
 	 		}
 			/*else {
 	 			//pathpat.reset();
@@ -13426,7 +13447,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 		/*
 		{ // DEBUG ONLY
 			printTime(stderr);
-			fprintf(stderr,"Node %d: cov=%f capacity=%f rate=%f ",i,inode->cov/(inode->end-inode->start+1),inode->capacity,inode->rate);
+			fprintf(stderr,"Node %d: cov=%f nodecov=%f",i,inode->cov/(inode->end-inode->start+1),nodecov[i]);
 			fprintf(stderr,"trf=");
 			for(int t=0;t<inode->trf.Count();t++) fprintf(stderr," %d(%f)",inode->trf[t],transfrag[inode->trf[t]]->abundance);
 			fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
@@ -13462,29 +13483,29 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 		if(!mixedMode && guidetrf.Count()) maxi=guides_pushmaxflow(gno,edgeno,gpos,no2gnode,transfrag,guidetrf,geneno,strand,pred,nodecov,istranscript,pathpat,first,guides,guidepred,bdata,thiscell); // SCELL
 
 		{ // DEBUG ONLY
-			if(mixedMode) {
-				fprintf(stderr,"After get_trf_long:\n");
-				for(int i=0;i<gno;i++) {
-					CGraphnode *inode=no2gnode[i];
-					//printTime(stderr);
-					//fprintf(stderr,"Node %d: cov=%f capacity=%f rate=%f ",i,inode->cov/(inode->end-inode->start+1),inode->capacity,inode->rate);
-					fprintf(stderr,"trf=");
-					for(int t=0;t<inode->trf.Count();t++) fprintf(stderr," %d(%f)",inode->trf[t],transfrag[inode->trf[t]]->abundance);
-					fprintf(stderr," maxi=%d maxcov=%f\n",maxi,nodecov[maxi]);
-				}
-				fprintf(stderr,"There are %d transfrags:\n",transfrag.Count());
-				for(int t=0;t<transfrag.Count();t++) {
-					fprintf(stderr,"%d: ",t);
-					//printBitVec(transfrag[s][b][t]->pattern);
-					fprintf(stderr," %f(%f,%d,%d) long=%d nodes=%d",transfrag[t]->abundance,transfrag[t]->srabund, transfrag[t]->longstart,transfrag[t]->longend,transfrag[t]->longread,transfrag[t]->nodes.Count());
-					for(int i=0;i<transfrag[t]->nodes.Count();i++) fprintf(stderr," %d",transfrag[t]->nodes[i]);
-					if(!transfrag[t]->abundance) fprintf(stderr," *");
-					fprintf(stderr,"\n");
-				}
+			fprintf(stderr, "Thiscell=%d\n", thiscell);
+			for (int i = 0; i < gno; i++) {
+				CGraphnode *inode = no2gnode[i];
+				// printTime(stderr);
+				fprintf(stderr,"Node %d: cov=%f thiscellcov=%f ",i,inode->cov/(inode->end-inode->start+1),inode->cellcov[thiscell]/inode->len());
+				fprintf(stderr, "trf=");
+				for (int t = 0; t < inode->trf.Count(); t++)
+					fprintf(stderr, " %d(%f)", inode->trf[t], transfrag[inode->trf[t]]->abundance);
+				fprintf(stderr, " maxi=%d maxcov=%f\n", maxi, nodecov[maxi]);
+			}
+			fprintf(stderr, "There are %d transfrags:\n", transfrag.Count());
+			for (int t = 0; t < transfrag.Count(); t++)
+			{
+				fprintf(stderr, "%d: ", t);
+				// printBitVec(transfrag[s][b][t]->pattern);
+				fprintf(stderr, " %f(%f,%d,%d) long=%d nodes=%d", transfrag[t]->abundance, transfrag[t]->cellabundance[thiscell], transfrag[t]->longstart, transfrag[t]->longend, transfrag[t]->longread, transfrag[t]->nodes.Count());
+				for (int i = 0; i < transfrag[t]->nodes.Count(); i++)
+					fprintf(stderr, " %d", transfrag[t]->nodes[i]);
+				if (!transfrag[t]->abundance)
+					fprintf(stderr, " *");
+				fprintf(stderr, "\n");
 			}
 		}
-
-
 
 		if(nodecov[maxi]>=1) { // sensitive mode only; otherwise >=readthr
 
@@ -15449,7 +15470,7 @@ int build_graphs(BundleData* bdata) {
     				process_transfrags(s,graphno[s][b],edgeno[s][b],no2gnode[s][b],transfrag[s][b],tr2no[s][b],gpos[s][b],guidetrf,pred,trflong,bdata,abundleft,abundright);
     				//get_trf_long(graphno[s][b],edgeno[s][b], gpos[s][b],no2gnode[s][b],transfrag[s][b],geneno,s,pred,trflong);
 
-    				/*
+    				
     				{ //DEBUG ONLY
     					//printTime(stderr);
     					fprintf(stderr,"There are %d nodes for graph[%d][%d]:\n",graphno[s][b],s,b);
@@ -15474,7 +15495,7 @@ int build_graphs(BundleData* bdata) {
     					}
 
     				}
-    				*/
+    				
 
 /*
 #ifdef GMEMTRACE
@@ -15571,7 +15592,7 @@ CReadAln *guide_to_read(GffObj *t, int g, GList<CJunction>& junction, int refend
 	TAlnInfo *tif=new TAlnInfo();
 	tif->g=g;
 
-	CReadAln *r=new CReadAln(s,1,NULL,NULL,t->start,t->end,tif);
+	CReadAln *r=new CReadAln(s, 1, -1, NULL, t->start, t->end, tif);
 	r->read_count=0;
 
 	// add junction from start here --> needs to be specially handled in build_merge
@@ -19531,7 +19552,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	// print transcripts including the necessary isoform fraction cleanings
 	GList<CPrediction>& pred = bundleData->pred;
 
-	/*
+	
 	{ // DEBUG ONLY
 		fprintf(stderr,"Pred set before sorting:\n");
 		for(int i=0;i<pred.Count();i++) {
@@ -19556,7 +19577,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 		}
 		fprintf(stderr,"\n");
 	}
-	*/
+	
 
 	int npred=pred.Count();
 

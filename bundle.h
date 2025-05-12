@@ -185,7 +185,7 @@ struct CReadAln:public GSeg {
 		bool in_guide;
 	};
 
-	CReadAln(char _strand=0, short int _nh=0,char _bc=-1, char *_ub=NULL, // SCELL
+	CReadAln(char _strand=0, short int _nh=0,int _bc=-1, char *_ub=NULL, // SCELL
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
 					strand(_strand),nh(_nh), bc(_bc),ub(_ub),len(0), read_count(0), unitig(false),longread(false),pair_count(),pair_idx(), // SCELL
 					segs(), juncs(false), tinfo(tif) { }
