@@ -67,6 +67,18 @@ Note that the command line parser in StringTie allows arbitrary order and mixing
 stringtie <short_read_alns.bam> <long_read_alns.bam> --mix [other_options] [-o <output.gtf>] 
 ```
 
+### Nascent-aware assembly (new in StringTie3)
+
+Many rRNA-depleted (“Total RNA”) libraries capture a mixture of mature and nascent (incomplete) RNA. StringTie 3 introduces a **nascent-aware** algorithm that accounts for this signal and separates mature from nascent RNA in the assembly process.
+
+| Flag | Behaviour |
+| :--- | :--- |
+| `-N` | Enables nascent-aware assembly (recommended for any rRNA-depleted or Total RNA library). The primary output GTF contains **only mature** transcript models. |
+| `--nasc` | Same algorithm as `-N`, but also retains nascent intermediates in the GTF output. Nascent records carry `nascentRNA` in the **source** column (field 2) and include a `nascent_parent "<mature_ID>"` attribute that links each nascent transcript to its mature parent. |
+
+Full algorithmic details are described in our pre-print:  
+Shinder I, Pertea G, Hu R, Rudnick Z, Pertea M. [*StringTie 3 improves total-RNA assembly by resolving nascent and mature transcripts.*](https://www.biorxiv.org/content/10.1101/2025.05.21.655404v1) *bioRxiv* (2025). doi:10.1101/2025.05.21.655404
+
 ### Running StringTie on the provided test data
 
 When building from this source repository, after the program was compiled with `make release` as instructed above, the generated binary can be tested on a small data set with a command like this:
@@ -270,4 +282,4 @@ Kovaka S, Zimin AV, Pertea GM, Razaghi R, Salzberg SL, Pertea M  [**Transcriptom
 
 Pertea M, Kim D, Pertea GM, Leek JT, Salzberg SL [**Transcript-level expression analysis of RNA-seq experiments with HISAT, StringTie and Ballgown**](http://www.nature.com/nprot/journal/v11/n9/full/nprot.2016.095.html), _Nature Protocols_ 11, 1650-1667 (2016), doi:10.1038/nprot.2016.095
 
-Pertea M, Pertea GM, Antonescu CM, Chang TC, Mendell JT  & Salzberg SL [**StringTie enables improved reconstruction of a transcriptome from RNA-seq reads**](http://www.nature.com/nbt/journal/vaop/ncurrent/full/nbt.3122.html), _Nature Biotechnology_ 2015, doi:10.1038/nbt.3122
+Pertea M, Pertea GM, Antonescu CM, Chang TC, Mendell JT  & Salzberg SL [**StringTie enables improved reconstruction of a transcriptome from RNA-seq reads**](http://www.nature.com/nbt/journal/vaop/ncurrent/full/nbt.3122.html), _Nature Biotechnology_ (2015), doi:10.1038/nbt.3122
