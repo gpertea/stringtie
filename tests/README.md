@@ -2,7 +2,7 @@
 
 The test data can be automatically retrieved by the `run_tests.sh` script included 
 with all source or binary distributions of StringTie, or downloaded separately from this url:
-https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
+https://github.com/gpertea/stringtie/raw/test_data/tests_3.tar.gz
 
 The `run_tests.sh` script will then run StringTie on these data sets and compare the output with the 
 precomputed, expected output for each case. If the output of each test matches the 
@@ -51,3 +51,17 @@ stringtie --mix -o mix_reads.out.gtf mix_short.bam mix_long.bam
 stringtie --mix -G mix_guides.gff -o mix_reads_guided.out.gtf mix_short.bam mix_long.bam
 ```
 
+### Test 7: Mixed reads with annotation guides
+```
+stringtie --mix -G mix_guides.gff -o mix_reads_guided.out.gtf mix_short.bam mix_long.bam
+```
+
+### Test 8: Short reads with -N
+```
+stringtie -N -G mix_guides.gff -o mix_short_N_guided.out.gtf mix_short.bam
+```
+
+### Test 9: Short reads with --nasc
+```
+stringtie --nasc -G mix_guides.gff -o mix_short_nasc_guided.out.gtf mix_short.bam
+```
