@@ -288,7 +288,7 @@ struct CPrediction:public GSeg {
 	          int _len=0,bool f=true, CPrediction* lp=NULL) {
 		geneno=_geneno;
 		t_eq=guide;
-		cell=_cell, // SCELL
+		cell=_cell; // SCELL
 		start=gstart;
 		end=gend;
 		cov=_cov;
@@ -302,7 +302,7 @@ struct CPrediction:public GSeg {
 		cellcov.Clear(); // SCELL
 	}
 
-	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
+	CPrediction(const CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
 //			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
 			t_eq(c.t_eq), cell(c.cell),cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), flag(c.flag),linkpred(c.linkpred), // SCELL
 	      exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename),cellcov(c.cellcov) {} // SCELL

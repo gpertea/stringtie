@@ -439,16 +439,16 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	char *bc=NULL;
 	char *ub=NULL;
 	const int* nbc=NULL;
-	if(scell) {
-		bc=brec.tag_str("BC");
-		ub=brec.tag_str("UB");
+	if(scell) { // read specific single cell data in processRead()
+		bc=brec.tag_str("BC"); // cell barcode
+		ub=brec.tag_str("UB"); // UMI barcode
 
 		if(!strlen(bc)) {
 			fprintf(stderr,"No barcode present in read %s - ignoring\n",brec.name());
 			return;
 		}
 
-		nbc=bdata.cellname[bc];
+		nbc=bdata.cellname[bc]; // get cell number nbc from cell name bc from bundle; if not found then nbc is NULL; 
 	
 		if(!nbc) { // did not see cellname before in bundle -> need to assign an id
 			int ncell=bdata.cellname.Count();
@@ -460,10 +460,10 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			}
 		}
 
-		if(smartseq3) { // SCELL start v1
+		if(smartseq3) { // SCELL start; in smartseq3 mode read 1 with umi has the same orientation as transcript; v1
 			if(strlen(ub)) { // read has UMI bar code
 				char ustrand=0; // -1, 0, 1
-				if(brec.flags() & BAM_FREAD1) {
+				if(brec.flags() & BAM_FREAD1) { // read 1
 					if(brec.flags() & BAM_FREVERSE) { // strand is negative
 						ustrand=-1;
 					}
@@ -471,7 +471,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 						ustrand=1;
 					}
 				}
-				if(brec.flags() & BAM_FREAD2) {
+				if(brec.flags() & BAM_FREAD2) { // read 2
 					if(brec.flags() & BAM_FREVERSE) { // strand is positive
 						ustrand=1;
 					}
@@ -479,7 +479,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 						ustrand=-1;
 					}
 				}
-				if(strand && ustrand !=strand) { // conflicting strands -> read is probably incorrect
+				if(strand && ustrand !=strand) { // conflicting strands -> read is probably incorrect; do not use it
 					//fprintf(stderr,"UMI read %s with ub=%s has conflicting transcript strand; ustrand=%d\n",brec.name(),ub,ustrand);
 					return;
 				}
@@ -492,7 +492,8 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	int n=readlist.Count()-1;
 
 	if(!mergeMode) while(n>-1 && readlist[n]->start==brec.start) {
-		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig) && (!scell || (readlist[n]->bc==*nbc && readlist[n]->ub==ub))) { // SCELL
+		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig) 
+			&& (!scell || (readlist[n]->bc==*nbc && readlist[n]->ub==ub))) { // SCELL; reads with the same barcode and UMI are considered the same
 			match=exonmatch(readlist[n]->segs,brec.exons);
 			if(match && (longreads || mixedMode)) match=deljuncmatch(readlist[n],brec.juncsdel); //DEL AWARE
 		}
@@ -521,7 +522,15 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			for (int i=0;i<brec.exons.Count();i++) len+=brec.exons[i].len();
 			if(len<mintranscriptlen) return;
 		}
-		readaln=new CReadAln(strand, nh, *nbc,ub,brec.start, brec.end, alndata.tinfo);
+		int barcodeid=-1; // SCELL: set this to -1 for bulk RNA-seq reads
+		if(scell) { // SCELL
+			if(!nbc) {
+				fprintf(stderr,"Error: could not find cell barcode %s in bundle\n",bc);
+				return;
+			}
+			barcodeid=*nbc; // get cell number from cell name
+		}
+		readaln=new CReadAln(strand, nh, barcodeid,ub,brec.start, brec.end, alndata.tinfo);
 		readaln->longread=longr;
 		alndata.tinfo=NULL; //alndata.tinfo was passed to CReadAln
 		for (int i=0;i<brec.exons.Count();i++) {
@@ -1435,7 +1444,7 @@ CGraphnode *create_graphnode(int s, int g, uint start,uint end,int nodeno,CBundl
 	*/
 
 
-	CGraphnode* gnode=new CGraphnode(ncell,start,end,nodeno); // SCELL
+	CGraphnode* gnode=new CGraphnode(ncell,start,end,nodeno); // SCELL; added ncell to constructor so that I can use it later 
 	CGraphinfo ginfo(g,nodeno);
 	bundle2graph[s][bundlenode->bid].Add(ginfo);
 	no2gnode[s][g].Add(gnode);
@@ -2211,7 +2220,7 @@ CGraphnode *source2guide(int s, int g, int refstart,uint newstart,uint newend, C
 		float tmp=prevnode->nodeid;futuretr.Add(tmp);
 		tmp=graphnode->nodeid;futuretr.Add(tmp);
 		tmp=trthr;
-		if(scell) tmp=0; // SCELL
+		if(scell) tmp=0; // SCELL; check why this is needed in source2guide; it seems like it makes the transition impossible for single cell
 		futuretr.Add(tmp);
 		prevnode->child.Add(graphnode->nodeid); // this node is the child of previous node
 		graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
@@ -2282,7 +2291,7 @@ CGraphnode *guide2sink(int s, int g, int refstart,uint newstart,uint newend, CGr
 	tmp=prevnode->nodeid;futuretr.Add(tmp);
 	tmp=graphnode->nodeid;futuretr.Add(tmp);
 	tmp=trthr;
-	if(scell) tmp=0; // SCELL
+	if(scell) tmp=0; // SCELL; check why this is needed in guide2sink; it seems like it makes the transition impossible for single cell
 	futuretr.Add(tmp);
 	// COUNT 1 EDGE HERE because the source to guide edge was already included in our count
 	edgeno++;
@@ -2524,7 +2533,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 			graphnode->parent.Add(prevnode->nodeid); // this node has as parent the previous node
 			float tmp=graphno-1;
 			float sourceabundance=trimpoint[i].abundance;
-			if(!scell) sourceabundance+=trthr; // SCELL
+			if(!scell) sourceabundance+=trthr; // SCELL; I do not add trthr to sourceabundance in single cell mode 
 			//fprintf(stderr,"store trimmnode_all source futuretr[%d] 0-%d %f\n",futuretr.Count()/3,(int)tmp,sourceabundance);
 			futuretr.cAdd(0.0);
 			futuretr.Add(tmp);
@@ -2533,7 +2542,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 			tmp=prevnode->nodeid;futuretr.Add(tmp);
 			tmp=graphnode->nodeid;futuretr.Add(tmp);
 			tmp=trthr;
-			if(scell) tmp=0; // SCELL
+			if(scell) tmp=0; // SCELL; check why this is needed in trimnode_all; it seems like it makes the transition impossible for single cell
 			futuretr.Add(tmp);
 			// COUNT 2 EDGES HERE
 			edgeno+=2;
@@ -2550,7 +2559,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 			// remember to create transfrag as well -> I don't know the gno yet, so I can not create it here
 			float tmp=graphno-2;
 			float sinkabundance=trimpoint[i].abundance;
-			if(!scell) sinkabundance+=trthr; // SCELL
+			if(!scell) sinkabundance+=trthr; // SCELL; I do not add trthr to sinkabundance in single cell mode
 			//fprintf(stderr,"store trimmnode_all sink futuretr[%d] %d- -1 %f\n",futuretr.Count()/3,(int)tmp,sinkabundance);
 			futuretr.Add(tmp);
 			futuretr.cAdd(-1.0);
@@ -2559,7 +2568,7 @@ CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *gra
 			tmp=prevnode->nodeid;futuretr.Add(tmp);
 			tmp=graphnode->nodeid;futuretr.Add(tmp);
 			tmp=trthr;
-			if(scell) tmp=0; // SCELL
+			if(scell) tmp=0; // SCELL; check why this is needed in trimnode_all; it seems like it makes the transition impossible for single cell
 			futuretr.Add(tmp);
 			// COUNT 2 EDGES HERE
 			edgeno+=2;
@@ -2612,7 +2621,7 @@ GBitVec traverse_dfs(int s,int g,CGraphnode *node,CGraphnode *sink,GBitVec paren
 			GVec<int> nodes;
 			nodes.cAdd(0);
 			nodes.Add(node->nodeid);
-			CTransfrag *tr=new CTransfrag(ncell,nodes,trpat,trthr); // SCELL
+			CTransfrag *tr=new CTransfrag(ncell,nodes,trpat,trthr); // SCELL; transfrags store the abundance of cells too
 
 			/*
 			{ // DEBUG ONLY
@@ -3282,13 +3291,13 @@ int prune_graph_nodes(int graphno,int s,int g,GVec<CGraphinfo> **bundle2graph, i
 int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bnode,
 		GList<CJunction>& junction,GList<CJunction>& ejunction,GVec<CGraphinfo> **bundle2graph,
 		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag,GIntHash<int> **gpos,BundleData* bdata,
-		int &edgeno,int &lastgpos,GArray<GEdge>& guideedge, GVec<CTrimPoint> &tstartend,int refend=0){
+		int &edgeno,int &lastgpos,GArray<GEdge>& guideedge, GVec<CTrimPoint> &tstartend,int refend=0){ // SCELL for this function works the same as for bulk, as the graph is created from the collection of all cells
 
 	GVec<float>* bpcov = bdata ? bdata->bpcov : NULL; // I might want to use a different type of data for bpcov to save memory in the case of very long bundles
 
-	int ncell=bdata->cellname.Count(); // SCELL
+	int ncell=bdata->cellname.Count(); // SCELL; number of cells in the bundle; if ncell==0 it means this bulk RNA
 
-	CGraphnode* source=new CGraphnode(ncell,0,0,0); // SCELL
+	CGraphnode* source=new CGraphnode(ncell,0,0,0); // SCELL; hopefully this still work for bulk RNA
 	no2gnode[s][g].Add(source);
 	CGraphnode* sink=new CGraphnode(ncell,0,0,0); // SCELL
 
@@ -4394,7 +4403,7 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 
 	// SCELL start---> 
 	if(scell) { 
-		// update no2gnode coverages for this single cell
+		// update no2gnode coverages for this single cell (thiscell)
 		for(int i=0;i<node.Count();i++) {
 			CGraphnode *gnode=no2gnode[node[i]];
 			int len=gnode->len();
@@ -4573,7 +4582,7 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 	if(is_sr) t->srabund+=abundance;
 	else {
 		t->abundance+=abundance;
-		if(scell) t->cellabundance[thiscell]+=abundance; // SCELL
+		if(scell) t->cellabundance[thiscell]+=abundance; // SCELL; transfrag abundance for thiscell is updated
 	}
 
 	if(no2gnode[node[0]]->start<=rstart) if(!t->longstart || rstart<t->longstart) t->longstart=rstart; // value of longstart inside node; the other extensions could come from spliced nodes
@@ -5956,7 +5965,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 					tend=transfrag[t]->longend;
 				}
 
-				CPrediction *p=new CPrediction(s, NULL, tstart, tend, keeptrf[i].cov, sign, len);
+				CPrediction *p=new CPrediction(s, NULL, -1,tstart, tend, keeptrf[i].cov, sign, len); // SCELL; just add cell info
 				exons[0].start=tstart;
 				exons.Last().end=tend;
 				p->exons=exons;
@@ -6464,7 +6473,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 				trpat[n->child[c]]=1;
 				trpat[*pos]=1;
 				CTransfrag *t=NULL;
-				if(scell) t=new CTransfrag(ncell,nodes,trpat,0); // SCELL
+				if(scell) t=new CTransfrag(ncell,nodes,trpat,0); // SCELL; in single cell mode, the abundance of transfrag is 0 because single cell mode should be able to handle sparse coverage like this
 				else t=new CTransfrag(ncell,nodes,trpat,trthr);
 				if(longreads) t->longread=true;
 				transfrag.Add(t);
@@ -6847,7 +6856,7 @@ CPrediction* store_merge_prediction(GVec<int>& alltr,GPVec<CMTransfrag>& mgt,GVe
 	if(strand) { sign='+';}
 	if(first) { geneno++;}
 
-	CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, cov, sign, len);
+	CPrediction *p=new CPrediction(geneno-1, t, -1,exons[0].start, exons.Last().end, cov, sign, len); // SCELL
 	p->exons=exons;
 	if(enableNames) p->mergename=name;
 	first=false;
@@ -6921,7 +6930,7 @@ CPrediction* store_merge_prediction(float cov,GVec<int>& alltr,GPVec<CMTransfrag
 	if(strand) { sign='+';}
 	if(first) { geneno++;}
 
-	CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, cov/len, sign, len);
+	CPrediction *p=new CPrediction(geneno-1, t, -1, exons[0].start, exons.Last().end, cov/len, sign, len); // SCELL
 	p->exons=exons;
 	if(enableNames) p->mergename=name;
 	first=false;
@@ -8204,7 +8213,7 @@ bool back_to_source_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GB
 }
 
 bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,
-		GVec<float>& nodecov,int gno,GIntHash<int>& gpos,int cell,bool &empty){ // SCELL
+		GVec<float>& nodecov,int gno,GIntHash<int>& gpos,int cell,bool &empty){ // SCELL; in scell mode I need to follow paths that are not fully covered by transfrags
 
 	// find all children -> if child is sink then go back
 	CGraphnode *inode=no2gnode[i];
@@ -8228,7 +8237,7 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 	else {
 	*/
 	float maxcov=0;
-	float maxcovempty=0; // SCELL if there are missing spliced reads between node and parent I still want to consider them
+	float maxcovempty=0; // SCELL if there are missing spliced reads between node and child I still want to consider them
 
 	bool exclude=false;
 	for(int c=0;c<nchildren;c++) {
@@ -8237,9 +8246,9 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 		CGraphnode *cnode=no2gnode[inode->child[c]];
 
 		if(inode->child[c]==i+1 && i<gno-2 && inode->end+1==cnode->start && // adjacent to child
-				((scell && cnode->cov/cnode->len() < 1000 && inode->cov*DROP>inode->cov) ||   // SCELL : checked the nodes in the graph instead of the single cell nodes
+				((scell && cnode->cov/cnode->len() < 1000 && inode->cov*DROP>inode->cov) ||   // SCELL : checked the nodes in the graph instead of the single cell nodes; TODO here: adjust coverages for scell mode
 				(!scell && nodecov[i+1]/cnode->len() <1000 && nodecov[i]*(DROP+ERROR_PERC)>nodecov[i+1])))  { // SCELL
-				
+				//fprintf(stderr,"exclude child %d\n",inode->child[c]);
 			exclude=true;
 		}
 		else {
@@ -8260,8 +8269,8 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 						onpath(transfrag[t]->pattern,transfrag[t]->nodes,pathpat,path[0],inode->child[c],no2gnode,gno,gpos)) { // transfrag is compatible with path
 					//fprintf(stderr,"add transfr[%d]->abund=%f\n",t,transfrag[t]->abundance);
 					if(scell) { 
-						if(transfrag[t]->cellabundance[cell]<epsilon) childcovempty+=transfrag[t]->abundance; // SCELL
-						else { childcov+=transfrag[t]->cellabundance[cell]; empty=false; } // SCELL
+						if(transfrag[t]->cellabundance[cell]<epsilon) childcovempty+=transfrag[t]->abundance; // SCELL; if cell abundance is zero than use transfrag abundances to guide most likely path
+						else { childcov+=transfrag[t]->cellabundance[cell]; empty=false; } // SCELL; mark that I have a non-empty path
 					}
 					else childcov+=transfrag[t]->abundance;
 				}
@@ -8278,13 +8287,13 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 			}
 
 			// SCELL ---> start
-			if(scell) {
-				if(childcovempty>maxcovempty) {
+			if(scell) { // store the child with the maximum coverage of empty scell transfrags but the best supported path otherwise
+				if(childcovempty>maxcovempty) { 
 					maxcovempty=childcovempty;
 					maxcempty=inode->child[c];
 				}
-				else if(childcovempty==maxcovempty && maxcempty!=-1) {
-					if(nodecov[maxcempty]<nodecov[inode->child[c]]) {
+				else if(childcovempty==maxcovempty && maxcempty!=-1) { // if both children have the same empty coverage then choose the one with the best node coverage
+					if(nodecov[maxcempty]<nodecov[inode->child[c]]) { // nodecov is the scell coverage of the node
 						maxcempty=inode->child[c];
 					}
 				}
@@ -8295,10 +8304,10 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 			if(pos) pathpat[*pos]=0;
 		}
 	}
-	if(scell && maxc==-1) maxc=maxcempty; // SCELL
+	if(scell && maxc==-1) maxc=maxcempty; // SCELL; if scell child coverage is zero then use transfrag abundances to guide most likely path
 	if(maxc==-1) {
 		//bool goback=false;
-		if(exclude && (scell || nodecov[i+1])) { // SCELL
+		if(exclude && (scell || nodecov[i+1])) { // SCELL; if not scell then nodecov[i+1] needs to be non-zero; otherwise in scell mode I can accept sparse coverages
 			
 			CGraphnode *cnode=no2gnode[i+1];
 			float childcov=0;
@@ -8394,7 +8403,7 @@ bool fwd_to_sink_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& 
 }
 
 bool back_to_source_fast(int i,GVec<int>& path,GBitVec& pathpat,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,
-		GVec<float>& nodecov,int gno,GIntHash<int>& gpos,int cell,bool &empty){ // SCELL
+		GVec<float>& nodecov,int gno,GIntHash<int>& gpos,int cell,bool &empty){ // SCELL; works the same way as fwd_to_sink_fast but in reverse direction
 
 	// find all parents -> if parent is source then go back
 	CGraphnode *inode=no2gnode[i];
@@ -8834,7 +8843,7 @@ float long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 
 // version of push_max_flow where I weight the incomplete transfrags
 float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfrag>& transfrag,GPVec<CGraphnode>& no2gnode,
-		GVec<float>& nodeflux,GBitVec& pathpat, GIntHash<int> &gpos,bool &full, int cell) { // SCELL
+		GVec<float>& nodeflux,GBitVec& pathpat, GIntHash<int> &gpos,bool &full, int cell) { // SCELL; push max flow algorithm for scell takes into account that the path might not be fully covered
 
 	int n=path.Count();
 	GVec<int> node2path;
@@ -8954,7 +8963,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 
 
 					if(transfrag[t]->nodes[0]<path[i]) { // transfrag starts before this node
-						if(scell) sumleft[i]+=transfrag[t]->cellabundance[cell]; // SCELL
+						if(scell) sumleft[i]+=transfrag[t]->cellabundance[cell]; // SCELL; consider the scell abundance instead of total abundance of transfrag
 						else sumleft[i]+=transfrag[t]->abundance;
 						if(transfrag[t]->real) { 
 							if(scell) capacityleft[i]+=transfrag[t]->cellabundance[cell]; // SCELL
@@ -9064,7 +9073,7 @@ float push_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransfr
 		int nt=no2gnode[path[i]]->trf.Count();
 		for(int j=0;j<nt;j++) {
 			int t=no2gnode[path[i]]->trf[j];
-			if(istranscript[t] && ((scell && transfrag[t]->cellabundance[cell]) || (!scell &&  transfrag[t]->abundance))) { // SCELL
+			if(istranscript[t] && ((scell && transfrag[t]->cellabundance[cell]) || (!scell &&  transfrag[t]->abundance))) { // SCELL; updates only scell abundances - if not empty
 
 				float trabundance=transfrag[t]->abundance;
 				if(scell) trabundance=transfrag[t]->cellabundance[cell]; // SCELL
@@ -9568,7 +9577,7 @@ float guidepushflow(int g,GVec<CGuide>& guidetrf,int gno,GBitVec& istranscript,G
 }
 
 
-float store_transcript(int cell,GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov, // SCELL
+float store_transcript(int cell,GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov, // SCELL; the transcript prediction for scell is cell specific
 		GPVec<CGraphnode>& no2gnode,int& geneno,bool& first,int strand,int gno,GIntHash<int>& gpos, bool& included,
 		GBitVec& prevpath, bool full=false,BundleData *bdata=NULL, //float fragno, char* id=NULL) {
 		   GffObj* t=NULL) {
@@ -9584,11 +9593,11 @@ float store_transcript(int cell,GList<CPrediction>& pred,GVec<int>& path,GVec<fl
 	uint refstart=0;
 	if(bdata) refstart=(uint)bdata->start;
 
-	/*
-	fprintf(stderr,"store transcript path[0]=%d",path[0]);
+	
+	fprintf(stderr,"store transcript in cell=%d path[0]=%d",cell,path[0]);
 	if(t) fprintf(stderr," with id=%s",t->getID());
 	fprintf(stderr,"\n");
-	*/
+	
 
 	int s=0;
 	if(!path[0]) s=1;
@@ -9709,7 +9718,7 @@ float store_transcript(int cell,GList<CPrediction>& pred,GVec<int>& path,GVec<fl
 		char sign='-';
 		if(strand) { sign='+';}
 		if(first) { geneno++;}
-		//CPrediction *p=new CPrediction(geneno-1, id, exons[0].start, exons.Last().end, cov, sign, fragno, len);
+		//CPrediction *p=new CPrediction(geneno-1, id, -1, exons[0].start, exons.Last().end, cov, sign, fragno, len);
 		//if(t) fprintf(stderr,"store prediction with start=%d and end=%d\n",exons[0].start, exons.Last().end);
 		float gcov=cov;
 
@@ -9729,16 +9738,16 @@ float store_transcript(int cell,GList<CPrediction>& pred,GVec<int>& path,GVec<fl
 		}
 		*/
 
-		/*
+		
 		{ // DEBUG ONLY
-			fprintf(stderr,"Store transcript in prediction %d with coverage %f \n",pred.Count(),gcov);
+			fprintf(stderr,"Store transcript in prediction %d with coverage %f cell=%d\n",pred.Count(),gcov,cell);
 			fprintf(stderr,"And exons cov:");
 			for(int e=0;e<exons.Count();e++) fprintf(stderr," %g",exoncov[e]);
 			fprintf(stderr,"\n");
 		}
-		*/
+		
 
-		CPrediction *p=new CPrediction(geneno-1, t, cell, exons[0].start, exons.Last().end, gcov, sign, len); // SCELL
+		CPrediction *p=new CPrediction(geneno-1, t, cell, exons[0].start, exons.Last().end, gcov, sign, len); // SCELL; store the transcript prediction for this cell
 		if(full) p->mergename=".";
 
 		p->exons=exons;
@@ -9809,7 +9818,7 @@ void update_guide_pred(GList<CPrediction>& pred,int np, GVec<int>& path,GVec<flo
 
 
 
-int store_guide_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
+int store_guide_transcript(int thiscell,GList<CPrediction>& pred,GVec<int>& path,GVec<float>& nodeflux,GVec<float>& nodecov,
 		GPVec<CGraphnode>& no2gnode,int& geneno,bool& first,int gno, GffObj* t,bool update) {
 
 	// first create the prediction based on the GffObj and then update it's coverage
@@ -9825,7 +9834,7 @@ int store_guide_transcript(GList<CPrediction>& pred,GVec<int>& path,GVec<float>&
 
 	if(first) { geneno++;first=false;}
 	int np=pred.Count();
-	CPrediction *p=new CPrediction(geneno-1, t, exons[0].start, exons.Last().end, 0, t->strand, len);
+	CPrediction *p=new CPrediction(geneno-1, t, thiscell,exons[0].start, exons.Last().end, 0, t->strand, len); // SCELL; store the transcript prediction for this cell
 	p->exons=exons;
 	p->exoncov=exoncov;
 	if(longreads) p->tlen=-p->tlen;
@@ -10263,7 +10272,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 							endpoint= exons.Last().end;
 						}
 
-						CPrediction *p=new CPrediction(geneno, g,startpoint , endpoint, cov, sign, len);
+						CPrediction *p=new CPrediction(geneno, g,-1,startpoint , endpoint, cov, sign, len); // SCELL; not yet working with single cell
 						p->exons=exons;
 						p->exoncov=exoncov;
 						p->mergename="."; // I should not delete this prediction
@@ -10667,7 +10676,7 @@ void get_trf_long_mix(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>&
 						 if(first) { geneno++; first=false;}
 						 /*if(g) fprintf(stderr,"%s ",g->getID());
 						 fprintf(stderr,"2 Store prediction %d:%d-%d  with len=%d and abundance=%f startpoint=%d endpoint=%d\n",pred.Count(),exons[0].start ,exons.Last().end,len,cov/len,startpoint,endpoint);*/
-						 CPrediction *p=new CPrediction(geneno, g,startpoint , endpoint, cov, sign, len);
+						 CPrediction *p=new CPrediction(geneno, g,thiscell,startpoint , endpoint, cov, sign, len); // SCELL
 						 p->exons=exons;
 						 p->exoncov=exoncov;
 						 p->tlen=-p->tlen; // negative transcript length signifies assembly is from a long read
@@ -11076,7 +11085,7 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 				 }
 				 */
 
-				 CPrediction *p=new CPrediction(geneno, g,exons[0].start , exons.Last().end, cov, sign, len);
+				 CPrediction *p=new CPrediction(geneno, g,-1,exons[0].start , exons.Last().end, cov, sign, len); // SCELL; not yet working with single cell
 				 p->exons=exons;
 				 p->exoncov=exoncov;
 				 p->longcov=transfrag[t]->abundance;
@@ -11623,7 +11632,7 @@ int store_nascenttranscript(GList<CPrediction>& pred,int lp, int& geneno,CTransf
 			exons[0].start=nstart;
 		}
 
-		CPrediction *p=new CPrediction(geneno-1, NULL, exons[0].start, exons.Last().end, cov, sign, len);
+		CPrediction *p=new CPrediction(geneno-1, NULL, -1,exons[0].start, exons.Last().end, cov, sign, len); // SCELL; not yet working with cell names
 		p->exons=exons;
 		p->exoncov=exoncov;
 		//p->linkpred=pred[lp]; // nascent of this prediction
@@ -11790,7 +11799,7 @@ void create_nascent(GVec<CGuide>& nascent,int s,GVec<int>& path,int gno,int edge
 
 void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,
 		int& geneno,bool first,int strand,GList<CPrediction>& pred,GVec<float>& nodecov,
-		GBitVec& istranscript,GBitVec& usednode,float maxcov,GBitVec& prevpath,BundleData* bdata,int thiscell) { // SCELL
+		GBitVec& istranscript,GBitVec& usednode,float maxcov,GBitVec& prevpath,BundleData* bdata,int thiscell) { // SCELL; works the same for both scell and bulk, but remembers the cell
 
 	 GVec<int> path;
 	 path.Add(maxi);
@@ -11817,7 +11826,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 }
 	 
 
-	bool empty=true; // SCELL -- checks if the path contains any non-empty transfrags, otherwise do not compute flow
+	bool empty=true; // SCELL -- scell mode only checks if the path contains any non-empty transfrags, otherwise do not compute flow
 	if(back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,thiscell,empty)) { // SCELL
 		 	 if(includesource) path.cAdd(0);
 	 		 path.Reverse(); // back to source adds the nodes at the end to avoid pushing the list all the time
@@ -11825,7 +11834,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 			if(fwd_to_sink_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,thiscell,empty)) { // SCELL
 				 bool full=true;
 
-				 if(!empty || !scell) flux=push_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,gpos,full,thiscell); // SCELL
+				 if(!empty || !scell) flux=push_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,gpos,full,thiscell); // SCELL; if I found at least one non-empty node on the path, I compute the flow
 
 				 
 	 			 { // DEBUG ONLY
@@ -12446,7 +12455,7 @@ int find_cguidepat(GBitVec& pat,GVec<CTrGuidePat>& patvec) {
 	return(-1);
 }
 
-// this function should only be called for multi-exon transcripts
+// this function should only be called for multi-exon transcripts; this is only used for guides
 float check_new_path(int g,int gno,GIntHash<int>& gpos,GPVec<CGraphnode>& no2gnode,GPVec<CTransfrag>& transfrag,GVec<CGuide>& guidetrf,
 		GBitVec& istranscript,GVec<float>& nodeflux,int cell) { // SCELL TODO: this doesn't take into account sparse coverages
 
@@ -12639,7 +12648,7 @@ void guides_pushmaxflow_onestep(int gno,GIntHash<int>& gpos,GPVec<CGraphnode>& n
 
 			//fprintf(stderr,"push flow for guide=%s\n",guides[guidetrf[0].g]->getID());
 
-			float flux= push_max_flow(gno,guidetrf[0].trf->nodes,istranscript,transfrag,no2gnode,nodeflux,guidetrf[0].trf->pattern,gpos,thiscell,full); // SCELL
+			float flux= push_max_flow(gno,guidetrf[0].trf->nodes,istranscript,transfrag,no2gnode,nodeflux,guidetrf[0].trf->pattern,gpos,full,thiscell); // SCELL
 			istranscript.reset();
 
 			/*
@@ -13031,7 +13040,7 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 				//fprintf(stderr,"1 g=%d\n",g);
 				if(guidepred[g]!=-1) update_guide_pred(pred,guidepred[g],path,nodeflux,nodecov,no2gnode,gno,true);
 				else // new prediction for this guide
-					guidepred[g]=store_guide_transcript(pred,path,nodeflux,nodecov,no2gnode,geneno,first,gno,guides[g],true);
+					guidepred[g]=store_guide_transcript(thiscell,pred,path,nodeflux,nodecov,no2gnode,geneno,first,gno,guides[g],true); // SCELL
 			}
 			else { // there are more than one guide overlapping the node -> count the strict/loose counts; might want to rethink doing this for single nodes in the graph
 
@@ -13212,7 +13221,7 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 						//fprintf(stderr,"2 g=%d\n",g);
 						if(guidepred[g]!=-1) update_guide_pred(pred,guidepred[g],path,nodeflux,nodecov,no2gnode,gno,true);
 						else // new prediction for this guide
-							guidepred[g]=store_guide_transcript(pred,path,nodeflux,nodecov,no2gnode,geneno,first,gno,guides[g],true);
+							guidepred[g]=store_guide_transcript(thiscell,pred,path,nodeflux,nodecov,no2gnode,geneno,first,gno,guides[g],true); // SCELL
 					}
 					else { // more than one guide got counts
 
@@ -13251,7 +13260,7 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 									//fprintf(stderr,"3 g=%d\n",g);
 									if(guidepred[g]!=-1) update_guide_pred(pred,guidepred[g],path,nodeflux,nodecov,no2gnode,gno,false);
 									else // new prediction for this guide
-										guidepred[g]=store_guide_transcript(pred,path,nodeflux,nodecov,no2gnode,geneno,first,gno,guides[g],false);
+										guidepred[g]=store_guide_transcript(thiscell,pred,path,nodeflux,nodecov,no2gnode,geneno,first,gno,guides[g],false); // SCELL
 								}
 							}
 
@@ -13418,7 +13427,7 @@ int guides_pushmaxflow(int gno,int edgeno,GIntHash<int>& gpos,GPVec<CGraphnode>&
 				//fprintf(stderr,"4 g=%d\n",guidetrf[g].g);
 				if(guidepred[guidetrf[g].g]!=-1) update_guide_pred(pred,guidepred[guidetrf[g].g],path,nodeflux,nodecov,no2gnode,gno,false);
 				else // new prediction for this guide
-					guidepred[guidetrf[g].g]=store_guide_transcript(pred,path,nodeflux,nodecov,no2gnode,geneno,first,gno,guides[guidetrf[g].g],false);
+					guidepred[guidetrf[g].g]=store_guide_transcript(thiscell,pred,path,nodeflux,nodecov,no2gnode,geneno,first,gno,guides[guidetrf[g].g],false); // SCELL
 			}
 		}
 
@@ -13539,7 +13548,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 		    int nn=inode->trf.Count();
 
 		    if(i<gno-1 && inode->len()) { 
-			// SCELL --> start
+			// SCELL --> start; node coverages are computed based on thiscell coverages in scell mode
 			if(scell)
 		    	nodecov[i]=inode->cellcov[thiscell]/inode->len(); // sink also has 0 coverage; nodecov's have single cell coverages
 			else // SCELL <-- end
@@ -13554,7 +13563,7 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 
 		    	int t=inode->trf[j];
 
-		    	if(scell && i==gno-1) transfrag[t]->cellabundance[thiscell]=transfrag[t]->abundance; // SCELL
+		    	if(scell && i==gno-1) transfrag[t]->cellabundance[thiscell]=transfrag[t]->abundance; // SCELL; for all transfrags that go to sink, set cellabundance to abundance
 
 		    	if(transfrag[t]->nodes.Last()==i) { // transfrag ends at this node (in transfrag)
 		    		abundin+=transfrag[t]->abundance;
@@ -13660,7 +13669,8 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 			for (int i = 0; i < gno; i++) {
 				CGraphnode *inode = no2gnode[i];
 				// printTime(stderr);
-				fprintf(stderr,"Node %d: cov=%f thiscellcov=%f ",i,inode->cov/(inode->end-inode->start+1),inode->cellcov[thiscell]/inode->len());
+				fprintf(stderr,"Node %d: cov=%f ",i,inode->cov/(inode->end-inode->start+1));
+				if(scell) fprintf(stderr,"thiscellcov=%f ",inode->cellcov[thiscell]/inode->len());
 				fprintf(stderr, "trf=");
 				for (int t = 0; t < inode->trf.Count(); t++)
 					fprintf(stderr, " %d(%f)", inode->trf[t], transfrag[inode->trf[t]]->abundance);
@@ -13671,7 +13681,8 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 			{
 				fprintf(stderr, "%d: ", t);
 				// printBitVec(transfrag[s][b][t]->pattern);
-				fprintf(stderr, " %f(%f,%d,%d) long=%d nodes=%d", transfrag[t]->abundance, transfrag[t]->cellabundance[thiscell], transfrag[t]->longstart, transfrag[t]->longend, transfrag[t]->longread, transfrag[t]->nodes.Count());
+				if(scell) fprintf(stderr, " %f(%f,%d,%d) long=%d nodes=%d", transfrag[t]->abundance, transfrag[t]->cellabundance[thiscell], transfrag[t]->longstart, transfrag[t]->longend, transfrag[t]->longread, transfrag[t]->nodes.Count());
+				else fprintf(stderr, " %f(%d,%d) long=%d nodes=%d", transfrag[t]->abundance, transfrag[t]->longstart, transfrag[t]->longend, transfrag[t]->longread, transfrag[t]->nodes.Count());
 				for (int i = 0; i < transfrag[t]->nodes.Count(); i++)
 					fprintf(stderr, " %d", transfrag[t]->nodes[i]);
 				if (!transfrag[t]->abundance)
@@ -15253,7 +15264,7 @@ int build_graphs(BundleData* bdata) {
 	int g=0;
 	int f=0;
 
-	if(!smartseq3) for(int b=0;b<bundle[1].Count();b++) { // these are neutral bundles that do not overlap any signed reads // SCELL v1
+	if(!smartseq3) for(int b=0;b<bundle[1].Count();b++) { // SCELL;  these are neutral bundles that do not overlap any signed reads all smartseq3 scell reads should be signed; v1
 
 		// I need to address features here too -> TODO
 
@@ -15285,7 +15296,7 @@ int build_graphs(BundleData* bdata) {
 						//fprintf(stderr,"0 single guide %s is stored in_bundle=%d\n",guides[g]->getID(),getGuideStatus(guides[g]));
     					float gcov=(tdata->t_exons[0])->movlcount/glen;
     					if(gcov) {
-    						CPrediction *p=new CPrediction(geneno-1, guides[g], guides[g]->start, guides[g]->end, gcov, guides[g]->strand, glen);
+    						CPrediction *p=new CPrediction(geneno-1, guides[g], -1,guides[g]->start, guides[g]->end, gcov, guides[g]->strand, glen); // SCELL not yet working with single cell for neutral bundles
     						if(c_out) {
     							GStr guidecov;
     							guidecov.appendfmt("%.2f",gcov);
@@ -15326,9 +15337,9 @@ int build_graphs(BundleData* bdata) {
     							if(len>mintranscriptlen) {
     								float cov=get_cov(1,predstart-refstart,trimpoint[i].pos-CHI_WIN-refstart,bpcov)/len;
 
-    								//fprintf(stderr,"1 Store single prediction:%d - %d with cov=%f\n",predstart, trimpoint[i].pos-CHI_WIN, cov);
+    								fprintf(stderr,"1 Store single prediction:%d - %d with cov=%f\n",predstart, trimpoint[i].pos-CHI_WIN, cov);
 
-    								CPrediction *p=new CPrediction(geneno-1, NULL, predstart, trimpoint[i].pos-CHI_WIN, cov, sign, len);
+    								CPrediction *p=new CPrediction(geneno-1, NULL, -1, predstart, trimpoint[i].pos-CHI_WIN, cov, sign, len); // SCELL not yet working with single cell for neutral bundles
     								GSeg exon(predstart, trimpoint[i].pos-CHI_WIN);
 
     								p->exons.Add(exon);
@@ -15347,9 +15358,9 @@ int build_graphs(BundleData* bdata) {
     							if(len>mintranscriptlen) {
     								float cov=get_cov(1,predstart-refstart,trimpoint[i].pos-refstart,bpcov)/len;
 
-    			    				//fprintf(stderr,"2 Store single prediction:%d - %d with cov=%f\n",predstart, trimpoint[i].pos, cov);
+    			    				fprintf(stderr,"2 Store single prediction:%d - %d with cov=%f\n",predstart, trimpoint[i].pos, cov);
 
-    								CPrediction *p=new CPrediction(geneno-1, NULL, predstart, trimpoint[i].pos, cov, sign, len);
+    								CPrediction *p=new CPrediction(geneno-1, NULL, -1, predstart, trimpoint[i].pos, cov, sign, len); // SCELL not yet working with single cell for neutral bundles
     								GSeg exon(predstart, trimpoint[i].pos);
 
     								p->exons.Add(exon);
@@ -15371,9 +15382,9 @@ int build_graphs(BundleData* bdata) {
     				if(len>mintranscriptlen) {
     					float cov=get_cov(1,predstart-refstart,predend-refstart,bpcov)/len;
 
-    					//fprintf(stderr,"3 Store single prediction:%d - %d with cov=%f\n",predstart, predend, cov);
+    					fprintf(stderr,"3 Store single prediction:%d - %d with cov=%f\n",predstart, predend, cov);
 
-    					CPrediction *p=new CPrediction(geneno-1, NULL, predstart, predend, cov, sign, len);
+    					CPrediction *p=new CPrediction(geneno-1, NULL, -1, predstart, predend, cov, sign, len); // SCELL not yet working with single cell for neutral bundles
     					GSeg exon(predstart, predend);
 
     					p->exons.Add(exon);
@@ -15582,12 +15593,12 @@ int build_graphs(BundleData* bdata) {
     				if(np>-1) {
     					single_count-=readlist[n]->pair_count[j];
     					if(n<np) {
-    						get_fragment_pattern(readlist,n,np,readlist[n]->pair_count[j],readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell); // SCELL
+    						get_fragment_pattern(readlist,n,np,readlist[n]->pair_count[j],readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell); // SCELL; get_fragment considers the read's cell
     					}
     				}
     			}
     			if(single_count>epsilon) {
-    				get_fragment_pattern(readlist,n,-1,single_count,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell);
+    				get_fragment_pattern(readlist,n,-1,single_count,readgroup,merge,group2bundle,bundle2graph,graphno,edgeno,gpos,no2gnode,transfrag,tr2no,group,ncell); // SCELL
     			}
 			//}
     	}
@@ -15685,7 +15696,7 @@ int build_graphs(BundleData* bdata) {
     					if(scell) for(int c=0;c<ncell;c++) // for all single cells in the bundle compute their transcripts independently
     						geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
     								geneno,s,guidetrf,guides,guidepred,bdata,c,trflong,abundleft,abundright);
-					else geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
+						else geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],  // this is bulk rna-seq
     						geneno,s,guidetrf,guides,guidepred,bdata,-1,trflong,abundleft,abundright);
     				} // SCELL <-- end
     				//}
@@ -16184,7 +16195,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
     		while(currbnode!=NULL) {
     			if(t==1) { geneno++;}
 
-    			//fprintf(stderr,"Store unstranded prediction: geneno=%d start=%d end=%d cov=%f\n",geneno,currbnode->start,currbnode->end,currbnode->cov);
+    			fprintf(stderr,"Store unstranded prediction: geneno=%d start=%d end=%d cov=%f\n",geneno,currbnode->start,currbnode->end,currbnode->cov);
     			int len=currbnode->end-currbnode->start+1;
     			CPrediction *p=new CPrediction(geneno-1, NULL, currbnode->start, currbnode->end, currbnode->cov/len, sign, len);
     			GSeg exon(currbnode->start,currbnode->end);
@@ -19737,7 +19748,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			if(pred[i]->mergename=="n" || pred[i]->mergename=="N") {
 				fprintf(stderr,"nascent%s",pred[i]->mergename.chars()) ;
 			}
-			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, cell=%d readcov=%f, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->cell,pred[i]->tlen*pred[i]->cov,pred[i]->strand,pred[i]->flag);
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
 			fprintf(stderr," (");
 			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
@@ -19746,7 +19757,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 				fprintf(stderr,"...nascents:");
 				CPrediction *p=pred[i]->linkpred;
 				while(p) {
-					fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->flag);
+					fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c cell=%d falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->cell,p->flag);
 					p=p->linkpred;
 				}
 				fprintf(stderr,"\n");
@@ -19771,7 +19782,34 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	int startgno=geneno+1;
 
 	/* SCELL -->start */
-	if(scell) { //-O mode
+	if(scell) { // -O mode (scell mode) is processed separately from bulk
+
+	{ // DEBUG ONLY
+		fprintf(stderr,"Pred set after sorting:\n");
+		for(int i=0;i<pred.Count();i++) {
+			if(pred[i]->t_eq) fprintf(stderr,"%s(%s) ",pred[i]->t_eq->getID(),pred[i]->mergename.chars());
+			if(pred[i]->mergename=="n" || pred[i]->mergename=="N") {
+				fprintf(stderr,"nascent%s",pred[i]->mergename.chars()) ;
+			}
+			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, cell=%d, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->cell,pred[i]->strand,pred[i]->flag);
+			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
+			fprintf(stderr," (");
+			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
+			fprintf(stderr,")\n");
+			if(pred[i]->mergename!="n" && pred[i]->linkpred) {
+				fprintf(stderr,"...nascents:");
+				CPrediction *p=pred[i]->linkpred;
+				while(p) {
+					fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c cell=%d falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->cell,p->flag);
+					p=p->linkpred;
+				}
+				fprintf(stderr,"\n");
+			}
+		}
+		fprintf(stderr,"\n");
+	}
+
+
 		// merge same prediction from different cells, add coverages from multiple cells, and keep a vector of cellcoverages
 		int ncell=bundleData->cellname.Count(); // SCELL
 		for(int n=0;n<npred;n++) if(pred[n]->flag){
@@ -19787,7 +19825,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			int m=n+1;
 			float localdrop=ERROR_PERC/DROP; // I might want to use different parameters here
-			while(m<npred && pred[m]->start<=pred[n]->end) if(pred[m]->flag){
+			while(m<npred && pred[m]->start<=pred[n]->exons[0].end) if(pred[m]->flag){
 					if(pred[n]->strand==pred[m]->strand) {
 						if(equal_pred(pred,n,m)) { // predictions n and m are equal
 
@@ -19956,15 +19994,15 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 		for(int n=0;n<npred;n++) if(pred[n]->flag){
 
-			/*
+			
 					{ // DEBUG ONLY
-						fprintf(stderr,"print prediction %d with cov=%f len=%d",n,pred[n]->cov,pred[n]->tlen);
+						fprintf(stderr,"print prediction %d with cov=%f cell=%d len=%d",n,pred[n]->cov,pred[n]->cell,pred[n]->tlen);
 						if(pred[n]->flag) fprintf(stderr," with true flag");
 						fprintf(stderr," with geneno=%d and exons:",pred[n]->geneno);
 						for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," len=%d",pred[n]->exons[i].len());
 						fprintf(stderr,"\n");
 					}
-			 */
+			 
 
 			transcripts[genes[n]]++;
 			pred[n]->geneno=genes[n]+geneno+1;
