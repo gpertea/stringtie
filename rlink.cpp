@@ -452,8 +452,30 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	
 		if(!nbc) { // did not see cellname before in bundle -> need to assign an id
 			int ncell=bdata.cellname.Count();
+
 			bdata.cellname.Add(bc,ncell);
 			nbc=bdata.cellname[bc];
+
+			{ // DEBUG ONLY
+				fprintf(stderr,"Add bc=%s with value %d",bc,ncell);
+				fprintf(stderr," nbc=%d Now:",*nbc);
+				fprintf(stderr,"ncell=%d ",bdata.cellname.Count());
+
+				for (uint64_t i = 0; i < bdata.cellname.n_buckets();++i) {
+
+					if(!bdata.cellname._used(i)) continue;
+
+					const char* key = bdata.cellname.key(i);
+					int value = bdata.cellname.value(i);
+
+					// do something with key and value
+					fprintf(stderr,"%lu:",i);
+					fprintf(stderr,"%s->",key);
+					fprintf(stderr,"%d ",value);
+				}
+				fprintf(stderr,"\n");
+			}
+
 			if(!nbc) {
 				fprintf(stderr,"Error: could not add cellname %s to bundle\n",bc);
 				return;
@@ -4390,16 +4412,16 @@ CTransfrag *findtrf_in_treepat(int gno,GIntHash<int>& gpos,GVec<int>& node,GBitV
 
 
 CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pattern,float abundance,GVec<int>& node,
-		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no, GPVec<CGraphnode>& no2gnode,uint rstart,uint rend,int ncell,int thiscell, // SCELL
+		GPVec<CTransfrag> **transfrag,CTreePat ***tr2no, GPVec<CGraphnode>& no2gnode,uint rstart,uint rend,int ncell,int thiscell,uint gapstart,uint gapend, // SCELL
 		bool is_sr=false,bool is_lr=false){
 
-	/*
+	if(thiscell==120)
 	{ // DEBUG ONLY
 		fprintf(stderr,"Update transfrag[%d][%d] longread=%d:",s,g,is_lr);
 		for(int i=0;i<node.Count();i++) fprintf(stderr," %d",node[i]);
 		fprintf(stderr," with abundance=%f in graph[%d][%d]\n",abundance,s,g);
 	}
-	*/
+
 
 	// SCELL start---> 
 	if(scell) { 
@@ -4413,7 +4435,15 @@ CTransfrag *update_abundance(int s,int g,int gno,GIntHash<int>&gpos,GBitVec& pat
 			if(gnode->end>rend) { // read ends before gnode
 				len-=gnode->end-rend;
 			}
+
+			if(gapend && gnode->start <= gapend && gapstart <= gnode->end) { // gap intersects node -> subsract from covered length
+				len-=min(gnode->end, gapend)-max(gnode->start, gapstart)+1;
+			}
+
 			if(len<0) len=0;
+			if(thiscell==120) {
+				fprintf(stderr,"Add read:%d-%d exons:to node:%d-%d abundance=%f and len=%d\n",rstart,rend,gnode->start,gnode->end,abundance,len);
+			}
 			gnode->cellcov[thiscell]+=abundance*len;
 		}
 	}
@@ -4601,7 +4631,12 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 	fprintf(stderr,"\n");*/
 	uint rstart=readlist[n]->start; // this only works for unpaired long reads -> I will have to take into account the pair if I want to do it for all reads
 	uint rend=readlist[n]->end;
-	if(np>-1 && readlist[np]->end>rend) rend=readlist[np]->end;
+	uint gapstart=rend+1; // scell; gapstart and gapend are the start and and of the inner gap between the two paired reads in the fragment
+	uint gapend=0; // scell
+	if(np>-1) {
+		if(readlist[np]->start>rend+1) gapend=readlist[np]->start-1; // scell
+		if(readlist[np]->end>rend) rend=readlist[np]->end;
+	}
 
 	float rprop[2]={0,0}; // by default read does not belong to any strand
 	// compute proportions of unstranded read associated to strands
@@ -4721,7 +4756,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 									node.Add(rnode[r][o]);
 								}
 								update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,node,transfrag,tr2no,
-										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
+										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,gapstart,gapend,readlist[n]->unitig,readlist[n]->longread); // SCELL
 								rpat.reset();
 								rpat[rnode[r][j]]=1; // restart the pattern
 								clear_rnode=j;
@@ -4747,7 +4782,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 									node.Add(rnode[r][o]);
 								}
 								update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,node,transfrag,tr2no,
-										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
+										no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,gapstart,gapend,readlist[n]->unitig,readlist[n]->longread); // SCELL
 								rpat.reset();
 								rpat[rnode[r][j]]=1; // restart the pattern
 								clear_rnode=j;
@@ -4798,19 +4833,19 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 					while(i<pnode[p].Count()) { rnode[r].Add(pnode[p][i]);i++;}
 					rpat=rpat|ppat;
 					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,
-							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
+							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,gapstart,gapend,readlist[n]->unitig,readlist[n]->longread); // SCELL
 				}
 				else { // update both patterns separately
 					update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,
-							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
+							no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,gapstart,gapend,readlist[n]->unitig,readlist[n]->longread); // SCELL
 					update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no,
-							no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
+							no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->bc,gapstart,gapend,readlist[n]->unitig,readlist[n]->longread); // SCELL
 				}
 				pgno[p]=-1;
 			}
 			else { // pair has no valid pattern in this graph
 				update_abundance(s,rgno[r],graphno[s][rgno[r]],gpos[s][rgno[r]],rpat,rprop[s]*readcov,rnode[r],transfrag,tr2no,
-						no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
+						no2gnode[s][rgno[r]],rstart, rend,ncell,readlist[n]->bc,gapstart,gapend,readlist[n]->unitig,readlist[n]->longread); // SCELL
 			}
 		}
 
@@ -4839,7 +4874,7 @@ void get_fragment_pattern(GList<CReadAln>& readlist,int n, int np,float readcov,
 					}
 				}
 				update_abundance(s,pgno[p],graphno[s][pgno[p]],gpos[s][pgno[p]],ppat,rprop[s]*readcov,pnode[p],transfrag,tr2no,
-						no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->bc,readlist[n]->unitig,readlist[n]->longread); // SCELL
+						no2gnode[s][pgno[p]],rstart, rend,ncell,readlist[n]->bc,gapstart,gapend,readlist[n]->unitig,readlist[n]->longread); // SCELL
 			}
 		delete [] rnode;
 		if(pnode) delete [] pnode;
@@ -4876,7 +4911,7 @@ void get_read_to_transfrag(GList<CReadAln>& readlist,int n,GVec<int> *readgroup,
 	for(int s=0;s<2;s++)
 		if(rgno[s]>-1) { // read is valid (has pattern) on strand s
 			// update transfrag
-			CTransfrag *t=update_abundance(s,rgno[s],graphno[s][rgno[s]],gpos[s][rgno[s]],rpat[s],rprop[s]*readlist[n]->read_count,rnode[s],transfrag,tr2no,no2gnode[s][rgno[s]],readlist[n]->start,readlist[n]->end,0,0); // SCELL
+			CTransfrag *t=update_abundance(s,rgno[s],graphno[s][rgno[s]],gpos[s][rgno[s]],rpat[s],rprop[s]*readlist[n]->read_count,rnode[s],transfrag,tr2no,no2gnode[s][rgno[s]],readlist[n]->start,readlist[n]->end,0,0,0,0); // SCELL
 
 			// if I want to inset source/sink maybe here would be the place
 
@@ -13669,8 +13704,8 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 			for (int i = 0; i < gno; i++) {
 				CGraphnode *inode = no2gnode[i];
 				// printTime(stderr);
-				fprintf(stderr,"Node %d: cov=%f ",i,inode->cov/(inode->end-inode->start+1));
-				if(scell) fprintf(stderr,"thiscellcov=%f ",inode->cellcov[thiscell]/inode->len());
+				fprintf(stderr,"Node %d:%d-%d cov=%f ",i,inode->start,inode->end,inode->cov/(inode->end-inode->start+1));
+				if(scell) fprintf(stderr,"thiscellcov=%f(%f) ",inode->cellcov[thiscell]/inode->len(),inode->cellcov[thiscell]);
 				fprintf(stderr, "trf=");
 				for (int t = 0; t < inode->trf.Count(); t++)
 					fprintf(stderr, " %d(%f)", inode->trf[t], transfrag[inode->trf[t]]->abundance);
@@ -13697,6 +13732,11 @@ int find_transcripts(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& 
 			parse_trf(maxi,gno,edgeno,gpos,no2gnode,transfrag,geneno,first,strand,pred,nodecov,istranscript,usednode,0,pathpat,bdata,thiscell); // SCELL
 
 		}
+
+		// scell --> start; here collapse equal predictions and eliminate intronic ones, then recompute coverages within the cell
+
+
+		// scell <--- end
 
 	}
 	return(geneno);
@@ -15693,9 +15733,11 @@ int build_graphs(BundleData* bdata) {
     				//if(!longreads) {
     				// find transcripts now
     				if(!rawreads) { // SCELL --> start
-    					if(scell) for(int c=0;c<ncell;c++) // for all single cells in the bundle compute their transcripts independently
+    					if(scell) for(int c=0;c<ncell;c++) { // for all single cells in the bundle compute their transcripts independently
+    						fprintf(stderr,"Process cell: %d\n",c);
     						geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
     								geneno,s,guidetrf,guides,guidepred,bdata,c,trflong,abundleft,abundright);
+    					}
 						else geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],  // this is bulk rna-seq
     						geneno,s,guidetrf,guides,guidepred,bdata,-1,trflong,abundleft,abundright);
     				} // SCELL <-- end
@@ -19825,11 +19867,12 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			int m=n+1;
 			float localdrop=ERROR_PERC/DROP; // I might want to use different parameters here
-			while(m<npred && pred[m]->start<=pred[n]->exons[0].end) if(pred[m]->flag){
+			while(m<npred && pred[m]->start<=pred[n]->exons[0].end) {
+				if(pred[m]->flag) {
 					if(pred[n]->strand==pred[m]->strand) {
 						if(equal_pred(pred,n,m)) { // predictions n and m are equal
 
-							//fprintf(stderr,"Equal to pred m=%d\n",m);
+							fprintf(stderr,"Equal to pred m=%d\n",m);
 							if(pred[n]->t_eq && pred[m]->t_eq && pred[n]->t_eq!=pred[m]->t_eq) { m++; continue;} // both are equal but represent different transcripts
 
 							if(pred[m]->t_eq) {
@@ -19864,7 +19907,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							pred[m]->flag=false;
 						}
 					}
-					m++;
+				}
+				m++;
 			}
 
 			float totalcov=0;
@@ -19883,8 +19927,9 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 					pred[i]->exoncov.Last()*=pred[i]->exons.Last().len()/(pred[i]->exons.Last().len()+diff);
 				}
 				if(pred[i]->tlen!=tlen) {
-					predcov*=pred[i]->tlen/tlen;
+					predcov*=(float)pred[i]->tlen/tlen;
 				}
+				fprintf(stderr,"          add eqpred[%d]->cov=%f to pred[%d]->cellcov[%d]=%f",i,pred[i]->cov,n,pred[i]->cell,predcov);
 				pred[n]->cellcov[pred[i]->cell]+=predcov;
 				totalcov+=predcov;
 				if(j) {
@@ -19996,7 +20041,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			
 					{ // DEBUG ONLY
-						fprintf(stderr,"print prediction %d with cov=%f cell=%d len=%d",n,pred[n]->cov,pred[n]->cell,pred[n]->tlen);
+						fprintf(stderr,"print prediction %d with cov=%f len=%d cell=%d",n,pred[n]->cov,pred[n]->tlen,pred[n]->cell);
 						if(pred[n]->flag) fprintf(stderr," with true flag");
 						fprintf(stderr," with geneno=%d and exons:",pred[n]->geneno);
 						for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," len=%d",pred[n]->exons[i].len());
@@ -20020,9 +20065,19 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 			fprintf(f_out,"cov \"%.6f\";",pred[n]->cov);
 			// print cell coverages
-			for(int j=0;j<pred[n]->cellcov.Count();j++) if(pred[n]->cellcov[j]) { // if there is coverage in cell j
-				fprintf(f_out," cell \"%s:%f\";",bundleData->cellname.key(j),pred[n]->cellcov[j]); // TODO: check that key retrieves the actual key at position j
+
+			for (uint64_t j = 0; j < bundleData->cellname.n_buckets();++j) {
+
+				if(!bundleData->cellname._used(j)) continue;
+
+				const char* key = bundleData->cellname.key(j);
+				int value = bundleData->cellname.value(j);
+
+				if(pred[n]->cellcov[value]) { // if there is coverage in cell value
+					fprintf(f_out," cell \"%s:%f\";",key,pred[n]->cellcov[value]); // TODO: check that key retrieves the actual key at position j
+				}
 			}
+
 			fprintf(f_out,"\n");
 			for(int j=0;j<pred[n]->exons.Count();j++) {
 				fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s\"; transcript_id \"%s\"; exon_number \"%d\"; ",
