@@ -1784,7 +1784,7 @@ void GffReader::readAll() {
 						if (prevseen->overlap(gffline->fstart, gffline->fend) && !gtf_gene_dupID) {
 							//in some GTFs a gene ID may actually be the same with the parented transcript ID (thanks)
 							//overlapping feature with same ID is going too far
-							GMessage("Error: discarding overlapping duplicate %s feature (%d-%d) with ID=%s\n", gffline->ftype,
+							GMessage("Warning: discarding overlapping duplicate %s feature (%d-%d) with ID=%s\n", gffline->ftype,
 									gffline->fstart, gffline->fend, gffline->ID);
 							//validation_errors = true;
 							if (gff_warns) { //validation intent: just skip the feature, allow the user to see other errors
