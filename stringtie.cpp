@@ -1232,7 +1232,7 @@ void processOptions(GArgs& args) {
 	 s=args.getOpt('s');
 	 if (!s.is_empty()) {
 		 singlethr=(float)s.asDouble();
-		 if (readthr<0.001 && !mergeMode) {
+		 if (singlethr<0.001 && !mergeMode) {
 			 GError("Error: invalid -s value, must be >=0.001)\n");
 		 }
 	 }
