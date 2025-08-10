@@ -2,7 +2,7 @@
 
 The test data can be automatically retrieved by the `run_tests.sh` script included 
 with all source or binary distributions of StringTie, or downloaded separately from this url:
-https://github.com/gpertea/stringtie/raw/test_data/tests_3.tar.gz
+https://github.com/gpertea/stringtie/raw/test_data/tests_v3.tar.gz
 
 The `run_tests.sh` script will then run StringTie on these data sets and compare the output with the 
 precomputed, expected output for each case. If the output of each test matches the 

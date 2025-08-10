@@ -16,14 +16,17 @@ incdir=$prefix/include
 libdir=$prefix/lib
 mkdir -p $incdir
 mkdir -p $libdir
+cc=${CC:-gcc}
+cxx=${CXX:-g++}
 
 # -- prepare libdeflate
 if [[ ! -d libdeflate ]]; then
  git clone https://github.com/ebiggers/libdeflate
  cd libdeflate
- compiler=${CXX:-g++}       
- cver=$($compiler -dumpversion)
- gt49=$(echo "$cver > 4.9" | bc -l)    
+ compiler=$cxx
+ cver=$($compiler -dumpversion 2>/dev/null || echo 0)
+ cver=$(echo "$cver" | cut -d. -f1-2)
+ gt49=$(echo "$cver > 4.9" | bc -l)
  if [[ $gt49 -eq 1 ]]; then
    git checkout	7805198	# release v1.23
  else
@@ -35,11 +38,11 @@ if [[ ! -f $libdir/libdeflate.a ]]; then
   cd libdeflate
   MINGW=''
   libdeflate=libdeflate.a
-  if [[ $(gcc -dumpmachine) == *mingw* ]]; then
+  if [[ $($cc -dumpmachine 2>/dev/null) == *mingw* ]]; then
    MINGW=1
    libdeflate=libdeflatestatic.lib
   fi
-  make -f ../Makefile.libdeflate -j 4 $libdeflate || exit 1
+  make -f ../Makefile.libdeflate -j 4 $libdeflate CC="$cc" CXX="$cxx" || exit 1
   cp $libdeflate $libdir/libdeflate.a
   cp libdeflate.h $incdir/
   cd ..
@@ -55,7 +58,7 @@ if [[ ! -d bzip2 ]]; then
 fi
 if [[ ! -f $libdir/libbz2.a ]]; then 
   cd bzip2
-  make -j 4 libbz2.a
+  make -j 4 libbz2.a CC="$cc"
   cp bzlib.h $incdir/
   cp libbz2.a $libdir/
   cd ..
@@ -73,11 +76,11 @@ if [[ ! -d lzma ]]; then
 fi
 if [[ ! -f $libdir/liblzma.a ]]; then
   cd lzma
-  ./configure --disable-shared -disable-xz -disable-xzdec --disable-lzmadec \
+  CC="$cc" CXX="$cxx" ./configure --disable-shared -disable-xz -disable-xzdec --disable-lzmadec \
    --disable-lzmainfo --disable-nls --prefix=$prefix
-  make -j 4
-  make install
+  make -j 4 CC="$cc" CXX="$cxx"
+  make install CC="$cc" CXX="$cxx"
   cd ..
 fi
 
-make -j 4 lib-static
+make -j 4 CC="$cc" CXX="$cxx" lib-static

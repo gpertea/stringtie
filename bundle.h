@@ -263,8 +263,8 @@ struct CPrediction:public GSeg {
 	int geneno;
 	GffObj* t_eq; //equivalent reference transcript (guide)
 	//char *id;
-	float cov;
-	float longcov;
+        double cov;
+        double longcov;
 	char strand;
 	//float frag; // counted number of fragments associated with prediction
 	int tlen;
@@ -273,12 +273,12 @@ struct CPrediction:public GSeg {
 	GVec<GSeg> exons;
 	GVec<float> exoncov;
 	GStr mergename;
-	CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
-	int _len=0,bool f=true, CPrediction* lp=NULL):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
+        CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, double _cov=0, char _strand='.',
+        int _len=0,bool f=true, CPrediction* lp=NULL):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
 	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
 			tlen(_len),flag(f),linkpred(lp),exons(),exoncov(),mergename() {}
-	void init(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, float _cov=0, char _strand='.',
+        void init(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, double _cov=0, char _strand='.',
 	          int _len=0,bool f=true, CPrediction* lp=NULL) {
 		geneno=_geneno;
 		t_eq=guide;
@@ -310,16 +310,6 @@ struct BundleData {
  int start;
  int end;
  unsigned long numreads; // number of reads in this bundle
- /*
- float wnumreads; // NEW: weighted numreads; a multi-mapped read mapped in 2 places will contribute only 0.5
- double sumreads; // sum of all reads' lengths in bundle
- double sumfrag; // sum of all fragment lengths (this includes the insertion so it is an estimate)
- float num_reads; // number of all reads in bundle that we considered (weighted)
- float num_cov; // how many coverages we added (weighted) to obtain sumcov
- float num_frag; // how many fragments we added to obtain sumfrag
- double num_fragments3;
- double sum_fragments3;
-*/
  double num_fragments; //aligned read/pairs
  double frag_len;
  double sum_cov; // sum of all transcripts coverages --> needed to compute TPMs
@@ -365,13 +355,6 @@ struct BundleData {
 	  			rc_tdata, rc_edata, rc_idata);
 	  }
  }
- /* after reference annotation was loaded
- void rc_finalize_refs() {
-     if (rc_data==NULL) return;
-     //rc_data->setupCov();
-	}
-	Not needed here, we update the coverage span as each transcript is added
- */
  void keepGuide(GffObj* scaff, Ref_RC_Data& ref_rc_data);
  void generateAllNascents(int from_guide_idx, Ref_RC_Data& ref_rc); //defined in tablemaker.cpp
  // use this for debug only

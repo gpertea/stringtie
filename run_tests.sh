@@ -1,29 +1,31 @@
 #!/usr/bin/env bash
-tdir=tests_3
-tests=$tdir.tar.gz
+ftpack=tests_v3
+ftests=$ftpack.tar.gz
+tdir=tests
+
 function unpack_test_data() {
-  if [ ! -f $tests ]; then
-    echo "Error: file $tests not found!"
+  if [[ ! -f $ftests ]]; then
+    echo "Error: file $ftests not found!"
     exit 1
   fi
   echo "..unpacking test data.."
   echo
-  tar -xzf $tests
+  tar -xzf "$ftests" -C $tdir/ --strip-components=1
   if [ ! -f $tdir/human-chr19_P.gff ]; then
      echo "Error: invalid test data archive?"
      exit 1
   fi
-  /bin/rm -f $tests ## comment this out for testing
+  /bin/rm -f $ftests ## comment this out for testing
 }
 
-if [ -f $tests ]; then
+if [ -f $ftests ]; then
     #extract the tarball and rename the directory
-    echo "..Using existing $tests"
+    echo "..Using existing $ftests"
     unpack_test_data
   else
     echo "..Downloading test data.."
    #use curl to fetch the tarball from a specific github release or branch
-    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/$tests
+    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/$ftests
     unpack_test_data
 fi
 cd $tdir

@@ -23,7 +23,14 @@ git clone https://github.com/gpertea/stringtie
 cd stringtie
 make -j4 release
 ```
-During the first run of the above make command a few library dependencies will be downloaded and compiled, but any subsequent stringtie updates (using `git pull`) 
+
+To build with an alternate compiler set the `CC` and `CXX` environment variables, for example:
+```
+CC=clang CXX=clang++ make release
+CC=icx CXX=icpx make release
+```
+
+During the first run of the above make command a few library dependencies will be downloaded and compiled, but any subsequent stringtie updates (using `git pull`)
 should rebuild much faster.
 
 To complete the installation, the resulting `stringtie` binary can then be copied to a programs directory of choice (preferably one that is in the current shell's  PATH).
@@ -34,6 +41,17 @@ desktop.
 Note that simply running `make` would produce a less optimized executable which is suitable for debugging 
 and runtime checking but that is significantly slower than the optimized version which 
 is built by using the `make release` command as instructed above.
+
+### Building and testing the offline source package
+
+For HPC environments that do not have online access during the build, please download the latest `.offline.tar.gz` package from <a href="https://github.com/gpertea/stringtie/releases">Releases</a>. Unpack it and cd in the unpacked directory, then:
+
+```
+make -j6 release
+make test
+```
+This should build the `stringtie` binary and run the included tests, without having to fetch dependencies and test data.  
+
 
 ### Using pre-compiled (binary) releases
 Instead of compiling from source, some users may prefer to download an already compiled binary for Linux 

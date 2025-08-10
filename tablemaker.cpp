@@ -171,11 +171,6 @@ void rc_write_RCfeature( GPVec<RC_TData>& rcdata, GPVec<RC_Feature>& features, F
 }
 
 
-/*void rc_write_counts(const char* refname, BundleData& bundle) {
- RC_BundleData& rc = *bundle.rc_data;
- //if (rc.exons.size()==0) return;
-  *
-*/
 void rc_writeRC(GPVec<RC_TData>& RC_data,
 		GPVec<RC_Feature>& RC_exons,
 		GPVec<RC_Feature>& RC_introns,

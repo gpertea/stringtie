@@ -155,11 +155,6 @@ struct CExon{
 	CExon(int p=0,int e=0,float c=0):predno(p),exonno(e),exoncov(c) {}
 };
 
-/*struct TwoFloat{
-	float start;
-	float end;
-	TwoFloat(float v1=0,float v2=0):start(v1),end(v2) {}
-};*/
 
 struct CPred{
 	int predno;
@@ -195,11 +190,11 @@ struct CGene:public GSeg { // I don't necessarily need to make this a GSeg since
 	char strand;
 	char* geneID;
 	char* geneName;
-	float cov;    // this is the actual gene coverage
-	float covsum; // this is a sum of transcripts coverages -> this is what we need for FPKM and TPM estimations
+        double cov;    // this is the actual gene coverage
+        double covsum; // this is a sum of transcripts coverages -> this is what we need for FPKM and TPM estimations
 	GVec<GSeg> exons;  // all possible exons in gene (those are bnodes in bundle)
-	CGene(int gstart=0, int gend=0, char _strand='.',char *gid=NULL, char *gname=NULL):GSeg(gstart,gend),
-		strand(_strand), geneID(gid), geneName(gname), exons() { cov=0; covsum=0;}
+        CGene(int gstart=0, int gend=0, char _strand='.',char *gid=NULL, char *gname=NULL):GSeg(gstart,gend),
+                strand(_strand), geneID(gid), geneName(gname), exons() { cov=0; covsum=0;}
 	// getGeneID() and getGeneName() functions of gffobj return pointers to this attributes in gffobj so I don't need to clean them up here
 };
 
@@ -271,14 +266,6 @@ struct CInterval {
 	CInterval(uint _pos=0,float _val=0,CInterval *_next=NULL):pos(_pos),val(_val),next(_next) {}
 };
 
-/*
-struct CSegCov:public GSeg {
-	bool spliced:1;
-	GVec<GStr> rname;
-	CSegCov *next; // next interval;
-	CSegCov(uint start=0,uint end=0):GSeg(start,end),spliced(false),rname(),next(NULL) {}
-};
-*/
 
 struct CMaxIntv:public GSeg {
 	GVec<CExon> node;
@@ -364,39 +351,6 @@ struct CGraphnode:public GSeg {
 };
 
 
-/*
-struct CTCov { //covered transcript info
-	int first_cov_exon;
-	int last_cov_exon;
-	int numt;
-	GffObj* guide;
-	bool whole;
-	CTCov(GffObj* t, int fex=-1, int lex=0, int ntr=0):first_cov_exon(fex), last_cov_exon(lex),
-			   numt(ntr), guide(t), whole(false) {
-		whole = (first_cov_exon<0);
-	}
-	void print(FILE* f) {
-		if (whole) { //from get_covered()
-			guide->printTranscriptGff(f);
-		}
-		else { //from get_partial_covered()
-			bool partial=true;
-			if (last_cov_exon<0) {
-				if (guide->exons.Count()==1) partial=false;
-				last_cov_exon=first_cov_exon;
-			} else {
-			 if(last_cov_exon-first_cov_exon+1==guide->exons.Count()) partial=false;
-			}
-			for(int i=first_cov_exon;i<=last_cov_exon;i++) {
-				if(partial) fprintf(f, "%s\tpartial\texon\t%u\t%u\t.\t%c\t.\ttranscript_id \"%s_part%d\";\n",guide->getGSeqName(),
-						guide->exons[i]->start,guide->exons[i]->end,guide->strand,guide->getID(), numt);
-				else fprintf(f, "%s\tcomplete\texon\t%u\t%u\t.\t%c\t.\ttranscript_id \"%s\";\n",guide->getGSeqName(),
-						guide->exons[i]->start,guide->exons[i]->end,guide->strand,guide->getID());
-			}
-		}
-	}
-};
-*/
 
 
 void countFragment(BundleData& bdata, GSamRecord& brec, int hi,int nh);
