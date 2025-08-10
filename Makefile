@@ -86,9 +86,6 @@ ifneq (,$(filter %release %static %static-cpp, $(MAKECMDGOALS)))
   CXXFLAGS += -DNDEBUG $(BASEFLAGS) $(FP_FAST)
 else
   ifneq (,$(filter %memcheck %memdebug %tsan %tcheck %thrcheck, $(MAKECMDGOALS)))
-     ifneq "$(GCCGTE5)" "1"
-       $(error g++ version 5 or greater is required for this build target)
-     endif
      CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
      SANLIBS :=
      ifneq (,$(filter %tsan %tcheck %thrcheck, $(MAKECMDGOALS)))
@@ -100,10 +97,8 @@ else
         CXXFLAGS += -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
         SANLIBS := -lasan
      endif
-     ifeq "$(GCCGTE5)" "1"
-       CXXFLAGS += -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=vptr
-       CXXFLAGS += -fsanitize=float-cast-overflow -fsanitize=object-size
-     endif
+     CXXFLAGS += -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=vptr
+     CXXFLAGS += -fsanitize=float-cast-overflow -fsanitize=object-size
      CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector
      LIBS := ${SANLIBS} -lubsan -ldl ${LIBS}
   else

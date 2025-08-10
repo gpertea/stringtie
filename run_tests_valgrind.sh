@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-tdir=tests_3
+tdir=tests_v3
 tests=$tdir.tar.gz
 function unpack_test_data() {
   if [ ! -f $tests ]; then
