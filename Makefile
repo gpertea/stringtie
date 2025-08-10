@@ -12,20 +12,24 @@ INCDIRS := -I. -I${GDIR} -I${HTSLIB}
 
 CXX   := $(if $(CXX),$(CXX),g++)
 
+FP_STABLE  := -fno-fast-math -ffp-contract=off
+FP_FAST := -ffp-contract=fast -march=native
+
 BASEFLAGS := -Wall -Wextra ${INCDIRS} -fsigned-char -D_FILE_OFFSET_BITS=64 \
 -D_LARGEFILE_SOURCE -std=c++11 -fno-strict-aliasing -fno-exceptions -fno-rtti
-#for gcc 8+ add: -Wno-class-memaccess
-GCCVER5 := $(shell expr `${CXX} -dumpversion | cut -f1 -d.` \>= 5)
-ifeq "$(GCCVER5)" "1"
+# detect compiler type and add GCC-only flags if appropriate
+CXX_BASE := $(notdir $(firstword $(CXX)))
+ifneq (,$(findstring g++,$(CXX_BASE)))
+GCCMAJ := $(shell ${CXX} -dumpversion 2>/dev/null | cut -f1 -d.)
+ifneq (,$(shell test $(GCCMAJ) -ge 5 && echo 1))
  BASEFLAGS += -Wno-implicit-fallthrough
 endif
-
-GCCVER8 := $(shell expr `${CXX} -dumpversion | cut -f1 -d.` \>= 8)
-ifeq "$(GCCVER8)" "1"
-  BASEFLAGS += -Wno-class-memaccess
+ifneq (,$(shell test $(GCCMAJ) -ge 8 && echo 1))
+ BASEFLAGS += -Wno-class-memaccess
+endif
 endif
 
-LINKER  := $(if $(LINKER),$(LINKER),g++)
+LINKER  := $(if $(LINKER),$(LINKER),$(CXX))
 
 LDFLAGS := $(if $(LDFLAGS),$(LDFLAGS),-g)
 
@@ -79,13 +83,11 @@ ifneq (,$(filter %release %static %static-cpp, $(MAKECMDGOALS)))
   # -- release build
   RELEASE_BUILD=1
   CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O3)
-  CXXFLAGS += -DNDEBUG $(BASEFLAGS)
+  CXXFLAGS += -DNDEBUG $(BASEFLAGS) $(FP_FAST)
 else
   ifneq (,$(filter %memcheck %memdebug %tsan %tcheck %thrcheck, $(MAKECMDGOALS)))
-     #use sanitizer in gcc 4.9+
-     GCCVER49 := $(shell expr `${CXX} -dumpversion | cut -f1,2 -d.` \>= 4.9)
-     ifeq "$(GCCVER49)" "0"
-       $(error gcc version 4.9 or greater is required for this build target)
+     ifneq "$(GCCGTE5)" "1"
+       $(error g++ version 5 or greater is required for this build target)
      endif
      CXXFLAGS := $(if $(CXXFLAGS),$(CXXFLAGS),-g -O0)
      SANLIBS :=
@@ -98,10 +100,9 @@ else
         CXXFLAGS += -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address $(BASEFLAGS)
         SANLIBS := -lasan
      endif
-     ifeq "$(GCCVER5)" "1"
+     ifeq "$(GCCGTE5)" "1"
        CXXFLAGS += -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=vptr
        CXXFLAGS += -fsanitize=float-cast-overflow -fsanitize=object-size
-       #CXXFLAGS += -fcheck-pointer-bounds -mmpx
      endif
      CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG -fno-common -fstack-protector
      LIBS := ${SANLIBS} -lubsan -ldl ${LIBS}
@@ -120,6 +121,7 @@ else
         CXXFLAGS += -DDEBUG -D_DEBUG -DGDEBUG $(BASEFLAGS)
      endif
   endif
+  CXXFLAGS += $(FP_STABLE)
 endif
 
 ifdef RELEASE_BUILD
@@ -156,7 +158,7 @@ endif
 %.o : %.cpp
 	${CXX} ${CXXFLAGS} -c $< -o $@
 
-OBJS += rlink.o tablemaker.o tmerge.o
+OBJS += bundle.o rlink.o tablemaker.o tmerge.o
 
 all release static static-cpp debug: stringtie${EXE}
 memcheck memdebug tsan tcheck thrcheck: stringtie${EXE}
@@ -165,7 +167,8 @@ prof profile: stringtie${EXE}
 nothreads: stringtie${EXE}
 
 stringtie.o : $(GDIR)/GBitVec.h $(GDIR)/GHashMap.hh $(GDIR)/GSam.h
-rlink.o : rlink.h tablemaker.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
+rlink.o : rlink.h tablemaker.h bundle.h $(GDIR)/GSam.h $(GDIR)/GBitVec.h
+bundle.o : bundle.h rlink.h tablemaker.h $(GDIR)/GSam.h
 tmerge.o : rlink.h tmerge.h
 tablemaker.o : tablemaker.h rlink.h
 
@@ -181,7 +184,7 @@ stringtie${EXE}: ${HTSLIB}/libhts.a $(OBJS) stringtie.o
 	${DBG_WARN}
 test demo tests: stringtie${EXE}
 	@./run_tests.sh
-.PHONY : clean cleanall cleanAll allclean
+.PHONY : clean clean-htslib
 
 # target for removing all object files
 
@@ -189,6 +192,10 @@ test demo tests: stringtie${EXE}
 clean:
 	${RM} stringtie${EXE} stringtie.o*  $(OBJS)
 	${RM} core.*
+clean-all: clean
+	cd ${HTSLIB} && ./build_lib.sh clean
+clean-htslib:
+	cd ${HTSLIB} && ./build_lib.sh clean
 ##allclean cleanAll cleanall:
 ##	cd ${BAM} && make clean
 ##	${RM} stringtie${EXE} stringtie.o* $(OBJS)

@@ -1,45 +1,43 @@
 #!/usr/bin/env bash
-
+tdir=tests_3
+tests=$tdir.tar.gz
 function unpack_test_data() {
-  t=tests.tar.gz
-  if [ ! -f $t ]; then
-    echo "Error: file $t not found!"
+  if [ ! -f $tests ]; then
+    echo "Error: file $tests not found!"
     exit 1
   fi
   echo "..unpacking test data.."
   echo
-  tar -xzf $t
-  if [ ! -f tests/human-chr19_P.gff ]; then
+  tar -xzf $tests
+  if [ ! -f $tdir/human-chr19_P.gff ]; then
      echo "Error: invalid test data archive?"
      exit 1
   fi
-  /bin/rm -f tests.tar.gz
-  
-  #cp tests_exp_out/*.gtf tests/ 2>/dev/null
+  /bin/rm -f $tests ## comment this out for testing
 }
 
-#if [ ! -f tests/human-chr19_P.gff ]; then
-  if [ -f tests.tar.gz ]; then
+if [ -f $tests ]; then
     #extract the tarball and rename the directory
-    echo "..Using existing ./tests.tar.gz"
+    echo "..Using existing $tests"
     unpack_test_data
   else
     echo "..Downloading test data.."
-    #use curl to fetch the tarball from a specific github release or branch
-    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/tests.tar.gz
+   #use curl to fetch the tarball from a specific github release or branch
+    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/$tests
     unpack_test_data
-  fi
-# fi
-cd tests
-# array element format:
-# 
+fi
+cd $tdir
+
 arrins=("short_reads" "short_reads_and_superreads" "mix_short" "long_reads" \
-   "long_reads" "mix_short mix_long" "mix_short mix_long")
-arrparms=("" "" "-G mix_guides.gff" "-L" "-L -G human-chr19_P.gff" "--mix" "--mix -G mix_guides.gff")
+   "long_reads" "mix_short mix_long" "mix_short mix_long" "mix_short" "mix_short")
+arrparms=("" "" "-G mix_guides.gff" "-L" "-L -G human-chr19_P.gff" "--mix" "--mix -G mix_guides.gff" \
+ "-N -G mix_guides.gff" "--nasc -G mix_guides.gff")
 arrout=("short_reads" "short_reads_and_superreads" "short_guided" "long_reads" \
-       "long_reads_guided" "mix_reads" "mix_reads_guided")
+       "long_reads_guided" "mix_reads" "mix_reads_guided" "mix_short_N_guided" "mix_short_nasc_guided")
 arrmsg=("Short reads"  "Short reads and super-reads" "Short reads with annotation guides" "Long reads" \
- "Long reads with annotation guides" "Mixed reads" "Mixed reads with annotation guides")
+ "Long reads with annotation guides" "Mixed reads" "Mixed reads with annotation guides" \
+ "Short reads with -N" "Short reads with --nasc")
+
 for i in ${!arrmsg[@]}; do
  fout="${arrout[$i]}.out.gtf"
  /bin/rm -f $fout
