@@ -26,8 +26,8 @@ make -j4 release
 
 To build with an alternate compiler set the `CC` and `CXX` environment variables, for example:
 ```
-CC=clang CXX=clang++ make release
-CC=icx CXX=icpx make release
+CC=clang CXX=clang++ make -j4 release
+CC=icx CXX=icpx make -j4 release
 ```
 
 During the first run of the above make command a few library dependencies will be downloaded and compiled, but any subsequent stringtie updates (using `git pull`)
