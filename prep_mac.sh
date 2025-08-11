@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 ver=$(fgrep '#define VERSION ' stringtie.cpp)
 ver=${ver#*\"}
 ver=${ver%%\"*}
@@ -8,10 +8,11 @@ echo "preparing $macpack.tar.gz"
 echo "-------------------"
 /bin/rm -rf $macpack
 /bin/rm -f $macpack.tar.gz
-mkdir $macpack
+mkdir -p $macpack/tests
 make clean
 make release
 cp -p LICENSE README.md run_tests.sh stringtie prepDE.py prepDE.py3 $macpack/
+cp -p tests/README.md $macpack/tests/
 #cp -r tests_exp_out $macpack/
 tar cvfz $macpack.tar.gz $macpack
 ls -l $macpack.tar.gz

@@ -10,6 +10,7 @@ function unpack_test_data() {
   fi
   echo "..unpacking test data.."
   echo
+  mkdir -p $tdir
   tar -xzf "$ftests" -C $tdir/ --strip-components=1
   if [ ! -f $tdir/human-chr19_P.gff ]; then
      echo "Error: invalid test data archive?"
