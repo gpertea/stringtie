@@ -98,7 +98,7 @@ template <class OBJ> class GList:public GPVec<OBJ> {
     GList(bool sorted, bool free_elements=true, bool beUnique=false);
     GList(int init_capacity, bool sorted, bool free_elements=true, bool beUnique=false);
     GList(const GList<OBJ>& list); //copy constructor
-    GList(GList<OBJ>&& list); //move constructor
+    GList(GList<OBJ>&& list) noexcept; //move constructor
     GList(GList<OBJ>* list); //kind of a copy constructor
     GList<OBJ>& operator=(GList<OBJ>& list); //copy operator
     GList<OBJ>& operator=(GList<OBJ>&& list); //move operator
