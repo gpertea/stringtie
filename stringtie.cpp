@@ -532,6 +532,12 @@ if (ballgown)
 			 }
 		 }
 
+		 /*
+		 if (xstrand=='.' && brec->exons.Count()>1) {
+			 no_xs++;
+			 continue; //skip spliced alignments lacking XS tag (e.g. HISAT alignments)
+		 }
+		 // I might still infer strand later */
 
 		 if (refseqName==NULL) GError("Error: cannot retrieve target seq name from BAM record!\n");
 		 pos=brec->start; //BAM is 0 based, but GBamRecord makes it 1-based
@@ -1085,6 +1091,11 @@ void processOptions(GArgs& args) {
 		 cram_ref=s;
 	 }
 
+	 /*traindir=args.getOpt("cds");
+	 if(!traindir.is_empty()) {
+		 if(gfasta==NULL) GError("Genomic sequence file is required for --cds option.\n");
+		 load_cds_param(traindir,cds);
+	 }*/
 
      s=args.getOpt('x');
      if (!s.is_empty()) {
@@ -1096,6 +1107,20 @@ void processOptions(GArgs& args) {
     	 }
      }
 
+     /*
+	 s=args.getOpt('n');
+	 if (!s.is_empty()) {
+		 sensitivitylevel=s.asInt();
+		 if(sensitivitylevel<0) {
+			 sensitivitylevel=0;
+			 GMessage("sensitivity level out of range: setting sensitivity level at 0\n");
+		 }
+		 if(sensitivitylevel>3) {
+			 sensitivitylevel=3;
+			 GMessage("sensitivity level out of range: setting sensitivity level at 2\n");
+		 }
+	 }
+	*/
 
 
 	 s=args.getOpt('p');
@@ -1467,6 +1492,17 @@ void processBundle(BundleData* bundle) {
 		#ifndef NOTHREADS
 				GLockGuard<GFastMutex> lock(logMutex);
 		#endif
+	  /*
+	  SumReads+=bundle->sumreads;
+	  SumFrag+=bundle->sumfrag;
+	  NumCov+=bundle->num_cov;
+	  NumReads+=bundle->num_reads;
+	  NumFrag+=bundle->num_frag;
+	  NumFrag3+=bundle->num_fragments3;
+	  SumFrag3+=bundle->sum_fragments3;
+	  fprintf(stderr,"Number of fragments in bundle: %g with length %g\n",bundle->num_fragments,bundle->frag_len);
+	  fprintf(stderr,"Number of fragments in bundle: %g with sum %g\n",bundle->num_fragments,bundle->frag_len);
+	  */
 	  printTime(stderr);
 	  GMessage("^bundle %s:%d-%d done (%d processed potential transcripts).\n",bundle->refseq.chars(),
 	  		bundle->start, bundle->end, bundle->pred.Count());
