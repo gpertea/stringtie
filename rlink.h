@@ -18,6 +18,8 @@
 #define CHI_THR 50
 #define SMALL_EXON 35 // exons smaller than this have a tendency to be missed by long read data
 
+#define SCELL_COV 20
+
 #define IS_FPKM_FLAG 1
 #define IS_TPM_FLAG 2
 #define IS_COV_FLAG 4
