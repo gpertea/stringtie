@@ -2137,6 +2137,7 @@ int find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,G
 		fprintf(stderr,"\n");
 	}
 	*/
+
 	return(f);
 }
 
@@ -11902,7 +11903,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 //float fragno=0;
 	 GVec<float> nodeflux;
 
-	/*
+
 	 { // DEBUG ONLY
 	 	 fprintf(stderr,"\n\n***Start parse_trf with maxi=%d and cov=%f\n",maxi,nodecov[maxi]);
 		 //fprintf(stderr,"Transcripts before path:");
@@ -11915,7 +11916,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 	 GMessage("\t\tM(s):parse_trf memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
 	 }
-	*/
+
 
 	bool empty=true; // SCELL -- scell mode only checks if the path contains any non-empty transfrags, otherwise do not compute flow
 	if(back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,thiscell,empty,lowcovvec)) { // SCELL
@@ -11927,14 +11928,14 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 
 				 if(!empty || !scell) flux=push_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,gpos,full,thiscell); // SCELL; if I found at least one non-empty node on the path, I compute the flow
 
-				/*
+
 	 			 { // DEBUG ONLY
 	 				 //printTime(stderr);
 	 				 fprintf(stderr,"flux=%g Path:",flux);
 	 				 for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
 	 				 fprintf(stderr,"***\n");
 	 			 }
-				*/
+
 	 		}
 			/*else {
 	 			//pathpat.reset();
@@ -13696,8 +13697,6 @@ void create_graph_lowcov(GBitVec& lowcovvec,int gno,GIntHash<int> &gpos,GPVec<CG
 						// I can determine adjacent low coverage nodes before considering their junctions
 
 	for(int i=0;i<cov.Count();i++) {
-
-		CGraphnode *inode=no2gnode[cov[i].predno];
 
 		//fprintf(stderr,"i=%d node=%d\n",i,cov[i].predno);
 
@@ -15935,7 +15934,7 @@ int build_graphs(BundleData* bdata) {
     				process_transfrags(s,graphno[s][b],edgeno[s][b],no2gnode[s][b],transfrag[s][b],tr2no[s][b],gpos[s][b],guidetrf,pred,trflong,bdata,abundleft,abundright);
     				//get_trf_long(graphno[s][b],edgeno[s][b], gpos[s][b],no2gnode[s][b],transfrag[s][b],geneno,s,pred,trflong);
 
-    				/*
+
     				{ //DEBUG ONLY
     					//printTime(stderr);
     					fprintf(stderr,"There are %d nodes for graph[%d][%d]:\n",graphno[s][b],s,b);
@@ -15960,7 +15959,7 @@ int build_graphs(BundleData* bdata) {
     					}
 
     				}
-    				*/
+
 
 /*
 #ifdef GMEMTRACE
@@ -15981,7 +15980,7 @@ int build_graphs(BundleData* bdata) {
     						create_graph_lowcov(lowcovvec,graphno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b]);
 
     						for(int c=0;c<ncell;c++) { // for all single cells in the bundle compute their transcripts independently
-    							//fprintf(stderr,"Process cell: %d\n",c);
+    							fprintf(stderr,"Process cell: %d\n",c);
     							geneno=find_transcripts(graphno[s][b],edgeno[s][b],gpos[s][b],no2gnode[s][b],transfrag[s][b],
     									geneno,s,guidetrf,guides,guidepred,bdata,c,lowcovvec,trflong,abundleft,abundright);
     						}
@@ -17398,7 +17397,75 @@ bool equal_pred(GList<CPrediction>& pred,int n1,int n2){
 	return(true);
 }
 
+// scell --> start
+// overlap code: 0 = no overlap; 1 = locus overlap; 2 = exon overlap; 3 = n1 included in n2; 4 = n2 included in n3
+int overlap_preds(GList<CPrediction>& pred,int n1,int n2,int &leftovhg, int &rightovhg){
 
+	if((pred[n1]->end < pred[n2]->start) || (pred[n2]->end<pred[n1]->start)) return(0); // genes don't overlap
+
+	if(pred[n1]->exons.Count()==pred[n2]->exons.Count()) { // predictions are not equal as I checked this before -> check for overlap
+		int m=0;
+		for(int k=0; k<pred[n1]->exons.Count();k++) {
+			while(m<pred[n2]->exons.Count() && pred[n2]->exons[m].end<pred[n1]->exons[k].start) m++; // advance pred[n2] exons if before exon k of pred[n1]
+			if(m==pred[n2]->exons.Count()) return(1); // no exon overlap found
+			if(pred[n2]->exons[m].overlap(pred[n1]->exons[k])) return(2); // exon of pred[n2] overlaps exon of pred[n1]
+		}
+	}
+	else { // different number of exons -> one prediction might be included in the other
+		int small=n1;
+		int big=n2;
+		if(pred[n1]->exons.Count()>pred[n2]->exons.Count()) {
+			big=n1;
+			small=n2;
+		}
+		// check if small is included into big
+		int e1=0; // small
+		int e2=0; // big
+		while(e2<pred[big]->exons.Count() && pred[big]->exons[e2].end<pred[small]->exons[e1].start) e2++; // advance exons in pred[big]
+
+		if(pred[big]->exons.Count()-e2<pred[small]->exons.Count()) { // not enough exons for big to contain small -> check for overlap instead
+			for(e1=0;e1<pred[small]->exons.Count();e1++) {
+				while(e2<pred[big]->exons.Count() && pred[big]->exons[e2].end<pred[small]->exons[e1].start) e2++;
+				if(e2==pred[big]->exons.Count()) return(1); // no exon overlap found
+				if(pred[big]->exons[e2].overlap(pred[small]->exons[e1])) return(2);
+			}
+			//return(1); // no exon overlap found <-- no need for this as it will reach the return eventually
+		}
+		else { // big might contain small
+
+			leftovhg=pred[small]->exons[e1].start-pred[big]->exons[e2].start; // leftoverhang
+
+			bool overlap=false;
+			while(e1<pred[small]->exons.Count()-1) {
+				if(pred[small]->exons[e1].end!=pred[big]->exons[e2].end || pred[small]->exons[e1+1].start!=pred[big]->exons[e2+1].start) { // intron is different -> revert to overlap check
+					if(overlap) return(2); // no need to check anymore if there was overlap before
+					while(e1<pred[small]->exons.Count()) {
+						while(e2<pred[big]->exons.Count() && pred[big]->exons[e2].end<pred[small]->exons[e1].start) e2++;
+						if(e2==pred[big]->exons.Count()) return(1); // no exon overlap found
+						if(pred[big]->exons[e2].overlap(pred[small]->exons[e1])) return(2);
+						e1++;
+					}
+					return(1);
+				}
+				else {
+					overlap=true;
+					e1++;
+					e2++;
+				}
+			}
+
+			// check that e1 overlaps e2
+			if(overlap || pred[big]->exons[e2].overlap(pred[small]->exons[e1])) { // small is included in big if I made it so far
+				rightovhg=pred[big]->exons[e2].end-pred[small]->exons[e1].end; // rightoverhang
+				if(small==n1) return(3);
+				else return(4);
+			}
+		}
+	}
+
+	return(1); // no exon overlap found
+}
+// scell <-- end
 
 
 bool is_pred_above_frac(CInterval *maxcov,CPrediction* pred) {
@@ -18819,7 +18886,7 @@ int print_predcluster(GList<CPrediction>& pred,int geneno,GStr& refname,
 						} // end pred[n1]->strand != pred[n2]->strand
 	    				//else if(pred[n2]->cov<isofrac*pred[n1]->cov) pred[n2]->flag=false;  // I am only considering inclusions here since this might change allocations
 	    				else if(pred[n2]->exons.Count()<=pred[n1]->exons.Count() &&
-						        pred[n1]->cov>pred[n2]->cov*DROP && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) {
+						        pred[n1]->cov>pred[n2]->cov*DROP && included_pred(pred,n1,n2,(uint)bundleData->start,bpcov)) { // isn't always pred[n1]->cov >= pred[n2]->cov?
 	    					pred[n2]->flag=false;
 	    					//if(pred[n2]->linkpred) pred[n2]->linkpred->flag=false;
 	    					//fprintf(stderr,"falseflag: ...included elimination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
@@ -20021,6 +20088,8 @@ void add_nascent_to_refpred(int n,GList<CPrediction>& pred,int npred,GVec<int>& 
 	}
 }
 
+
+
 int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 	uint runoffdist=200;
@@ -20073,32 +20142,31 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 	/* SCELL -->start */
 	if(scell) { // -O mode (scell mode) is processed separately from bulk
-		/*
-	{ // DEBUG ONLY
-		fprintf(stderr,"Pred set after sorting:\n");
-		for(int i=0;i<pred.Count();i++) {
-			if(pred[i]->t_eq) fprintf(stderr,"%s(%s) ",pred[i]->t_eq->getID(),pred[i]->mergename.chars());
-			if(pred[i]->mergename=="n" || pred[i]->mergename=="N") {
-				fprintf(stderr,"nascent%s",pred[i]->mergename.chars()) ;
-			}
-			fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, cell=%d, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->cell,pred[i]->strand,pred[i]->flag);
-			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
-			fprintf(stderr," (");
-			for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
-			fprintf(stderr,")\n");
-			if(pred[i]->mergename!="n" && pred[i]->linkpred) {
-				fprintf(stderr,"...nascents:");
-				CPrediction *p=pred[i]->linkpred;
-				while(p) {
-					fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c cell=%d falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->cell,p->flag);
-					p=p->linkpred;
+
+		{ // DEBUG ONLY
+			fprintf(stderr,"Pred set after sorting:\n");
+			for(int i=0;i<pred.Count();i++) {
+				if(pred[i]->t_eq) fprintf(stderr,"%s(%s) ",pred[i]->t_eq->getID(),pred[i]->mergename.chars());
+				if(pred[i]->mergename=="n" || pred[i]->mergename=="N") {
+					fprintf(stderr,"nascent%s",pred[i]->mergename.chars()) ;
 				}
-				fprintf(stderr,"\n");
+				fprintf(stderr,"pred[%d]:%d-%d (cov=%f, readcov=%f, cell=%d, strand=%c falseflag=%d):",i,pred[i]->start,pred[i]->end,pred[i]->cov,pred[i]->tlen*pred[i]->cov,pred[i]->cell,pred[i]->strand,pred[i]->flag);
+				for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %d-%d",pred[i]->exons[j].start,pred[i]->exons[j].end);
+				fprintf(stderr," (");
+				for(int j=0;j<pred[i]->exons.Count();j++) fprintf(stderr," %f",pred[i]->exoncov[j]);
+				fprintf(stderr,")\n");
+				if(pred[i]->mergename!="n" && pred[i]->linkpred) {
+					fprintf(stderr,"...nascents:");
+					CPrediction *p=pred[i]->linkpred;
+					while(p) {
+						fprintf(stderr," %d-%d(cov=%f, readcov=%f, strand=%c cell=%d falseflag=%d)",p->start,p->end,p->cov,p->tlen*p->cov,p->strand,p->cell,p->flag);
+						p=p->linkpred;
+					}
+					fprintf(stderr,"\n");
+				}
 			}
+			fprintf(stderr,"\n");
 		}
-		fprintf(stderr,"\n");
-	}
-	*/
 
 		// merge same prediction from different cells, add coverages from multiple cells, and keep a vector of cellcoverages
 		int ncell=bundleData->cellname.Count(); // SCELL
@@ -20114,7 +20182,6 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			uint mend=pred[n]->end; // maximal end of predictions (either from coverage or from reference)
 
 			int m=n+1;
-			float localdrop=ERROR_PERC/DROP; // I might want to use different parameters here
 			while(m<npred && pred[m]->start<=pred[n]->exons[0].end) {
 				if(pred[m]->flag) {
 					if(pred[n]->strand==pred[m]->strand) {
@@ -20190,13 +20257,44 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			pred[n]->cov=totalcov;
 		}
 
-
 		// assign gene numbers
 		GVec<int> genes; // for each prediction remembers it's geneno
 		genes.Resize(npred,-1);
 		GVec<int> transcripts; // for each gene remembers how many transcripts were printed
 		GVec<int> color;
-		for(int i=0;i<npred;i++) color.Add(i);
+		GVec<CPred> predord;
+		for(int i=0;i<npred;i++) {
+			color.Add(i);
+			//CPred p(0,pred[0]->cov);
+			CPred p(0,abs(pred[0]->tlen)*pred[0]->cov); // priority based on number of bases covered -> this should a give a boost to predictions that are longer
+			predord.Add(p);
+		}
+
+		// filter predictions
+		predord.Sort(predordCmp); // sort predictions from the most highest coverage to lowest
+		for(int i=0;i<predord.Count()-1;i++) if(pred[predord[i].predno]->flag) { // if pred[n1] was not eliminated before
+			int n1=predord[i].predno;
+			//fprintf(stderr,"first consideration of pred[%d] with cov=%f and strand=%c\n",n1,pred[n1]->cov,pred[n1]->strand);
+			for(int j=i+1;j<predord.Count();j++) if(pred[predord[j].predno]->flag) {
+				int n2=predord[j].predno; // always predord.cov(n1)>=predord.cov(n2)
+				int leftovhg=0;
+				int rightovhg=0;
+				int ovlcode=overlap_preds(pred,n1,n2,leftovhg,rightovhg); // overlap code: 0 = no overlap; 1 = locus overlap; 2 = exon overlap; 3 = n1 included in n2; 4 = n2 included in n3
+				switch(ovlcode) {
+				case 0: // no overlap
+					break;
+				case 1: // gene overlap
+					break;
+				case 2: // exon overlap
+					break;
+				case 3: // n1 included in n2
+					break;
+				case 4: // n2 included in n1
+				}
+
+			}
+
+		}
 
 		for(int i=0;i<npred-1;i++) if(pred[i]->flag) {
 			if(pred[i]->cov<readthr) {
@@ -20205,16 +20303,16 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 				//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
 				continue;
 			}
-			//fprintf(stderr,"check pred i=%d with end=%d and next start=%d\n",i,pred[i]->end,pred[i+1]->start);
+			fprintf(stderr,"check pred i=%d with end=%d and next start=%d\n",i,pred[i]->end,pred[i+1]->start);
 			int ci=color[i];
 			while(ci!=color[ci]) { ci=color[ci];color[i]=ci;}
 			int j=i+1;
 			while(j<npred && pred[i]->end>=pred[j]->start) {
-				//fprintf(stderr,"... check pred j=%d\n",j);
+				fprintf(stderr,"... check pred j=%d\n",j);
 				if(pred[j]->cov<readthr) {
 					pred[j]->flag=false;
 					//if(pred[j]->linkpred) pred[j]->linkpred->flag=false;
-					//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
+					fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
 					j++;
 					continue;
 				}
@@ -20229,10 +20327,10 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							overlap=true;
 							break;
 						}
-						m++;
+						//m++;
 					}
 					if(overlap) {
-						//fprintf(stderr,"pred %d overlaps pred %d\n",j,i);
+						fprintf(stderr,"pred %d overlaps pred %d\n",j,i);
 						int cj=color[j];
 						while(cj!=color[cj]) { cj=color[cj];color[j]=cj;}
 						if(cj<ci) {
@@ -20272,18 +20370,18 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 		for(int n=0;n<npred;n++) if(pred[n]->flag){
 
-			/*
-			{ // DEBUG ONLY
-						fprintf(stderr,"print prediction %d with cov=%f len=%d cell=%d",n,pred[n]->cov,pred[n]->tlen,pred[n]->cell);
-						if(pred[n]->flag) fprintf(stderr," with true flag");
-						fprintf(stderr," with geneno=%d and exons:",pred[n]->geneno);
-						for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," len=%d",pred[n]->exons[i].len());
-						fprintf(stderr,"\n");
-			}
-			*/		
 
 			transcripts[genes[n]]++;
 			pred[n]->geneno=genes[n]+geneno+1;
+
+			{ // DEBUG ONLY
+						fprintf(stderr,"print prediction %d with cov=%f len=%d cell=%d",n,pred[n]->cov,pred[n]->tlen,pred[n]->cell);
+						if(pred[n]->flag) fprintf(stderr," with true flag");
+						fprintf(stderr," with geneno=%d genes[%d]=%d pred[n]->geneno=%d and exons:",geneno,n,genes[n],pred[n]->geneno);
+						for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," len=%d",pred[n]->exons[i].len());
+						fprintf(stderr,"\n");
+			}
+
 
 			//fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
 			fprintf(f_out,"1 %d %d 0 %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen,pred[n]->cov);
