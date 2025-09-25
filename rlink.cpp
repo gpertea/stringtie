@@ -1577,6 +1577,7 @@ float get_cov_sign(int s,uint start,uint end,GVec<float>* bpcov) {
 // cummulative bpcov; simple find trims that only checks for significant sudden drops in coverage
 //void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint& sourcestart,float& sourcecovleft, float& sourcecovright,uint& sinkend, float& sinkcovleft,float& sinkcovright){
 //void find_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint& sourcestart,float& sourceabundance,uint& sinkend,float& sinkabundance) {
+/*
 void find_trims(int refstart,uint start,uint end,GVec<float>* bpcov,uint& sourcestart,float& sourceabundance,uint& sinkend,float& sinkabundance) {
 
 
@@ -1680,6 +1681,7 @@ void find_trims(int refstart,uint start,uint end,GVec<float>* bpcov,uint& source
 	}
 }
 
+
 void find_trims_wsign(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,uint& sourcestart,float& sourceabundance,uint& sinkend,float& sinkabundance) {
 
 
@@ -1746,7 +1748,7 @@ void find_trims_wsign(int refstart,int sno,uint start,uint end,GVec<float>* bpco
 				sinkabundance=(covleft-covright)/DROP;
 			}
 		}
-	}*/
+	}*
 
 
 	localdrop=ERROR_PERC/DROP;
@@ -1836,6 +1838,7 @@ void find_trims_wsign(int refstart,int sno,uint start,uint end,GVec<float>* bpco
 		}
 	}
 }
+*/
 
 int find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,GVec<CTrimPoint> &trimpoint,GVec<CTrimPoint> &tstartend,int f) {
 
@@ -1868,24 +1871,27 @@ int find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,G
 			}
 			else {
 				if(covleft<covright) { // possible source trimming
-					//float thisdrop=(covleft+1)/(covright+1); // make sure I add one read to mitigate gaps in coverage
-					float thisdrop=covleft/covright; // make sure I add one read to mitigate gaps in coverage
-					//fprintf(stderr,"found source drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i+1);
-					if(thisdrop<localdrop) {
-						if(!trimpoint.Count() || (!trimpoint.Last().start && i+1-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
-							CTrimPoint t(i+1,(covright-covleft)/DROP,true);
-							trimpoint.Add(t);
-							lastdrop=thisdrop;
-						}
-						else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
-							lastdrop=thisdrop;
-							trimpoint.Last().pos=i+1;
-							trimpoint.Last().abundance=(covright-covleft)/DROP;
-							trimpoint.Last().start=true;
+					if(covright>10*readthr) { // I need a minimum coverage to establish drop -> because this is a short window
+						//float thisdrop=(covleft+1)/(covright+1); // make sure I add one read to mitigate gaps in coverage
+						float thisdrop=covleft/covright; // make sure I add one read to mitigate gaps in coverage
+						//fprintf(stderr,"found source drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i+1);
+						if(thisdrop<localdrop) {
+							if(!trimpoint.Count() || (!trimpoint.Last().start && i+1-(int)trimpoint.Last().pos>CHI_THR)) { // add this point to trimpoints
+								CTrimPoint t(i+1,(covright-covleft)/DROP,true);
+								trimpoint.Add(t);
+								lastdrop=thisdrop;
+							}
+							else if(thisdrop<lastdrop){ // smaller drop than before --> replace drop
+								lastdrop=thisdrop;
+								trimpoint.Last().pos=i+1;
+								trimpoint.Last().abundance=(covright-covleft)/DROP;
+								trimpoint.Last().start=true;
+							}
 						}
 					}
 				}
-				else if(covright!=covleft) { // possible sink trimming: covright<covleft here
+				//else if(covright!=covleft) { // possible sink trimming: covright<covleft here
+				else if(covright!=covleft && covleft>10*readthr) { // possible sink trimming: covright<covleft here
 					float thisdrop=(covright+1)/(covleft+1);
 					//fprintf(stderr,"found sink drop=%f covleft=%f covright=%f at i=%d\n",thisdrop,covleft,covright,i);
 					if(thisdrop<localdrop) {
@@ -1904,6 +1910,18 @@ int find_all_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,G
 				}
 			}
 		}
+
+		/*
+		{ // DEBUG ONLY
+			fprintf(stderr,"All short window trim points:");
+			for(int i=0;i<trimpoint.Count();i++) {
+				if(trimpoint[i].start) fprintf(stderr," s:%d",trimpoint[i].pos,trimpoint[i].abundance);
+				else fprintf(stderr," e:%d",trimpoint[i].pos,trimpoint[i].abundance);
+			}
+			fprintf(stderr,"\n");
+		}
+		*/
+
 		return(f);
 	}
 
@@ -11903,7 +11921,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 //float fragno=0;
 	 GVec<float> nodeflux;
 
-
+	 
 	 { // DEBUG ONLY
 	 	 fprintf(stderr,"\n\n***Start parse_trf with maxi=%d and cov=%f\n",maxi,nodecov[maxi]);
 		 //fprintf(stderr,"Transcripts before path:");
@@ -11916,7 +11934,7 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 	 	 GMessage("\t\tM(s):parse_trf memory usage: rsm=%6.1fMB vm=%6.1fMB\n",rsm/1024,vm/1024);
 #endif
 	 }
-
+	 
 
 	bool empty=true; // SCELL -- scell mode only checks if the path contains any non-empty transfrags, otherwise do not compute flow
 	if(back_to_source_fast(maxi,path,pathpat,transfrag,no2gnode,nodecov,gno,gpos,thiscell,empty,lowcovvec)) { // SCELL
@@ -11928,14 +11946,14 @@ void parse_trf(int maxi,int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode
 
 				 if(!empty || !scell) flux=push_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,gpos,full,thiscell); // SCELL; if I found at least one non-empty node on the path, I compute the flow
 
-
+				 
 	 			 { // DEBUG ONLY
 	 				 //printTime(stderr);
 	 				 fprintf(stderr,"flux=%g Path:",flux);
 	 				 for(int i=0;i<path.Count();i++) fprintf(stderr," %d",path[i]);
 	 				 fprintf(stderr,"***\n");
 	 			 }
-
+				 
 	 		}
 			/*else {
 	 			//pathpat.reset();
@@ -15934,7 +15952,7 @@ int build_graphs(BundleData* bdata) {
     				process_transfrags(s,graphno[s][b],edgeno[s][b],no2gnode[s][b],transfrag[s][b],tr2no[s][b],gpos[s][b],guidetrf,pred,trflong,bdata,abundleft,abundright);
     				//get_trf_long(graphno[s][b],edgeno[s][b], gpos[s][b],no2gnode[s][b],transfrag[s][b],geneno,s,pred,trflong);
 
-
+					
     				{ //DEBUG ONLY
     					//printTime(stderr);
     					fprintf(stderr,"There are %d nodes for graph[%d][%d]:\n",graphno[s][b],s,b);
@@ -15959,7 +15977,7 @@ int build_graphs(BundleData* bdata) {
     					}
 
     				}
-
+					
 
 /*
 #ifdef GMEMTRACE
@@ -20143,6 +20161,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 	/* SCELL -->start */
 	if(scell) { // -O mode (scell mode) is processed separately from bulk
 
+		/*
 		{ // DEBUG ONLY
 			fprintf(stderr,"Pred set after sorting:\n");
 			for(int i=0;i<pred.Count();i++) {
@@ -20167,6 +20186,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			}
 			fprintf(stderr,"\n");
 		}
+		*/
 
 		// merge same prediction from different cells, add coverages from multiple cells, and keep a vector of cellcoverages
 		int ncell=bundleData->cellname.Count(); // SCELL
@@ -20303,16 +20323,16 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 				//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",i,pred[i]->cov);
 				continue;
 			}
-			fprintf(stderr,"check pred i=%d with end=%d and next start=%d\n",i,pred[i]->end,pred[i+1]->start);
+			//fprintf(stderr,"check pred i=%d with end=%d and next start=%d\n",i,pred[i]->end,pred[i+1]->start);
 			int ci=color[i];
 			while(ci!=color[ci]) { ci=color[ci];color[i]=ci;}
 			int j=i+1;
 			while(j<npred && pred[i]->end>=pred[j]->start) {
-				fprintf(stderr,"... check pred j=%d\n",j);
+				//fprintf(stderr,"... check pred j=%d\n",j);
 				if(pred[j]->cov<readthr) {
 					pred[j]->flag=false;
 					//if(pred[j]->linkpred) pred[j]->linkpred->flag=false;
-					fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
+					//fprintf(stderr,"falseflag: elim pred[%d] due to low cov=%f\n",j,pred[j]->cov);
 					j++;
 					continue;
 				}
@@ -20330,7 +20350,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 						//m++;
 					}
 					if(overlap) {
-						fprintf(stderr,"pred %d overlaps pred %d\n",j,i);
+						//fprintf(stderr,"pred %d overlaps pred %d\n",j,i);
 						int cj=color[j];
 						while(cj!=color[cj]) { cj=color[cj];color[j]=cj;}
 						if(cj<ci) {
@@ -20374,6 +20394,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			transcripts[genes[n]]++;
 			pred[n]->geneno=genes[n]+geneno+1;
 
+			/*
 			{ // DEBUG ONLY
 						fprintf(stderr,"print prediction %d with cov=%f len=%d cell=%d",n,pred[n]->cov,pred[n]->tlen,pred[n]->cell);
 						if(pred[n]->flag) fprintf(stderr," with true flag");
@@ -20381,7 +20402,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 						for(int i=0;i<pred[n]->exons.Count();i++) fprintf(stderr," len=%d",pred[n]->exons[i].len());
 						fprintf(stderr,"\n");
 			}
-
+			*/
 
 			//fprintf(f_out,"%d %d %d %.6f %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen, t_id, pred[n]->frag,pred[n]->cov);
 			fprintf(f_out,"1 %d %d 0 %.6f\n",pred[n]->exons.Count()+1,pred[n]->tlen,pred[n]->cov);
@@ -20403,6 +20424,8 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 				const char* key = bundleData->cellname.key(j);
 				int value = bundleData->cellname.value(j);
+
+				fprintf(stderr,"cell[%d]=%s\n",value,key);
 
 				if(pred[n]->cellcov[value]) { // if there is coverage in cell value
 					fprintf(f_out," cell \"%s:%f\";",key,pred[n]->cellcov[value]); // TODO: check that key retrieves the actual key at position j
