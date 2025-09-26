@@ -45,14 +45,6 @@ extern bool forceBAM; //for stdin alignment data
 extern bool verbose;
 extern bool debugMode;
 
-// Global poly-tail statistics
-extern unsigned long long g_longread_alignments_total;          // total long-read alignments processed
-extern unsigned long long g_longread_singleton_screen_total;    // long-read alignments evaluated by the ≤2 exon polyA screen
-extern unsigned long long g_longread_singleton_discard_total;   // alignments discarded by the ≤2 exon polyA screen
-extern unsigned long long g_longread_removed;                   // multi-exon alignments removed after trimming
-extern unsigned long long g_longread_unaligned_tail_total;      // alignments with unaligned poly tail evidence
-extern unsigned long long g_longread_shortened;                 // exons shortened via shortenFirst/shortenLast
-
 struct CBundlenode:public GSeg {
 	float cov;
 	int bid; // bundle node id in bnode -> to easy retrieve it
@@ -84,13 +76,8 @@ struct CTransfrag {
 	int guide;
 	uint longstart; // for long reads: min start of all longreads sharing transfrag
 	uint longend; // for long reads: max end of all longreads sharing transfrag
-	// aggregated polyA/T tail evidence from contributing reads
-	uint16_t poly_start_aligned;
-	uint16_t poly_end_aligned;
-	uint16_t poly_start_unaligned;
-	uint16_t poly_end_unaligned;
-	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, int tguide=0,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),longread(false),shortread(false),guide(tguide),longstart(false),longend(false),poly_start_aligned(0),poly_end_aligned(0),poly_start_unaligned(0),poly_end_unaligned(0) {}
-	CTransfrag(float abund=0, bool treal=false,int tguide=0):nodes(),pattern(),abundance(abund),srabund(0),path(),usepath(-1),weak(-1),real(treal),longread(false),shortread(false),guide(tguide),longstart(false),longend(false),poly_start_aligned(0),poly_end_aligned(0),poly_start_unaligned(0),poly_end_unaligned(0) {
+	CTransfrag(GVec<int>& _nodes,GBitVec& bit, float abund=0, bool treal=false, int tguide=0,float sr=0):nodes(_nodes),pattern(bit),abundance(abund),srabund(sr),path(),usepath(-1),weak(-1),real(treal),longread(false),shortread(false),guide(tguide),longstart(false),longend(false) {}
+	CTransfrag(float abund=0, bool treal=false,int tguide=0):nodes(),pattern(),abundance(abund),srabund(0),path(),usepath(-1),weak(-1),real(treal),longread(false),shortread(false),guide(tguide),longstart(false),longend(false) {
 	}
 };
 
@@ -346,27 +333,21 @@ struct GEdge { // guide edge
 };
 
 struct CGraphnode:public GSeg {
-    int nodeid;
-    float cov;
-    float abundin; //sum of all transfrags entering node
-    float abundout; //sum of all transfrags exiting node
+	int nodeid;
+	float cov;
+	float abundin; //sum of all transfrags entering node
+	float abundout; //sum of all transfrags exiting node
 	//float frag; // number of fragments included in node
 	GVec<int> child;
 	GVec<int> parent;
 	GBitVec childpat;
 	GBitVec parentpat;
-    GVec<int> trf; // transfrags that pass the node
-    bool hardstart:1; // verified/strong start
-    bool hardend:1;	// verified/strong end
-    // Aggregated poly tail evidence at this node (counts of reads)
-    uint16_t polyStartAligned;
-    uint16_t polyStartUnaligned;
-    uint16_t polyEndAligned;
-    uint16_t polyEndUnaligned;
+	GVec<int> trf; // transfrags that pass the node
+	bool hardstart:1; // verified/strong start
+	bool hardend:1;	// verified/strong end
 	//CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float cap=0,float r=0,float f=0):GSeg(s,e),nodeid(id),cov(nodecov),capacity(cap),rate(r),frag(f),child(),parent(),childpat(),parentpat(),trf(){}
-    CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float in=0,float out=0):GSeg(s,e),
-            nodeid(id),cov(nodecov),abundin(in),abundout(out),child(),parent(),childpat(),parentpat(),trf(),hardstart(false),hardend(false),
-            polyStartAligned(0),polyStartUnaligned(0),polyEndAligned(0),polyEndUnaligned(0){}
+	CGraphnode(int s=0,int e=0,unsigned int id=MAX_NODE,float nodecov=0,float in=0,float out=0):GSeg(s,e),
+			nodeid(id),cov(nodecov),abundin(in),abundout(out),child(),parent(),childpat(),parentpat(),trf(),hardstart(false),hardend(false){}
 };
 
 
