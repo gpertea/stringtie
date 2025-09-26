@@ -684,13 +684,20 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 
 	bool longr=false;
 	if(longreads|| brec.uval) longr=true; // second alignment is always from mixed reads
+	if(longr) {
+		g_longread_alignments_total++;
+		if (check_unaligned_polyT_start(brec) || check_unaligned_polyA_end(brec))
+			g_longread_unaligned_tail_total++;
+	}
 
 	//sinlge exon reads do not contribute to junction information or bpcov.
 	//2exon reads contribute a junction, but are likely alignment artifacts.
 	if(longr && brec.exons.Count()<=2 && !ovlpguide) {
+		g_longread_singleton_screen_total++;
 		bool neg_artifact = check_aligned_polyT_start(brec);// && !check_unaligned_polyT_start(brec);
 		bool pos_artifact = check_aligned_polyA_end(brec); //&& !check_unaligned_polyA_end(brec);
 		if(neg_artifact || pos_artifact) {
+			g_longread_singleton_discard_total++;
 			return;
 		}
 	}
@@ -711,6 +718,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			
 		}
 
+		bool trimmed=false;
 		if (rmLast) {
 			if (brec.juncsdel.Count() > 0) {
 				brec.juncsdel.Delete(brec.juncsdel.Count() - 1);
@@ -718,7 +726,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 					alndata.juncs.Delete(alndata.juncs.Count() - 1);
 			}
 			brec.exons.Delete(exN0 - 1);
-			
+			trimmed=true;
 		}
 
 		if (rmFirst) {
@@ -728,7 +736,9 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 					alndata.juncs.Delete(0);
 			}
 			brec.exons.Delete(0);
+			trimmed=true;
 		}
+		if (trimmed) g_longread_removed++;
 
 		if (brec.exons.Count() == 0) return;
 
@@ -14138,7 +14148,7 @@ void shortenLastExon(CReadAln &rd) {
     if(newEnd > rd.segs[nEx-1].end) newEnd = rd.segs[nEx-1].end;
 
     rd.segs[nEx-1].end = newEnd;
-    rd.end = rd.segs[nEx-1].end;
+    rd.end = rd.segs[nEx-1].end; //TODO - make the end +2bp? 
     
     // Recalculate read length
     rd.len = 0;
@@ -17170,7 +17180,6 @@ int infer_transcripts(BundleData* bundle) {
 
 	for (int n=0;n<bundle->readlist.Count();n++) {
 		CReadAln & rd=*(bundle->readlist[n]);
-		bool resort = false;
 
 		if (rd.longread) {
 			//TODO: can also remove RT drop-off at poly(rA/rU)
@@ -17179,7 +17188,7 @@ int infer_transcripts(BundleData* bundle) {
 				if (rd.aligned_polyA && !rd.unaligned_polyA) shortenLastExon(rd);
 				if (rd.aligned_polyT && !rd.unaligned_polyT) {
 					shortenFirstExon(rd);
-					resort = true;
+					g_longread_shortened++;
 				}
 			}
 				
@@ -17192,7 +17201,7 @@ int infer_transcripts(BundleData* bundle) {
 			else if (rd.strand == -1) {
 				if (rd.aligned_polyT && !rd.unaligned_polyT){
 					shortenFirstExon(rd);
-					resort = true;
+					g_longread_shortened++;
 				}
 			}
 		}
