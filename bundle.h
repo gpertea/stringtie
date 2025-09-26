@@ -1,6 +1,7 @@
 #include "gff.h"
 #include "GSam.h"
 #include "GStr.h"
+#include "GHashMap.hh"
 
 extern bool mergeMode;
 
@@ -183,10 +184,17 @@ struct CReadAln:public GSeg {
 		bool in_guide;
 	};
 
+    uint16_t aligned_polyT;
+    uint16_t aligned_polyA;
+    uint16_t unaligned_polyT;
+    uint16_t unaligned_polyA;
+
+	int sort_tiebreaker = 0; // original position within the bundle before resort
+
 	CReadAln(char _strand=0, short int _nh=0,
 			int rstart=0, int rend=0, TAlnInfo* tif=NULL): GSeg(rstart, rend), //name(rname),
 					strand(_strand),nh(_nh), len(0), read_count(0), unitig(false),longread(false),pair_count(),pair_idx(),
-					segs(), juncs(false), tinfo(tif) { }
+                segs(), juncs(false), tinfo(tif), aligned_polyT(0), aligned_polyA(0), unaligned_polyT(0), unaligned_polyA(0) { }
 	CReadAln(CReadAln &rd):GSeg(rd.start,rd.end) { // copy contructor
 		strand=rd.strand;
 		nh=rd.nh;
@@ -325,6 +333,11 @@ struct BundleData {
  GList<CPrediction> pred;
  int numNascents=0; //number of nascent transcripts generated for this bundle
  RC_BundleData* rc_data; // read count data for this bundle
+ // Long-read witness for adjacent junction pairs (packed key -> count)
+ // Key recommended: (uint64_t)jL_ptr << 32 ^ (uint64_t)jR_ptr, using canonical CJunction* pointers
+ GHashMap<uint64_t, uint32_t> lr_pair;
+ // CPAS breakpoints (bundle-relative indices, to be merged into bp in build_graphs)
+ GVec<int> cpasCuts[2];  // 0 = minus strand, 1 = plus strand
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
 		 numreads(0),
 		 num_fragments(0), frag_len(0),sum_cov(0),covflags(0),
@@ -412,4 +425,3 @@ struct BundleData {
 void processRead(int currentstart, int currentend, BundleData& bdata,
 		 GHash<int>& hashread, GReadAlnData& alndata,bool ovlpguide);
 		 //GSamRecord& brec, char strand, int nh, int hi);
-

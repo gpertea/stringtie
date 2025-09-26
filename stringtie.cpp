@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "3.0.1"
+#define VERSION "3.0.2"
 
 //#define DEBUGPRINT 1
 
@@ -196,6 +196,14 @@ double Cov_Sum=0;
 //bool firstPrint=true; //just for writing the GFF header before the first transcript is printed
 
 GffNames* gseqNames=NULL; //used as a dictionary for reference sequence names and ids
+
+// PolyA/T statistics (defined here, declared in rlink.h)
+unsigned long long g_longread_alignments_total = 0ULL;
+unsigned long long g_longread_singleton_screen_total = 0ULL;
+unsigned long long g_longread_singleton_discard_total = 0ULL;
+unsigned long long g_longread_removed = 0ULL;
+unsigned long long g_longread_unaligned_tail_total = 0ULL;
+unsigned long long g_longread_shortened = 0ULL;
 
 int refseqCount=0; // number of reference sequences found in the guides file
 
@@ -1503,9 +1511,23 @@ void processBundle(BundleData* bundle) {
 	  fprintf(stderr,"Number of fragments in bundle: %g with length %g\n",bundle->num_fragments,bundle->frag_len);
 	  fprintf(stderr,"Number of fragments in bundle: %g with sum %g\n",bundle->num_fragments,bundle->frag_len);
 	  */
-	  printTime(stderr);
-	  GMessage("^bundle %s:%d-%d done (%d processed potential transcripts).\n",bundle->refseq.chars(),
-	  		bundle->start, bundle->end, bundle->pred.Count());
+  printTime(stderr);
+  GMessage("^bundle %s:%d-%d done (%d processed potential transcripts).\n",bundle->refseq.chars(),
+          bundle->start, bundle->end, bundle->pred.Count());
+#ifdef DEBUGPRINT
+#else
+  // Report polyA/T screening stats (cumulative)
+  if (longreads || mixedMode) {
+	printTime(stderr);
+    GMessage(" Poly-tail stats: %llu alignments | %llu screened (≤2 exons, %llu discarded) | %llu trimmed-out | %llu exon-shortened | %llu with unaligned tails.\n",
+               (unsigned long long)g_longread_alignments_total,
+               (unsigned long long)g_longread_singleton_screen_total,
+               (unsigned long long)g_longread_singleton_discard_total,
+               (unsigned long long)g_longread_removed,
+               (unsigned long long)g_longread_shortened,
+               (unsigned long long)g_longread_unaligned_tail_total);
+  }
+#endif
 	#ifdef GMEMTRACE
 		    double vm,rsm;
 		    get_mem_usage(vm, rsm);
