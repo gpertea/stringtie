@@ -45,6 +45,14 @@ extern bool forceBAM; //for stdin alignment data
 extern bool verbose;
 extern bool debugMode;
 
+// Global poly-tail statistics
+extern unsigned long long g_longread_alignments_total;          // total long-read alignments processed
+extern unsigned long long g_longread_singleton_screen_total;    // long-read alignments evaluated by the ≤2 exon polyA screen
+extern unsigned long long g_longread_singleton_discard_total;   // alignments discarded by the ≤2 exon polyA screen
+extern unsigned long long g_longread_removed;                   // multi-exon alignments removed after trimming
+extern unsigned long long g_longread_unaligned_tail_total;      // alignments with unaligned poly tail evidence
+extern unsigned long long g_longread_shortened;                 // exons shortened via shortenFirst/shortenLast
+
 struct CBundlenode:public GSeg {
 	float cov;
 	int bid; // bundle node id in bnode -> to easy retrieve it
