@@ -715,7 +715,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			if (exN0 == 2) return;
 			if (strand == 1) rmFirst = false;
 			else if (strand == -1) rmLast = false;
-			
+
 		}
 
 		bool trimmed=false;
@@ -811,7 +811,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 				if( plus_strand && !minus_strand) readaln->strand=1;
 				else if( minus_strand && !plus_strand) readaln->strand=-1;
 			}
-			// if both plus and minus evidence, then strand remains unknown (0)			
+			// if both plus and minus evidence, then strand remains unknown (0)
         }
 
 		readaln->longread=longr;
@@ -6012,7 +6012,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 					if(transfrag[t1]->longstart) {
 						keepsource[transfrag[t1]->nodes[0]]=1; //fprintf(stderr,"keep source %d\n",transfrag[t1]->nodes[0]);}
 						//TODO - more subtle approach for abundannce needed (based on transfrag expression in bundle)
-						// if(transfrag[t1]->longread && transfrag[t1]->abundance>CHI_WIN) no2gnode[transfrag[t1]->nodes[0]]->hardstart=1;  // MOD EDGE CASE trust a very abundant transcript v1 v3				if(transfrag[t1]->abundance>CHI_WIN) no2gnode[transfrag[t1]->nodes[0]]->hardstart=1; 
+						// if(transfrag[t1]->longread && transfrag[t1]->abundance>CHI_WIN) no2gnode[transfrag[t1]->nodes[0]]->hardstart=1;  // MOD EDGE CASE trust a very abundant transcript v1 v3				if(transfrag[t1]->abundance>CHI_WIN) no2gnode[transfrag[t1]->nodes[0]]->hardstart=1;
 						if(s==0 && transfrag[t1]->poly_start_unaligned >= POLY_TAIL_STOP_COUNT) no2gnode[transfrag[t1]->nodes[0]]->hardstart=1; // I don't think this line is needed because we had already marked the nodes as hardstart/hardend
 					}
 					else if(transfrag[t1]->longread && no2gnode[transfrag[t1]->nodes[0]]->hardstart) keepsource[transfrag[t1]->nodes[0]]=1;
@@ -6168,7 +6168,7 @@ void process_transfrags(int s, int gno,int edgeno,GPVec<CGraphnode>& no2gnode,GP
 				else { // incomplete transcript, possibly wrong
 					transfrag[t1]->weak=1;
 					//fprintf(stderr,"Incomplete transcript %d\n",t1);
-				
+
 				}
 
 			}
@@ -8052,7 +8052,7 @@ bool fwd_to_sink_fast_long(int i,GVec<int>& path,int& minpath,int& maxpath,GBitV
 		GVec<float>& nodecov,int gno,GIntHash<int>& gpos){
 	// find all parents -> if parent is source then go back
 	CGraphnode *inode=no2gnode[i];
-	
+
 	if(i<maxpath && !inode->childpat[maxpath]) return false; // I can not reach maxpath from node
 
 	int nchildren=inode->child.Count(); // number of children
@@ -8980,10 +8980,10 @@ double long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransf
 
 	GVec<float> rate;
 	rate.Resize(n,1);
-
+  // Edmonds-Karp-like algorithm for finding maximum flow in a network
 	while(bfs(n,capacity,flow,link,pred)) {
 		int r=0;
-                double increment=max_fl;
+    double increment=max_fl;
 		rate[r++]=1;
 		for(int u=n-1;pred[u]>=0;u=pred[u]) {
                         double adjflux=(capacity[pred[u]][u]-flow[pred[u]][u])*rate[r-1];
@@ -9000,6 +9000,9 @@ double long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransf
 				r++;
 			}
 		}
+		if (increment < epsilon) { // prevent infinite loop
+            break;
+    }
 		r=0;
 		for(int u=n-1;pred[u]>=0;u=pred[u]) {
 			flow[pred[u]][u]+=increment/rate[r];
@@ -10141,7 +10144,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 				int startnode=1;
 				int lastnode=path.Count()-2;
 
-				bool checkpath = true;			
+				bool checkpath = true;
 					if (sign == '+') {
 						if (transfrag[t]->poly_end_unaligned >= POLY_TAIL_STOP_COUNT) {
 							//check if the last node of the path == last node of transfrag t
@@ -10221,7 +10224,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 							}
 						}
 					}
-					
+
 					if (thardstart && thardend) {
 						// does the first node of the path == first node of transfrag t?
 						if (path[startnode] != transfrag[t]->nodes[0] || path[lastnode] != transfrag[t]->nodes.Last()) {
@@ -10266,7 +10269,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 							}
 						}
 					}
-				
+
 
 					// check if the splices in the path have LR support
 					if (checkpath && lastnode >= startnode) {
@@ -10307,7 +10310,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 							continue;                 // skip building exons for this candidate
 						}
 					}
-								
+
 
 				flux=long_max_flow(gno,path,istranscript,transfrag,no2gnode,nodeflux,pathpat,t); // I should not use other guide transfrags beyond the actual guide one!!
 
@@ -11083,8 +11086,8 @@ void get_trf_long(int gno,int edgeno, GIntHash<int> &gpos,GPVec<CGraphnode>& no2
 				int t=inode->trf[j];
 				if(!transfrag[t]->guide || transfrag[t]->abundance>=trthr*ERROR_PERC+epsilon) { // CHANGE IN MIXED MODE TOO??
 					//fprintf(stderr,"node[%d]: Add transfrag[%d]->abundance=%f\n",i,t,transfrag[t]->abundance);
-					bool singleExonGene = (gno==3 && 
-						(no2gnode[1]->polyStartUnaligned>10 || no2gnode[1]->polyEndUnaligned>10 || 
+					bool singleExonGene = (gno==3 &&
+						(no2gnode[1]->polyStartUnaligned>10 || no2gnode[1]->polyEndUnaligned>10 ||
 							transfrag[t]->abundance>=CHI_WIN/2));
 					if(singleExonGene || (transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1)) {
 						if(transfrag[t]->nodes[0]<i) abundin+=transfrag[t]->abundance;
@@ -14125,14 +14128,14 @@ void shortenFirstExon(CReadAln &rd) {
 
     rd.segs[0].start = newStart;
     rd.start = rd.segs[0].start;
-    
+
     // Recalculate read length
     rd.len = 0;
     for(int i = 0; i < nEx; i++) {
         rd.len += rd.segs[i].end - rd.segs[i].start + 1;
     }
-    
-    // GMessage("Shortened first exon at position %d to a single basepair and changed start position to %d\n", 
+
+    // GMessage("Shortened first exon at position %d to a single basepair and changed start position to %d\n",
     //          old_start, rd.start);
 }
 
@@ -14148,15 +14151,15 @@ void shortenLastExon(CReadAln &rd) {
     if(newEnd > rd.segs[nEx-1].end) newEnd = rd.segs[nEx-1].end;
 
     rd.segs[nEx-1].end = newEnd;
-    rd.end = rd.segs[nEx-1].end; //TODO - make the end +2bp? 
-    
+    rd.end = rd.segs[nEx-1].end; //TODO - make the end +2bp?
+
     // Recalculate read length
     rd.len = 0;
     for(int i = 0; i < nEx; i++) {
         rd.len += rd.segs[i].end - rd.segs[i].start + 1;
     }
-    
-    // GMessage("Shortened last exon at position %d to a single basepair and changed end position to %d\n", 
+
+    // GMessage("Shortened last exon at position %d to a single basepair and changed end position to %d\n",
     //          old_end, rd.end);
 }
 
@@ -14772,7 +14775,7 @@ int build_graphs(BundleData* bdata) {
 										//fprintf(stderr,"...2 compare to [%d]:%d-%d:%d rightsupport=%f\n",j,ejunction[j]->start,ejunction[j]->end,ejunction[j]->strand,ejunction[j]->rightsupport);
 										if (ok_to_demote(ejunction[i], ejunction[j])) {
 											ejunction[i]->nreads_good=-j;
-											support=ejunction[j]->rightsupport;					
+											support=ejunction[j]->rightsupport;
 										}
 									}
 								}
@@ -17062,8 +17065,8 @@ void count_good_junctions(BundleData* bdata) {
 			prev_sum[s]=bpcov[s][i];
 			//fprintf(stderr,"bpPos[%d][%d]: cov=%f sumbpcov=%f\n",s,i,prev_val[s],prev_sum[s]);
 		}
-	
-	if(resort) junction.Sort(); 
+
+	if(resort) junction.Sort();
 
 	if(longreads || mixedMode) {
 		for(int n=0;n<unstranded.Count();n++) {
@@ -17191,7 +17194,7 @@ int infer_transcripts(BundleData* bundle) {
 					g_longread_shortened++;
 				}
 			}
-				
+
 			// Forward strand
 			if (rd.strand == 1) {
 				if (rd.aligned_polyA && !rd.unaligned_polyA) shortenLastExon(rd);
@@ -17206,7 +17209,7 @@ int infer_transcripts(BundleData* bundle) {
 			}
 		}
 	}
-	
+
 
 	if(longreads) {
 		bundle->readlist.Sort();
@@ -17216,7 +17219,7 @@ int infer_transcripts(BundleData* bundle) {
 		// Snapshot old order and set per-read tie-breakers
 		GVec<CReadAln*> oldptr;
 		oldptr.Resize(bundle->readlist.Count());
-		bundle->readlist.setSorted(false);  
+		bundle->readlist.setSorted(false);
 		for (int i = 0; i < bundle->readlist.Count(); ++i) {
 			oldptr[i] = bundle->readlist[i];
 			bundle->readlist[i]->sort_tiebreaker = i;
