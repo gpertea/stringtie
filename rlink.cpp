@@ -8548,6 +8548,9 @@ double long_max_flow(int gno,GVec<int>& path,GBitVec& istranscript,GPVec<CTransf
 				r++;
 			}
 		}
+  	if (increment < epsilon) { // prevent infinite loop
+				break;
+		}
 		r=0;
 		for(int u=n-1;pred[u]>=0;u=pred[u]) {
 			flow[pred[u]][u]+=increment/rate[r];
