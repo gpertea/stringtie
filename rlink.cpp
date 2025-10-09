@@ -389,7 +389,6 @@ static inline void cluster_positions_with_counts(const GVec<int>& rawIn,
     int w = 1;
     while (i + 1 < raw.Count() && raw[i + 1] == pos) { ++w; ++i; }
 
-    int a = pos;            // cluster start position (leftmost)
     int b = pos;            // cluster last position (rightmost)
     long long sumw  = w;    // total support in cluster
     long long sumwx = (long long)w * pos; // weighted position sum
@@ -413,7 +412,7 @@ static inline void cluster_positions_with_counts(const GVec<int>& rawIn,
                 counts.cAdd((int)sumw);
             }
             // start new cluster
-            a = b = pos;
+            b = pos;
             sumw  = w;
             sumwx = (long long)w * pos;
         }
@@ -481,9 +480,8 @@ static inline bool tf_contains_two_edges_in_order(const CTransfrag* tf,
 //^the above lowered precision (improved sensitivity *very* slightly by a dozen or so reads)
 
 // Is there any LR transfrag that witnesses BOTH splice edges (in order)?
-static inline bool has_lr_witness_two_splices(int la, int ra, int lb, int rb,
-                                              GPVec<CTransfrag>& transfrag,
-                                              GPVec<CGraphnode>& no2gnode) {
+static inline bool has_lr_witness_two_splices(int la, int ra, int lb, int rb, GPVec<CTransfrag>& transfrag) {
+                                              // GPVec<CGraphnode>& no2gnode
     // Prefer a true long-read witness spanning both splice edges in order
     for (int t = 0; t < transfrag.Count(); ++t) {
         CTransfrag* tf = transfrag[t];
@@ -10296,7 +10294,7 @@ void parse_trflong(int gno,int geneno,char sign,GVec<CTransfrag> &keeptrf,GVec<i
 							int lb = path[pB-1];          // second splice: (lb -> rb)
 							int rb = path[pB];
 
-							if (!has_lr_witness_two_splices(la, ra, lb, rb, transfrag, no2gnode)) {
+							if (!has_lr_witness_two_splices(la, ra, lb, rb, transfrag)) { //, no2gnode)) {
 								unwitnessed = true;
 								//if the startnode and endnode of the transfrag are hardstart and hardend, then add to checktrf:
 								if (no2gnode[transfrag[t]->nodes[0]]->hardstart && no2gnode[transfrag[t]->nodes.Last()]->hardend) {
@@ -14120,10 +14118,10 @@ void shortenFirstExon(CReadAln &rd) {
     int nEx = rd.segs.Count();
     if(nEx < 2) return;
 
-    int exonLen = rd.segs[0].len();
+    uint exonLen = rd.segs[0].len();
     if(exonLen < 3) return;
 
-    int newStart = rd.segs[0].end - 2;
+    uint newStart = rd.segs[0].end - 2;
     if(newStart < rd.segs[0].start) newStart = rd.segs[0].start;
 
     rd.segs[0].start = newStart;
@@ -14144,10 +14142,10 @@ void shortenLastExon(CReadAln &rd) {
     int nEx = rd.segs.Count();
     if(nEx < 2) return;
 
-    int exonLen = rd.segs[nEx-1].len();
+    uint exonLen = rd.segs[nEx-1].len();
     if(exonLen < 3) return;
 
-    int newEnd = rd.segs[nEx-1].start + 2;
+    uint newEnd = rd.segs[nEx-1].start + 2;
     if(newEnd > rd.segs[nEx-1].end) newEnd = rd.segs[nEx-1].end;
 
     rd.segs[nEx-1].end = newEnd;

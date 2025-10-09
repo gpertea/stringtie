@@ -124,12 +124,12 @@ EOB
 )
 
 # prepare test data
-ftpack=tests_v3
-ftests=$ftpack.tar.gz
+tests_tag=v3.0.2 ## update as needed
+ftests=${tests_tag}.tar.gz
 tdir=tests
-curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/$ftests
+curl -ksLO https://github.com/gpertea/stringtie-testdata/archive/refs/tags/${tests_tag}.tar.gz
 mkdir -p $pack/$tdir
-tar -xzf "$ftests" -C $pack/$tdir/ --strip-components=1
+tar -xzf "$ftests" -C $pack/$tdir/ --strip-components=2
 /bin/rm -f $ftests
 
 # patch run_tests.sh to use pre-packed tests
