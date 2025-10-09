@@ -15497,9 +15497,7 @@ int build_graphs(BundleData* bdata) {
 	int f=0;
 
 	for(int b=0;b<bundle[1].Count();b++) { // these are neutral bundles that do not overlap any signed reads
-
 		// I need to address features here too -> TODO
-
 		bool guide_ovlp=false;
 		while(g<guides.Count() && (guides[g]->exons.Count()>1 || guides[g]->end<bnode[1][bundle[1][b]->startnode]->start)) {
 			g++;
@@ -15514,9 +15512,7 @@ int build_graphs(BundleData* bdata) {
     		while(currbnode!=NULL) {
     			//int len=currbnode->end-currbnode->start+1;
     			//double cov=currbnode->cov/(currbnode->end-currbnode->start+1);
-
     			bool printguides=false;
-
     			if(!rawreads) for(int i=0;i<bnodeguides[currbnode->bid].Count();i++) {
     				int g=bnodeguides[currbnode->bid][i];
     				geneno++;
@@ -15524,10 +15520,11 @@ int build_graphs(BundleData* bdata) {
     				if(glen && guides[g]->exons.Count()==1 && getGuideStatus(guides[g])>=GBST_ALL_INTR_COV) {
     					RC_TData* tdata=(RC_TData*)(guides[g]->uptr);
     					//tdata->in_bundle=3;
-						setGuideStatus(guides[g], GBST_STORED);
-						//fprintf(stderr,"0 single guide %s is stored in_bundle=%d\n",guides[g]->getID(),getGuideStatus(guides[g]));
+						  //setGuideStatus(guides[g], GBST_STORED); only mark as stored if gcov>0
+						  //fprintf(stderr,"0 single guide %s is stored in_bundle=%d\n",guides[g]->getID(),getGuideStatus(guides[g]));
     					double gcov=(tdata->t_exons[0])->movlcount/glen;
     					if(gcov) {
+                setGuideStatus(guides[g], GBST_STORED);
     						CPrediction *p=new CPrediction(geneno-1, guides[g], guides[g]->start, guides[g]->end, gcov, guides[g]->strand, glen);
     						if(c_out) {
     							GStr guidecov;

@@ -1713,7 +1713,8 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 		 GffObj &t = *crefd.rnas[m];
 		 //RC_TData &td = *(RC_TData*) (t.uptr);
 		 //if (td.in_bundle) {
-		 if (getGuideStatus(&t)) {
+		 //if (getGuideStatus(&t)) {
+		 if (getGuideStatus(&t)>=GBST_STORED) {
 			 if (gout && m==crefd.rnas.Count()-1)
 			 		writeUnbundledGenes(geneabs, crefd.gseq_name, gout);
 			 continue;
