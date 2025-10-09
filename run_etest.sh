@@ -15,7 +15,7 @@ fi
 
 cd "$d"
 ../stringtie -e -o out_sel_strg302.gtf -G sel_refs.gtf missed_regions.bam
-o=$(comm -23 sel_refs.txlst <(gtfcount -l out_sel_strg302.gtf | sort))
+o=$(comm -23 sel_refs.txlst <(../gtfcount -l out_sel_strg302.gtf | sort))
 if [[ -n "$o" ]]; then
   echo ">>>>>> ERROR, missing transcripts:"
   printf "%s\n" "$o"
