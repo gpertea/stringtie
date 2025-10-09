@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-ftpack=tests_v3
-ftests=$ftpack.tar.gz
+#set -euo pipefail
+
+tests_tag=v3.0.2 ## update as needed
+ftests=${tests_tag}.tar.gz
 tdir=tests
 
 function unpack_test_data() {
@@ -11,7 +13,7 @@ function unpack_test_data() {
   echo "..unpacking test data.."
   echo
   mkdir -p $tdir
-  tar -xzf "$ftests" -C $tdir/ --strip-components=1
+  tar -xzf "$ftests" -C $tdir/ --strip-components=2
   if [ ! -f $tdir/human-chr19_P.gff ]; then
      echo "Error: invalid test data archive?"
      exit 1
@@ -20,15 +22,16 @@ function unpack_test_data() {
 }
 
 if [ -f $ftests ]; then
-    #extract the tarball and rename the directory
-    echo "..Using existing $ftests"
-    unpack_test_data
-  else
-    echo "..Downloading test data.."
-   #use curl to fetch the tarball from a specific github release or branch
-    curl -ksLO https://github.com/gpertea/stringtie/raw/test_data/$ftests
-    unpack_test_data
+  #extract the tarball and rename the directory
+  echo "..Using existing $ftests"
+  unpack_test_data
+else
+  echo "..Downloading test data.."
+  #use curl to fetch the tarball from a specific github release or branch
+  curl -ksLO https://github.com/gpertea/stringtie-testdata/archive/refs/tags/${tests_tag}.tar.gz
+  unpack_test_data
 fi
+
 cd $tdir
 
 arrins=("short_reads" "short_reads_and_superreads" "mix_short" "long_reads" \
