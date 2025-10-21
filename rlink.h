@@ -175,6 +175,13 @@ struct CPred{
 	CPred(int p=0,float c=0):predno(p),cov(c) {}
 };
 
+struct CPrInfo { // predinfo
+	int predno;
+	float cov;
+	float maxcov;
+	CPrInfo(int p=0,float c=0.0, float m=0.0):predno(p),cov(c),maxcov(m) {}
+};
+
 struct CLongTrf{
 	int t;
 	float cov;
@@ -318,12 +325,12 @@ struct GInterval {
 	GInterval(uint _start, uint _end,GInterval *_next=NULL):start(_start),end(_end),next(_next) {}
 };
 
-struct CTrInfo {
+/*struct CTrInfo {
 	int trno;
 	float abundance;
 	float penalty;
 	CTrInfo(int tr=-1,float _abund=0.0, float _pen=0.0):trno(tr),abundance(_abund),penalty(_pen) {}
-};
+};*/
 
 struct CNetEdge {
 	int link;
