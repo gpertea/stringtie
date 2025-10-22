@@ -17450,6 +17450,16 @@ bool equal_pred(GList<CPrediction>& pred,int n1,int n2){
 	return(true);
 }
 
+bool antisense_overlap(GList<CPrediction>& pred,int n1,int n2) {
+
+	if(pred[n1]->strand==pred[n2]->strand) return(false); // only different strands can be considered non-overlapping
+	if(pred[n1]->exons.Count()==1 || pred[n2]->exons.Count()==1) return(false); // consider only intronic genes for this
+
+	if(pred[n1]->exons[0].end>pred[n2]->exons.Last().start || pred[n2]->exons[0].end>pred[n1]->exons.Last().start) return(true);
+
+	return(false);
+}
+
 // scell --> start
 // overlap code: 0 = no overlap; 1 = locus overlap; 2 = exon overlap; 3 = n1 included in n2; 4 = n2 included in n3
 int overlap_preds(GList<CPrediction>& pred,int n1,int n2,int &leftovhg, int &rightovhg){
@@ -17465,7 +17475,7 @@ int overlap_preds(GList<CPrediction>& pred,int n1,int n2,int &leftovhg, int &rig
 		for(int k=0; k<pred[n1]->exons.Count();k++) {
 			while(m<pred[n2]->exons.Count() && pred[n2]->exons[m].end<pred[n1]->exons[k].start) m++; // advance pred[n2] exons if before exon k of pred[n1]
 			if(m==pred[n2]->exons.Count()) return(1); // no exon overlap found
-			if(pred[n2]->exons[m].overlap(pred[n1]->exons[k])) return(2); // exon of pred[n2] overlaps exon of pred[n1]
+			if(pred[n2]->exons[m].overlap(pred[n1]->exons[k])) return(2); // exon of pred[n2] overlaps exon of pred[n1]				
 		}
 	}
 	else { // different number of exons -> one prediction might be included in the other
@@ -17496,6 +17506,7 @@ int overlap_preds(GList<CPrediction>& pred,int n1,int n2,int &leftovhg, int &rig
 			while(e1<pred[small]->exons.Count()-1) {
 				if(pred[small]->exons[e1].end!=pred[big]->exons[e2].end || pred[small]->exons[e1+1].start!=pred[big]->exons[e2+1].start) { // intron is different -> revert to overlap check
 					if(overlap) return(2); // no need to check anymore if there was overlap before
+
 					while(e1<pred[small]->exons.Count()) {
 						while(e2<pred[big]->exons.Count() && pred[big]->exons[e2].end<pred[small]->exons[e1].start) e2++;
 						if(e2==pred[big]->exons.Count()) return(1); // no exon overlap found
@@ -20424,6 +20435,9 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 					
 				}
 				else { // genes overlap
+
+					if(ovlcode==2 && antisense_overlap(pred,n1,n2)) continue; // do not consider genes overlapping in this case 
+
 					if(!pred[n2]->t_eq) { // this is not a known gene -> only then I can eliminate it
 						if(pred[n1]->t_eq && pred[n2]->cov<ERROR_PERC*pred[n1]->cov) { // more strict about novel predictions if annotation is available
 							//fprintf(stderr,"Pred %d eliminated due to low percent coverage from prediction %d",n2,n1);
@@ -20431,7 +20445,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							continue;
 						}
 						else if(pred[n2]->exons.Count()==1 || (pred[n2]->exons.Count()==2 && pred[n2]->cov<CHI_THR && pred[n1]->strand != pred[n2]->strand)) { // should I restrict to single exons?
-							//fprintf(stderr,"falseflag: ...strand elimination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
+							fprintf(stderr,"falseflag: ...strand elimination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
 							pred[n2]->flag=false;
 							continue;
 						}
