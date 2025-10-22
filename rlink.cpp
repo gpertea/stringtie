@@ -17500,7 +17500,7 @@ int overlap_preds(GList<CPrediction>& pred,int n1,int n2,int &leftovhg, int &rig
 		}
 		else { // big might contain small
 
-			leftovhg=pred[small]->exons[e1].start-pred[big]->exons[e2].start; // leftoverhang
+			leftovhg=pred[big]->exons[e1].start-pred[small]->exons[e2].start; // leftoverhang -> positive if small not included
 
 			bool overlap=false;
 			while(e1<pred[small]->exons.Count()-1) {
@@ -17524,7 +17524,7 @@ int overlap_preds(GList<CPrediction>& pred,int n1,int n2,int &leftovhg, int &rig
 
 			// check that e1 overlaps e2
 			if(overlap || pred[big]->exons[e2].overlap(pred[small]->exons[e1])) { // small is included in big if I made it so far
-				rightovhg=pred[big]->exons[e2].end-pred[small]->exons[e1].end; // rightoverhang
+				rightovhg=pred[small]->exons[e2].end-pred[big]->exons[e1].end; // rightoverhang -> positive if small not included
 				if(small==n1) return(3);
 				else return(4);
 			}
@@ -20445,7 +20445,7 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							continue;
 						}
 						else if(pred[n2]->exons.Count()==1 || (pred[n2]->exons.Count()==2 && pred[n2]->cov<CHI_THR && pred[n1]->strand != pred[n2]->strand)) { // should I restrict to single exons?
-							fprintf(stderr,"falseflag: ...strand elimination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
+							//fprintf(stderr,"falseflag: ...strand elimination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
 							pred[n2]->flag=false;
 							continue;
 						}
@@ -20459,14 +20459,16 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 						}
 					}
 
-					if(ovlcode==3 && predord[i].maxcov<predord[j].maxcov) { // 3 = n1 included in n2;
-						pred[n1]->flag=false;
-						break;
-					}
+					if(leftovhg<sserror && rightovhg<sserror) { // don't allow overhangs that are too big
+						if(ovlcode==3 && predord[i].maxcov<predord[j].maxcov) { // 3 = n1 included in n2;
+							pred[n1]->flag=false;
+							break;
+						}
 
-					if(ovlcode==4 && predord[i].maxcov<predord[j].maxcov) { //  4 = n2 included in n1
-						pred[n2]->flag=false;
-						continue;
+						if(ovlcode==4 && predord[i].maxcov<predord[j].maxcov) { //  4 = n2 included in n1
+							pred[n2]->flag=false;
+							continue;
+						}
 					}
 
 					// if(ovlcode>1) if(pred[n2]->geneno<ERROR_PERC*pred[n1]->geneno) pred[n2]->flag=false; // SAMPLE NO FILTER
