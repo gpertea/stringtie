@@ -20310,11 +20310,13 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 			if (eonly) { // if eonly I need to print all guides that were not printed yet
 			    //if (guides[i]->uptr && ((RC_TData*)guides[i]->uptr)->in_bundle<3) {
 				//these are all 0 coverage guides so they should not be printed if they are nascents
-				if (!isNascent(guides[i]) && guides[i]->uptr && getGuideStatus(guides[i])<GBST_STORED) {
+				GuideBundleStatus gstatus=GBST_UNSET;
+				if (!isNascent(guides[i]) && guides[i]->uptr && (gstatus=getGuideStatus(guides[i]))<GBST_STORED) {
 
 					fprintf(f_out,"1 %d %d %d 0.0\n",guides[i]->exons.Count()+1,guides[i]->covlen, ((RC_TData*)guides[i]->uptr)->t_id);
 					fprintf(f_out, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",refname.chars(),
 							guides[i]->getTrackName(), guides[i]->start,guides[i]->end, guides[i]->strand);
+          setGuideStatus(guides[i], gstatus==GBST_ALL_INTR_COV ? gstatus : GBST_STORED); // prevent re-printing
 					if (guides[i]->getGeneID())
 						fprintf(f_out, "gene_id \"%s\"; ", guides[i]->getGeneID()); // this shouldn't come up empty
 					fprintf(f_out, "transcript_id \"%s\";",guides[i]->getID());
