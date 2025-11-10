@@ -19697,17 +19697,20 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 						trid+='.';
 						trid+=t;
 					}
-
 					fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s\"; ",
 						refname.chars(),pred[m]->start,pred[m]->end,pred[m]->strand,label.chars(),geneno,
 						trid.chars());
-
+          GffObj* guide = NULL;
 					if(pred[m]->t_eq) {
 						//fprintf(f_out,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
-						if (pred[m]->t_eq->getGeneName())
-							fprintf(f_out,"gene_name \"%s\"; ",pred[m]->t_eq->getGeneName());
-						if (pred[m]->t_eq->getGeneID())
-							fprintf(f_out,"ref_gene_id \"%s\"; ",pred[m]->t_eq->getGeneID());
+					  guide = pred[m]->t_eq;
+					  if (!isNascent(guide) && getGuideStatus(guide) < GBST_ALL_INTR_COV) {
+               setGuideStatus(guide, GBST_STORED);
+            }
+						if (guide->getGeneName())
+							fprintf(f_out,"gene_name \"%s\"; ",guide->getGeneName());
+						if (guide->getGeneID())
+							fprintf(f_out,"ref_gene_id \"%s\"; ",guide->getGeneID());
 					}
 
 					if(includecov) fprintf(f_out,"cov \"%g\"; ",pred[m]->cov);
@@ -19719,12 +19722,12 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 						fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s\"; exon_number \"%d\"; ",
 							refname.chars(),pred[m]->exons[j].start,pred[m]->exons[j].end,pred[m]->strand,label.chars(),geneno,
 							trid.chars(),j+1);
-						if(pred[m]->t_eq) {
+						if(guide) {
 							//fprintf(f_out,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
-							if (pred[m]->t_eq->getGeneName())
-								fprintf(f_out,"gene_name \"%s\"; ",pred[m]->t_eq->getGeneName());
-							if (pred[m]->t_eq->getGeneID())
-								fprintf(f_out,"ref_gene_id \"%s\"; ",pred[m]->t_eq->getGeneID());
+							if (guide->getGeneName())
+								fprintf(f_out,"gene_name \"%s\"; ",guide->getGeneName());
+							if (guide->getGeneID())
+								fprintf(f_out,"ref_gene_id \"%s\"; ",guide->getGeneID());
 						}
 						fprintf(f_out,"\n");
 					}

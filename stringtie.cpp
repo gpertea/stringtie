@@ -1672,6 +1672,7 @@ int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts) {
     	GError("Error parsing point-feature line (invalid strand):\n%s\n",line);
     GPFType pftype=GPFT_NONE;
     if (strcmp(tokens[3], "TSS")==0)
+
 			pftype=GPFT_TSS;
 	else if (strcmp(tokens[3], "CPAS")==0)
 			pftype=GPFT_CPAS;
@@ -1714,7 +1715,8 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 		 //RC_TData &td = *(RC_TData*) (t.uptr);
 		 //if (td.in_bundle) {
 		 //if (getGuideStatus(&t)) {
-		 if (getGuideStatus(&t)>=GBST_STORED) {
+		 // skip guides already represented: ALL_INTR_COV (2) or STORED (3)
+		 if (getGuideStatus(&t)>=GBST_ALL_INTR_COV) {
 			 if (gout && m==crefd.rnas.Count()-1)
 			 		writeUnbundledGenes(geneabs, crefd.gseq_name, gout);
 			 continue;
