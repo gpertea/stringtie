@@ -146,6 +146,7 @@ uint bundledist=50;  // reads at what distance should be considered part of sepa
 uint runoffdist=200;
 float mcov=1; // fraction of bundle allowed to be covered by multi-hit reads paper uses 1
 int allowed_nodes=1000;
+int ptf_margin = 5; // define the tolerance for supplied PTFs to be used for transcript boundary refinement
 //bool adaptive=true; // adaptive read coverage -> depends on the overall gene coverage
 //GPVec<CDSparam> cds;
 
@@ -609,11 +610,20 @@ if (ballgown)
 		 if (bundle->readlist.Count()>0) { // process reads in previous bundle
 			// (readthr, junctionthr, mintranscriptlen are globals)
 			if (refptfs) { //point-features defined for this reference
-				while (ptf_idx<refptfs->Count() && (int)(refptfs->Get(ptf_idx)->coord)<currentstart)
-					ptf_idx++;
-				//TODO: what if a PtFeature is nearby, just outside the bundle?
-				while (ptf_idx<refptfs->Count() && (int)(refptfs->Get(ptf_idx)->coord)<=currentend) {
-					bundle->ptfs.Add(refptfs->Get(ptf_idx)); //keep this PtFeature
+				while (ptf_idx < refptfs->Count()) {
+					int coord = (int)(refptfs->Get(ptf_idx)->coord);
+					if (coord < currentstart - ptf_margin) {
+						if (verbose) {
+							GMessage("## Skipping PtFeature at %d not in bundle %d-%d\n", coord, currentstart, currentend);
+						}
+					} else if (coord <= currentend + ptf_margin) {
+						bundle->ptfs.Add(refptfs->Get(ptf_idx)); //keep this PtFeature
+						if (verbose) {
+							GMessage("## Adding PtFeature at %d to bundle %d-%d\n", coord, currentstart, currentend);
+						}
+					} else {
+						break; // exit the loop if coord is not between currentstart and end (+ margins)
+					}
 					ptf_idx++;
 				}
 			}
