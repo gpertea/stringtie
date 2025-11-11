@@ -5222,23 +5222,17 @@ void settrf_in_treepat(CTransfrag *t,int gno,GIntHash<int>& gpos,GVec<int>& node
 }
 
 bool eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag>& transfrag, CTreePat *tr2no,float threshold,GPVec<CTransfrag>& srfrag) {
-
 	bool longret=false;
-
 	//fprintf(stderr,"eliminate from %d transfrags\n",transfrag.Count());
-
 	for(int t=transfrag.Count()-1;t>=0;t--) {
 		//if(transfrag[t]->guide) fprintf(stderr,"consider transfrag[%d] longread=%d w/abundance=%.1f\n",t,transfrag[t]->longread,transfrag[t]->abundance);
 		//if(transfrag[t]->srabund || (mixedMode && (transfrag[t]->longread || !transfrag[t]->nodes[0] || transfrag[t]->nodes.Last()==gno-1))) { // this is a super-read
 		if(transfrag[t]->srabund || (mixedMode && transfrag[t]->longread)) { // this is a super-read;
 			//fprintf(stderr,"Added transfrag[%d] to srfrag[%d]\n",t,srfrag.Count());
-			srfrag.Add(transfrag[t]);
-			if(mixedMode) {
-				if(transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()!=gno-1) // proper longread transfrag
+			if(mixedMode && transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()!=gno-1) { // proper longread transfrag
 					longret=true;
 			}
-		}
-		else if(!transfrag[t]->guide && transfrag[t]->abundance<threshold &&
+		}	else if(!transfrag[t]->guide && transfrag[t]->abundance<threshold &&
 			  transfrag[t]->nodes[0] && transfrag[t]->nodes.Last()<gno-1) { // need to delete transfrag that doesn't come from source or ends at sink
 			settrf_in_treepat(NULL,gno,gpos,transfrag[t]->nodes,transfrag[t]->pattern,tr2no); // this should be eliminated if I want to store transcripts from 0 node
 			transfrag.Exchange(t,transfrag.Count()-1);
@@ -5254,6 +5248,13 @@ bool eliminate_transfrags_under_thr(int gno,GIntHash<int>& gpos,GPVec<CTransfrag
 				transfrag.Exchange(t,transfrag.Count()-1);
 				transfrag.Delete(transfrag.Count()-1);
 			}
+	}
+	// only now it's safe to populate srfrag and not have deleted transfrags inside it
+	for(int t=transfrag.Count()-1;t>=0;t--) {
+		if(transfrag[t]->srabund || (mixedMode && transfrag[t]->longread)) { // this is a super-read;
+			//fprintf(stderr,"Added transfrag[%d] to srfrag[%d]\n",t,srfrag.Count());
+			srfrag.Add(transfrag[t]);
+		}
 	}
 	return(longret);
 }
