@@ -1673,20 +1673,28 @@ int add_read_to_group(int n,GList<CReadAln>& readlist,int color,GPVec<CGroup>& g
 				int readcol=usedcol[sno];
 
 				if(np<n) { // there is a pair and it came before the current read in sorted order of position
-					// first group of pair read is: readgroup[np][0]
+					// first group of pair read is: readgroup[np][0] -- but only if readgroup[np] is not empty
+					if (readgroup[np].Count() > 0) {
+						int grouppair=readgroup[np][0];
+						while( merge[grouppair]!=grouppair) {
+							grouppair=merge[grouppair];
+						}
+						readgroup[np][0]=grouppair;
 
-					int grouppair=readgroup[np][0];
-					while( merge[grouppair]!=grouppair) {
-						grouppair=merge[grouppair];
+						readcol=group[readgroup[np][0]]->color;    // readcol gets assigned the color of the pair's first group --> this might not
+																	// work if I split  a read into multiple groups
+						while(eqcol[readcol]!=readcol) { // get smallest color
+							readcol=eqcol[readcol];
+						}
+						group[readgroup[np][0]]->color=readcol;
+					} else { // missing previous entry?
+						if (readcol < 0) {
+								usedcol[sno] = color;
+								readcol = color;
+								eqcol.Add(color);
+								++color;
+						}
 					}
-					readgroup[np][0]=grouppair;
-
-					readcol=group[readgroup[np][0]]->color;    // readcol gets assigned the color of the pair's first group --> this might not
-															   // work if I split  a read into multiple groups
-					while(eqcol[readcol]!=readcol) { // get smallest color
-						readcol=eqcol[readcol];
-					}
-					group[readgroup[np][0]]->color=readcol;
 				}
 				else { // it's the first time I see the read in the fragment
 					//fragno+=readlist[n]->pair_count[p];
