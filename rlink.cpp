@@ -15263,7 +15263,7 @@ int build_graphs(BundleData* bdata) {
 		boundaryright.Clear();
 	}
 
-	/*
+	
 	{ // DEBUG ONLY
 		fprintf(stderr,"%d groups created!\n",group.Count());
 	    for(int sno=0;sno<3;sno++) {
@@ -15276,7 +15276,7 @@ int build_graphs(BundleData* bdata) {
 	    	fprintf(stderr,"\n");
 	    }
 	}
-	*/
+	
 
 /*
 #ifdef GMEMTRACE
@@ -20444,11 +20444,15 @@ int printResults(BundleData* bundleData, int geneno, GStr& refname) {
 							pred[n2]->flag=false;
 							continue;
 						}
-						else if(pred[n2]->exons.Count()==1 || (pred[n2]->exons.Count()==2 && pred[n2]->cov<CHI_THR && pred[n1]->strand != pred[n2]->strand)) { // should I restrict to single exons?
+						else if(pred[n2]->exons.Count()==1) {
 							//fprintf(stderr,"falseflag: ...strand elimination of pred[%d] n2=%d by n1=%d\n",n2,n2,n1);
 							pred[n2]->flag=false;
 							continue;
 						}
+						/*else if(pred[n2]->exons.Count()==2 && pred[n2]->cov<CHI_THR && pred[n1]->strand != pred[n2]->strand) { // should test later
+							pred[n2]->flag=false;
+							continue;
+						}*/
 					}
 
 					if(!pred[n1]->t_eq && pred[n1]->exons.Count()==1) {
