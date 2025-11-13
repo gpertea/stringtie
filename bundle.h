@@ -398,6 +398,7 @@ struct BundleData {
 	pred.Clear();
 	pred.setSorted(false);
 	readlist.Clear();
+	readlist.setSorted(false);
 	for(int i=0;i<3;i++) {
 		bpcov[i].Clear();
 		bpcov[i].setCapacity(1024);
