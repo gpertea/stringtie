@@ -1185,8 +1185,6 @@ void processOptions(GArgs& args) {
 
 	 }
 
-	 scell=(args.getOpt('O')!=NULL); // SCELL
-
 	 s=args.getOpt('c');
 	 if (!s.is_empty()) {
 		 readthr=(float)s.asDouble();
@@ -1203,6 +1201,12 @@ void processOptions(GArgs& args) {
 		 if(bundledist>runoffdist) runoffdist=bundledist;
 	 }
 	 else if(mergeMode) bundledist=250; // should figure out here a reasonable parameter for merge
+
+	scell=(args.getOpt('O')!=NULL); // SCELL	
+	if(scell) {
+		if(bundledist<100) bundledist=100; // increase gap length
+		//mismatchfrac=0.04; // v23 increase mismatch for single cell since they have more mismatches generally
+	}
 
 	 s=args.getOpt('F');
 	 if (!s.is_empty()) {

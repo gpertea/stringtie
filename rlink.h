@@ -19,6 +19,8 @@
 #define SMALL_EXON 35 // exons smaller than this have a tendency to be missed by long read data
 
 #define SCELL_COV 20
+#define SCELL_TOL 0.3 // scell tollerance for errors v17
+#define SCELL_NO 50 // number of single cells to accept as evidence for single exons
 
 #define IS_FPKM_FLAG 1
 #define IS_TPM_FLAG 2
@@ -36,9 +38,13 @@ const uint longintronanchor=25; // I need a higher anchor for long introns -> us
 //const uint verylongintron=100000; // don't trust introns longer than this unless there is higher evidence; about 99% of all human annotated introns are shorter than this
 //const uint verylongintronanchor=35; // I need a higher anchor for very long introns
 
-const float mismatchfrac=0.02;
+//const float mismatchfrac=0.02;
+const float mismatchfrac=0.04; // v23 for single cell
 const float lowcov=1.5;
 const float lowisofrac=0.02;
+
+const float scell_weight=1; // alpha
+const float global_weight=0.75; // beta
 
 const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
