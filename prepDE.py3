@@ -275,11 +275,9 @@ for q, s in enumerate(samples):
     
     for i,v in t_dict.items():
 ##        print i,v
-       try:
-          geneDict[geneIDs[i]][s[0]]+=v[s[0]]
-       except KeyError:
-          print("Error: could not locate transcript %s entry for sample %s" % ( i, s[0] ))
-          raise
+       if i not in geneIDs:
+          continue
+       geneDict[geneIDs[i]][s[0]]+=v[s[0]]
 
 if opts.v:
    print("..writing %s " % ( opts.t ))
