@@ -1,0 +1,122 @@
+# StringTie `--merge` issues
+
+## Problem statement
+
+[Issue #247](https://github.com/gpertea/stringtie/issues/247) reports that
+`stringtie --merge`, when combining sample assemblies with a guide annotation,
+can change known reference transcript boundaries and join models into neighboring
+gene regions. The immediate goal was to inspect the supplied example, identify
+the main weakness behind that result, and determine whether it is an isolated
+UTR-extension bug or evidence of a broader merge-mode problem.
+
+## Main weakness
+
+`--merge` looks like a conservative catalog union, but internally it performs
+graph-based transcript reassembly. It does not guarantee that an input model is
+preserved exactly, or that a transcript supplied with `-G` remains structurally
+unchanged. Complete transcript models are projected onto splice graphs,
+compatible paths are combined, endpoints may be extended, and reference IDs may
+be attached to reconstructed paths.
+
+This mismatch between expected and actual semantics is the central problem. The
+[issue discussion](https://github.com/gpertea/stringtie/issues/247) and the
+[summary comment](https://github.com/gpertea/stringtie/issues/247#issuecomment-5076112338)
+describe it as a long-standing limitation rather than a single threshold bug.
+
+## What the supplied example shows
+
+For `Ec-04_004450.1`:
+
+```text
+Reference: chr_04:4570279-4600321, 31 exons
+Merged:    chr_04:4570279-4601396, 30 exons
+Change:    right endpoint extended by 1,075 bp
+```
+
+Two source models provide the longer downstream endpoint:
+
+```text
+SRR12897873.7658.2  4590729-4601396
+SRR12897873.7658.3  4594733-4601396
+```
+
+They share the downstream splice chain and terminal exon ending at `4601396`.
+Merge mode transfers that endpoint onto the model carrying the reference ID.
+The result:
+
+- overlaps the next reference gene, `Ec-04_004460.1`, which starts at `4601368`
+  on the opposite strand;
+- removes a tiny internal intron: reference exons `4584961-4587464` and
+  `4587466-4588433` become one exon, `4584961-4588433`;
+- retains transcript ID `Ec-04_004450.1` although its endpoint and exon chain no
+  longer match the reference transcript.
+
+The example is documented in the
+[author's dataset comment](https://github.com/gpertea/stringtie/issues/247#issuecomment-5084881023).
+
+## How large the problem is in this dataset
+
+A full comparison of the supplied reference and merged output gave:
+
+```text
+Reference transcripts                         26,059
+Reference IDs found in merged output           25,904
+Reference IDs with changed outer coordinates   13,948  (53.8%)
+Reference IDs with changed exon structures     13,958  (53.9%)
+Extensions greater than 1 kb                    2,120
+Largest extension                               8,929 bp
+```
+
+Every changed outer boundary is an extension of the right genomic coordinate.
+That matches the asymmetric collapse in
+[`build_merge()`](../rlink.cpp#L16022), which retains the earlier model and
+expands its right endpoint to the maximum. Ten models retain their outer bounds
+but have altered exon chains, mostly because very short introns are merged.
+Guide loading enables this close-exon merging in
+[`stringtie.cpp`](../stringtie.cpp#L301).
+
+## Why this is systemic
+
+1. Gene identity is discarded during reconstruction. GTF models are converted
+   to synthetic alignment-like records, then grouped by overlap, strand, and
+   junction graph rather than protected by their original gene boundaries.
+2. Models with the same junction chain are collapsed asymmetrically. Extending
+   the right coordinate is not strand-aware: it changes the 3-prime end on `+`
+   transcripts and the 5-prime end on `-` transcripts.
+3. Guides are graph evidence, not immutable records.
+   [`merge_transfrags()`](../rlink.cpp#L7142) and
+   [`store_merge_prediction()`](../rlink.cpp#L7534) reconstruct exons from graph
+   nodes rather than copying the original `GffObj`. If a node is enlarged, the
+   reference-associated prediction is enlarged too.
+4. Compatibility can be transitive. If A overlaps B and B overlaps C, merge can
+   reconstruct a larger path even when no input contained that complete model.
+5. Final output performs another structural merge.
+   [`printMergeResults()`](../rlink.cpp#L19613) removes weaker overlapping models
+   and can join nearby single-exon models.
+
+Increasing junction-support thresholds does not prevent the reported endpoint
+extension because extending a terminal exon introduces no new junction.
+
+## Additional behavior in StringTie 3.0.2
+
+Rerunning the supplied inputs with the current binary reproduces the altered
+model. The full run also emits 25,226 reference IDs twice: once as a graph-
+reconstructed StringTie prediction and once as a later guide-source record. At
+the example locus, the same transcript ID therefore appears with different
+outer coordinates. Even the guide-source copy has already lost the short
+internal intron during guide loading.
+
+This duplicate-ID behavior is a separate identifier-integrity problem that was
+not present in the older merged output supplied with the issue.
+
+## Bottom line
+
+The iceberg is not one overextended UTR. Users commonly expect union,
+deduplication, and immutable guide models; the implementation instead performs
+reassembly and synthesis. A conservative repair needs an explicit contract:
+
+- never modify a `-G` transcript;
+- never reuse a reference ID for a changed structure;
+- preserve input exon chains unless a separate normalization option is enabled;
+- prevent transitive synthesis across gene boundaries;
+- make endpoint reconciliation optional rather than implicit.
