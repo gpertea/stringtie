@@ -202,32 +202,124 @@ The following optional parameters can be specified (use `-h` or `--help` to get 
  -u no multi-mapping correction (default: correction enabled)
  -h print this usage message and exit
  --ref/--cram-ref reference genome FASTA file for CRAM input
-
-Transcript merge usage mode: 
-  stringtie --merge [Options] { gtf_list | strg1.gtf ...}
-With this option StringTie will assemble transcripts from multiple
-input files generating a unified non-redundant set of isoforms. In this mode
-the following options are available:
-  -G <guide_gff>   reference annotation to include in the merging (GTF/GFF3)
-  -o <out_gtf>     output file name for the merged transcripts GTF
-                    (default: stdout)
-  -m <min_len>     minimum input transcript length to include in the merge
-                    (default: 50)
-  -c <min_cov>     minimum input transcript coverage to include in the merge
-                    (default: 0)
-  -F <min_fpkm>    minimum input transcript FPKM to include in the merge
-                    (default: 1.0)
-  -T <min_tpm>     minimum input transcript TPM to include in the merge
-                    (default: 1.0)
-  -f <min_iso>     minimum isoform fraction (default: 0.01)
-  -g <gap_len>     gap between transcripts to merge together (default: 250)
-  -i               keep merged transcripts with retained introns; by default
-                   these are not kept unless there is strong evidence for them
-  -l <label>       name prefix for output transcripts (default: MSTRG)
-
 ```
 
-More details about StringTie options can be found in the [online manual](http://ccb.jhu.edu/software/stringtie/index.shtml?t=manual).
+## Transcript merge mode
+
+`--merge` reads assembled transcript annotations, not read alignments, and
+produces a unified structurally non-redundant GTF. Inputs can be listed directly
+or supplied as one text file containing one GTF/GFF path per line.
+
+```sh
+stringtie --merge [options] -o merged.gtf samples.list
+stringtie --merge [options] -o merged.gtf sample1.gtf sample2.gtf
+```
+
+The default merge is structure-driven: `-F`, `-T`, and `-f` are all zero, and
+TPM/FPKM values are not pooled across samples as path weights. Each input file
+contributes at most one vote to an exact structure or path component.
+
+### General merge options
+
+```text
+Option            Default  Meaning
+----------------  -------  -------------------------------------------------
+-G FILE           unset    Include a GTF/GFF3 reference annotation.
+-o FILE           stdout   Write the merged GTF to FILE.
+-m N              50       Require input transcript length N or greater.
+-c F              0        Require input cov F or greater when filtering.
+-F F              0        Require input FPKM F or greater when filtering.
+-T F              0        Require input TPM F or greater when filtering.
+-f F              0        Require a within-file isoform fraction F.
+-g N              250      Bundle transcripts separated by at most N bases.
+-i                off      Retain qualifying retained-intron models.
+-l LABEL          MSTRG    Prefix generated transcript and gene IDs.
+```
+
+An explicitly supplied `-F` or `-T` requires that attribute to be present.
+`-f` is calculated within an input file and declared gene, or within the local
+bundle if `gene_id` is missing. It uses TPM first, then FPKM, then cov. These
+filters mark inputs as failing; replicated exact structures may still be kept
+by `--rescue-support`.
+
+### Structure and path evidence
+
+```text
+Option                    Default     Meaning
+------------------------  ----------  --------------------------------------
+--min-support N           1           Files required for an exact structure.
+--rescue-support N        2           Files required to rescue a filtered tx.
+--min-introns N           1           Exact shared introns required to join.
+--path-mode MODE          shared      shared, replicated, or direct evidence.
+--min-piece-support N     2           Files per intron in replicated mode.
+--set-overlap F           0.80        Reciprocal overlap for SET deduplication.
+```
+
+`shared` requires compatible MET paths to share `--min-introns` exact introns.
+The default therefore does not extend a MET through terminal SET overlap alone.
+`--min-introns 0` permits that legacy behavior, but does not bypass reference
+gene, CDS-bridge, hard extension, or support barriers. `replicated` additionally
+requires every output intron to reach `--min-piece-support`; `direct` requires
+the complete ordered intron chain to reach `--min-support`.
+
+### Biological endpoint controls
+
+```text
+Option                    Default     Meaning
+------------------------  ----------  --------------------------------------
+--min-support-5p N        2           Files required for a new 5-prime end.
+--min-support-3p N        2           Files required for a new 3-prime end.
+--slop-bp-5p N            100         Unsupported 5-prime overhang allowance.
+--slop-bp-3p N            100         Unsupported 3-prime overhang allowance.
+--slop-frac-5p F          0.50        5-prime slop as terminal exon fraction.
+--slop-frac-3p F          0.50        3-prime slop as terminal exon fraction.
+--max-extension-5p N      unlimited   Absolute 5-prime extension cap.
+--max-extension-3p N      unlimited   Absolute 3-prime extension cap.
+```
+
+The 5-prime and 3-prime controls follow transcript orientation, including on
+the minus strand. A path extension below its support threshold is allowed only
+when it satisfies both the base-pair and terminal-exon-fraction slop. Hard caps
+always win. Support and slop govern synthesized joins; directly observed guide
+endpoint variants are governed by hard caps and `--guide-policy`.
+
+### Reference and bridge policies
+
+```text
+Option                    Default     Meaning
+------------------------  ----------  --------------------------------------
+--guide-policy MODE       both        both, reference, or best.
+--guide-replace-frac F    0.90        Core support fraction for best mode.
+--dedup-guides            off         Canonicalize identical guide structures.
+--allow-fusions           off         Permit paths crossing guide genes.
+--allow-cds-bridges       off         Permit bridges between coding guide tx.
+```
+
+Guide structures are immutable. `both` keeps the guide and an accepted
+same-chain endpoint variant; `reference` suppresses that variant; `best`
+replaces the guide only when the variant has at least two complete-path files
+and its complete-path fraction reaches `--guide-replace-frac`. With
+`--dedup-guides`, the lexicographically smallest ID represents identical guide
+structures and the other IDs appear in `reference_aliases`.
+
+Same-strand paths crossing distinct guide genes are rejected before intron
+joining unless `--allow-fusions` is set. Within one guide gene, a path carrying
+unique introns from two coding guide transcripts is rejected unless
+`--allow-cds-bridges` is set. Opposite-strand guide overlap is reported but is
+not a barrier.
+
+### Merge report and output evidence
+
+`--report FILE` writes a deterministically sorted TSV of filtering, rescue,
+fusion, CDS bridge, containment, duplicate, and support decisions, preceded by
+reason counts. The merged GTF records `merge_support`, `merge_path_support`,
+`merge_piece_support`, biological endpoint and locus support, `reference_id`,
+`class_code`, and optional `reference_aliases`.
+
+All long options in this section are valid only with `--merge`. See
+[MERGE_MODE.md](MERGE_MODE.md) for the implementation workflow, precise output
+fields, and active call path. More details about other StringTie options are in
+the [online manual](http://ccb.jhu.edu/software/stringtie/index.shtml?t=manual).
 
 ## Input files
 

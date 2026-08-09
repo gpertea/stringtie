@@ -30,7 +30,7 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   GffReader gfr(gtf.chars(), true, true); //transcript only, sorted by location
   gfr.setRefAlphaSorted(true); //make sure refseq IDs are sorted alphabetically
   gfr.showWarnings(debugMode || verbose);
-  gfr.readAll(true, true, true); //keep attributes, merge close exons, no_exon_attributes
+  gfr.readAll(true, false, true); //keep attributes and preserve the input exon structure
   if (gfr.gflst.Count()==0)
 	  GError("Error: no transcripts were found in input file %s\n", gtf.chars());
   gfr.gseqStats.Sort(gseqstat_cmpName);
@@ -64,15 +64,30 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
 	  //GStr s("ZF:i:");
 	  //s+=idx;
 	  //brec.add_aux(s.chars());
-	  char *av=m.getAttr("cov");
-	  if (av!=NULL) {
+	  char *cov=m.getAttr("cov");
+	  char *fpkm=m.getAttr("FPKM");
+	  char *tpm=m.getAttr("TPM");
+	  // carry optional abundance fields without treating them as structural weights
+	  if (cov || fpkm || tpm) {
 		  GStr s("ZS:Z:",20);
-		  s+=av;
+		  if(cov) s+=cov;
 		  s+='|';
-		  av=m.getAttr("FPKM");
-		  if (av) s+=av;
-		  av=m.getAttr("TPM");
-		  if (av) { s+='|';s+=av; }
+		  if(fpkm) s+=fpkm;
+		  s+='|';
+		  if(tpm) s+=tpm;
+		  brec.add_aux(s.chars());
+	  }
+	  // preserve gene and CDS metadata for downstream merge barriers
+	  if(m.getGeneID()) {
+		  GStr s("ZG:Z:",32);
+		  s+=m.getGeneID();
+		  brec.add_aux(s.chars());
+	  }
+	  if(m.hasCDS()) {
+		  GStr s("ZC:Z:",32);
+		  s+=m.CDstart;
+		  s+='|';
+		  s+=m.CDend;
 		  brec.add_aux(s.chars());
 	  }
 	  bw.write(&brec);
@@ -169,4 +184,3 @@ void TInputFiles::stop() {
 	 }
  }
 }
-

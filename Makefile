@@ -180,7 +180,9 @@ stringtie${EXE}: ${HTSLIB}/libhts.a $(OBJS) stringtie.o
 	${DBG_WARN}
 test demo tests: stringtie${EXE}
 	@./run_tests.sh
-.PHONY : clean clean-htslib
+test-merge: stringtie${EXE}
+	@./test_merge_policy.sh
+.PHONY : clean clean-htslib test-merge
 
 # target for removing all object files
 

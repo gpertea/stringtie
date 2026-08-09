@@ -128,13 +128,17 @@ struct GRefPtData {
 //holding transcript info for --merge mode
 struct TAlnInfo {
 	GStr name; //transcript name
+	GStr gene_id; //input gene identifier, when available
 	int fileidx; //index of transcript file in the TInputFiles.files array
 	double cov;
 	double fpkm;
 	double tpm;
+	uint cds_start;
+	uint cds_end;
+	bool qpass; //passes explicitly requested merge abundance filters
 	int g;
 	TAlnInfo(const char* rname=NULL, int fidx=0):name(rname), fileidx(fidx),
-			cov(-1),fpkm(-1),tpm(-1),g(-1) { }
+			cov(-1),fpkm(-1),tpm(-1),cds_start(0),cds_end(0),qpass(true),g(-1) { }
 };
 
 // # 0: strand; 1: start; 2: end; 3: nreads; 4: nreads_good;
@@ -270,6 +274,7 @@ struct CBundle {
 struct CPrediction:public GSeg {
 	int geneno;
 	GffObj* t_eq; //equivalent reference transcript (guide)
+	GffObj* merge_ref; //related guide retained when a merge changes structure
 	//char *id;
         double cov;
         double longcov;
@@ -281,15 +286,26 @@ struct CPrediction:public GSeg {
 	GVec<GSeg> exons;
 	GVec<float> exoncov;
 	GStr mergename;
+	GVec<int> merge_files;
+	int merge_path_support;
+	int merge_piece_support;
+	int merge_5p_support;
+	int merge_3p_support;
+	int merge_locus_support;
+	char merge_class;
+	GStr merge_ref_aliases;
         CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, double _cov=0, char _strand='.',
         int _len=0,bool f=true, CPrediction* lp=NULL):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
 	//CPrediction(int _geneno=0, char* _id=NULL,int gstart=0, int gend=0, float _cov=0, char _strand='.', float _frag=0,
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
-			tlen(_len),flag(f),linkpred(lp),exons(),exoncov(),mergename() {}
+			tlen(_len),flag(f),linkpred(lp),exons(),exoncov(),mergename(),merge_files(),merge_path_support(0),
+			merge_piece_support(0),merge_5p_support(0),merge_3p_support(0),merge_locus_support(0),
+			merge_class(0),merge_ref_aliases() { merge_ref=guide; }
         void init(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, double _cov=0, char _strand='.',
 	          int _len=0,bool f=true, CPrediction* lp=NULL) {
 		geneno=_geneno;
 		t_eq=guide;
+		merge_ref=guide;
 		start=gstart;
 		end=gend;
 		cov=_cov;
@@ -300,12 +316,23 @@ struct CPrediction:public GSeg {
 		exons.Clear();
 		exoncov.Clear();
 		mergename.clear();
+		merge_files.Clear();
+		merge_path_support=0;
+		merge_piece_support=0;
+		merge_5p_support=0;
+		merge_3p_support=0;
+		merge_locus_support=0;
+		merge_class=0;
+		merge_ref_aliases.clear();
 	}
 
 	CPrediction(CPrediction& c):GSeg(c.start, c.end), geneno(c.geneno),
 //			id(Gstrdup(c.id)), cov(c.cov), strand(c.strand), frag(c.frag), tlen(c.tlen), flag(c.flag),
-			t_eq(c.t_eq), cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), flag(c.flag),linkpred(c.linkpred),
-	      exons(c.exons),  exoncov(c.exoncov), mergename(c.mergename) {}
+			t_eq(c.t_eq), merge_ref(c.merge_ref), cov(c.cov), longcov(c.longcov),strand(c.strand), tlen(c.tlen), flag(c.flag),linkpred(c.linkpred),
+	      exons(c.exons), exoncov(c.exoncov), mergename(c.mergename), merge_files(c.merge_files),
+	      merge_path_support(c.merge_path_support),merge_piece_support(c.merge_piece_support),
+	      merge_5p_support(c.merge_5p_support),merge_3p_support(c.merge_3p_support),
+	      merge_locus_support(c.merge_locus_support),merge_class(c.merge_class),merge_ref_aliases(c.merge_ref_aliases) {}
 	~CPrediction() { //GFREE(id);
 		}
 };

@@ -236,3 +236,32 @@ retains the sentinel value `-1`.
 The abundance filters are a major cause of disappearing input structures, but
 disabling them does not solve merge correctness. It preserves more evidence
 while increasing graph-driven endpoint extension and guide mutation.
+
+## Merge-policy implementation and issue-dataset validation
+
+The merge redesign now uses structural support by distinct input file. Merge
+defaults are `-F 0`, `-T 0`, and `-f 0`; explicit abundance filters remain
+available and a structure filtered in every input can be restored by replicated
+support. The default path policy requires one exact shared intron, applies
+independent biological 5-prime/3-prime extension evidence, rejects guide-gene
+and coding-transcript bridges, and preserves every `-G` structure and ID.
+
+The complete issue #247 dataset was rerun with all 20 input GTFs:
+
+```text
+Metric                                      New default
+------------------------------------------  -----------
+Reference transcripts                            26,059
+Missing reference IDs                                 0
+Changed reference structures                          0
+Output transcripts                              144,781
+Duplicate transcript IDs                              0
+Duplicate generated structures                        0
+Duplicate guide-structure groups                      21
+```
+
+The remaining duplicate structures under the default are reference models with
+different reference IDs, retained intentionally. With `--dedup-guides`, the
+lexicographically smallest reference ID is kept, aliases are reported, and the
+same full run has zero duplicate structure groups. `Ec-04_004450.1` is emitted
+with its original 31-exon structure and original `4570279-4600321` bounds.

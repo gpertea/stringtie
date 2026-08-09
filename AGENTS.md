@@ -73,6 +73,18 @@ bit set              GBitVec
   Do not mechanically mix STL ownership or iterator conventions into gclib
   containers.
 
+## Merge glossary
+
+```text
+Term       Meaning
+---------  --------------------------------------------------------------
+tx         Transcript
+SET        Single-exon transcript or transfrag
+MET        Multi-exon transcript or transfrag
+bridge     Path that connects otherwise distinct tx structures or loci
+fusion tx  Transcript joining models assigned to distinct genes
+```
+
 ## Code graph MCP
 
 Use `codebase-memory-mcp` as the first source-discovery tool. The project name is

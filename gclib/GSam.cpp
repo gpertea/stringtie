@@ -8,6 +8,10 @@ GSamRecord::GSamRecord(const char* qname, int32_t gseq_tid,
                  int pos, bool reverse, GDynArray<uint32_t>& cigar,
                  const char* qseq, const char* quals):iflags(0), exons(1),
 				 juncsdel(1),clipL(0), clipR(0), mapped_len(0) {
+#ifdef _DEBUG
+   _cigar=NULL;
+   _read=NULL;
+#endif
    uint16_t flag=0;
    novel=true;
    b_hdr=NULL;
