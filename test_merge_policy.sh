@@ -296,7 +296,20 @@ grep -q 'cds_bridge_allowed' "$tmpdir/cds-allow.tsv"
 t=$tmpdir
 FULL=1000-1100,2000-2100,3000-3100,4000-4300
 FULLX=1000-1100,2000-2100,3000-3100,4000-5300
-fx() { fx_out=$1; shift; run_stringtie --merge -o "$t/$fx_out.gtf" --report "$t/$fx_out.tsv" "$@"; }
+## every fixture also checks the reconciliation: each input record has a fate
+fx() {
+  fx_out=$1; shift
+  run_stringtie --merge -o "$t/$fx_out.gtf" --report "$t/$fx_out.tsv" "$@"
+  if ! grep -q "^# fate	unaccounted	0$" "$t/$fx_out.tsv"; then
+    printf '%s\n' "input records without a fate in $fx_out:" >&2
+    grep '^# \(input_records\|fate\)' "$t/$fx_out.tsv" >&2
+    exit 1
+  fi
+}
+## fate_is FILE NAME COUNT
+fate_is() {
+  grep -q "^# fate	$2	$3$" "$1" || { printf '%s\n' "fate $2 is not $3 in $1" >&2; grep '^# fate' "$1" >&2; exit 1; }
+}
 
 ## G/H/H2/I: a single-file terminal-exon extension must not replace a 2-file end
 mkgtf $t/g1.gtf in "fxG + g1 $FULL"
@@ -306,6 +319,8 @@ fx G $t/g1.gtf $t/g2.gtf $t/g3.gtf
 need_chain $t/G.gtf fxG + $FULL
 test "$(tx_count $t/G.gtf fxG)" -eq 1
 grep -Eq '^fxG.*absorb[[:space:]]+contained_fragment' $t/G.tsv
+fate_is $t/G.tsv emitted_chain 2
+fate_is $t/G.tsv contained_fragment 1
 ## the same partial chain in 3 files is a replicated longer end: kept as its own transcript
 mkgtf $t/g4.gtf in "fxG + g4 2050-2100,3000-3100,4000-5300"
 mkgtf $t/g5.gtf in "fxG + g5 2050-2100,3000-3100,4000-5300"
@@ -378,6 +393,9 @@ need_chain $t/Sd4.gtf fxSd + $TWO merge_support 2
 test "$(tx_count $t/Sd4.gtf fxSd)" -eq 1
 grep -q "^# min_support	2$" $t/Sd4.tsv
 grep -Eq '^fxSd.*minimum_support' $t/Sd4.tsv
+grep -q "^# input_records	5$" $t/Sd4.tsv
+fate_is $t/Sd4.tsv emitted_chain 2
+fate_is $t/Sd4.tsv minimum_support 3
 fx Sd41 --min-support 1 $t/sd1.gtf $t/sd2.gtf $t/sd3.gtf $t/sd4.gtf
 need_chain $t/Sd41.gtf fxSd + $ONE
 test "$(tx_count $t/Sd41.gtf fxSd)" -eq 4
@@ -386,6 +404,8 @@ test "$(tx_count $t/Sd41.gtf fxSd)" -eq 4
 mkgtf $t/ss1.gtf in "fxSS + ss1 1000-2000" "fxSS + ss3 5000-5300"
 mkgtf $t/ss2.gtf in "fxSS + ss2 1050-2050" "fxSS + ss4 5200-5500"
 fx SS2 --min-support 2 $t/ss1.gtf $t/ss2.gtf
+fate_is $t/SS2.tsv emitted_set 2
+fate_is $t/SS2.tsv minimum_support 2
 test "$(tx_count $t/SS2.gtf fxSS)" -eq 1
 grep -Eq '^fxSS.*(5000[[:space:]]+5300|5200[[:space:]]+5500).*minimum_support' $t/SS2.tsv
 
@@ -414,6 +434,8 @@ mkgtf $t/l1.gtf in "fxL + l1 1000-1100,2000-2600,3000-3100" "fxL - l2 2100-2500"
 fx L $t/l1.gtf
 need_chain $t/L.gtf fxL + 1000-1100,2000-2600,3000-3100
 need_chain $t/L.gtf fxL - 2100-2500
+fate_is $t/L.tsv emitted_chain 1
+fate_is $t/L.tsv emitted_set 1
 
 ## N/U: unstranded inputs pass through unchanged
 mkgtf $t/n1.gtf in "fxN . n1 8000-8100,9000-9100"
@@ -550,6 +572,14 @@ mkgtf $t/r3b.gtf in "fxR3 + r3b 900-2100"
 fx R3 -G $t/r3g.gtf $t/r3a.gtf $t/r3b.gtf
 test "$(tx_count $t/R3.gtf fxR3)" -eq 1
 need_chain $t/R3.gtf fxR3 + 1000-2000 merge_support 2
+fate_is $t/R3.tsv emitted_set 2
+## records dropped before the bundle are counted too: -m, and a SET inside a MET exon
+mkgtf $t/f1.gtf in "fxF + f1 1000-1100,2000-2300" "fxF + f2 2050-2250" "fxF + f3 5000-5030"
+fx F $t/f1.gtf
+grep -q "^# input_records	3$" $t/F.tsv
+fate_is $t/F.tsv emitted_chain 1
+fate_is $t/F.tsv contained_set 1
+fate_is $t/F.tsv min_length 1
 
 ## O: output order. References keep the order of the input files (not alphabetical), then
 ## guide-only references; transcripts are sorted by start, a guide without input support is

@@ -337,6 +337,43 @@ code (`merge_transfrags()`) is unchanged; its output is reinterpreted.
 Because step 4 runs after step 3 and only considers retained containers, a
 rejected join cannot remove the observed chains it was built from.
 
+## Input record reconciliation
+
+With `--report`, every input record gets one final fate and the report header
+lists the counts (`# input_records`, `# fate <name> <count>`,
+`# fate unaccounted <n>`). `mergeFateAdd()` holds the tally; `unaccounted` is
+the record count minus the tallied fates, so a record that leaves the merge
+without a decision shows up there. The regression suite requires 0 for every
+fixture.
+
+```text
+Stage                       Where                        Fates
+--------------------------  ---------------------------  ----------------------
+input loop, processRead()   before the bundle            excluded_reference,
+                                                         min_length
+filter_merge_inputs()       per record                   cross_gene_bridge,
+                                                         minimum_support,
+                                                         abundance_filter
+printMergeResults()         per observed chain or        emitted_chain,
+  -> merge_tally_fates()    pass-through prediction      contained_fragment,
+                                                         retained_intron_fragment,
+                                                         rejection reasons
+                            per stranded single-exon     emitted_set,
+                            record, by position          contained_set,
+                                                         set_exon_overlap
+```
+
+`printMergeResults()` keeps a `fate` label per prediction, set where the
+prediction leaves the output, and `fateof` for a prediction dropped in favor of
+an equivalent one (same guide chain, duplicate structure, overlapping
+single-exon model), which takes that one's fate. A stranded multi-exon record
+is counted through its `CMergeChain` (`nrec`), an unstranded record through its
+pass-through prediction (`merge_nrec`). Stranded single-exon records enter the
+splice graph and are not traced individually: each is assigned, in this order,
+to an emitted single-exon transcript that overlaps it, an emitted multi-exon
+transcript whose exon contains it, one whose exon overlaps it, or the fate of
+a rejected single-exon prediction that overlaps it.
+
 ## Output order and IDs
 
 `printMergeResults()` and `writeUnbundledGuides()` do not write to the output

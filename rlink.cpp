@@ -798,7 +798,10 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		if(mergeMode && mintranscriptlen) {
 			int len=0;
 			for (int i=0;i<brec.exons.Count();i++) len+=brec.exons[i].len();
-			if(len<mintranscriptlen) return;
+			if(len<mintranscriptlen) {
+				mergeFateAdd("min_length",1);
+				return;
+			}
 		}
 		readaln=new CReadAln(strand, nh, brec.start, brec.end, alndata.tinfo);
 
@@ -16288,6 +16291,8 @@ static void filter_merge_inputs(BundleData* bdata) {
 		GStr gene_ids;
 		if(!mergeOptions.allow_fusions && merge_read_crosses_guide_genes(rd,bdata->keepguides,guide_ids,gene_ids)) {
 			rd.nh=0;
+			rd.tinfo->mpass=false;
+			mergeFateAdd("cross_gene_bridge",1);
 			mergeReportEvent(bdata->refseq.chars(),rd.strand<0?'-':rd.strand?'+':'.',rd.start,rd.end,
 				"reject","cross_gene_bridge",rd.tinfo->name.chars(),rd.tinfo->fileidx,
 				guide_ids.chars(),gene_ids.chars(),1,"input transcript crosses distinct guide genes");
@@ -16364,6 +16369,8 @@ static void filter_merge_inputs(BundleData* bdata) {
 			if(!keep) {
 				rd.nh=0;
 				reason=support<mergeOptions.min_support ? "minimum_support" : "abundance_filter";
+				rd.tinfo->mpass=false;
+				mergeFateAdd(reason,1);
 				mergeReportEvent(bdata->refseq.chars(),rd.strand<0?'-':rd.strand?'+':'.',
 					rd.start,rd.end,"reject",reason,rd.tinfo->name.chars(),rd.tinfo->fileidx,
 					"",rd.tinfo->gene_id.chars(),support,"input structure removed");
@@ -16868,6 +16875,7 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 				pred.Add(p);
 			}
 			if(!merge_has_int(p->merge_files,rd.tinfo->fileidx)) p->merge_files.Add(rd.tinfo->fileidx);
+			p->merge_nrec++;
 		}
 		// SET support is pairwise reciprocal overlap, as for stranded inputs
 		for(int a=0;a<passset.Count();a++) {
@@ -20270,7 +20278,7 @@ static int merge_guide_extension(CPrediction* p,GffObj* guide,bool fivep) {
 }
 
 static bool merge_generated_barriers(CPrediction* p,BundleData* bundleData,GStr& refname,
-		GStr& guide_ids,GStr& gene_ids) {
+		GStr& guide_ids,GStr& gene_ids,const char*& reason) {
 	GVec<GStr> gids;
 	GVec<GStr> genes;
 	GVec<GStr> explicitGenes;
@@ -20314,6 +20322,7 @@ static bool merge_generated_barriers(CPrediction* p,BundleData* bundleData,GStr&
 		if(!mergeOptions.allow_fusions) {
 			mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","cross_gene_bridge",
 				"",-1,guide_ids.chars(),gene_ids.chars(),p->merge_files.Count(),"distinct guide genes crossed");
+			reason="cross_gene_bridge";
 			return false;
 		}
 		mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"accept","fusion_allowed",
@@ -20341,6 +20350,7 @@ static bool merge_generated_barriers(CPrediction* p,BundleData* bundleData,GStr&
 		if(!mergeOptions.allow_cds_bridges) {
 			mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","coding_transcript_bridge",
 				"",-1,guide_ids.chars(),codingBridgeGene.chars(),p->merge_files.Count(),"multiple coding guide transcripts connected");
+			reason="coding_transcript_bridge";
 			return false;
 		}
 		mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"accept","cds_bridge_allowed",
@@ -20642,8 +20652,75 @@ struct CMergeOrder {
 // Single explicit redundancy pass. A generated multi-exon prediction is removed in favor of a
 // retained container only if its chain is part of the container, its ends fit, and the
 // container's weakest intron is supported by at least as many files (dominance).
+// --report fates of input records (see MERGE_MODE.md, "Input record reconciliation")
+static const char* MRG_FATE_CHAIN="emitted_chain";
+static const char* MRG_FATE_SET="emitted_set";
+static const char* MRG_FATE_FRAGMENT="contained_fragment";
+static const char* MRG_FATE_RETAINED="retained_intron_fragment";
+
+// One final fate for every input record of the bundle that passed the per-record filters.
+// Multi-exon records follow their observed chain (stranded) or their pass-through prediction
+// (unstranded), so their fate is the decision taken for it. Stranded single-exon records are
+// joined by the splice graph and are not traced one by one: each is classified by the retained
+// transcript that covers it, or by the rejected single-exon prediction that does.
+// Records without a fate are left to the "unaccounted" line of the report.
+static void merge_tally_fates(BundleData* bdata,GList<CPrediction>& pred,GVec<const char*>& fate,
+		GVec<int>& fateof,GPVec<CMergeChain>& chains) {
+	int npred=pred.Count();
+	// a prediction dropped for an equivalent one shares that one's fate
+	for(int n=0;n<npred;n++) {
+		int r=n;
+		int steps=0;
+		while(!fate[r] && fateof[r]>=0 && steps++<npred) r=fateof[r];
+		if(r!=n) fate[n]=fate[r];
+	}
+	GVec<uint> maxend(npred,uint(0));
+	uint reach=0;
+	for(int n=0;n<npred;n++) {
+		CPrediction* p=pred[n];
+		if((uint)p->end>reach) reach=p->end;
+		maxend[n]=reach;
+		if(!fate[n]) continue;
+		if(p->merge_origin=='o' && p->merge_chain>=0) mergeFateAdd(fate[n],chains[p->merge_chain]->nrec);
+		else if(p->strand=='.' && !p->t_eq) mergeFateAdd(fate[n],p->merge_nrec);
+	}
+	GList<CReadAln>& readlist=bdata->readlist;
+	for(int i=0;i<readlist.Count();i++) {
+		CReadAln& rd=*readlist[i];
+		if(rd.tinfo->g!=-1 || !rd.tinfo->mpass || !rd.strand || rd.segs.Count()!=1) continue;
+		char strand=rd.strand<0 ? '-' : '+';
+		uint rs=rd.segs[0].start;
+		uint re=rd.segs[0].end;
+		int lo=0; // predictions are sorted by start: last one starting at or before the record end
+		int hi=npred-1;
+		int last=-1;
+		while(lo<=hi) {
+			int mid=(lo+hi)/2;
+			if((uint)pred[mid]->start<=re) { last=mid; lo=mid+1; }
+			else hi=mid-1;
+		}
+		const char* best=NULL;
+		int rank=5;
+		for(int n=last;n>=0 && maxend[n]>=rs && rank>1;n--) {
+			CPrediction* p=pred[n];
+			if((uint)p->end<rs || p->strand!=strand || !fate[n]) continue;
+			bool emitted=(fate[n]==MRG_FATE_CHAIN || fate[n]==MRG_FATE_SET);
+			if(p->exons.Count()==1) {
+				if(emitted) { rank=1; best=MRG_FATE_SET; }
+				else if(rank>4) { rank=4; best=fate[n]; }
+			}
+			else if(emitted) for(int e=0;e<p->exons.Count() && rank>2;e++) {
+				if(p->exons[e].end<rs || p->exons[e].start>re) continue;
+				if(p->exons[e].start<=rs && re<=p->exons[e].end) { rank=2; best="contained_set"; }
+				else if(rank>3) { rank=3; best="set_exon_overlap"; }
+			}
+		}
+		if(best) mergeFateAdd(best,1);
+	}
+}
+
 static void merge_remove_redundant(GList<CPrediction>& pred,GVec<bool>& keep,GStr& refname,
-		GPVec<CMergeChain>& chains) {
+		GPVec<CMergeChain>& chains,GVec<const char*>& fate) {
 	int npred=pred.Count();
 	GHash<GVec<int>*> byintron(true); // intron -> (prediction, intron position) pairs
 	GVec<CMergeOrder> order;
@@ -20696,6 +20773,7 @@ static void merge_remove_redundant(GList<CPrediction>& pred,GVec<bool>& keep,GSt
 		if(best<0) continue;
 		CPrediction* pb=pred[best];
 		keep[a]=false;
+		fate[a]=bestretained ? MRG_FATE_RETAINED : MRG_FATE_FRAGMENT;
 		if(pb->t_eq) merge_add_files(pb->merge_contained_files,pa->merge_files);
 		else { merge_add_files(pb->merge_files,pa->merge_files); pb->merge_files.Sort(); }
 		pb->merge_nrec+=pa->merge_nrec;
@@ -20878,6 +20956,10 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 	}
 	int npred=pred.Count();
 	GVec<bool> keep(npred,bool(true));
+	// --report: why each prediction left the output (NULL: no decision yet), or the prediction
+	// that represents it
+	GVec<const char*> fate(npred,(const char*)NULL);
+	GVec<int> fateof(npred,int(-1));
 	pred.setSorted(predCmp);
 	{
 		// an observed chain that is a guide's own chain and stays within the guide slop is the
@@ -20908,6 +20990,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 			if(best<0) continue;
 			pred[best]->merge_nrec+=p->merge_nrec; // its files are already the guide's support
 			keep[n]=false;
+			fateof[n]=best;
 		}
 	}
 	GVec<int> locusfiles;
@@ -20943,6 +21026,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				p->merge_ref=exactGuide;
 				p->merge_class='=';
 				keep[n]=false;
+				fate[n]=p->exons.Count()>1 ? MRG_FATE_CHAIN : MRG_FATE_SET; // emitted under the guide ID
 				mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","duplicate_guide_structure",
 					"",-1,exactGuide->getID(),exactGuide->getGeneID(),p->merge_files.Count(),"guide structure is emitted under its reference ID");
 			}
@@ -20952,23 +21036,30 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				if(p->merge_ref) p->merge_class=samechain ? 'k' : 'j';
 				GStr guide_ids;
 				GStr gene_ids;
-				if(!merge_generated_barriers(p,bundleData,refname,guide_ids,gene_ids)) keep[n]=false;
+				const char* barrier=NULL;
+				if(!merge_generated_barriers(p,bundleData,refname,guide_ids,gene_ids,barrier)) {
+					keep[n]=false;
+					fate[n]=barrier;
+				}
 			}
 		}
 		if(keep[n] && !p->t_eq && p->merge_files.Count()<mergeOptions.min_support) {
 			keep[n]=false;
+			fate[n]="minimum_support";
 			mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","minimum_support",
 				"",-1,"","",p->merge_files.Count(),"prediction support below --min-support");
 		}
 		if(keep[n] && !p->t_eq && mergeOptions.path_mode==MRG_PATH_DIRECT &&
 				p->merge_path_support<mergeOptions.min_support) {
 			keep[n]=false;
+			fate[n]="direct_path_support";
 			mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","direct_path_support",
 				"",-1,"","",p->merge_path_support,"complete path not directly replicated");
 		}
 		if(keep[n] && !p->t_eq && mergeOptions.path_mode==MRG_PATH_REPLICATED &&
 				p->merge_piece_support<mergeOptions.min_piece_support) {
 			keep[n]=false;
+			fate[n]="piece_support";
 			mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","piece_support",
 				"",-1,"","",p->merge_piece_support,"path piece not sufficiently replicated");
 		}
@@ -20978,17 +21069,22 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 			if((mergeOptions.max_extension_5p>=0 && ext5>mergeOptions.max_extension_5p) ||
 					(mergeOptions.max_extension_3p>=0 && ext3>mergeOptions.max_extension_3p)) {
 				keep[n]=false;
+				fate[n]="guide_extension_cap";
 				mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","guide_extension_cap",
 					"",-1,p->merge_ref->getID(),p->merge_ref->getGeneID(),p->merge_files.Count(),"hard endpoint cap exceeded");
 			}
 			else if(mergeOptions.guide_policy==MRG_GUIDE_REFERENCE) {
 				keep[n]=false;
+				fate[n]="guide_policy_reference";
 				mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","guide_policy_reference",
 					"",-1,p->merge_ref->getID(),p->merge_ref->getGeneID(),p->merge_files.Count(),"guide variant not emitted");
 			}
 			else if(mergeOptions.guide_policy==MRG_GUIDE_BEST && p->merge_class=='k') {
 				double corefrac=p->merge_files.Count() ? double(p->merge_path_support)/p->merge_files.Count() : 0;
-				if(p->merge_path_support<2 || corefrac<mergeOptions.guide_replace_frac) keep[n]=false;
+				if(p->merge_path_support<2 || corefrac<mergeOptions.guide_replace_frac) {
+					keep[n]=false;
+					fate[n]="guide_policy_best";
+				}
 			}
 		}
 	}
@@ -21015,6 +21111,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				g->merge_path_support=g->merge_files.Count();
 				g->merge_piece_support=g->merge_files.Count();
 				keep[n]=false;
+				fateof[n]=setguides[x];
 				break;
 			}
 		}
@@ -21022,7 +21119,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 
 	// one explicit redundancy pass, after every per-prediction rejection, so that a rejected
 	// path can never take observed chains with it
-	merge_remove_redundant(pred,keep,refname,chains);
+	merge_remove_redundant(pred,keep,refname,chains,fate);
 
 	// best mode replaces a guide only after a qualifying variant survives
 	for(int n=0;n<npred;n++) if(keep[n] && pred[n]->merge_ref && !pred[n]->t_eq &&
@@ -21046,6 +21143,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				pred[winner]->merge_ref_aliases+=pred[loser]->t_eq->getID();
 				setGuideStatus(pred[loser]->t_eq,GBST_STORED);
 				keep[loser]=false;
+				fateof[loser]=winner;
 				if(loser==n) break;
 			}
 			else {
@@ -21053,6 +21151,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				if(pred[m]->t_eq || (!pred[n]->t_eq && pred[m]->merge_files.Count()>pred[n]->merge_files.Count())) winner=m;
 				int loser=winner==n ? m : n;
 				keep[loser]=false;
+				fateof[loser]=winner;
 				mergeReportEvent(refname.chars(),pred[loser]->strand,pred[loser]->start,pred[loser]->end,
 					"reject","duplicate_structure","",-1,"","",pred[loser]->merge_files.Count(),"one structural model retained");
 				if(loser==n) break;
@@ -21064,6 +21163,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				int loser=pred[n]->merge_files.Count()<pred[m]->merge_files.Count() ? n : m;
 				if(pred[n]->merge_files.Count()==pred[m]->merge_files.Count() && pred[n]->tlen<pred[m]->tlen) loser=m;
 				keep[loser]=false;
+				fateof[loser]=loser==n ? m : n;
 				if(loser==n) break;
 			}
 		}
@@ -21081,6 +21181,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				}
 		if(contained) {
 			keep[n]=false;
+			fate[n]="contained_set";
 			mergeReportEvent(refname.chars(),pred[n]->strand,pred[n]->start,pred[n]->end,
 				"reject","contained_set","",-1,"","",pred[n]->merge_files.Count(),"SET contained in a MET exon");
 		}
@@ -21112,6 +21213,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 					}
 					if(dupstruct) {
 						keep[m]=false;
+						fate[m]=pred[m]->exons.Count()>1 ? MRG_FATE_CHAIN : MRG_FATE_SET;
 						mergeReportEvent(refname.chars(),pred[m]->strand,pred[m]->start,pred[m]->end,
 							"reject","duplicate_structure","",-1,"","",pred[m]->merge_files.Count(),"structure already emitted");
 						m++;
@@ -21186,6 +21288,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 					}
 					mergeOutputAdd(refname.chars(),pred[m]->start,pred[m]->end,pred[m]->strand,bundleData->start,
 						geneno-geneno0,t,guide ? guide->getID() : NULL,recoff);
+					fate[m]=pred[m]->exons.Count()>1 ? MRG_FATE_CHAIN : MRG_FATE_SET;
 					keep[m]=false; // no need to print it again
 				} // end if keep[m]
 				m++;
@@ -21193,6 +21296,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 		} // end if keep[n]
 		n++;
 	}
+	if(!mergeOptions.report_file.is_empty()) merge_tally_fates(bundleData,pred,fate,fateof,chains);
 	return(geneno);
 }
 

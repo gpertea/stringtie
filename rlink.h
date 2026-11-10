@@ -96,6 +96,8 @@ void mergeReportEvent(const char* refseq, char strand, uint start, uint end,
 		const char* event, const char* reason, const char* transcript_id,
 		int fileidx, const char* guide_ids, const char* gene_ids, int support,
 		const char* details);
+// --report: add n input records to a final fate (no-op without --report)
+void mergeFateAdd(const char* fate,int n);
 GffObj* findMergeGuideStructure(const char* refseq,char strand,GVec<GSeg>& exons);
 GStr findMergeGuideAliases(const char* refseq,char strand,GVec<GSeg>& exons);
 // --merge output records go to a temporary file and are copied to the output sorted by

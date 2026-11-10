@@ -426,6 +426,40 @@ The merged GTF records `merge_support` (files with evidence for the transcript),
 within the slop), locus support, `reference_id`, `class_code`, and optional
 `merge_contained_support` and `reference_aliases`.
 
+The report header also accounts for every input record. `# input_records` is
+the number of transcripts read from the input files, and each `# fate` line
+counts the records that ended one way; the fates sum to the total, and
+`# fate unaccounted` is the remainder (0 when every record is explained).
+
+```text
+Fate                      Meaning
+------------------------  -------------------------------------------------
+emitted_chain             Multi-exon; its intron chain is an output
+                          transcript (a reference transcript included).
+emitted_set               Single-exon; an output single-exon transcript
+                          represents it.
+contained_fragment        Chain absorbed by a containing transcript (the
+retained_intron_fragment  `records=` values of the `absorb` rows).
+contained_set             Single-exon, inside an exon of an output
+                          multi-exon transcript.
+set_exon_overlap          Single-exon, overlapping such an exon partly.
+minimum_support           Below `--min-support`.
+abundance_filter          Failed `-c`/`-F`/`-T`/`-f` and was not rescued.
+cross_gene_bridge         Rejected by the reference gene or coding
+coding_transcript_bridge  transcript barrier.
+direct_path_support       Rejected by `--path-mode`.
+piece_support
+guide_extension_cap       Variant of a reference transcript rejected by
+guide_policy_reference    `--max-extension-*` or `--guide-policy`.
+guide_policy_best
+min_length                Shorter than `-m`.
+excluded_reference        On a reference excluded with `-x`.
+```
+
+Multi-exon records are followed through the decision taken for their intron
+chain. Stranded single-exon records are classified by the output transcript
+that covers them, because the splice graph joins them before any decision.
+
 Output order and IDs. Transcripts are written sorted by reference, start and
 end, each followed by its exons. References appear in the order in which the
 input files list them (first file first), followed by references that only the

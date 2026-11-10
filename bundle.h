@@ -136,9 +136,10 @@ struct TAlnInfo {
 	uint cds_start;
 	uint cds_end;
 	bool qpass; //passes explicitly requested merge abundance filters
+	bool mpass; //still a merge input after the per-record filters (--report fate tally)
 	int g;
 	TAlnInfo(const char* rname=NULL, int fidx=0):name(rname), fileidx(fidx),
-			cov(-1),fpkm(-1),tpm(-1),cds_start(0),cds_end(0),qpass(true),g(-1) { }
+			cov(-1),fpkm(-1),tpm(-1),cds_start(0),cds_end(0),qpass(true),mpass(true),g(-1) { }
 };
 
 // # 0: strand; 1: start; 2: end; 3: nreads; 4: nreads_good;

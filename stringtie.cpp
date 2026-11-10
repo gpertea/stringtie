@@ -319,6 +319,10 @@ struct CMergeReportEvent {
 };
 
 GPVec<CMergeReportEvent> mergeReportEvents(true);
+// --report reconciliation: every input record gets one final fate
+GHash<int> mergeFateCounts(false);
+GVec<GStr> mergeFateNames;
+int64 mergeInputRecords=0; // main thread only
 GHash<GffObj*> mergeGuideStructures(false);
 GHash<GStr*> mergeGuideAliases(true);
 
@@ -502,6 +506,20 @@ void mergeReportEvent(const char* refseq, char strand, uint start, uint end,
 			transcript_id,fileidx,guide_ids,gene_ids,support,details));
 }
 
+void mergeFateAdd(const char* fate,int n) {
+	if(mergeOptions.report_file.is_empty() || n<=0) return;
+#ifndef NOTHREADS
+	GLockGuard<GFastMutex> lock(mergeReportMutex);
+#endif
+	int* count=mergeFateCounts.Find(fate);
+	if(count) (*count)+=n;
+	else {
+		mergeFateCounts.Add(fate,n);
+		GStr name(fate);
+		mergeFateNames.Add(name);
+	}
+}
+
 void writeMergeReport() {
 	if(mergeOptions.report_file.is_empty()) return;
 	FILE* fout=fopen(mergeOptions.report_file.chars(),"w");
@@ -519,8 +537,18 @@ void writeMergeReport() {
 		}
 	}
 	reasons.Sort();
-	fprintf(fout,"# StringTie --merge report\n# min_support\t%d\n# events\t%d\n",
-		mergeOptions.min_support,mergeReportEvents.Count());
+	fprintf(fout,"# StringTie --merge report\n# min_support\t%d\n",mergeOptions.min_support);
+	// one final fate per input record; "unaccounted" is what the fates do not explain
+	fprintf(fout,"# input_records\t%lld\n",(long long)mergeInputRecords);
+	mergeFateNames.Sort();
+	int64 explained=0;
+	for(int i=0;i<mergeFateNames.Count();i++) {
+		int count=*mergeFateCounts.Find(mergeFateNames[i].chars());
+		explained+=count;
+		fprintf(fout,"# fate\t%s\t%d\n",mergeFateNames[i].chars(),count);
+	}
+	fprintf(fout,"# fate\tunaccounted\t%lld\n",(long long)(mergeInputRecords-explained));
+	fprintf(fout,"# events\t%d\n",mergeReportEvents.Count());
 	for(int i=0;i<reasons.Count();i++)
 		fprintf(fout,"# reason\t%s\t%d\n",reasons[i].chars(),*reasonCounts.Find(reasons[i].chars()));
 	fprintf(fout,"reference\tstrand\tstart\tend\tevent\treason\ttranscript_id\tinput_file\tguide_ids\tgene_ids\tsupport\tdetails\n");
@@ -814,8 +842,10 @@ if (ballgown)
 	 bool new_bundle=false;
 	 //delete brec;
 	 if ((brec=bamreader.next())!=NULL) {
+		 if (mergeMode) mergeInputRecords++;
 		 if (brec->isUnmapped()) continue;
 		 if (brec->start<1 || brec->mapped_len<10) {
+			 if (mergeMode) mergeFateAdd("min_length",1);
 			 if (verbose) GMessage("Warning: invalid mapping found for read %s (position=%d, mapped length=%d)\n",
 					 brec->name(), brec->start, brec->mapped_len);
 			 continue;
@@ -875,7 +905,10 @@ if (ballgown)
 		 if (pos<prev_pos) GError("%s\nread %s (start %d) found at position %d on %s when prev_pos=%d\n",
 		       ERR_BAM_SORT, brec->name(), brec->start,  pos, refseqName, prev_pos);
 		 prev_pos=pos;
-		 if (skipGseq) continue;
+		 if (skipGseq) {
+			 if (mergeMode) mergeFateAdd("excluded_reference",1);
+			 continue;
+		 }
 		 alncounts[gseq_id]++;
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
