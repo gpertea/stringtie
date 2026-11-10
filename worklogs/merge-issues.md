@@ -246,7 +246,8 @@ support. The default path policy requires one exact shared intron, applies
 independent biological 5-prime/3-prime extension evidence, rejects guide-gene
 and coding-transcript bridges, and preserves every `-G` structure and ID.
 
-The complete issue #247 dataset was rerun with all 20 input GTFs:
+The complete issue #247 dataset was rerun with all 20 input GTFs (figures
+for version 3.0.4):
 
 ```text
 Metric                                      New default
@@ -254,7 +255,8 @@ Metric                                      New default
 Reference transcripts                            26,059
 Missing reference IDs                                 0
 Changed reference structures                          0
-Output transcripts                              144,781
+Output transcripts (--min-support 2, default)    70,972
+Output transcripts (--min-support 1)            193,102
 Duplicate transcript IDs                              0
 Duplicate generated structures                        0
 Duplicate guide-structure groups                      21

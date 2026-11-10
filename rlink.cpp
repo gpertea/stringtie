@@ -21089,8 +21089,12 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 	merge_assign_genes(pred,keep);
 
 	int n=0;
+	int geneno0=geneno;
+	FILE* fm=f_mergetmp;
 	GHash<bool> outputIds(false);
-	// register structures and IDs globally so no generated record is emitted twice
+	GHash<bool> generated(false); // generated structures of this bundle; a structure cannot recur in another bundle
+	GStr skey("",128);
+	// register structures and IDs so no generated record is emitted twice
 	while(n<npred) {
 		if(keep[n]){
 			uint currentend=pred[n]->end;
@@ -21098,7 +21102,15 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 			int m=n;
 			while(m<npred && pred[m]->start<=currentend) {
 				if(keep[m] && pred[m]->geneno ==pred[n]->geneno) { // this is a prediction worth printing
-					if(!pred[m]->t_eq && !registerMergeGeneratedStructure(refname.chars(),pred[m]->strand,pred[m]->exons)) {
+					bool dupstruct=false;
+					if(!pred[m]->t_eq) {
+						skey.clear();
+						skey+=pred[m]->strand;
+						for(int j=0;j<pred[m]->exons.Count();j++) skey.appendfmt("|%u-%u",pred[m]->exons[j].start,pred[m]->exons[j].end);
+						if(generated.Find(skey.chars())) dupstruct=true;
+						else generated.Add(skey.chars(),true);
+					}
+					if(dupstruct) {
 						keep[m]=false;
 						mergeReportEvent(refname.chars(),pred[m]->strand,pred[m]->start,pred[m]->end,
 							"reject","duplicate_structure","",-1,"","",pred[m]->merge_files.Count(),"structure already emitted");
@@ -21111,66 +21123,69 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 					GStr trid("", 64);
 					if(pred[m]->t_eq) trid=pred[m]->t_eq->getID();
 					else {
-						trid=label+'.';
-						trid+=geneno;
+						trid+=(char)MERGE_GENE_MARK; // the gene ID is filled in when the sorted output is written
 						trid+='.';
 						trid+=t;
 					}
-					if(outputIds.Find(trid.chars())) {
+					// generated IDs are unique by construction; a guide must not be emitted twice
+					if(pred[m]->t_eq && outputIds.Find(trid.chars())) {
 						mergeReportEvent(refname.chars(),pred[m]->strand,pred[m]->start,pred[m]->end,
 							"reject","duplicate_transcript_id",trid.chars(),-1,"","",pred[m]->merge_files.Count(),"ID already emitted");
 						keep[m]=false;
 						m++;
 						continue;
 					}
-					outputIds.Add(trid.chars(),true);
-					fprintf(f_out,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s\"; ",
-						refname.chars(),pred[m]->start,pred[m]->end,pred[m]->strand,label.chars(),geneno,
+					if(pred[m]->t_eq) outputIds.Add(trid.chars(),true);
+					int64 recoff=ftello(fm);
+					fprintf(fm,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%c\"; transcript_id \"%s\"; ",
+						refname.chars(),pred[m]->start,pred[m]->end,pred[m]->strand,MERGE_GENE_MARK,
 						trid.chars());
           GffObj* guide = NULL;
 					if(pred[m]->t_eq) {
-						//fprintf(f_out,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
+						//fprintf(fm,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
 					  guide = pred[m]->t_eq;
 					  if (!isNascent(guide) && getGuideStatus(guide) < GBST_ALL_INTR_COV) {
                setGuideStatus(guide, GBST_STORED);
             }
 						if (guide->getGeneName())
-							fprintf(f_out,"gene_name \"%s\"; ",guide->getGeneName());
+							fprintf(fm,"gene_name \"%s\"; ",guide->getGeneName());
 						if (guide->getGeneID())
-							fprintf(f_out,"ref_gene_id \"%s\"; ",guide->getGeneID());
+							fprintf(fm,"ref_gene_id \"%s\"; ",guide->getGeneID());
 					}
 
-					if(includecov) fprintf(f_out,"cov \"%g\"; ",pred[m]->cov);
-					fprintf(f_out,"merge_support \"%d\"; merge_path_support \"%d\"; merge_piece_support \"%d\"; ",
+					if(includecov) fprintf(fm,"cov \"%g\"; ",pred[m]->cov);
+					fprintf(fm,"merge_support \"%d\"; merge_path_support \"%d\"; merge_piece_support \"%d\"; ",
 						pred[m]->merge_files.Count(),pred[m]->merge_path_support,pred[m]->merge_piece_support);
-					fprintf(f_out,"merge_5p_support \"%d\"; merge_3p_support \"%d\"; merge_locus_support \"%d\"; ",
+					fprintf(fm,"merge_5p_support \"%d\"; merge_3p_support \"%d\"; merge_locus_support \"%d\"; ",
 						pred[m]->merge_5p_support,pred[m]->merge_3p_support,pred[m]->merge_locus_support);
 					double frac5=pred[m]->merge_files.Count() ? double(pred[m]->merge_5p_support)/pred[m]->merge_files.Count() : 0;
 					double frac3=pred[m]->merge_files.Count() ? double(pred[m]->merge_3p_support)/pred[m]->merge_files.Count() : 0;
-					fprintf(f_out,"merge_5p_fraction \"%.3f\"; merge_3p_fraction \"%.3f\"; ",frac5,frac3);
+					fprintf(fm,"merge_5p_fraction \"%.3f\"; merge_3p_fraction \"%.3f\"; ",frac5,frac3);
 					if(pred[m]->merge_contained_files.Count())
-						fprintf(f_out,"merge_contained_support \"%d\"; ",pred[m]->merge_contained_files.Count());
-					if(pred[m]->merge_ref) fprintf(f_out,"reference_id \"%s\"; ",pred[m]->merge_ref->getID());
-					if(pred[m]->merge_class) fprintf(f_out,"class_code \"%c\"; ",pred[m]->merge_class);
+						fprintf(fm,"merge_contained_support \"%d\"; ",pred[m]->merge_contained_files.Count());
+					if(pred[m]->merge_ref) fprintf(fm,"reference_id \"%s\"; ",pred[m]->merge_ref->getID());
+					if(pred[m]->merge_class) fprintf(fm,"class_code \"%c\"; ",pred[m]->merge_class);
 					if(!pred[m]->merge_ref_aliases.is_empty())
-						fprintf(f_out,"reference_aliases \"%s\"; ",pred[m]->merge_ref_aliases.chars());
+						fprintf(fm,"reference_aliases \"%s\"; ",pred[m]->merge_ref_aliases.chars());
 
-					if(enableNames) fprintf(f_out,"input_transcripts \"%s\";\n",pred[m]->mergename.chars());
-					else fprintf(f_out,"\n");
+					if(enableNames) fprintf(fm,"input_transcripts \"%s\";\n",pred[m]->mergename.chars());
+					else fprintf(fm,"\n");
 
 					for(int j=0;j<pred[m]->exons.Count();j++) {
-						fprintf(f_out,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%s.%d\"; transcript_id \"%s\"; exon_number \"%d\"; ",
-							refname.chars(),pred[m]->exons[j].start,pred[m]->exons[j].end,pred[m]->strand,label.chars(),geneno,
+						fprintf(fm,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%c\"; transcript_id \"%s\"; exon_number \"%d\"; ",
+							refname.chars(),pred[m]->exons[j].start,pred[m]->exons[j].end,pred[m]->strand,MERGE_GENE_MARK,
 							trid.chars(),j+1);
 						if(guide) {
-							//fprintf(f_out,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
+							//fprintf(fm,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
 							if (guide->getGeneName())
-								fprintf(f_out,"gene_name \"%s\"; ",guide->getGeneName());
+								fprintf(fm,"gene_name \"%s\"; ",guide->getGeneName());
 							if (guide->getGeneID())
-								fprintf(f_out,"ref_gene_id \"%s\"; ",guide->getGeneID());
+								fprintf(fm,"ref_gene_id \"%s\"; ",guide->getGeneID());
 						}
-						fprintf(f_out,"\n");
+						fprintf(fm,"\n");
 					}
+					mergeOutputAdd(refname.chars(),pred[m]->start,pred[m]->end,pred[m]->strand,bundleData->start,
+						geneno-geneno0,t,guide ? guide->getID() : NULL,recoff);
 					keep[m]=false; // no need to print it again
 				} // end if keep[m]
 				m++;

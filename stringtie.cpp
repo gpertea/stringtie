@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "3.0.3"
+#define VERSION "3.0.4"
 
 //#define DEBUGPRINT 1
 
@@ -321,7 +321,44 @@ struct CMergeReportEvent {
 GPVec<CMergeReportEvent> mergeReportEvents(true);
 GHash<GffObj*> mergeGuideStructures(false);
 GHash<GStr*> mergeGuideAliases(true);
-GHash<bool> mergeGeneratedStructures(false);
+
+// --merge output: records are written to a temporary file as bundles finish, then copied to
+// the output sorted by reference (in order of first appearance in the inputs), start and end.
+// Generated gene numbers are assigned in that order, so IDs do not depend on thread timing.
+FILE* f_mergetmp=NULL;
+GStr mergeTmpName;
+struct CMergeOutRec {
+	int refidx;
+	uint start;
+	uint end;
+	char strand;
+	uint bstart; // start of the bundle
+	int lgene; // gene number within the bundle; -1: the record carries its own gene ID
+	int tnum; // transcript number within the gene
+	GStr id; // guide ID; empty for a generated transcript
+	int64 offset;
+	int len;
+	CMergeOutRec(int r,uint s,uint e,char st,uint bs,int lg,int tn,const char* gid,int64 off,int l):
+		refidx(r),start(s),end(e),strand(st),bstart(bs),lgene(lg),tnum(tn),id(gid),offset(off),len(l) { }
+	bool operator<(CMergeOutRec& o) {
+		if(refidx!=o.refidx) return refidx<o.refidx;
+		if(start!=o.start) return start<o.start;
+		if(end!=o.end) return end<o.end;
+		if(strand!=o.strand) return strand<o.strand;
+		int c=strcmp(id.chars(),o.id.chars());
+		if(c) return c<0;
+		if(bstart!=o.bstart) return bstart<o.bstart;
+		if(lgene!=o.lgene) return lgene<o.lgene;
+		return tnum<o.tnum;
+	}
+	bool operator==(CMergeOutRec& o) {
+		return refidx==o.refidx && start==o.start && end==o.end && strand==o.strand &&
+			id==o.id && bstart==o.bstart && lgene==o.lgene && tnum==o.tnum;
+	}
+};
+GPVec<CMergeOutRec> mergeOutRecs(true);
+GHash<int> mergeRefOrder(false); // output rank of each reference: order of first appearance in the inputs
+GHash<bool> mergeReservedGeneNo(false); // gene numbers that guide IDs of the form <label>.N[.M] use
 
 static GStr mergeStructureKey(const char* refseq,char strand,GVec<GSeg>& exons) {
 	GStr key("",128);
@@ -367,11 +404,90 @@ GStr findMergeGuideAliases(const char* refseq,char strand,GVec<GSeg>& exons) {
 	return aliases ? *aliases : GStr();
 }
 
-bool registerMergeGeneratedStructure(const char* refseq,char strand,GVec<GSeg>& exons) {
-	GStr key=mergeStructureKey(refseq,strand,exons);
-	if(mergeGeneratedStructures.Find(key.chars())) return false;
-	mergeGeneratedStructures.Add(key.chars(),true);
-	return true;
+// a guide transcript or gene named like a generated ID (<label>.N or <label>.N.M) reserves N
+static void reserveMergeGeneNo(const char* id) {
+	if(id==NULL) return;
+	int ll=label.length();
+	if(strncmp(id,label.chars(),ll)!=0 || id[ll]!='.') return;
+	const char* p=id+ll+1;
+	const char* q=p;
+	while(*q>='0' && *q<='9') q++;
+	if(q==p || (*q!=0 && *q!='.')) return;
+	GStr num("",16);
+	for(const char* c=p;c<q;c++) num+=*c;
+	if(!mergeReservedGeneNo.Find(num.chars())) mergeReservedGeneNo.Add(num.chars(),true);
+}
+
+// rank of a reference in the output; a new name is ranked after the known ones. Input files
+// register their references in file order before any bundle is processed, so references that
+// only the guides have follow them. Not thread-safe: callers hold printMutex or run alone.
+int mergeRefIndex(const char* refseq) {
+	int* found=mergeRefOrder.Find(refseq);
+	if(found) return *found;
+	int idx=mergeRefOrder.Count();
+	mergeRefOrder.Add(refseq,idx);
+	return idx;
+}
+
+// called with printMutex held, or from the main thread after all bundles are done
+void mergeOutputAdd(const char* refseq,uint start,uint end,char strand,uint bstart,int lgene,
+		int tnum,const char* guide_id,int64 offset) {
+	int refidx=mergeRefIndex(refseq);
+	int64 pos=ftello(f_mergetmp);
+	mergeOutRecs.Add(new CMergeOutRec(refidx,start,end,strand,bstart,lgene,tnum,
+			guide_id ? guide_id : "",offset,(int)(pos-offset)));
+}
+
+void writeMergeOutput() {
+	if(f_mergetmp==NULL) return;
+	if(fclose(f_mergetmp)) GError("Error writing temporary file %s\n",mergeTmpName.chars());
+	f_mergetmp=NULL;
+	FILE* fin=fopen(mergeTmpName.chars(),"r");
+	if(fin==NULL) GError("Error opening temporary file %s\n",mergeTmpName.chars());
+	mergeOutRecs.Sort();
+	GHash<int> genenums(false);
+	GStr key("",64);
+	int geneno=0;
+	int buflen=4096;
+	char* buf=NULL;
+	GMALLOC(buf,buflen);
+	for(int i=0;i<mergeOutRecs.Count();i++) {
+		CMergeOutRec& r=*mergeOutRecs[i];
+		int gno=0;
+		if(r.lgene>=0) {
+			key.format("%d|%u|%d",r.refidx,r.bstart,r.lgene);
+			int* found=genenums.Find(key.chars());
+			if(found) gno=*found;
+			else {
+				GStr num;
+				do {
+					geneno++;
+					num.format("%d",geneno);
+				} while(mergeReservedGeneNo.Find(num.chars()));
+				gno=geneno;
+				genenums.Add(key.chars(),gno);
+			}
+		}
+		if(r.len+1>buflen) {
+			buflen=r.len+1;
+			GREALLOC(buf,buflen);
+		}
+		if(fseeko(fin,r.offset,SEEK_SET)!=0 || fread(buf,1,r.len,fin)!=(size_t)r.len)
+			GError("Error reading temporary file %s\n",mergeTmpName.chars());
+		buf[r.len]=0;
+		char* p=buf;
+		char* q;
+		while((q=strchr(p,MERGE_GENE_MARK))!=NULL) {
+			fwrite(p,1,q-p,f_out);
+			fprintf(f_out,"%s.%d",label.chars(),gno);
+			p=q+1;
+		}
+		fputs(p,f_out);
+	}
+	GFREE(buf);
+	fclose(fin);
+	mergeOutRecs.Clear();
+	if(!keepTempFiles) remove(mergeTmpName.chars());
 }
 
 void mergeReportEvent(const char* refseq, char strand, uint start, uint end,
@@ -568,7 +684,11 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		    			m->getFeatureName(), m->getID(), m->start, m->end);
 		    m->addExon(m->start, m->end); //should never happen!
 	   }
-	   if(mergeMode) registerMergeGuide(m);
+	   if(mergeMode) {
+		   registerMergeGuide(m);
+		   reserveMergeGeneNo(m->getID());
+		   reserveMergeGeneNo(m->getGeneID());
+	   }
 	   //DONE: always create a RC_TData for each guide in uptr, with additional tx data
 	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
 	   m->uptr=tdata;
@@ -1045,9 +1165,12 @@ if (ballgown)
  fclose(dbg_out);
 #endif
  if (mergeMode && guided )
-	 writeUnbundledGuides(refguides, f_out);
+	 writeUnbundledGuides(refguides, f_mergetmp);
 
- if (mergeMode) writeMergeReport();
+ if (mergeMode) {
+	 writeMergeOutput();
+	 writeMergeReport();
+ }
 
 
  // clear refpts data, if loaded
@@ -1649,6 +1772,9 @@ void processOptions(GArgs& args) {
 		 fprintf(f_out,"# ");
 		 args.printCmdLine(f_out);
 		 fprintf(f_out,"# StringTie version %s\n",VERSION);
+		 mergeTmpName=tmp_path+"merge_out.gtf";
+		 f_mergetmp=fopen(mergeTmpName.chars(), "w");
+		 if (f_mergetmp==NULL) GError("Error creating temporary file %s\n", mergeTmpName.chars());
 	 }
 	 else {
 		 tmpfname+=".tmp";
@@ -1979,13 +2105,6 @@ void writeUnbundledGenes(GHash<CGene*>& geneabs, const char* refseq, FILE* gout)
 	geneabs.Clear();
 }
 
-static bool sameGuideStructure(GffObj& a,GffObj& b) {
-	if(a.strand!=b.strand || a.exons.Count()!=b.exons.Count()) return false;
-	for(int i=0;i<a.exons.Count();i++)
-		if(a.exons[i]->start!=b.exons[i]->start || a.exons[i]->end!=b.exons[i]->end) return false;
-	return true;
-}
-
 void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
  for (int g=0;g<refdata.Count();++g) {
 	 GRefData& crefd=refdata[g];
@@ -1996,23 +2115,15 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 		 GffObj &t = *crefd.rnas[m];
 		 GStr aliases;
 		 if(mergeMode && mergeOptions.dedup_guides && getGuideStatus(&t)<GBST_ALL_INTR_COV) {
-			 GffObj* canonical=&t;
-			 for(int d=0;d<crefd.rnas.Count();d++) {
-				 GffObj* other=crefd.rnas[d];
-				 if(sameGuideStructure(t,*other) &&
-						strcmp(other->getID(),canonical->getID())<0) canonical=other;
-			 }
-			 if(canonical!=&t) {
+			 // registerMergeGuide() recorded the canonical guide and the aliases of each structure
+			 GVec<GSeg> texons;
+			 for(int e=0;e<t.exons.Count();e++) texons.Add(*t.exons[e]);
+			 GffObj* canonical=findMergeGuideStructure(crefd.gseq_name,t.strand,texons);
+			 if(canonical && canonical!=&t) {
 				 setGuideStatus(&t,GBST_STORED);
 				 continue;
 			 }
-			 for(int d=0;d<crefd.rnas.Count();d++) {
-				 GffObj* other=crefd.rnas[d];
-				 if(other!=&t && sameGuideStructure(t,*other)) {
-					 if(!aliases.is_empty()) aliases+=',';
-					 aliases+=other->getID();
-				 }
-			 }
+			 aliases=findMergeGuideAliases(crefd.gseq_name,t.strand,texons);
 		 }
 		 //RC_TData &td = *(RC_TData*) (t.uptr);
 		 //if (td.in_bundle) {
@@ -2026,6 +2137,7 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 		 //write these guides to output
 		 //for --merge and -e
 		 if (mergeMode || eonly) {
+			  int64 recoff=mergeMode ? ftello(fout) : 0;
 			  fprintf(fout, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",
 					  crefd.gseq_name, t.getTrackName(), t.start, t.end, t.strand);
 			  if (t.getGeneID())
@@ -2063,6 +2175,8 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 				  }
 				  fprintf(fout, "\n");
 			  }
+			  if (mergeMode)
+				  mergeOutputAdd(crefd.gseq_name,t.start,t.end,t.strand,t.start,-1,0,t.getID(),recoff);
 		 }
 		 if (gout!=NULL) {
 			 //gather coords for this gene_id

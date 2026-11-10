@@ -508,6 +508,10 @@ for r in chr1 fxG fxQ; do
   test "$(tx_chains $t/P1.gtf $r + | cut -f1 | sort)" = "$(tx_chains $t/P4.gtf $r + | cut -f1 | sort)"
 done
 cmp -s $t/P1.tsv $t/P4.tsv
+## the output itself, IDs included, does not depend on the number of threads
+grep -v '^#' $t/P1.gtf > $t/P1.body
+grep -v '^#' $t/P4.gtf > $t/P4.body
+cmp -s $t/P1.body $t/P4.body
 
 ## regression fixtures from the second code review
 ## unstranded pass-through with a guide in the bundle (the read list is re-sorted)
@@ -546,6 +550,28 @@ mkgtf $t/r3b.gtf in "fxR3 + r3b 900-2100"
 fx R3 -G $t/r3g.gtf $t/r3a.gtf $t/r3b.gtf
 test "$(tx_count $t/R3.gtf fxR3)" -eq 1
 need_chain $t/R3.gtf fxR3 + 1000-2000 merge_support 2
+
+## O: output order. References keep the order of the input files (not alphabetical), then
+## guide-only references; transcripts are sorted by start, a guide without input support is
+## written in place and not appended at the end.
+mkgtf $t/o1.gtf in "chr2 + o1 5000-5100,6000-6300" "chr10 + o2 1000-1100,2000-2300" "chr10 - o5 1500-1900"
+mkgtf $t/o2.gtf in "chr10 + o3 8000-8100,9000-9300" "chr1 + o4 1000-1100,2000-2300"
+mkgtf $t/og.gtf ref "chr10 + guideO1 4000-4100,5000-5300" "chrZ + guideO2 100-200,300-400" "chr2 + guideO3 100-200,300-400"
+fx O -G $t/og.gtf $t/o1.gtf $t/o2.gtf
+test "$(awk -F'\t' '$3=="transcript" {printf "%s:%s ",$1,$4}' $t/O.gtf)" = \
+  "chr2:100 chr2:5000 chr10:1000 chr10:1500 chr10:4000 chr10:8000 chr1:1000 chrZ:100 "
+fx O4 -p 4 -G $t/og.gtf $t/o1.gtf $t/o2.gtf
+test "$(grep -v '^#' $t/O.gtf)" = "$(grep -v '^#' $t/O4.gtf)"
+
+## C: a guide named like a generated ID does not collide with one. Guide transcript MSTRG.1.1
+## and guide gene MSTRG.2 reserve gene numbers 1 and 2.
+mkgtf $t/cg.gtf ref "fxC + MSTRG.1.1 1000-1100,2000-2300"
+awk -F'\t' -v OFS='\t' '{sub(/gene_id "[^"]*"/,"gene_id \"MSTRG.2\"",$9); print}' $t/cg.gtf > $t/cg2.gtf
+mkgtf $t/c1.gtf in "fxC + c1 11000-11100,12000-12300" "fxC + c2 21000-21100,22000-22300"
+fx C -G $t/cg2.gtf $t/c1.gtf
+ids=$(awk -F'\t' '$3=="transcript" {id=$9; sub(/.*transcript_id "/,"",id); sub(/".*/,"",id); print id}' $t/C.gtf)
+test "$(printf '%s\n' "$ids" | sort | tr '\n' ' ')" = "MSTRG.1.1 MSTRG.3.1 MSTRG.4.1 "
+test "$(awk -F'\t' '$3=="transcript" && $9 ~ /gene_id "MSTRG.2"/' $t/C.gtf | wc -l)" -eq 1
 
 if test -n "${known_failures:-}"; then
   printf '%s\n' "merge policy test: known failures:$known_failures"

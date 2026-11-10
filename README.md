@@ -217,7 +217,42 @@ stringtie --merge [options] -o merged.gtf sample1.gtf sample2.gtf
 
 The default merge is structure-driven: `-F`, `-T`, and `-f` are all zero, and
 TPM/FPKM values are not pooled across samples as path weights. Each input file
-contributes at most one vote to an exact structure or path component.
+contributes at most one vote to an intron chain, however many of its
+transcripts carry that chain.
+
+### Changes in merge mode since version 3.0.3
+
+Version 3.0.4 changes what `--merge` writes with default settings. No set of
+options reproduces the 3.0.3 output exactly; the table lists what changed and
+the closest way back.
+
+```text
+Change                                      Closest to the 3.0.3 behavior
+------------------------------------------  ------------------------------------
+Input abundance filters are off             -F 1 -T 1 -f 0.01
+An intron chain needs 2 input files when    --min-support 1
+4 or more files are merged
+Every observed intron chain is kept unless  none; 3.0.3 kept only the paths its
+a better supported transcript contains it   splice graph assembled
+Paths are joined only through a shared      --min-introns 0
+intron, not through single-exon overlap
+A transcript end needs 2 files; a longer    --min-support-5p 1 --min-support-3p 1
+single-file end is trimmed
+Reference transcripts given with -G are     none; 3.0.3 could move their ends
+written with their exact structure
+Fusions of reference genes and bridges      --allow-fusions --allow-cds-bridges
+between coding transcripts are rejected
+Unstranded multi-exon inputs are passed     none; 3.0.3 dropped them
+through
+Output is sorted by position; references    none
+keep the order of the input files
+Generated IDs are assigned in output order  none
+and do not depend on -p
+```
+
+The merged GTF also carries new attributes (`merge_support` and related fields,
+`class_code`, `reference_id`), described under "Merge report and output
+evidence".
 
 ### General merge options
 
@@ -390,6 +425,14 @@ The merged GTF records `merge_support` (files with evidence for the transcript),
 `merge_5p_support` and `merge_3p_support` (files reaching the emitted end
 within the slop), locus support, `reference_id`, `class_code`, and optional
 `merge_contained_support` and `reference_aliases`.
+
+Output order and IDs. Transcripts are written sorted by reference, start and
+end, each followed by its exons. References appear in the order in which the
+input files list them (first file first), followed by references that only the
+`-G` annotation has. A reference transcript without input support is written
+in place. Generated IDs (`<label>.<gene>.<n>`) are numbered in output order,
+so the output is identical for any `-p`. A gene number used by a reference ID
+of the form `<label>.<N>` or `<label>.<N>.<M>` is skipped.
 
 All long options in this section are valid only with `--merge`. See
 [MERGE_MODE.md](MERGE_MODE.md) for the implementation workflow, precise output

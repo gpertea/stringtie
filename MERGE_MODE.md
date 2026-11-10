@@ -336,3 +336,24 @@ code (`merge_transfrags()`) is unchanged; its output is reinterpreted.
 
 Because step 4 runs after step 3 and only considers retained containers, a
 rejected join cannot remove the observed chains it was built from.
+
+## Output order and IDs
+
+`printMergeResults()` and `writeUnbundledGuides()` do not write to the output
+file. Each transcript record (transcript line plus exon lines) goes to
+`<tmpdir>/merge_out.gtf` and `mergeOutputAdd()` keeps an index entry for it:
+reference rank, start, end, strand, guide ID, bundle start, gene and transcript
+number within the bundle, file offset and length. In the record text the
+generated gene ID is the single byte `MERGE_GENE_MARK`.
+
+`writeMergeOutput()` runs after all bundles and unbundled guides. It sorts the
+index, assigns gene numbers in sorted order (one per bundle-local gene,
+skipping numbers reserved by `reserveMergeGeneNo()` for guide IDs that look
+like generated IDs), and copies each record to the output with the mark
+replaced by `<label>.<gene>`. The result does not depend on the order in which
+worker threads finish bundles.
+
+Reference rank is the order of first appearance: `TInputFiles::convert2BAM()`
+registers the references of each input file in file order through
+`mergeRefIndex()`; references seen only in the guides are ranked when their
+unbundled guides are written.

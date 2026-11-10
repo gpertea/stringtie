@@ -33,6 +33,9 @@ GStr TInputFiles::convert2BAM(GStr& gtf, int idx) {
   gfr.readAll(true, false, true); //keep attributes and preserve the input exon structure
   if (gfr.gflst.Count()==0)
 	  GError("Error: no transcripts were found in input file %s\n", gtf.chars());
+  // the merged output lists references in the order the input files have them
+  for (int i=0;i<gfr.gseqtable.Count();++i)
+	  if (gfr.gseqtable[i]) mergeRefIndex(gfr.gseqtable[i]->gseqname);
   gfr.gseqStats.Sort(gseqstat_cmpName);
   for (int i=0;i<gfr.gseqStats.Count();++i) {
   	fprintf(samh, "@SQ\tSN:%s\tLN:%u\n", gfr.gseqStats[i]->gseqname,

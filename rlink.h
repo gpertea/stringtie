@@ -98,7 +98,13 @@ void mergeReportEvent(const char* refseq, char strand, uint start, uint end,
 		const char* details);
 GffObj* findMergeGuideStructure(const char* refseq,char strand,GVec<GSeg>& exons);
 GStr findMergeGuideAliases(const char* refseq,char strand,GVec<GSeg>& exons);
-bool registerMergeGeneratedStructure(const char* refseq,char strand,GVec<GSeg>& exons);
+// --merge output records go to a temporary file and are copied to the output sorted by
+// position; MERGE_GENE_MARK stands for the generated gene ID, which is assigned in that order
+#define MERGE_GENE_MARK '\x01'
+extern FILE* f_mergetmp;
+int mergeRefIndex(const char* refseq);
+void mergeOutputAdd(const char* refseq,uint start,uint end,char strand,uint bstart,int lgene,
+		int tnum,const char* guide_id,int64 offset);
 
 extern bool forceBAM; //for stdin alignment data
 
