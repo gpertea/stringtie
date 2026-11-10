@@ -44,6 +44,7 @@ arrmsg=("Short reads"  "Short reads and super-reads" "Short reads with annotatio
  "Long reads with annotation guides" "Mixed reads" "Mixed reads with annotation guides" \
  "Short reads with -N" "Short reads with --nasc")
 
+nfailed=0
 for i in ${!arrmsg[@]}; do
  fout="${arrout[$i]}.out.gtf"
  /bin/rm -f $fout
@@ -72,6 +73,10 @@ for i in ${!arrmsg[@]}; do
     echo "  OK."
  else
    echo "Error: test failed, output $fout different than expected ($fcmp)!"
-   #exit 1
+   nfailed=$((nfailed+1))
  fi
 done
+if [[ $nfailed -gt 0 ]]; then
+  echo "Error: $nfailed test(s) failed."
+  exit 1
+fi

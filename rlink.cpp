@@ -7576,7 +7576,7 @@ static bool merge_extension_allowed(int extension,int support,bool fivep,int ter
 	if(support>=required) return true;
 	int slop=fivep ? mergeOptions.slop_bp_5p : mergeOptions.slop_bp_3p;
 	double frac=fivep ? mergeOptions.slop_frac_5p : mergeOptions.slop_frac_3p;
-	return extension<=slop && extension<=frac*terminal_len;
+	return (slop<0 || extension<=slop) && extension<=frac*terminal_len;
 }
 
 static bool merge_prediction_extension_allowed(CPrediction* base,CPrediction* extension) {
@@ -16204,12 +16204,30 @@ static bool merge_file_in_reads(GList<CReadAln>& readlist,GVec<int>& reads,int f
 	return false;
 }
 
+// structure identity of a multi-exon input: strand plus ordered intron chain.
+// Outer ends are not part of the identity; they are judged by the endpoint policy.
 static GStr merge_read_key(CReadAln& rd) {
 	GStr key("",128);
 	key+=int(rd.strand);
-	for(int i=0;i<rd.segs.Count();i++)
-		key.appendfmt("|%u-%u",rd.segs[i].start,rd.segs[i].end);
+	for(int i=1;i<rd.segs.Count();i++)
+		key.appendfmt("|%u-%u",rd.segs[i-1].end,rd.segs[i].start);
 	return key;
+}
+
+// single-exon inputs support each other only by pairwise reciprocal overlap
+static bool merge_set_reads_agree(CReadAln& a,CReadAln& b) {
+	if(a.strand!=b.strand) return false;
+	uint s=a.start>b.start ? a.start : b.start;
+	uint e=a.end<b.end ? a.end : b.end;
+	if(e<s) return false;
+	double ov=double(e-s+1);
+	return ov>=mergeOptions.set_overlap*(a.end-a.start+1) && ov>=mergeOptions.set_overlap*(b.end-b.start+1);
+}
+
+static void merge_group_add_file(CMergeReadSupport* group,CReadAln& rd) {
+	int fileidx=rd.tinfo->fileidx;
+	if(!merge_has_int(group->files,fileidx)) group->files.Add(fileidx);
+	if(rd.tinfo->qpass && !merge_has_int(group->passfiles,fileidx)) group->passfiles.Add(fileidx);
 }
 
 static GStr merge_fraction_key(CReadAln& rd) {
@@ -16300,20 +16318,38 @@ static void filter_merge_inputs(BundleData* bdata) {
 	}
 
 	GHash<CMergeReadSupport*> groups(true);
-	// group exact exon structures and retain distinct file support, not read counts
+	GVec<int> sets; // single-exon inputs, one support group each
+	GPVec<CMergeReadSupport> setgroups(false);
+	bool sorted=true;
+	uint laststart=0;
+	// group intron chains and retain distinct file support, not read counts
 	for(int i=0;i<readlist.Count();i++) {
 		CReadAln& rd=*readlist[i];
 		if(!rd.nh) continue;
-		GStr key=merge_read_key(rd);
+		if(rd.start<laststart) sorted=false;
+		laststart=rd.start;
+		GStr key;
+		if(rd.segs.Count()>1) key=merge_read_key(rd);
+		else { key="S"; key+=i; }
 		CMergeReadSupport* group=groups.Find(key.chars());
 		if(!group) {
 			group=new CMergeReadSupport();
 			groups.Add(key.chars(),group);
 		}
 		group->reads.Add(i);
-		int fileidx=rd.tinfo->fileidx;
-		if(!merge_has_int(group->files,fileidx)) group->files.Add(fileidx);
-		if(rd.tinfo->qpass && !merge_has_int(group->passfiles,fileidx)) group->passfiles.Add(fileidx);
+		merge_group_add_file(group,rd);
+		if(rd.segs.Count()==1) { sets.Add(i); setgroups.Add(group); }
+	}
+	// SET support is pairwise, with no transitive closure over partial overlaps
+	for(int a=0;a<sets.Count();a++) {
+		CReadAln& ra=*readlist[sets[a]];
+		for(int b=a+1;b<sets.Count();b++) {
+			CReadAln& rb=*readlist[sets[b]];
+			if(rb.start>ra.end) { if(sorted) break; else continue; }
+			if(!merge_set_reads_agree(ra,rb)) continue;
+			merge_group_add_file(setgroups[a],rb);
+			merge_group_add_file(setgroups[b],ra);
+		}
 	}
 
 	groups.startIterate();
@@ -16400,6 +16436,41 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 
 	// Apply per-input filters only after distinct-file structural support is known.
 	filter_merge_inputs(bdata);
+
+	// unstranded inputs cannot be placed in a stranded splice graph: they bypass graph
+	// construction and are emitted unchanged (no exon splitting, no union of SETs)
+	// (pointers, not indices: adding guides re-sorts the read list)
+	GPVec<CReadAln> passreads(false);
+	bool passsorted=true;
+	for(int i=0;i<readlist.Count();i++) if(readlist[i]->nh && !readlist[i]->strand) {
+		if(passreads.Count() && readlist[i]->start<passreads.Last()->start) passsorted=false;
+		passreads.Add(readlist[i]);
+		readlist[i]->nh=0;
+	}
+
+	// record the observed stranded intron chains before reads are collapsed: each one is a
+	// candidate output whose ends are elected from per-file evidence
+	{
+		GHash<int> chainidx(false);
+		for(int i=0;i<readlist.Count();i++) {
+			CReadAln& rd=*readlist[i];
+			if(!rd.nh || !rd.strand || rd.segs.Count()<2) continue;
+			GStr key=merge_read_key(rd);
+			int* idx=chainidx.Find(key.chars());
+			CMergeChain* mc=NULL;
+			if(idx) mc=bdata->mergechains[*idx];
+			else {
+				mc=new CMergeChain(rd.strand<0 ? '-' : '+');
+				for(int e=1;e<rd.segs.Count();e++) {
+					GSeg intron(rd.segs[e-1].end,rd.segs[e].start);
+					mc->introns.Add(intron);
+				}
+				chainidx.Add(key.chars(),bdata->mergechains.Count());
+				bdata->mergechains.Add(mc);
+			}
+			mc->addRecord(rd.tinfo->fileidx,rd.start,rd.end);
+		}
+	}
 
 	if(guides.Count()) {
 		for(int i=0;i<guides.Count();i++) { // more guides left
@@ -16762,7 +16833,76 @@ int build_merge(BundleData* bdata) { // here a "read" is in fact a transcript
 	int geneno=0;
 
 
-    // ### store transcripts in unstranded bundles here; I can not have guides in here because those are signed
+	// ### unstranded inputs pass through: one prediction per intron chain or per SET
+	{
+		GHash<int> chains(false); // intron chain -> index in passpred
+		GPVec<CPrediction> passpred(false);
+		GVec<int> passset; // passreads positions of the SETs, parallel to setpred
+		GPVec<CPrediction> setpred(false);
+		uint maxend=0;
+		for(int i=0;i<passreads.Count();i++) {
+			CReadAln& rd=*passreads[i];
+			if(!maxend || rd.start>maxend) geneno++; // new unstranded locus
+			if(rd.end>maxend) maxend=rd.end;
+			int len=0;
+			for(int e=0;e<rd.segs.Count();e++) len+=rd.segs[e].len();
+			CPrediction* p=NULL;
+			if(rd.segs.Count()>1) {
+				GStr key=merge_read_key(rd);
+				int* idx=chains.Find(key.chars());
+				if(idx) {
+					p=passpred[*idx];
+					if(rd.end-rd.start>(uint)(p->end-p->start)) { // keep the longest observed record of the chain
+						p->start=rd.start; p->end=rd.end; p->tlen=len;
+						p->exons.Clear();
+						for(int e=0;e<rd.segs.Count();e++) p->exons.Add(rd.segs[e]);
+					}
+				}
+				else chains.Add(key.chars(),passpred.Count());
+			}
+			if(!p) {
+				p=new CPrediction(geneno-1, NULL, rd.start, rd.end, 1.0, '.', len);
+				for(int e=0;e<rd.segs.Count();e++) p->exons.Add(rd.segs[e]);
+				if(rd.segs.Count()>1) passpred.Add(p);
+				else { passset.Add(i); setpred.Add(p); }
+				pred.Add(p);
+			}
+			if(!merge_has_int(p->merge_files,rd.tinfo->fileidx)) p->merge_files.Add(rd.tinfo->fileidx);
+		}
+		// SET support is pairwise reciprocal overlap, as for stranded inputs
+		for(int a=0;a<passset.Count();a++) {
+			CReadAln& ra=*passreads[passset[a]];
+			for(int b=a+1;b<passset.Count();b++) {
+				CReadAln& rb=*passreads[passset[b]];
+				if(rb.start>ra.end) { if(passsorted) break; else continue; }
+				if(!merge_set_reads_agree(ra,rb)) continue;
+				if(!merge_has_int(setpred[a]->merge_files,rb.tinfo->fileidx)) setpred[a]->merge_files.Add(rb.tinfo->fileidx);
+				if(!merge_has_int(setpred[b]->merge_files,ra.tinfo->fileidx)) setpred[b]->merge_files.Add(ra.tinfo->fileidx);
+			}
+		}
+		for(int i=0;i<passreads.Count();i++) { // support values for the report and attributes
+			CPrediction* p=NULL;
+			CReadAln& rd=*passreads[i];
+			if(rd.segs.Count()>1) { int* idx=chains.Find(merge_read_key(rd).chars()); if(idx) p=passpred[*idx]; }
+			if(p) {
+				p->merge_files.Sort();
+				p->merge_path_support=p->merge_files.Count();
+				p->merge_piece_support=p->merge_files.Count();
+				p->merge_5p_support=p->merge_files.Count();
+				p->merge_3p_support=p->merge_files.Count();
+			}
+		}
+		for(int a=0;a<setpred.Count();a++) {
+			CPrediction* p=setpred[a];
+			p->merge_files.Sort();
+			p->merge_path_support=p->merge_files.Count();
+			p->merge_piece_support=p->merge_files.Count();
+			p->merge_5p_support=p->merge_files.Count();
+			p->merge_3p_support=p->merge_files.Count();
+		}
+	}
+
+    // ### legacy unstranded bundles; empty now that unstranded inputs pass through above
 	for(int b=0;b<bundle[1].Count();b++) {
 
     	if(bundle[1][b]->cov) {
@@ -20065,13 +20205,56 @@ static void merge_fill_prediction_support(CPrediction* p,GList<CReadAln>& readli
 	p->merge_3p_support=(p->strand=='-') ? startfiles.Count() : endfiles.Count();
 }
 
-static GffObj* merge_related_guide(CPrediction* p,GPVec<GffObj>& guides) {
+// a generated SET is supported by every file holding a SET that reciprocally overlaps it,
+// the same pairwise rule the input filter uses
+static void merge_credit_set_support(CPrediction* p,GList<CReadAln>& readlist) {
+	if(p->t_eq || p->exons.Count()!=1) return;
+	int strand=(p->strand=='-' ? -1 : p->strand=='+' ? 1 : 0);
+	bool added=false;
+	for(int i=0;i<readlist.Count();i++) {
+		CReadAln& rd=*readlist[i];
+		if(!rd.nh || rd.tinfo->g>-1 || rd.strand!=strand || rd.segs.Count()!=1) continue;
+		uint ps=(uint)p->start;
+		uint pe=(uint)p->end;
+		if(rd.end<ps || rd.start>pe) continue;
+		uint s=rd.start>ps ? rd.start : ps;
+		uint e=rd.end<pe ? rd.end : pe;
+		double ov=double(e-s+1);
+		if(ov<mergeOptions.set_overlap*(rd.end-rd.start+1) || ov<mergeOptions.set_overlap*(p->end-p->start+1)) continue;
+		if(!merge_has_int(p->merge_files,rd.tinfo->fileidx)) { p->merge_files.Add(rd.tinfo->fileidx); added=true; }
+		for(int j=0;j<rd.pair_idx.Count();j++) { // identical records collapsed into this one
+			int f=readlist[rd.pair_idx[j]]->tinfo->fileidx;
+			if(!merge_has_int(p->merge_files,f)) { p->merge_files.Add(f); added=true; }
+		}
+	}
+	if(added) {
+		p->merge_files.Sort();
+		p->merge_path_support=p->merge_files.Count();
+		p->merge_piece_support=p->merge_files.Count();
+	}
+}
+
+static int merge_guide_subchain_pos(CPrediction* p,GffObj* guide);
+static bool merge_extends_guide(CPrediction* p,GffObj* guide,int pos,GPVec<CMergeChain>& chains);
+
+// A generated prediction is a variant of a guide when it has the guide's intron chain, or a
+// contiguous part of it and extends a guide end beyond the guide slop. samechain reports which.
+static GffObj* merge_related_guide(CPrediction* p,GPVec<GffObj>& guides,bool& samechain,
+		GPVec<CMergeChain>& chains) {
 	GffObj* best=NULL;
+	samechain=false;
 	for(int i=0;i<guides.Count();i++) {
 		GffObj* guide=guides[i];
-		if(!merge_prediction_guide_chain(p,guide)) continue;
-		if(!(p->start<=guide->start && p->end>=guide->end) &&
+		bool same=merge_prediction_guide_chain(p,guide);
+		// single-exon models have no chain: they are related only when one span contains the other
+		if(same && p->exons.Count()==1 && !(p->start<=guide->start && p->end>=guide->end) &&
 				!(guide->start<=p->start && guide->end>=p->end)) continue;
+		if(!same) {
+			if(samechain) continue; // a same-chain guide takes precedence
+			int pos=merge_guide_subchain_pos(p,guide);
+			if(pos<0 || !merge_extends_guide(p,guide,pos,chains)) continue;
+		}
+		if(same && !samechain) { best=guide; samechain=true; continue; }
 		if(!best || strcmp(guide->getID(),best->getID())<0) best=guide;
 	}
 	return best;
@@ -20166,11 +20349,567 @@ static bool merge_generated_barriers(CPrediction* p,BundleData* bundleData,GStr&
 	return true;
 }
 
+// ---- observed chains first: candidates, end election, redundancy ----
+
+struct CMergeEvidence {
+	GHash<GVec<int>*> intronfiles; // intron -> distinct files
+	GHash<GVec<int>*> firstchains; // first intron -> chains starting with it
+	GHash<GVec<int>*> lastchains;  // last intron -> chains ending with it
+	GHash<int> chainidx;           // intron chain -> index in mergechains
+	CMergeEvidence():intronfiles(true),firstchains(true),lastchains(true),chainidx(false) {}
+};
+
+static void merge_intron_key(GStr& key,char strand,uint left,uint right) {
+	key.clear();
+	key+=strand;
+	key.appendfmt("|%u-%u",left,right);
+}
+
+static void merge_exons_chain_key(GStr& key,char strand,GVec<GSeg>& exons) {
+	key.clear();
+	key+=strand;
+	for(int i=1;i<exons.Count();i++) key.appendfmt("|%u-%u",exons[i-1].end,exons[i].start);
+}
+
+static void merge_hash_add(GHash<GVec<int>*>& h,const char* key,int value,bool unique) {
+	GVec<int>* found=h.Find(key);
+	GVec<int>* v=found;
+	if(!v) { v=new GVec<int>(); h.Add(key,v); }
+	if(!unique || !merge_has_int(*v,value)) v->Add(value);
+}
+
+static void merge_build_evidence(CMergeEvidence& ev,GPVec<CMergeChain>& chains) {
+	GStr key("",64);
+	for(int c=0;c<chains.Count();c++) {
+		CMergeChain* mc=chains[c];
+		for(int i=0;i<mc->introns.Count();i++) {
+			merge_intron_key(key,mc->strand,mc->introns[i].start,mc->introns[i].end);
+			for(int f=0;f<mc->files.Count();f++) merge_hash_add(ev.intronfiles,key.chars(),mc->files[f],true);
+		}
+		merge_intron_key(key,mc->strand,mc->introns[0].start,mc->introns[0].end);
+		merge_hash_add(ev.firstchains,key.chars(),c,false);
+		merge_intron_key(key,mc->strand,mc->introns.Last().start,mc->introns.Last().end);
+		merge_hash_add(ev.lastchains,key.chars(),c,false);
+		key.clear();
+		key+=mc->strand;
+		for(int i=0;i<mc->introns.Count();i++) key.appendfmt("|%u-%u",mc->introns[i].start,mc->introns[i].end);
+		ev.chainidx.Add(key.chars(),c);
+	}
+}
+
+// distinct-file support of the weakest intron
+static int merge_evidence_piece_support(CMergeEvidence& ev,char strand,GVec<GSeg>& exons) {
+	GStr key("",64);
+	int piece=-1;
+	for(int i=1;i<exons.Count();i++) {
+		merge_intron_key(key,strand,exons[i-1].end,exons[i].start);
+		GVec<int>* found=ev.intronfiles.Find(key.chars());
+		int n=found ? found->Count() : 0;
+		if(piece<0 || n<piece) piece=n;
+	}
+	return piece<0 ? 0 : piece;
+}
+
+static int merge_uint_cmp_asc(const void* a,const void* b) {
+	uint x=*(uint*)a; uint y=*(uint*)b;
+	return x<y ? -1 : (x>y ? 1 : 0);
+}
+
+// Elect one transcript end from per-file evidence: the k-th most extended end over distinct
+// files (k = --min-support-5p/3p, or the number of files when fewer contribute). A further
+// observed end is used only within the slop and the hard cap, both measured from the elected end.
+// ends: one value per file, the most extended end of that file. splice: terminal exon boundary.
+static uint merge_elect_end(GVec<uint>& ends,bool left,bool fivep,uint splice,int& support) {
+	GVec<uint> sorted(ends);
+	if(sorted.Count()>1) qsort(&sorted[0],sorted.Count(),sizeof(uint),merge_uint_cmp_asc);
+	int n=sorted.Count();
+	if(!left) for(int i=0;i<n/2;i++) { uint t=sorted[i]; sorted[i]=sorted[n-1-i]; sorted[n-1-i]=t; } // most extended first
+	int k=fivep ? mergeOptions.min_support_5p : mergeOptions.min_support_3p;
+	if(k>n) k=n;
+	uint elected=sorted[k-1];
+	int slop=fivep ? mergeOptions.slop_bp_5p : mergeOptions.slop_bp_3p;
+	double frac=fivep ? mergeOptions.slop_frac_5p : mergeOptions.slop_frac_3p;
+	int hardcap=fivep ? mergeOptions.max_extension_5p : mergeOptions.max_extension_3p;
+	double exonlen=left ? double(splice)-elected+1 : double(elected)-splice+1;
+	double allowed=frac*exonlen;
+	if(slop>=0 && slop<allowed) allowed=slop;
+	if(hardcap>=0 && hardcap<allowed) allowed=hardcap;
+	uint emitted=elected;
+	for(int j=0;j<k-1;j++) {
+		double dist=left ? double(elected)-sorted[j] : double(sorted[j])-elected;
+		if(dist<=allowed) { emitted=sorted[j]; break; }
+	}
+	support=0;
+	for(int j=0;j<n;j++) {
+		// files whose end reaches the emitted end within the slop
+		double shortby=left ? double(sorted[j])-emitted : double(emitted)-sorted[j];
+		if(slop<0 || shortby<=slop) support++;
+	}
+	return emitted;
+}
+
+// per-file most extended ends of one chain
+static void merge_chain_ends(CMergeChain* mc,bool left,GVec<int>& files,GVec<uint>& ends) {
+	for(int f=0;f<mc->files.Count();f++) {
+		files.Add(mc->files[f]);
+		uint pos=left ? mc->fstart[f] : mc->fend[f];
+		ends.Add(pos);
+	}
+}
+
+// per-file most extended ends for a synthesized path: over the observed chains that share its
+// terminal intron and are part of the path
+static void merge_collect_ends(CMergeEvidence& ev,GPVec<CMergeChain>& chains,CPrediction* p,
+		bool left,GVec<int>& files,GVec<uint>& ends) {
+	GStr key("",64);
+	int nin=p->exons.Count()-1;
+	if(left) merge_intron_key(key,p->strand,p->exons[0].end,p->exons[1].start);
+	else merge_intron_key(key,p->strand,p->exons[nin-1].end,p->exons[nin].start);
+	GVec<int>* found=left ? ev.firstchains.Find(key.chars()) : ev.lastchains.Find(key.chars());
+	if(!found) return;
+	GVec<int>& list=*found;
+	for(int i=0;i<list.Count();i++) {
+		CMergeChain* mc=chains[list[i]];
+		int n=mc->introns.Count();
+		if(n>nin) continue;
+		bool part=true;
+		int off=left ? 0 : nin-n;
+		for(int x=0;x<n && part;x++)
+			if(mc->introns[x].start!=p->exons[off+x].end || mc->introns[x].end!=p->exons[off+x+1].start) part=false;
+		if(!part) continue;
+		for(int f=0;f<mc->files.Count();f++) {
+			uint pos=left ? mc->fstart[f] : mc->fend[f];
+			int at=-1;
+			for(int x=0;x<files.Count();x++) if(files[x]==mc->files[f]) { at=x; break; }
+			if(at<0) { files.Add(mc->files[f]); ends.Add(pos); }
+			else if(left ? pos<ends[at] : pos>ends[at]) ends[at]=pos;
+		}
+	}
+}
+
+// apply the endpoint policy to both ends of a generated multi-exon prediction
+static void merge_elect_prediction_ends(CPrediction* p,CMergeEvidence& ev,GPVec<CMergeChain>& chains,
+		CMergeChain* own,const char* refname) {
+	int nex=p->exons.Count();
+	if(nex<2 || (p->strand!='+' && p->strand!='-')) return;
+	bool plus=(p->strand=='+');
+	for(int side=0;side<2;side++) {
+		bool left=(side==0);
+		bool fivep=(left==plus);
+		GVec<int> files;
+		GVec<uint> ends;
+		// an observed chain is judged by the files that carry it
+		if(own) merge_chain_ends(own,left,files,ends);
+		else merge_collect_ends(ev,chains,p,left,files,ends);
+		if(!ends.Count()) continue; // no observed terminal exon (guide-derived end): leave it
+		int support=0;
+		uint splice=left ? p->exons[0].end : p->exons[nex-1].start;
+		uint emitted=merge_elect_end(ends,left,fivep,splice,support);
+		if(left) {
+			if(emitted>p->exons[0].end) continue;
+			p->tlen+=int(p->exons[0].start)-int(emitted);
+			p->exons[0].start=emitted;
+			p->start=emitted;
+		}
+		else {
+			if(emitted<p->exons[nex-1].start) continue;
+			p->tlen+=int(emitted)-int(p->exons[nex-1].end);
+			p->exons[nex-1].end=emitted;
+			p->end=emitted;
+		}
+		if(fivep) p->merge_5p_support=support; else p->merge_3p_support=support;
+		if(own) for(int f=0;f<own->files.Count();f++) {
+			uint pos=left ? own->fstart[f] : own->fend[f];
+			int dist=left ? int(emitted)-int(pos) : int(pos)-int(emitted);
+			if(dist<=0) continue;
+			GStr details(fivep ? "5p" : "3p");
+			details.appendfmt(" end of this file not adopted, distance=%d",dist);
+			mergeReportEvent(refname,p->strand,left ? pos : p->start,left ? p->end : pos,
+				"trim","unsupported_end_extension","",own->files[f],"","",support,details.chars());
+		}
+	}
+}
+
+static int merge_guide_slop(bool fivep) {
+	int v=fivep ? mergeOptions.guide_slop_bp_5p : mergeOptions.guide_slop_bp_3p;
+	if(v==-2) v=fivep ? mergeOptions.slop_bp_5p : mergeOptions.slop_bp_3p;
+	return v;
+}
+
+// position of the prediction's intron chain as a contiguous sub-chain of the guide, or -1
+static int merge_guide_subchain_pos(CPrediction* p,GffObj* guide) {
+	int n=p->exons.Count()-1;
+	int gn=guide->exons.Count()-1;
+	if(p->strand!=guide->strand || n<1 || gn<n) return -1;
+	for(int pos=0;pos+n<=gn;pos++) {
+		bool ok=true;
+		for(int i=0;i<n && ok;i++)
+			if(p->exons[i].end!=guide->exons[pos+i]->end || p->exons[i+1].start!=guide->exons[pos+i+1]->start) ok=false;
+		if(ok) return pos;
+	}
+	return -1;
+}
+
+// An end that passes a container end by more than the slop is a real extension only when
+// --min-support-5p/3p files of the prediction's own chain reach that far. Anything less is
+// endpoint fuzz or an unsupported overhang, and the prediction still counts as a fragment.
+static bool merge_supported_extension(CPrediction* p,GPVec<CMergeChain>& chains,bool left,uint pos,int slop) {
+	if(slop<0 || p->merge_chain<0) return false;
+	if(left ? !(uint(p->start)+slop<pos) : !(uint(p->end)>pos+slop)) return false;
+	bool fivep=(left==(p->strand!='-'));
+	int k=fivep ? mergeOptions.min_support_5p : mergeOptions.min_support_3p;
+	CMergeChain* mc=chains[p->merge_chain];
+	int n=0;
+	for(int f=0;f<mc->files.Count();f++)
+		if(left ? mc->fstart[f]+slop<pos : mc->fend[f]>pos+slop) n++;
+	return n>=k;
+}
+
+// true when the prediction extends a guide end it shares, with support, beyond the guide slop
+static bool merge_extends_guide(CPrediction* p,GffObj* guide,int pos,GPVec<CMergeChain>& chains) {
+	int n=p->exons.Count()-1;
+	int gn=guide->exons.Count()-1;
+	bool plus=(p->strand!='-');
+	if(pos==0 && merge_supported_extension(p,chains,true,guide->start,merge_guide_slop(plus))) return true;
+	if(pos+n==gn && merge_supported_extension(p,chains,false,guide->end,merge_guide_slop(!plus))) return true;
+	return false;
+}
+
+// Can fragment a (introns matching container c from intron cpos, possibly skipping container
+// introns it retains) be regarded as part of c? retained is set when a spans a container intron.
+static bool merge_fragment_fits(CPrediction* a,CPrediction* c,int cpos,bool& retained,
+		GPVec<CMergeChain>& chains) {
+	int n=a->exons.Count()-1;
+	int cn=c->exons.Count()-1;
+	retained=false;
+	int j=cpos; // container intron matched to fragment intron i
+	int last=cpos;
+	for(int i=0;i<n;i++) {
+		while(j<cn && c->exons[j].end<a->exons[i].end) { if(i) retained=true; j++; }
+		if(j>=cn || c->exons[j].end!=a->exons[i].end || c->exons[j+1].start!=a->exons[i+1].start) return false;
+		if(i==0 && j!=cpos) return false;
+		last=j;
+		j++;
+	}
+	bool guide=(c->t_eq!=NULL);
+	bool plus=(a->strand!='-');
+	// left end
+	if(cpos==0) { // shared terminal exon: a supported extension is a variant, not a fragment
+		int slop=guide ? merge_guide_slop(plus) : (plus ? mergeOptions.slop_bp_5p : mergeOptions.slop_bp_3p);
+		if(merge_supported_extension(a,chains,true,c->start,slop)) return false;
+	}
+	else if(a->start<c->exons[cpos].start) {
+		if(a->start<=c->exons[cpos-1].end) retained=true; // reaches the upstream exon
+		else if(mergeOptions.max_intron_overhang>=0 &&
+				int(c->exons[cpos].start-a->start)>mergeOptions.max_intron_overhang) return false;
+	}
+	// right end; fragment last exon lies on container exon last+1
+	if(last+1==cn) {
+		int slop=guide ? merge_guide_slop(!plus) : (plus ? mergeOptions.slop_bp_3p : mergeOptions.slop_bp_5p);
+		if(merge_supported_extension(a,chains,false,c->end,slop)) return false;
+	}
+	else if(a->end>c->exons[last+1].end) {
+		if(a->end>=c->exons[last+2].start) retained=true;
+		else if(mergeOptions.max_intron_overhang>=0 &&
+				int(a->end-c->exons[last+1].end)>mergeOptions.max_intron_overhang) return false;
+	}
+	return true;
+}
+
+static int merge_direct_support(CPrediction* p) {
+	return p->merge_origin=='o' ? p->merge_path_support : 0;
+}
+
+static void merge_add_files(GVec<int>& dst,GVec<int>& src) {
+	for(int i=0;i<src.Count();i++) if(!merge_has_int(dst,src[i])) dst.Add(src[i]);
+}
+
+struct CMergeOrder {
+	int idx;
+	int nexons;
+	uint start;
+	uint end;
+	CMergeOrder(int i=0,int n=0,uint s=0,uint e=0):idx(i),nexons(n),start(s),end(e) {}
+	bool operator<(const CMergeOrder& o) const {
+		if(nexons!=o.nexons) return nexons>o.nexons; // containers first
+		if(start!=o.start) return start<o.start;
+		if(end!=o.end) return end<o.end;
+		return idx<o.idx;
+	}
+	bool operator==(const CMergeOrder& o) const { return idx==o.idx; }
+};
+
+// Single explicit redundancy pass. A generated multi-exon prediction is removed in favor of a
+// retained container only if its chain is part of the container, its ends fit, and the
+// container's weakest intron is supported by at least as many files (dominance).
+static void merge_remove_redundant(GList<CPrediction>& pred,GVec<bool>& keep,GStr& refname,
+		GPVec<CMergeChain>& chains) {
+	int npred=pred.Count();
+	GHash<GVec<int>*> byintron(true); // intron -> (prediction, intron position) pairs
+	GVec<CMergeOrder> order;
+	GStr key("",64);
+	for(int n=0;n<npred;n++) {
+		CPrediction* p=pred[n];
+		if(!keep[n] || p->exons.Count()<2 || (p->strand!='+' && p->strand!='-')) continue;
+		for(int i=1;i<p->exons.Count();i++) {
+			merge_intron_key(key,p->strand,p->exons[i-1].end,p->exons[i].start);
+			GVec<int>* found=byintron.Find(key.chars());
+			GVec<int>* v=found;
+			if(!v) { v=new GVec<int>(); byintron.Add(key.chars(),v); }
+			int ipos=i-1;
+			v->Add(n); v->Add(ipos);
+		}
+		if(!p->t_eq) { CMergeOrder o(n,p->exons.Count(),p->start,p->end); order.Add(o); }
+	}
+	order.Sort();
+	for(int x=0;x<order.Count();x++) {
+		int a=order[x].idx;
+		CPrediction* pa=pred[a];
+		merge_intron_key(key,pa->strand,pa->exons[0].end,pa->exons[1].start);
+		GVec<int>* found=byintron.Find(key.chars());
+		if(!found) continue;
+		GVec<int>& list=*found;
+		int support=merge_direct_support(pa);
+		int best=-1;
+		bool bestretained=false;
+		for(int i=0;i<list.Count();i+=2) {
+			int c=list[i];
+			CPrediction* pc=pred[c];
+			if(c==a || !keep[c]) continue;
+			bool guide=(pc->t_eq!=NULL);
+			// a container has more introns; a guide may also have the same chain
+			if(pc->exons.Count()<pa->exons.Count() || (pc->exons.Count()==pa->exons.Count() && !guide)) continue;
+			bool retained=false;
+			if(!merge_fragment_fits(pa,pc,list[i+1],retained,chains)) continue;
+			if(retained && retained_intron) continue; // -i keeps retained-intron variants
+			if((!guide || mergeOptions.guide_fragments_dominance) && pc->merge_piece_support<support) continue;
+			if(best<0) { best=c; bestretained=retained; continue; }
+			CPrediction* pb=pred[best];
+			bool better=false;
+			if((pc->t_eq!=NULL)!=(pb->t_eq!=NULL)) better=(pc->t_eq!=NULL);
+			else if(pc->merge_piece_support!=pb->merge_piece_support) better=pc->merge_piece_support>pb->merge_piece_support;
+			else if(pc->exons.Count()!=pb->exons.Count()) better=pc->exons.Count()>pb->exons.Count();
+			else if(pc->start!=pb->start) better=pc->start<pb->start;
+			else better=pc->end>pb->end;
+			if(better) { best=c; bestretained=retained; }
+		}
+		if(best<0) continue;
+		CPrediction* pb=pred[best];
+		keep[a]=false;
+		if(pb->t_eq) merge_add_files(pb->merge_contained_files,pa->merge_files);
+		else { merge_add_files(pb->merge_files,pa->merge_files); pb->merge_files.Sort(); }
+		pb->merge_nrec+=pa->merge_nrec;
+		GStr details("",96);
+		details.appendfmt("records=%d files=%d into=%d-%d container_piece_support=%d",pa->merge_nrec,
+			pa->merge_files.Count(),pb->start,pb->end,pb->merge_piece_support);
+		mergeReportEvent(refname.chars(),pa->strand,pa->start,pa->end,"absorb",
+			bestretained ? "retained_intron_fragment" : "contained_fragment","",-1,
+			pb->t_eq ? pb->t_eq->getID() : "",pb->t_eq ? pb->t_eq->getGeneID() : "",support,details.chars());
+	}
+}
+
+struct CMergeExonRef {
+	uint start;
+	uint end;
+	int idx;
+	CMergeExonRef(uint s=0,uint e=0,int i=0):start(s),end(e),idx(i) {}
+	bool operator<(const CMergeExonRef& o) const {
+		if(start!=o.start) return start<o.start;
+		if(end!=o.end) return end<o.end;
+		return idx<o.idx;
+	}
+	bool operator==(const CMergeExonRef& o) const { return start==o.start && end==o.end && idx==o.idx; }
+};
+
+// gene grouping of the retained predictions: exon overlap on the same strand
+static void merge_assign_genes(GList<CPrediction>& pred,GVec<bool>& keep) {
+	int npred=pred.Count();
+	GVec<int> parent(npred,0);
+	for(int n=0;n<npred;n++) parent[n]=n;
+	const char strands[3]={'+','-','.'};
+	for(int s=0;s<3;s++) {
+		GVec<CMergeExonRef> exons;
+		for(int n=0;n<npred;n++) if(keep[n] && pred[n]->strand==strands[s])
+			for(int e=0;e<pred[n]->exons.Count();e++) {
+				CMergeExonRef x(pred[n]->exons[e].start,pred[n]->exons[e].end,n);
+				exons.Add(x);
+			}
+		exons.Sort();
+		uint maxend=0;
+		int cur=-1;
+		for(int i=0;i<exons.Count();i++) {
+			if(cur>=0 && exons[i].start<=maxend) {
+				int a=exons[i].idx; while(parent[a]!=a) a=parent[a];
+				int b=cur; while(parent[b]!=b) b=parent[b];
+				if(a!=b) parent[a>b ? a : b]=(a>b ? b : a);
+			}
+			else cur=exons[i].idx;
+			if(cur<0 || exons[i].end>maxend) maxend=exons[i].end;
+		}
+	}
+	for(int n=0;n<npred;n++) if(keep[n]) {
+		int a=n; while(parent[a]!=a) a=parent[a];
+		pred[n]->geneno=a;
+	}
+}
+
 int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 	GList<CPrediction>& pred = bundleData->pred;
+	// Observed chains first: every stranded intron chain that passed the input filters is a
+	// candidate output. Paths built by the splice graph are kept only as additions (joins of
+	// observed chains); a graph path with an observed chain is superseded by its candidate.
+	CMergeEvidence evidence;
+	GPVec<CMergeChain>& chains=bundleData->mergechains;
+	merge_build_evidence(evidence,chains);
+	{
+		GStr key("",128);
+		int nlegacy=pred.Count();
+		GHash<int> guidepreds(false); // guides that have a prediction with their own structure
+		for(int n=0;n<nlegacy;n++)
+			if(pred[n]->t_eq && merge_prediction_guide_equal(pred[n],pred[n]->t_eq))
+				guidepreds.Add(pred[n]->t_eq->getID(),n);
+		for(int n=0;n<nlegacy;n++) {
+			CPrediction* p=pred[n];
+			if(p->t_eq && !merge_prediction_guide_equal(p,p->t_eq)) {
+				// the graph pooled this guide with inputs sharing its nodes and moved its ends:
+				// restore the guide structure so the guide is emitted in place and can absorb fragments
+				GffObj* guide=p->t_eq;
+				if(guide->exons.Count()>1 && guide->strand==p->strand && !guidepreds.Find(guide->getID())) {
+					p->exons.Clear();
+					p->tlen=0;
+					for(int e=0;e<guide->exons.Count();e++) {
+						GSeg exon(guide->exons[e]->start,guide->exons[e]->end);
+						p->exons.Add(exon);
+						p->tlen+=exon.len();
+					}
+					p->start=guide->start;
+					p->end=guide->end;
+					guidepreds.Add(guide->getID(),n);
+				}
+				else p->t_eq=NULL;
+			}
+			if(p->exons.Count()<2 || (p->strand!='+' && p->strand!='-')) continue;
+			merge_exons_chain_key(key,p->strand,p->exons);
+			int* idx=evidence.chainidx.Find(key.chars());
+			if(p->t_eq) {
+				// guide support: the files that carry the guide's intron chain
+				p->merge_files.Clear();
+				p->merge_5p_support=0;
+				p->merge_3p_support=0;
+				if(idx) {
+					CMergeChain* mc=chains[*idx];
+					p->merge_files=mc->files;
+					p->merge_files.Sort();
+					bool plus=(p->strand=='+');
+					int slopl=merge_guide_slop(plus);
+					int slopr=merge_guide_slop(!plus);
+					int nl=0;
+					int nr=0;
+					for(int f=0;f<mc->files.Count();f++) { // files reaching the guide end within the slop
+						if(slopl<0 || mc->fstart[f]<=uint(p->start)+slopl) nl++;
+						if(slopr<0 || mc->fend[f]+slopr>=uint(p->end)) nr++;
+					}
+					if(plus) { p->merge_5p_support=nl; p->merge_3p_support=nr; }
+					else { p->merge_5p_support=nr; p->merge_3p_support=nl; }
+				}
+				p->merge_path_support=p->merge_files.Count();
+				p->merge_piece_support=merge_evidence_piece_support(evidence,p->strand,p->exons);
+				continue;
+			}
+			if(idx) {
+				p->merge_origin='x';
+				if(mergeOptions.min_introns==0) { // legacy joins of a terminal exon with single-exon inputs
+					CMergeChain* mc=chains[*idx];
+					uint ostart=mc->fstart[0];
+					uint oend=mc->fend[0];
+					for(int f=1;f<mc->files.Count();f++) {
+						if(mc->fstart[f]<ostart) ostart=mc->fstart[f];
+						if(mc->fend[f]>oend) oend=mc->fend[f];
+					}
+					// only an end beyond every observed end of the chain comes from a single-exon join
+					if((uint)p->start<ostart && (!mc->jstart || (uint)p->start<mc->jstart)) mc->jstart=p->start;
+					if((uint)p->end>oend && (uint)p->end>mc->jend) mc->jend=p->end;
+				}
+				continue;
+			}
+			p->merge_origin='j';
+			p->merge_path_support=0;
+			p->merge_piece_support=merge_evidence_piece_support(evidence,p->strand,p->exons);
+			merge_elect_prediction_ends(p,evidence,chains,NULL,refname.chars());
+		}
+		for(int c=0;c<chains.Count();c++) {
+			CMergeChain* mc=chains[c];
+			uint cstart=mc->fstart[0];
+			uint cend=mc->fend[0];
+			for(int f=1;f<mc->files.Count();f++) {
+				if(mc->fstart[f]<cstart) cstart=mc->fstart[f];
+				if(mc->fend[f]>cend) cend=mc->fend[f];
+			}
+			CPrediction* p=new CPrediction(0,NULL,cstart,cend,1.0,mc->strand,0);
+			int len=0;
+			for(int i=0;i<=mc->introns.Count();i++) {
+				GSeg exon(i ? mc->introns[i-1].end : cstart,i<mc->introns.Count() ? mc->introns[i].start : cend);
+				p->exons.Add(exon);
+				len+=exon.len();
+			}
+			p->tlen=len;
+			p->merge_origin='o';
+			p->merge_chain=c;
+			p->merge_nrec=mc->nrec;
+			p->merge_files=mc->files;
+			p->merge_files.Sort();
+			p->merge_path_support=mc->files.Count();
+			p->merge_5p_support=mc->files.Count();
+			p->merge_3p_support=mc->files.Count();
+			p->merge_piece_support=merge_evidence_piece_support(evidence,p->strand,p->exons);
+			merge_elect_prediction_ends(p,evidence,chains,mc,refname.chars());
+			if(mc->jstart && mc->jstart<(uint)p->start) {
+				p->tlen+=p->start-int(mc->jstart);
+				p->start=mc->jstart;
+				p->exons[0].start=mc->jstart;
+			}
+			if(mc->jend>(uint)p->end) {
+				p->tlen+=int(mc->jend)-p->end;
+				p->end=mc->jend;
+				p->exons.Last().end=mc->jend;
+			}
+			pred.Add(p);
+		}
+	}
 	int npred=pred.Count();
 	GVec<bool> keep(npred,bool(true));
 	pred.setSorted(predCmp);
+	{
+		// an observed chain that is a guide's own chain and stays within the guide slop is the
+		// guide itself: credit the guide and emit nothing extra
+		GHash<GVec<int>*> guidechains(true);
+		GStr key("",128);
+		for(int n=0;n<npred;n++) {
+			CPrediction* p=pred[n];
+			if(p->merge_origin=='x') { keep[n]=false; continue; }
+			if(!p->t_eq || p->exons.Count()<2 || !merge_prediction_guide_equal(p,p->t_eq)) continue;
+			merge_exons_chain_key(key,p->strand,p->exons);
+			merge_hash_add(guidechains,key.chars(),n,false);
+		}
+		for(int n=0;n<npred;n++) {
+			CPrediction* p=pred[n];
+			if(p->merge_origin!='o') continue;
+			merge_exons_chain_key(key,p->strand,p->exons);
+			GVec<int>* found=guidechains.Find(key.chars());
+			if(!found) continue;
+			int best=-1;
+			long bestdist=0;
+			for(int i=0;i<found->Count();i++) {
+				CPrediction* g=pred[(*found)[i]];
+				if(merge_extends_guide(p,g->t_eq,0,chains)) continue;
+				long dist=labs(long(p->start)-long(g->start))+labs(long(p->end)-long(g->end));
+				if(best<0 || dist<bestdist) { best=(*found)[i]; bestdist=dist; }
+			}
+			if(best<0) continue;
+			pred[best]->merge_nrec+=p->merge_nrec; // its files are already the guide's support
+			keep[n]=false;
+		}
+	}
 	GVec<int> locusfiles;
 	for(int i=0;i<bundleData->readlist.Count();i++) {
 		CReadAln& rd=*bundleData->readlist[i];
@@ -20180,7 +20919,10 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 	// normalize guide identity before applying evidence and bridge barriers
 	for(int n=0;n<npred;n++) {
 		CPrediction* p=pred[n];
-		merge_fill_prediction_support(p,bundleData->readlist);
+		if(!keep[n]) continue;
+		// multi-exon guides, candidates and joins already carry support from the observed chains
+		if(!p->merge_origin && !(p->t_eq && p->exons.Count()>1)) merge_fill_prediction_support(p,bundleData->readlist);
+		merge_credit_set_support(p,bundleData->readlist);
 		p->merge_locus_support=locusfiles.Count();
 		if(p->t_eq && merge_prediction_guide_equal(p,p->t_eq)) {
 			p->merge_ref=p->t_eq;
@@ -20205,8 +20947,9 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 					"",-1,exactGuide->getID(),exactGuide->getGeneID(),p->merge_files.Count(),"guide structure is emitted under its reference ID");
 			}
 			else {
-				p->merge_ref=merge_related_guide(p,bundleData->keepguides);
-				if(p->merge_ref) p->merge_class='k';
+				bool samechain=false;
+				p->merge_ref=merge_related_guide(p,bundleData->keepguides,samechain,chains);
+				if(p->merge_ref) p->merge_class=samechain ? 'k' : 'j';
 				GStr guide_ids;
 				GStr gene_ids;
 				if(!merge_generated_barriers(p,bundleData,refname,guide_ids,gene_ids)) keep[n]=false;
@@ -20238,17 +20981,52 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","guide_extension_cap",
 					"",-1,p->merge_ref->getID(),p->merge_ref->getGeneID(),p->merge_files.Count(),"hard endpoint cap exceeded");
 			}
-			else if(mergeOptions.guide_policy==MRG_GUIDE_REFERENCE) keep[n]=false;
-			else if(mergeOptions.guide_policy==MRG_GUIDE_BEST) {
+			else if(mergeOptions.guide_policy==MRG_GUIDE_REFERENCE) {
+				keep[n]=false;
+				mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"reject","guide_policy_reference",
+					"",-1,p->merge_ref->getID(),p->merge_ref->getGeneID(),p->merge_files.Count(),"guide variant not emitted");
+			}
+			else if(mergeOptions.guide_policy==MRG_GUIDE_BEST && p->merge_class=='k') {
 				double corefrac=p->merge_files.Count() ? double(p->merge_path_support)/p->merge_files.Count() : 0;
 				if(p->merge_path_support<2 || corefrac<mergeOptions.guide_replace_frac) keep[n]=false;
 			}
 		}
 	}
 
+	{
+		// a generated SET that overlaps a single-exon guide and passes neither guide end by more
+		// than the guide slop is the guide itself
+		GVec<int> setguides;
+		for(int n=0;n<npred;n++)
+			if(keep[n] && pred[n]->t_eq && pred[n]->exons.Count()==1) setguides.Add(n);
+		for(int n=0;n<npred && setguides.Count();n++) {
+			CPrediction* p=pred[n];
+			if(!keep[n] || p->t_eq || p->exons.Count()!=1 || (p->strand!='+' && p->strand!='-')) continue;
+			bool plus=(p->strand=='+');
+			int slopl=merge_guide_slop(plus);
+			int slopr=merge_guide_slop(!plus);
+			for(int x=0;x<setguides.Count();x++) {
+				CPrediction* g=pred[setguides[x]];
+				if(g->strand!=p->strand || p->end<g->start || g->end<p->start) continue;
+				if(slopl>=0 && p->start<g->start && int(g->start-p->start)>slopl) continue;
+				if(slopr>=0 && p->end>g->end && int(p->end-g->end)>slopr) continue;
+				merge_add_files(g->merge_files,p->merge_files);
+				g->merge_files.Sort();
+				g->merge_path_support=g->merge_files.Count();
+				g->merge_piece_support=g->merge_files.Count();
+				keep[n]=false;
+				break;
+			}
+		}
+	}
+
+	// one explicit redundancy pass, after every per-prediction rejection, so that a rejected
+	// path can never take observed chains with it
+	merge_remove_redundant(pred,keep,refname,chains);
+
 	// best mode replaces a guide only after a qualifying variant survives
 	for(int n=0;n<npred;n++) if(keep[n] && pred[n]->merge_ref && !pred[n]->t_eq &&
-			mergeOptions.guide_policy==MRG_GUIDE_BEST) {
+			pred[n]->merge_class=='k' && mergeOptions.guide_policy==MRG_GUIDE_BEST) {
 		setGuideStatus(pred[n]->merge_ref,GBST_STORED);
 		for(int m=0;m<npred;m++) if(keep[m] && pred[m]->t_eq==pred[n]->merge_ref) {
 			keep[m]=false;
@@ -20294,7 +21072,8 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 	// discard a generated SET wholly contained in a retained MET exon
 	for(int n=0;n<npred;n++) if(keep[n] && !pred[n]->t_eq && pred[n]->exons.Count()==1) {
 		bool contained=false;
-		for(int m=0;m<npred && !contained;m++) if(keep[m] && pred[m]->exons.Count()>1)
+		for(int m=0;m<npred && !contained;m++) if(keep[m] && pred[m]->exons.Count()>1 &&
+				(pred[m]->strand==pred[n]->strand || pred[n]->strand=='.')) // an antisense SET is not redundant
 			for(int e=0;e<pred[m]->exons.Count();e++)
 				if(pred[m]->exons[e].start<=pred[n]->start && pred[n]->end<=pred[m]->exons[e].end) {
 					contained=true;
@@ -20306,6 +21085,8 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				"reject","contained_set","",-1,"","",pred[n]->merge_files.Count(),"SET contained in a MET exon");
 		}
 	}
+
+	merge_assign_genes(pred,keep);
 
 	int n=0;
 	GHash<bool> outputIds(false);
@@ -20367,6 +21148,8 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 					double frac5=pred[m]->merge_files.Count() ? double(pred[m]->merge_5p_support)/pred[m]->merge_files.Count() : 0;
 					double frac3=pred[m]->merge_files.Count() ? double(pred[m]->merge_3p_support)/pred[m]->merge_files.Count() : 0;
 					fprintf(f_out,"merge_5p_fraction \"%.3f\"; merge_3p_fraction \"%.3f\"; ",frac5,frac3);
+					if(pred[m]->merge_contained_files.Count())
+						fprintf(f_out,"merge_contained_support \"%d\"; ",pred[m]->merge_contained_files.Count());
 					if(pred[m]->merge_ref) fprintf(f_out,"reference_id \"%s\"; ",pred[m]->merge_ref->getID());
 					if(pred[m]->merge_class) fprintf(f_out,"class_code \"%c\"; ",pred[m]->merge_class);
 					if(!pred[m]->merge_ref_aliases.is_empty())

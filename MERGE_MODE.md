@@ -12,11 +12,16 @@ Input GTF/GFF files
   -> convert transcripts to temporary alignment records
   -> coordinate-merge streams and form genomic bundles
   -> reject input bridges across distinct -G genes
-  -> count exact structures by distinct input file
+  -> count intron chains (and overlapping SETs) by distinct input file
   -> apply optional abundance filters, with replicated rescue
+  -> pass unstranded inputs through unchanged
+  -> record every observed stranded intron chain with its per-file ends
   -> build strand-specific splice graphs and transfrags
   -> combine intron-compatible paths under the selected evidence policy
+  -> make one candidate per observed chain and elect its ends
+  -> keep graph paths only as joins of observed chains
   -> enforce guide, CDS-bridge, endpoint, and path-support barriers
+  -> remove redundant fragments under the dominance rule, with report rows
   -> deduplicate generated structures and write merged GTF/report
 ```
 
@@ -29,9 +34,16 @@ Input GTF/GFF files
   the temporary record.
 - `processRead()` records whether an input passes explicit `-c`, `-F`, or `-T`
   filters. It defers removal until structural support is known.
-- `filter_merge_inputs()` counts each exact structure once per input file.
+- `filter_merge_inputs()` counts each structure once per input file. A MET is
+  identified by strand and intron chain (`merge_read_key()`), not by its ends;
+  SETs support each other by pairwise reciprocal overlap of `--set-overlap`.
   `--min-support` removes insufficiently replicated structures and
   `--rescue-support` can restore a structure rejected only by abundance filters.
+- Unstranded inputs are removed from graph construction in `build_merge()` and
+  emitted as their own predictions, one per intron chain or per SET.
+- `build_merge()` records each observed stranded intron chain in
+  `BundleData::mergechains` (`CMergeChain`: introns, files, and the most
+  extended start and end seen in each file) before reads are collapsed.
 - An explicit `-F` or `-T` requires that field to be present and pass. An
   explicit `-f` is evaluated within input file and input gene, or within the
   current locus when `gene_id` is absent. It prefers TPM, then FPKM, then cov.
@@ -164,7 +176,7 @@ transcript ID, and input file number.
 ```text
 Option                    Default
 ------------------------  ----------
---min-support             1
+--min-support             2 for 4 or more input files, else 1
 --rescue-support          2
 --min-introns             1
 --path-mode               shared
@@ -173,13 +185,17 @@ Option                    Default
 --min-support-5p          2
 --min-support-3p          2
 --slop-bp-5p              100
---slop-bp-3p              100
+--slop-bp-3p              500
 --slop-frac-5p            0.50
 --slop-frac-3p            0.50
 --max-extension-5p        unlimited
 --max-extension-3p        unlimited
 --guide-policy            both
 --guide-replace-frac      0.90
+--guide-slop-bp-5p        same as --slop-bp-5p
+--guide-slop-bp-3p        same as --slop-bp-3p
+--guide-fragments         absorb
+--max-intron-overhang     unlimited
 --dedup-guides            off
 --allow-fusions           off
 --allow-cds-bridges       off
@@ -190,10 +206,12 @@ All controls above are rejected outside `--merge` mode.
 
 ### Support and assembly options
 
-- `--min-support N` requires an exact input structure to occur in at least `N`
-  distinct input files. It is also the complete-chain threshold for
-  `--path-mode direct`.
-- `--rescue-support N` restores an exact structure when every observed copy
+- `--min-support N` requires an intron chain (or a SET by reciprocal overlap)
+  to occur in at least `N` distinct input files. Transcript ends do not have to
+  agree. When the option is omitted, `N` is 2 if 4 or more files are merged
+  and 1 otherwise; the value used is written to the `# min_support` line of
+  the report.
+- `--rescue-support N` restores a structure when every observed copy
   failed an explicitly requested abundance filter but the structure occurs in
   at least `N` files. It does not rescue a structural or guide barrier.
 - `--min-introns N` requires `N` exact shared introns before compatible MET
@@ -282,3 +300,39 @@ flexible guide caps, guide policies, gene and CDS bridge barriers, guide dedup,
 and transcript-ID uniqueness. `compare_merge_outputs.pl` compares two merge
 GTFs at exact-structure, intron-chain, guide-identity, and source-versus-
 synthesized levels.
+
+## Observed chains first
+
+`printMergeResults()` applies the merge policy in this order. The splice-graph
+code (`merge_transfrags()`) is unchanged; its output is reinterpreted.
+
+1. Candidates. Each `CMergeChain` becomes a prediction (`merge_origin` `o`).
+   `merge_elect_prediction_ends()` sets each end to the k-th most extended end
+   over the files that carry the chain (k is `--min-support-5p` or `-3p`, or
+   the file count when smaller), extends it to a further observed end only
+   within `--slop-bp-*`, `--slop-frac-*` and `--max-extension-*`, and writes a
+   `trim` report row for each file end that was not adopted.
+2. Graph paths. A graph path whose intron chain was observed is superseded by
+   its candidate. A path with an unobserved chain is a join (`merge_origin`
+   `j`); its ends are elected from the observed chains that share its terminal
+   intron and are part of it. A guide prediction whose ends the graph moved is
+   restored to the guide structure, and guide support is recomputed from the
+   observed chains.
+3. Per-prediction rejections: minimum support, path mode, gene and CDS
+   barriers, guide extension caps and `--guide-policy`.
+   `merge_related_guide()` relates a prediction to a guide when it has the
+   guide's chain, or a contiguous part of it, and extends a guide end beyond
+   `--guide-slop-bp-*` with `--min-support-5p/3p` files
+   (`merge_supported_extension()`).
+4. Redundancy. `merge_remove_redundant()` runs once, after step 3, from the
+   longest chains to the shortest. A generated MET is absorbed by a retained
+   container when its chain is part of the container's chain, its ends fit
+   (`merge_fragment_fits()`), and the container's `merge_piece_support` is at
+   least the fragment's direct support. Guides are exempt from that last
+   condition unless `--guide-fragments dominance` is set. Absorbed files are
+   credited and an `absorb` row is written with record and file counts.
+5. `merge_assign_genes()` groups the retained predictions into genes by
+   same-strand exon overlap.
+
+Because step 4 runs after step 3 and only considers retained containers, a
+rejected join cannot remove the observed chains it was built from.

@@ -53,7 +53,7 @@ enum MergeGuidePolicy {
 };
 
 struct MergeOptions {
-	int min_support;
+	int min_support; // 0: not given; set from the number of input files (2 for 4 or more, else 1)
 	int rescue_support;
 	int min_introns;
 	MergePathMode path_mode;
@@ -72,16 +72,21 @@ struct MergeOptions {
 	bool dedup_guides;
 	bool allow_fusions;
 	bool allow_cds_bridges;
+	int guide_slop_bp_5p; // -2: follow slop_bp_5p; -1: unlimited
+	int guide_slop_bp_3p;
+	bool guide_fragments_dominance; // guides follow the dominance rule when absorbing fragments
+	int max_intron_overhang; // -1: unlimited
 	bool fpkm_filter_set;
 	bool tpm_filter_set;
 	bool isofrac_filter_set;
 	GStr report_file;
-	MergeOptions():min_support(1),rescue_support(2),min_introns(1),path_mode(MRG_PATH_SHARED),
+	MergeOptions():min_support(0),rescue_support(2),min_introns(1),path_mode(MRG_PATH_SHARED),
 		min_piece_support(2),set_overlap(0.80),min_support_5p(2),min_support_3p(2),
-		slop_bp_5p(100),slop_bp_3p(100),slop_frac_5p(0.50),slop_frac_3p(0.50),
+		slop_bp_5p(100),slop_bp_3p(500),slop_frac_5p(0.50),slop_frac_3p(0.50),
 		max_extension_5p(-1),max_extension_3p(-1),guide_policy(MRG_GUIDE_BOTH),
 		guide_replace_frac(0.90),dedup_guides(false),allow_fusions(false),
-		allow_cds_bridges(false),fpkm_filter_set(false),tpm_filter_set(false),
+		allow_cds_bridges(false),guide_slop_bp_5p(-2),guide_slop_bp_3p(-2),
+		guide_fragments_dominance(false),max_intron_overhang(-1),fpkm_filter_set(false),tpm_filter_set(false),
 		isofrac_filter_set(false),report_file() { }
 };
 

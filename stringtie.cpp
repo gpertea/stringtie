@@ -102,18 +102,26 @@ the following options are available:\n\
   -i               keep merged transcripts with retained introns; by default\n\
                    these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
-  --min-support N  minimum distinct input files supporting a structure (1)\n\
+  --min-support N  minimum distinct input files supporting a structure\n\
+                   (default: 2 when merging 4 or more files, otherwise 1)\n\
   --rescue-support N rescue a filtered structure seen in N input files (2)\n\
   --min-introns N  shared exact introns required to join MET paths (1)\n\
   --path-mode MODE path evidence: shared, replicated, or direct (shared)\n\
   --min-piece-support N files required per piece in replicated mode (2)\n\
   --set-overlap F  reciprocal overlap for SET deduplication (0.80)\n\
   --min-support-5p N / --min-support-3p N endpoint support (2)\n\
-  --slop-bp-5p N / --slop-bp-3p N unsupported endpoint slop (100)\n\
+  --slop-bp-5p N / --slop-bp-3p N unsupported endpoint slop (100 / 500);\n\
+                   N may be \"unlimited\"\n\
   --slop-frac-5p F / --slop-frac-3p F terminal exon slop (0.50)\n\
   --max-extension-5p N / --max-extension-3p N hard extension caps\n\
   --guide-policy MODE both, reference, or best (both)\n\
   --guide-replace-frac F guide core support required by best mode (0.90)\n\
+  --guide-slop-bp-5p N / --guide-slop-bp-3p N overhang past a guide end that\n\
+                   still counts as the guide (default: the --slop-bp values)\n\
+  --guide-fragments MODE absorb or dominance: whether a guide absorbs every\n\
+                   contained fragment or only less supported ones (absorb)\n\
+  --max-intron-overhang N largest overhang into an intron of a containing\n\
+                   transcript for a fragment to be absorbed (unlimited)\n\
   --dedup-guides   collapse identical guide structures and report aliases\n\
   --allow-fusions  permit paths crossing distinct guide genes\n\
   --allow-cds-bridges permit paths bridging coding transcripts in one gene\n\
@@ -395,7 +403,8 @@ void writeMergeReport() {
 		}
 	}
 	reasons.Sort();
-	fprintf(fout,"# StringTie --merge report\n# events\t%d\n",mergeReportEvents.Count());
+	fprintf(fout,"# StringTie --merge report\n# min_support\t%d\n# events\t%d\n",
+		mergeOptions.min_support,mergeReportEvents.Count());
 	for(int i=0;i<reasons.Count();i++)
 		fprintf(fout,"# reason\t%s\t%d\n",reasons[i].chars(),*reasonCounts.Find(reasons[i].chars()));
 	fprintf(fout,"reference\tstrand\tstart\tend\tevent\treason\ttranscript_id\tinput_file\tguide_ids\tgene_ids\tsupport\tdetails\n");
@@ -468,7 +477,8 @@ int main(int argc, char* argv[]) {
    "min-support=;rescue-support=;min-introns=;path-mode=;min-piece-support=;set-overlap=;"
    "min-support-5p=;min-support-3p=;slop-bp-5p=;slop-bp-3p=;slop-frac-5p=;slop-frac-3p=;"
    "max-extension-5p=;max-extension-3p=;guide-policy=;guide-replace-frac=;dedup-guides;"
-   "allow-fusions;allow-cds-bridges;report=;"
+   "allow-fusions;allow-cds-bridges;report=;guide-slop-bp-5p=;guide-slop-bp-3p=;"
+   "guide-fragments=;max-intron-overhang=;"
    "exclude=zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -489,6 +499,11 @@ int main(int argc, char* argv[]) {
  GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
 
  int bamcount=bamreader.start(); //setup and open input files
+ if(mergeMode && mergeOptions.min_support<1) {
+	 //--min-support not given: require replication only when there are enough input files
+	 mergeOptions.min_support=(bamcount>=4) ? 2 : 1;
+	 if(verbose) GMessage(" --min-support set to %d for %d input files\n",mergeOptions.min_support,bamcount);
+ }
 
 
 #ifndef GFF_DEBUG
@@ -1171,6 +1186,30 @@ char* sprintTime() {
 	return(sbuf);
 }
 
+// strict numeric parsing for merge options: the whole value must be a number in range
+static void mergeIntOpt(GArgs& args, const char* name, int& v, int minv, bool unlimited=false) {
+	const char* s=args.getOpt(name);
+	if(s==NULL) return;
+	if(unlimited && strcmp(s,"unlimited")==0) { v=-1; return; }
+	char* end=NULL;
+	errno=0;
+	long r=strtol(s,&end,10);
+	if(end==s || *end!=0 || errno!=0 || r<minv || r>INT_MAX)
+		GError("Error: invalid value '%s' for --%s (integer >= %d expected).\n",s,name,minv);
+	v=(int)r;
+}
+
+static void mergeFracOpt(GArgs& args, const char* name, double& v) {
+	const char* s=args.getOpt(name);
+	if(s==NULL) return;
+	char* end=NULL;
+	errno=0;
+	double r=strtod(s,&end);
+	if(end==s || *end!=0 || errno!=0 || !(r>=0 && r<=1))
+		GError("Error: invalid value '%s' for --%s (number between 0 and 1 expected).\n",s,name);
+	v=r;
+}
+
 void processOptions(GArgs& args) {
 
 
@@ -1240,49 +1279,35 @@ void processOptions(GArgs& args) {
 		 "min-piece-support","set-overlap","min-support-5p","min-support-3p","slop-bp-5p",
 		 "slop-bp-3p","slop-frac-5p","slop-frac-3p","max-extension-5p","max-extension-3p",
 		 "guide-policy","guide-replace-frac","dedup-guides","allow-fusions","allow-cds-bridges",
-		 "report"};
+		 "report","guide-slop-bp-5p","guide-slop-bp-3p","guide-fragments","max-intron-overhang"};
 	 if(!mergeMode) for(uint i=0;i<sizeof(mergeOnlyOpts)/sizeof(mergeOnlyOpts[0]);i++) {
 		 if(args.getOpt(mergeOnlyOpts[i]))
 			 GError("Error: --%s is only valid with --merge.\n",mergeOnlyOpts[i]);
 	 }
 	 if(mergeMode) {
-		 GStr mv=args.getOpt("min-support");
-		 if(!mv.is_empty()) mergeOptions.min_support=mv.asInt();
-		 mv=args.getOpt("rescue-support");
-		 if(!mv.is_empty()) mergeOptions.rescue_support=mv.asInt();
-		 mv=args.getOpt("min-introns");
-		 if(!mv.is_empty()) mergeOptions.min_introns=mv.asInt();
-		 mv=args.getOpt("min-piece-support");
-		 if(!mv.is_empty()) mergeOptions.min_piece_support=mv.asInt();
-		 mv=args.getOpt("min-support-5p");
-		 if(!mv.is_empty()) mergeOptions.min_support_5p=mv.asInt();
-		 mv=args.getOpt("min-support-3p");
-		 if(!mv.is_empty()) mergeOptions.min_support_3p=mv.asInt();
-		 mv=args.getOpt("slop-bp-5p");
-		 if(!mv.is_empty()) mergeOptions.slop_bp_5p=mv.asInt();
-		 mv=args.getOpt("slop-bp-3p");
-		 if(!mv.is_empty()) mergeOptions.slop_bp_3p=mv.asInt();
-		 mv=args.getOpt("max-extension-5p");
-		 if(!mv.is_empty()) mergeOptions.max_extension_5p=mv.asInt();
-		 mv=args.getOpt("max-extension-3p");
-		 if(!mv.is_empty()) mergeOptions.max_extension_3p=mv.asInt();
-		 if(mergeOptions.min_support<1 || mergeOptions.rescue_support<1 || mergeOptions.min_introns<0 ||
-			 mergeOptions.min_piece_support<1 || mergeOptions.min_support_5p<1 || mergeOptions.min_support_3p<1 ||
-			 mergeOptions.slop_bp_5p<0 || mergeOptions.slop_bp_3p<0 || mergeOptions.max_extension_5p < -1 ||
-			 mergeOptions.max_extension_3p < -1)
-			 GError("Error: invalid non-negative merge support, intron, slop, or extension value.\n");
-		 mv=args.getOpt("set-overlap");
-		 if(!mv.is_empty()) mergeOptions.set_overlap=mv.asDouble();
-		 mv=args.getOpt("slop-frac-5p");
-		 if(!mv.is_empty()) mergeOptions.slop_frac_5p=mv.asDouble();
-		 mv=args.getOpt("slop-frac-3p");
-		 if(!mv.is_empty()) mergeOptions.slop_frac_3p=mv.asDouble();
-		 mv=args.getOpt("guide-replace-frac");
-		 if(!mv.is_empty()) mergeOptions.guide_replace_frac=mv.asDouble();
-		 if(mergeOptions.set_overlap<0 || mergeOptions.set_overlap>1 || mergeOptions.slop_frac_5p<0 ||
-			 mergeOptions.slop_frac_5p>1 || mergeOptions.slop_frac_3p<0 || mergeOptions.slop_frac_3p>1 ||
-			 mergeOptions.guide_replace_frac<0 || mergeOptions.guide_replace_frac>1)
-			 GError("Error: merge fraction values must be between 0 and 1.\n");
+		 mergeIntOpt(args,"min-support",mergeOptions.min_support,1);
+		 mergeIntOpt(args,"rescue-support",mergeOptions.rescue_support,1);
+		 mergeIntOpt(args,"min-introns",mergeOptions.min_introns,0);
+		 mergeIntOpt(args,"min-piece-support",mergeOptions.min_piece_support,1);
+		 mergeIntOpt(args,"min-support-5p",mergeOptions.min_support_5p,1);
+		 mergeIntOpt(args,"min-support-3p",mergeOptions.min_support_3p,1);
+		 mergeIntOpt(args,"slop-bp-5p",mergeOptions.slop_bp_5p,0,true);
+		 mergeIntOpt(args,"slop-bp-3p",mergeOptions.slop_bp_3p,0,true);
+		 mergeIntOpt(args,"guide-slop-bp-5p",mergeOptions.guide_slop_bp_5p,0,true);
+		 mergeIntOpt(args,"guide-slop-bp-3p",mergeOptions.guide_slop_bp_3p,0,true);
+		 mergeIntOpt(args,"max-intron-overhang",mergeOptions.max_intron_overhang,0,true);
+		 mergeIntOpt(args,"max-extension-5p",mergeOptions.max_extension_5p,-1);
+		 mergeIntOpt(args,"max-extension-3p",mergeOptions.max_extension_3p,-1);
+		 mergeFracOpt(args,"set-overlap",mergeOptions.set_overlap);
+		 mergeFracOpt(args,"slop-frac-5p",mergeOptions.slop_frac_5p);
+		 mergeFracOpt(args,"slop-frac-3p",mergeOptions.slop_frac_3p);
+		 mergeFracOpt(args,"guide-replace-frac",mergeOptions.guide_replace_frac);
+		 GStr mv=args.getOpt("guide-fragments");
+		 if(!mv.is_empty()) {
+			 if(mv=="absorb") mergeOptions.guide_fragments_dominance=false;
+			 else if(mv=="dominance") mergeOptions.guide_fragments_dominance=true;
+			 else GError("Error: --guide-fragments must be absorb or dominance.\n");
+		 }
 		 mv=args.getOpt("path-mode");
 		 if(!mv.is_empty()) {
 			 if(mv=="shared") mergeOptions.path_mode=MRG_PATH_SHARED;

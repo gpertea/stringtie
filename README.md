@@ -239,38 +239,75 @@ Option            Default  Meaning
 An explicitly supplied `-F` or `-T` requires that attribute to be present.
 `-f` is calculated within an input file and declared gene, or within the local
 bundle if `gene_id` is missing. It uses TPM first, then FPKM, then cov. These
-filters mark inputs as failing; replicated exact structures may still be kept
-by `--rescue-support`.
+filters mark inputs as failing; a replicated structure may still be kept by
+`--rescue-support`.
+
+### How the merge decides
+
+Every structure is identified the same way by every option. A multi-exon
+transcript (MET) is its strand plus ordered intron chain; transcript ends are
+not part of the identity. Single-exon transcripts (SET) support each other when
+they overlap reciprocally by `--set-overlap` (pairwise, never transitively).
+Support always counts distinct input files, not records or abundance.
+
+The options act in layers. Each layer only removes or trims what the previous
+layer passed:
+
+```text
+Layer          Question                        Options
+-------------  ------------------------------  -----------------------------------
+record         Is this input record usable?    -m -c -F -T -f
+structure      Is the structure replicated?    --min-support --rescue-support
+                                               --set-overlap
+ends           Where does each end go?         --min-support-5p/3p --slop-bp-*
+                                               --slop-frac-* --max-extension-*
+guide          The guide, a variant, or new?   --guide-policy --guide-slop-bp-*
+                                               --guide-replace-frac
+joins          May observed chains be joined?  --path-mode --min-introns
+                                               --min-piece-support --allow-*
+redundancy     A fragment of a kept model?     --max-intron-overhang
+                                               --guide-fragments -i
+```
+
+Every observed intron chain that passes the structure layer is a candidate
+output. Paths that join observed chains are additions; rejecting a join never
+removes the chains it was built from. Unstranded inputs are not placed in the
+splice graph: they are emitted unchanged, deduplicated and counted by the same
+identity rules.
 
 ### Structure and path evidence
 
 ```text
 Option                    Default     Meaning
 ------------------------  ----------  --------------------------------------
---min-support N           1           Files required for an exact structure.
+--min-support N           1 or 2      Files required for an intron chain or SET.
+                                      Default 2 when 4 or more files are
+                                      merged, otherwise 1.
 --rescue-support N        2           Files required to rescue a filtered tx.
 --min-introns N           1           Exact shared introns required to join.
 --path-mode MODE          shared      shared, replicated, or direct evidence.
 --min-piece-support N     2           Files per intron in replicated mode.
---set-overlap F           0.80        Reciprocal overlap for SET deduplication.
+--set-overlap F           0.80        Reciprocal overlap for SET support and
+                                      deduplication.
 ```
 
-`shared` requires compatible MET paths to share `--min-introns` exact introns.
-The default therefore does not extend a MET through terminal SET overlap alone.
-`--min-introns 0` permits that legacy behavior, but does not bypass reference
-gene, CDS-bridge, hard extension, or support barriers. `replicated` additionally
-requires every output intron to reach `--min-piece-support`; `direct` requires
-the complete ordered intron chain to reach `--min-support`.
+`shared` allows compatible MET paths to be joined when they share
+`--min-introns` exact introns. The default therefore does not extend a MET
+through terminal SET overlap alone. `--min-introns 0` permits that legacy
+behavior, but does not bypass reference gene, CDS-bridge, hard extension, or
+support barriers. `replicated` additionally requires every intron of a joined
+path to reach `--min-piece-support`. `direct` emits observed intron chains only
+and makes no joins.
 
 ### Biological endpoint controls
 
 ```text
 Option                    Default     Meaning
 ------------------------  ----------  --------------------------------------
---min-support-5p N        2           Files required for a new 5-prime end.
---min-support-3p N        2           Files required for a new 3-prime end.
+--min-support-5p N        2           Files required to support a 5-prime end.
+--min-support-3p N        2           Files required to support a 3-prime end.
 --slop-bp-5p N            100         Unsupported 5-prime overhang allowance.
---slop-bp-3p N            100         Unsupported 3-prime overhang allowance.
+--slop-bp-3p N            500         Unsupported 3-prime overhang allowance.
 --slop-frac-5p F          0.50        5-prime slop as terminal exon fraction.
 --slop-frac-3p F          0.50        3-prime slop as terminal exon fraction.
 --max-extension-5p N      unlimited   Absolute 5-prime extension cap.
@@ -278,10 +315,15 @@ Option                    Default     Meaning
 ```
 
 The 5-prime and 3-prime controls follow transcript orientation, including on
-the minus strand. A path extension below its support threshold is allowed only
-when it satisfies both the base-pair and terminal-exon-fraction slop. Hard caps
-always win. Support and slop govern synthesized joins; directly observed guide
-endpoint variants are governed by hard caps and `--guide-policy`.
+the minus strand. One model is emitted per intron chain. Each of its ends is
+elected from the files that carry the chain: the end is the most extended
+position reached by at least `--min-support-5p` (or `-3p`) files. A chain seen
+in fewer files than that keeps its most extended end. A further end seen in
+fewer files is adopted only when it lies within both the base-pair slop and the
+terminal-exon-fraction slop of the elected end, and never beyond the hard cap.
+`--slop-bp-*` accepts `unlimited`. `--min-support-5p 1 --min-support-3p 1`
+restores the longest observed ends. Ends that are not adopted appear in the
+report as `trim` rows.
 
 ### Reference and bridge policies
 
@@ -290,17 +332,45 @@ Option                    Default     Meaning
 ------------------------  ----------  --------------------------------------
 --guide-policy MODE       both        both, reference, or best.
 --guide-replace-frac F    0.90        Core support fraction for best mode.
+--guide-slop-bp-5p N      slop-bp-5p  Overhang past a guide 5-prime end that
+                                      still counts as the guide.
+--guide-slop-bp-3p N      slop-bp-3p  Same for the guide 3-prime end.
+--guide-fragments MODE    absorb      absorb or dominance (see below).
+--max-intron-overhang N   unlimited   Largest overhang into an intron of a
+                                      containing transcript for a fragment
+                                      to be absorbed; 0 keeps them separate.
 --dedup-guides            off         Canonicalize identical guide structures.
 --allow-fusions           off         Permit paths crossing guide genes.
 --allow-cds-bridges       off         Permit bridges between coding guide tx.
 ```
 
-Guide structures are immutable. `both` keeps the guide and an accepted
-same-chain endpoint variant; `reference` suppresses that variant; `best`
-replaces the guide only when the variant has at least two complete-path files
-and its complete-path fraction reaches `--guide-replace-frac`. With
-`--dedup-guides`, the lexicographically smallest ID represents identical guide
-structures and the other IDs appear in `reference_aliases`.
+Guide structures are immutable and are always emitted under their own ID. An
+input related to a guide (the same intron chain, or a contiguous part of it) is
+treated as follows:
+
+- If it does not pass a guide end by more than `--guide-slop-bp-*`, or if fewer
+  than `--min-support-5p/3p` files reach that far, it is the guide or a
+  fragment of it. It is absorbed, its files are credited to the guide
+  (`merge_support` for the guide's own chain, `merge_contained_support` for
+  fragments), and fragments are listed in the report as `absorb` rows.
+- Otherwise it is a guide variant, emitted under a generated ID with
+  `reference_id` and `class_code` `k` (same chain) or `j` (part of the chain).
+  `both` keeps the guide and the variant; `reference` suppresses the variant;
+  `best` replaces the guide with a same-chain variant only when the variant has
+  at least two complete-path files and its complete-path fraction reaches
+  `--guide-replace-frac`. `--max-extension-*` rejects a variant that passes
+  the guide end by more than the cap.
+
+With `--dedup-guides`, the lexicographically smallest ID represents identical
+guide structures and the other IDs appear in `reference_aliases`.
+
+A generated transcript whose intron chain is part of a longer retained
+transcript is redundant and is absorbed, but only when the longer transcript's
+weakest intron is supported by at least as many files as the shorter chain
+(dominance). A replicated isoform is therefore never removed in favor of a
+weaker longer model. Guides absorb their fragments regardless of support unless
+`--guide-fragments dominance` is given. A fragment that retains an intron of
+the longer transcript follows the same rule, and `-i` keeps all of them.
 
 Same-strand paths crossing distinct guide genes are rejected before intron
 joining unless `--allow-fusions` is set. Within one guide gene, a path carrying
@@ -311,10 +381,15 @@ not a barrier.
 ### Merge report and output evidence
 
 `--report FILE` writes a deterministically sorted TSV of filtering, rescue,
-fusion, CDS bridge, containment, duplicate, and support decisions, preceded by
-reason counts. The merged GTF records `merge_support`, `merge_path_support`,
-`merge_piece_support`, biological endpoint and locus support, `reference_id`,
-`class_code`, and optional `reference_aliases`.
+fusion, CDS bridge, containment, duplicate, support, `absorb` and `trim`
+decisions, preceded by reason counts. An `absorb` row gives the number of input
+records and files of the absorbed chain and the transcript that contains it.
+The merged GTF records `merge_support` (files with evidence for the transcript),
+`merge_path_support` (files carrying its complete intron chain),
+`merge_piece_support` (files supporting its weakest intron),
+`merge_5p_support` and `merge_3p_support` (files reaching the emitted end
+within the slop), locus support, `reference_id`, `class_code`, and optional
+`merge_contained_support` and `reference_aliases`.
 
 All long options in this section are valid only with `--merge`. See
 [MERGE_MODE.md](MERGE_MODE.md) for the implementation workflow, precise output

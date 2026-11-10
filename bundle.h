@@ -293,6 +293,10 @@ struct CPrediction:public GSeg {
 	int merge_3p_support;
 	int merge_locus_support;
 	char merge_class;
+	char merge_origin; // 0: legacy path, 'o': observed intron chain, 'j': synthesized join, 'x': superseded
+	GVec<int> merge_contained_files; // files of fragments absorbed by a guide
+	int merge_nrec; // input records represented by this prediction
+	int merge_chain; // index of the observed chain in BundleData::mergechains, or -1
 	GStr merge_ref_aliases;
         CPrediction(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, double _cov=0, char _strand='.',
         int _len=0,bool f=true, CPrediction* lp=NULL):GSeg(gstart,gend), geneno(_geneno),t_eq(guide),cov(_cov),longcov(0),strand(_strand),
@@ -300,7 +304,7 @@ struct CPrediction:public GSeg {
 	//		int _len=0,bool f=true):GSeg(gstart,gend), geneno(_geneno),id(_id),cov(_cov),strand(_strand),frag(_frag),
 			tlen(_len),flag(f),linkpred(lp),exons(),exoncov(),mergename(),merge_files(),merge_path_support(0),
 			merge_piece_support(0),merge_5p_support(0),merge_3p_support(0),merge_locus_support(0),
-			merge_class(0),merge_ref_aliases() { merge_ref=guide; }
+			merge_class(0),merge_origin(0),merge_contained_files(),merge_nrec(0),merge_chain(-1),merge_ref_aliases() { merge_ref=guide; }
         void init(int _geneno=0, GffObj* guide=NULL, int gstart=0, int gend=0, double _cov=0, char _strand='.',
 	          int _len=0,bool f=true, CPrediction* lp=NULL) {
 		geneno=_geneno;
@@ -323,6 +327,10 @@ struct CPrediction:public GSeg {
 		merge_3p_support=0;
 		merge_locus_support=0;
 		merge_class=0;
+		merge_origin=0;
+		merge_contained_files.Clear();
+		merge_nrec=0;
+		merge_chain=-1;
 		merge_ref_aliases.clear();
 	}
 
@@ -332,9 +340,33 @@ struct CPrediction:public GSeg {
 	      exons(c.exons), exoncov(c.exoncov), mergename(c.mergename), merge_files(c.merge_files),
 	      merge_path_support(c.merge_path_support),merge_piece_support(c.merge_piece_support),
 	      merge_5p_support(c.merge_5p_support),merge_3p_support(c.merge_3p_support),
-	      merge_locus_support(c.merge_locus_support),merge_class(c.merge_class),merge_ref_aliases(c.merge_ref_aliases) {}
+	      merge_locus_support(c.merge_locus_support),merge_class(c.merge_class),merge_origin(c.merge_origin),
+	      merge_contained_files(c.merge_contained_files),merge_nrec(c.merge_nrec),merge_chain(c.merge_chain),merge_ref_aliases(c.merge_ref_aliases) {}
 	~CPrediction() { //GFREE(id);
 		}
+};
+
+// one observed stranded multi-exon structure of a merge bundle: an intron chain and the
+// most extended ends seen in each input file
+struct CMergeChain {
+	char strand; // '+' or '-'
+	GVec<GSeg> introns; // start: last base of the upstream exon; end: first base of the downstream exon
+	GVec<int> files;
+	GVec<uint> fstart; // per file, the smallest start
+	GVec<uint> fend;   // per file, the largest end
+	int nrec; // input records
+	uint jstart; // ends of a graph path with this chain that absorbed single-exon inputs;
+	uint jend;   // used only with --min-introns 0 (0: none)
+	CMergeChain(char s='+'):strand(s),introns(),files(),fstart(),fend(),nrec(0),jstart(0),jend(0) {}
+	void addRecord(int f,uint rstart,uint rend) {
+		nrec++;
+		for(int i=0;i<files.Count();i++) if(files[i]==f) {
+			if(rstart<fstart[i]) fstart[i]=rstart;
+			if(rend>fend[i]) fend[i]=rend;
+			return;
+		}
+		files.Add(f); fstart.Add(rstart); fend.Add(rend);
+	}
 };
 
 // bundle data structure, holds all input data parsed from BAM file
@@ -358,6 +390,7 @@ struct BundleData {
  GPVec<GffObj> keepguides; //list of guides in this bundle (+ synthetic nascents if genNascent)
  GPVec<GPtFeature> ptfs; //point features for this bundle
  GList<CPrediction> pred;
+ GPVec<CMergeChain> mergechains; // merge mode: observed intron chains of the bundle
  int numNascents=0; //number of nascent transcripts generated for this bundle
  RC_BundleData* rc_data; // read count data for this bundle
  // Long-read witness for adjacent junction pairs (packed key -> count)
@@ -424,6 +457,7 @@ struct BundleData {
 	ptfs.Clear();
 	pred.Clear();
 	pred.setSorted(false);
+	mergechains.Clear();
 	readlist.Clear();
 	readlist.setSorted(false);
 	for(int i=0;i<3;i++) {
