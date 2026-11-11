@@ -1761,7 +1761,7 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 			 //gather coords for this gene_id
 			 char* geneid=t.getGeneID();
 			 if (geneid==NULL) geneid=t.getGeneName();
-			 if (geneid!=NULL) {
+			 if (geneid!=NULL && getGuideStatus(&t)<GBST_IN_BUNDLE) {
 				 CGene* gloc=geneabs.Find(geneid);
 				 if (gloc) {
 					 if (gloc->strand!=t.strand)
