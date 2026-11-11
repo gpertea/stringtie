@@ -187,7 +187,7 @@ EOT
 chmod +x $pack/run_tests.sh
 
 # copy general source files
-cp Makefile LICENSE README.md stringtie.cpp prepDE.py prepDE.py3 $pack/ >/dev/null 2>&1 || true
+cp Makefile LICENSE README.md stringtie.cpp prepDE.py $pack/ >/dev/null 2>&1 || true
 cp {rlink,bundle,tablemaker,tmerge}.{h,cpp} $pack/
 
 # copy gclib sources

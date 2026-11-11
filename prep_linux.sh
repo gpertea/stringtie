@@ -13,7 +13,7 @@ mkdir -p $linpack/tests
 cd $srcpack
 make clean
 make -j4 static-cpp
-cp -p LICENSE README.md run_tests.sh stringtie prepDE.py prepDE.py3 ../$linpack/
+cp -p LICENSE README.md run_tests.sh stringtie prepDE.py ../$linpack/
 cp -p tests/README.md ../$linpack/tests/
 cd ..
 tar cvfz $linpack.tar.gz $linpack

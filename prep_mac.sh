@@ -11,7 +11,7 @@ echo "-------------------"
 mkdir -p $macpack/tests
 make clean
 make release
-cp -p LICENSE README.md run_tests.sh stringtie prepDE.py prepDE.py3 $macpack/
+cp -p LICENSE README.md run_tests.sh stringtie prepDE.py $macpack/
 cp -p tests/README.md $macpack/tests/
 #cp -r tests_exp_out $macpack/
 tar cvfz $macpack.tar.gz $macpack
