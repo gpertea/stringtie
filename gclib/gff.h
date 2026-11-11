@@ -1,7 +1,7 @@
 #ifndef GFF_H
 #define GFF_H
 
-#define GFF_VERSION 129
+#define GFF_VERSION 130
 //^^could be used for gffcompare/gffread builds to check for min version required
 
 //#define CUFFLINKS 1
@@ -95,9 +95,9 @@ struct TOvlData { //describe overlap with a ref transcript
 
 TOvlData getOvlData(GffObj& m, GffObj& r, bool stricterMatch=false, int trange=0, bool cdsMatch=false);
 
-char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange=0); //generic transcript match test
+char transcriptMatch(GffObj& a, GffObj& b, int& ovlen, int trange=0, bool cdsMatch=false); //generic transcript match test
 // -- return '=', '~'  or 0
-char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange=0, int* ovlrefstart=0);
+char singleExonTMatch(GffObj& m, GffObj& r, int& ovlen, int trange=0, int* ovlrefstart=0, bool cdsMatch=false);
 //single-exon transcript match test - returning '=', '~'  or 0
 
 
