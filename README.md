@@ -242,8 +242,8 @@ Reference transcripts given with -G are     none; 3.0.3 could move their ends
 written with their exact structure
 Fusions of reference genes and bridges      --allow-fusions --allow-cds-bridges
 between coding transcripts are rejected
-Unstranded multi-exon inputs are passed     none; 3.0.3 dropped them
-through
+Unstranded multi-exon inputs are passed     none; 3.0.3 wrote each of their exons
+through unchanged                           as a separate single-exon transcript
 Output is sorted by position; references    none
 keep the order of the input files
 Generated IDs are assigned in output order  none
