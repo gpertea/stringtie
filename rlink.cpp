@@ -2605,7 +2605,7 @@ CGraphnode *longtrim(int s, int g, int refstart,int nodeend, int &nls, int &nle,
 				int winstart=startpos-CHI_THR;
 				if(winstart<0) winstart=0;
 				int winend=startpos+CHI_THR-1;
-				if(winend>=bpcov->Count()) winend=bpcov->Count()-1;
+				if(winend>bpcov->Count()-2) winend=bpcov->Count()-2; // get_cov_sign() reads bpcov at winend+1
 				/*tmpcov=(get_cov(1,startpos,winend,bpcov)-get_cov(2-2*s,startpos,winend,bpcov)-
 						get_cov(1,winstart,startpos-1,bpcov)+get_cov(2-2*s,winstart,startpos-1,bpcov))/(DROP*CHI_THR);*/
 				tmpcov=(get_cov_sign(2*s,startpos,winend,bpcov)-get_cov_sign(2*s,winstart,startpos-1,bpcov))/(DROP*CHI_THR);
@@ -2647,7 +2647,7 @@ CGraphnode *longtrim(int s, int g, int refstart,int nodeend, int &nls, int &nle,
 				int winstart=endpos-CHI_THR+1;
 				if(winstart<0) winstart=0;
 				int winend=endpos+CHI_THR;
-				if(winend>=bpcov->Count()) winend=bpcov->Count()-1;
+				if(winend>bpcov->Count()-2) winend=bpcov->Count()-2; // get_cov_sign() reads bpcov at winend+1
 				/*tmpcov=(get_cov(1,winstart,endpos,bpcov)-get_cov(2-2*s,winstart,endpos,bpcov)-
 						get_cov(1,endpos+1,winend,bpcov)+get_cov(2-2*s,endpos+1,winend,bpcov))/(DROP*CHI_THR);*/
 				tmpcov=(get_cov_sign(2*s,winstart,endpos,bpcov)-get_cov_sign(2*s,endpos+1,winend,bpcov))/(DROP*CHI_THR);
@@ -2806,11 +2806,82 @@ CGraphnode *trimnode(int s, int g, int refstart,uint newend, CGraphnode *graphno
 }
 
 
+// Adds to trimpoint the transcript starts and ends given as point features (ptends, sorted by position)
+// that fall inside the region start-end. A given start is the first base of a transcript, a given end
+// is its last base. A given point replaces the trims of the same kind found from coverage within
+// CHI_THR bases of it, and any other coverage trim that leaves no room for it.
+void add_given_trims(int refstart,int sno,uint start,uint end,GVec<float>* bpcov,GVec<CTrimPoint> &trimpoint,GVec<CTrimPoint> &ptends) {
+	int g=0;
+	int h=ptends.Count();
+	while(g<h) { // find the first given point at or after start
+		int m=(g+h)/2;
+		if(ptends[m].pos<start) g=m+1;
+		else h=m;
+	}
+
+	// given points that can split this region: a start after its first base, an end before its last base
+	GVec<CTrimPoint> gtrims;
+	uint nodestart=start; // start of the node that the next trim would split
+	for(;g<ptends.Count() && ptends[g].pos<=end;g++) {
+		uint pos=ptends[g].pos;
+		bool isstart=ptends[g].start;
+		if(isstart ? (pos<=nodestart) : (pos<nodestart || pos>=end)) continue;
+		// coverage change at this point, as done for the coverage trims
+		uint lstart= (pos>start+CHI_WIN) ? pos-CHI_WIN : start;
+		uint lend=isstart ? pos-1 : pos;
+		uint rend= (pos+CHI_WIN<end) ? pos+CHI_WIN : end;
+		double covleft=get_cov_sign(sno,lstart-refstart,lend-refstart,bpcov)/(lend-lstart+1);
+		double covright=get_cov_sign(sno,lend+1-refstart,rend-refstart,bpcov)/(rend-lend);
+		CTrimPoint t(pos,(fabs(covright-covleft)+1)/DROP,isstart);
+		gtrims.Add(t);
+		nodestart=isstart ? pos : pos+1;
+	}
+	if(!gtrims.Count()) return;
+
+	// a coverage trim near a given point of the same kind is the same transcript start or end
+	int g0=0; // first given point that can be within CHI_THR of the coverage trim
+	for(int c=0;c<trimpoint.Count();c++) if(trimpoint[c].pos) {
+		while(g0<gtrims.Count() && gtrims[g0].pos+CHI_THR<trimpoint[c].pos) g0++;
+		for(int i=g0;i<gtrims.Count() && gtrims[i].pos<=trimpoint[c].pos+CHI_THR;i++)
+			if(gtrims[i].start==trimpoint[c].start) {
+				if(gtrims[i].abundance<trimpoint[c].abundance) gtrims[i].abundance=trimpoint[c].abundance;
+				trimpoint[c].pos=0;
+				break;
+			}
+	}
+
+	// merge by position; a coverage trim that leaves no node between it and a given point is dropped
+	GVec<CTrimPoint> covtrims(trimpoint);
+	trimpoint.Clear();
+	GVec<bool> given; // for each trim kept so far
+	g=0;
+	int c=0;
+	while(g<gtrims.Count() || c<covtrims.Count()) {
+		bool isgiven=(c==covtrims.Count() || (g<gtrims.Count() && gtrims[g].pos<=covtrims[c].pos));
+		CTrimPoint& t=isgiven ? gtrims[g] : covtrims[c];
+		if(isgiven) g++;
+		else c++;
+		if(!t.pos) continue;
+		bool valid=false;
+		while(!valid) {
+			nodestart=start;
+			if(trimpoint.Count()) nodestart=trimpoint.Last().start ? trimpoint.Last().pos : trimpoint.Last().pos+1;
+			valid=t.start ? (t.pos>nodestart) : (t.pos>=nodestart && t.pos<end);
+			if(valid || !isgiven || !trimpoint.Count() || given.Last()) break;
+			trimpoint.Pop(); // the coverage trim before this given point is in its way
+			given.Pop();
+		}
+		if(valid) { trimpoint.Add(t); given.Add(isgiven); }
+	}
+}
+
 CGraphnode *trimnode_all(int s, int g, int refstart,uint newend, CGraphnode *graphnode,CGraphnode *source, CGraphnode *sink, GVec<float>* bpcov,
-		GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno,GVec<CTrimPoint> &tstartend,int &f) {
+		GVec<float>& futuretr, int& graphno,CBundlenode *bundlenode,GVec<CGraphinfo> **bundle2graph,GPVec<CGraphnode> **no2gnode, int &edgeno,GVec<CTrimPoint> &tstartend,int &f,
+		GVec<CTrimPoint> *ptends) {
 
 	GVec<CTrimPoint> trimpoint;
-	f=find_all_trims(refstart,2*s,graphnode->start,newend,bpcov,trimpoint,tstartend,f);
+	if(trim) f=find_all_trims(refstart,2*s,graphnode->start,newend,bpcov,trimpoint,tstartend,f);
+	if(ptends) add_given_trims(refstart,2*s,graphnode->start,newend,bpcov,trimpoint,*ptends);
 	for(int i=0;i<trimpoint.Count();i++) if(trimpoint[i].pos){
 		if(trimpoint[i].start) { // source trim
 			graphnode->end=trimpoint[i].pos-1;
@@ -3579,7 +3650,8 @@ int prune_graph_nodes(int graphno,int s,int g,GVec<CGraphinfo> **bundle2graph, i
 int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bnode,
 		GList<CJunction>& junction,GList<CJunction>& ejunction,GVec<CGraphinfo> **bundle2graph,
 		GPVec<CGraphnode> **no2gnode,GPVec<CTransfrag> **transfrag,GIntHash<int> **gpos,BundleData* bdata,
-		int &edgeno,int &lastgpos,GArray<GEdge>& guideedge, GVec<CTrimPoint> &tstartend,int refend=0){
+		int &edgeno,int &lastgpos,GArray<GEdge>& guideedge, GVec<CTrimPoint> &tstartend,int refend=0,
+		GVec<CTrimPoint> *ptends=NULL){ // ptends: transcript ends given as point features, for this strand
 
 	GVec<float>* bpcov = bdata ? bdata->bpcov : NULL; // I might want to use a different type of data for bpcov to save memory in the case of very long bundles
 
@@ -3680,12 +3752,12 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    	if(endbundle-currentstart<=CHI_WIN+CHI_THR) { // I only consider the given features for this case
 	    		while(f<feature.Count() && feature[f]->coord<=endbundle) {
 	    			if(feature[f]->strand==2*s-1) {
-	    				if(feature[f]->ftype==GPFT_TSS) { // this is a start
+	    				if(feature[f]->txEnd()<0) { // this is a start
 	    					CPred p(feature[f]->coord,-1); // start here -> a -1 indicates this is a given point feature
 	    					if(fs<0) fs=lstart.Count();
 	    					lstart.Add(p);
 	    				}
-	    				else if(feature[f]->ftype==GPFT_CPAS) { // this is an end
+	    				else if(feature[f]->txEnd()>0) { // this is an end
 	    					CPred p(feature[f]->coord,-1); // start here -> a -1 indicates this is a given point feature
 	    					if(fe<0) fe=lend.Count();
 	    					lend.Add(p);
@@ -3698,12 +3770,12 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 
 	    		while(f<feature.Count() && feature[f]->coord<currentstart+CHI_WIN+CHI_THR+longintronanchor) { // see if there are any features before the start
 	    			if(feature[f]->strand==2*s-1) {
-	    				if(feature[f]->ftype==GPFT_TSS) { // this is a start
+	    				if(feature[f]->txEnd()<0) { // this is a start
 	    					CPred p(feature[f]->coord,-1); // start here -> a -1 indicates this is a given point feature
 	    					if(fs<0) fs=lstart.Count();
 	    					lstart.Add(p);
 	    				}
-	    				else if(feature[f]->ftype==GPFT_CPAS) { // this is an end
+	    				else if(feature[f]->txEnd()>0) { // this is an end
 	    					CPred p(feature[f]->coord,-1); // start here -> a -1 indicates this is a given point feature
 	    					if(fe<0) fe=lend.Count();
 	    					lend.Add(p);
@@ -3747,11 +3819,11 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    			// add features at position i
 	    			if((uint)i+CHI_THR+refstart<endbundle) while(f<feature.Count() && feature[f]->coord==(uint)i+CHI_THR+refstart) { // see if there are any features before the start
 	    				if(feature[f]->strand==2*s-1) {
-	    					if(feature[f]->ftype==GPFT_TSS) { // this is a start
+	    					if(feature[f]->txEnd()<0) { // this is a start
 	    						CPred p(feature[f]->coord,-1); // start here -> a -1 indicates this is a given point feature
 	    						lstart.Add(p);
 	    					}
-	    					else if(feature[f]->ftype==GPFT_CPAS) { // this is an end
+	    					else if(feature[f]->txEnd()>0) { // this is an end
 	    						CPred p(feature[f]->coord,-1); // start here -> a -1 indicates this is a given point feature
 	    						lend.Add(p);
 	    					}
@@ -3955,7 +4027,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    		//if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 	    		else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,junction[njs]->start,nls,nle,dropcov,true,lstart,lend,
 							graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    		if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
+	    		if((trim || ptends) && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,junction[njs]->start,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f,ptends);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 
 	    		dropcov=true;
@@ -4057,7 +4129,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    			//if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 	    			else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,pos-1,nls,nle,dropcov,false,lstart,lend,
 	    						graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    			if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
+	    			if((trim || ptends) && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,pos-1,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f,ptends);// do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 
 	    			graphnode->end=pos-1; // set end of current graphnode here
@@ -4128,7 +4200,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	    	// if(trim && !processguide && !mergeMode) graphnode=trimnode(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
 	    	else if(longreads && (lstart.Count() || lend.Count())) graphnode=longtrim(s,g,refstart,endbundle,nls,nle,dropcov,true,lstart,lend,
 	    				graphnode,source,sink,futuretr,graphno,bpcov,bundlenode,bundle2graph,no2gnode,edgeno);
-	    	if(trim && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
+	    	if((trim || ptends) && !longreads && !mergeMode) graphnode=trimnode_all(s,g,refstart,endbundle,graphnode,source,sink,bpcov,futuretr,graphno,bundlenode,bundle2graph,no2gnode,edgeno,tstartend,f,ptends); // do something to find intermediate nodes; alternatively, I could only do this for end nodes
 
 	    	graphnode->end=endbundle;
 	    	// COUNT EDGE HERE (this is an edge to sink)
@@ -14185,21 +14257,27 @@ int build_graphs(BundleData* bdata) {
 	GIntHash<bool> jend;
 	bool checkfeat=false;
 	GVec<CTrimPoint> tstartend;
+	// transcript starts and ends given as TSS/CPAS point features, by strand: 0 = -, 2 = +, 1 = both strands;
+	// long reads use the features directly in create_graph
+	GVec<CTrimPoint> ptends[3];
+	if(havePtFeatures && !longreads) {
+		for(int i=0;i<feature.Count();i++) {
+			int txend=feature[i]->txEnd();
+			if(txend && feature[i]->strand) {
+				CTrimPoint t(feature[i]->coord,0,txend<0);
+				ptends[1+feature[i]->strand].Add(t);
+				ptends[1].Add(t);
+			}
+		}
+	}
 
 	if(havePtFeatures && !mixedMode && !longreads) { // only in this case I check jstart and jend
 		for(int i=0;i<feature.Count();i++) {
 			if(feature[i]->ftype==GPFT_JSTART) {if(!jstart[feature[i]->coord]) jstart.Add(feature[i]->coord,true);}
 			else if(feature[i]->ftype==GPFT_JEND) {if(!jend[feature[i]->coord]) jend.Add(feature[i]->coord,true);}
-			else if(feature[i]->ftype==GPFT_TSS) {
-				CTrimPoint t(feature[i]->coord,0,true);
-				tstartend.Add(t);
-			}
-			else { // this is GPFT_CPAS
-				CTrimPoint t(feature[i]->coord,0,false);
-				tstartend.Add(t);
-			}
 		}
-		if(feature.Count()) checkfeat=true;
+		// junctions are only restricted to the given ones if junction features were given here
+		if(jstart.Count() || jend.Count()) checkfeat=true;
 	}
 
 	/*
@@ -15557,6 +15635,7 @@ int build_graphs(BundleData* bdata) {
 
     				GVec<CTrimPoint> trimpoint;
     				f=find_all_trims(refstart,0,currbnode->start, currbnode->end,bpcov,trimpoint,tstartend,f); // sign should not matter as I am in a totally neutral zone
+    				if(ptends[1].Count()) add_given_trims(refstart,0,currbnode->start, currbnode->end,bpcov,trimpoint,ptends[1]);
 
     				uint predstart=currbnode->start;
     				uint predend=currbnode->end;
@@ -15742,7 +15821,8 @@ int build_graphs(BundleData* bdata) {
     					*/
     					// create graph then
     					graphno[s][b]=create_graph(refstart,s,b,bundle[sno][b],bnode[sno],junction,ejunction,
-    							bundle2graph,no2gnode,transfrag,gpos,bdata,edgeno[s][b],lastgpos[s][b],guideedge,tstartend); // also I need to remember graph coverages somewhere -> probably in the create_graph procedure
+    							bundle2graph,no2gnode,transfrag,gpos,bdata,edgeno[s][b],lastgpos[s][b],guideedge,tstartend,0,
+    							ptends[2*s].Count() ? &ptends[2*s] : NULL); // also I need to remember graph coverages somewhere -> probably in the create_graph procedure
 
     					if(graphno[s][b]) tr2no[s][b]=construct_treepat(graphno[s][b],gpos[s][b],transfrag[s][b]);
     					else tr2no[s][b]=NULL;

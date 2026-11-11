@@ -48,26 +48,45 @@ function check_gene_abund() {
   return 0
 }
 
+# check that a GTF has a transcript with the start, end, strand and exon count given in $2
+function check_tx() {
+  awk -F'\t' '$3=="transcript" {if (t!="") print t" "n; t=$4" "$5" "$7; n=0}
+     $3=="exon" {n++} END {if (t!="") print t" "n}' $1 | grep -q -x "$2"
+}
+
 cd $tdir
 
+# point features for the --ptf tests; the - strand has its TSS at the right end
+printf "chr16\t789250\t+\tTSS\nchr16\t798000\t+\tCPAS\n" > short_reads.ptf
+printf "chr19\t567231\t-\tCPAS\nchr19\t571726\t-\tTSS\n" > long_reads.ptf
+
 arrins=("short_reads" "short_reads_and_superreads" "mix_short" "long_reads" \
-   "long_reads" "mix_short mix_long" "mix_short mix_long" "mix_short" "mix_short")
+   "long_reads" "mix_short mix_long" "mix_short mix_long" "mix_short" "mix_short" \
+   "short_reads" "long_reads")
 arrparms=("" "" "-G mix_guides.gff" "-L" "-L -G human-chr19_P.gff" "--mix" "--mix -G mix_guides.gff" \
- "-N -G mix_guides.gff" "--nasc -G mix_guides.gff")
+ "-N -G mix_guides.gff" "--nasc -G mix_guides.gff" \
+ "--ptf short_reads.ptf" "-L --ptf long_reads.ptf")
 # number of guide genes for the tests also checking the gene abundance (-A) output
-arrgenes=("" "" 1 "" 14112 "" 1 1 1)
+arrgenes=("" "" 1 "" 14112 "" 1 1 1 "" "")
+# for the --ptf tests: start, end, strand and exon count of a transcript that must be found,
+# with both ends at the given points and all its introns, instead of an expected output file
+arrtx=("" "" "" "" "" "" "" "" "" "789250 798000 + 20" "567231 571726 - 3")
 arrout=("short_reads" "short_reads_and_superreads" "short_guided" "long_reads" \
-       "long_reads_guided" "mix_reads" "mix_reads_guided" "mix_short_N_guided" "mix_short_nasc_guided")
+       "long_reads_guided" "mix_reads" "mix_reads_guided" "mix_short_N_guided" "mix_short_nasc_guided" \
+       "short_reads_ptf" "long_reads_ptf")
 arrmsg=("Short reads"  "Short reads and super-reads" "Short reads with annotation guides" "Long reads" \
  "Long reads with annotation guides" "Mixed reads" "Mixed reads with annotation guides" \
- "Short reads with -N" "Short reads with --nasc")
+ "Short reads with -N" "Short reads with --nasc" \
+ "Short reads with point features" "Long reads with point features")
 
 nfailed=0
 for i in ${!arrmsg[@]}; do
  fout="${arrout[$i]}.out.gtf"
  /bin/rm -f $fout
  fcmp="${arrout[$i]}.out_expected.gtf"
- if [ ! -f $fcmp ]; then
+ if [[ -n "${arrtx[$i]}" ]]; then
+   fcmp="a transcript with start, end, strand, exons: ${arrtx[$i]}"
+ elif [ ! -f $fcmp ]; then
    echo "Error: file $fcmp does not exist! Re-download test data."
    exit 1
  fi
@@ -99,7 +118,12 @@ for i in ${!arrmsg[@]}; do
    abund_ok=0
    nfailed=$((nfailed+1))
  fi
- if diff -q -I '^#' $fout $fcmp &>/dev/null; then
+ if [[ -n "${arrtx[$i]}" ]]; then
+   check_tx $fout "${arrtx[$i]}"
+ else
+   diff -q -I '^#' $fout $fcmp &>/dev/null
+ fi
+ if [[ $? -eq 0 ]]; then
     [[ $abund_ok -eq 1 ]] && echo "  OK."
  else
    echo "Error: test failed, output $fout different than expected ($fcmp)!"

@@ -165,7 +165,9 @@ The following optional parameters can be specified (use `-h` or `--help` to get 
  --rf : assume stranded library fr-firststrand
  --fr : assume stranded library fr-secondstrand
  -G reference annotation to use for guiding the assembly process (GTF/GFF)
- --ptf : load point-features from a given 4 column feature file <f_tab>
+ --ptf : load point-features from a given 4 column feature file <f_tab>:
+         <ref_seq> <position> <strand> <type>, with <type> one of TSS, CPAS,
+         JSTART, JEND; TSS and CPAS need a strand (+ or -)
  -o output path/file name for the assembled transcripts GTF (default: stdout)
  -l name prefix for output transcripts (default: STRG)
  -f minimum isoform fraction (default: 0.01)
@@ -268,6 +270,41 @@ only estimate the expression levels of all the transcripts provided in this file
 Note that when a reference transcript is fully covered by reads, the original transcript ID from the reference annotation file will be 
 shown in StringTie's output record in the _`reference_id`_ GTF attribute. Output transcripts that lack such `reference_id` attribute 
 can be considered "novel" transcript structures with respect to the given reference annotation.
+
+### Point features
+
+Known transcript ends and splice sites can be given with the `--ptf` option, in a text file
+with four columns separated by tabs or spaces, one feature per line:
+
+```
+<ref_seq> <position> <strand> <type>
+chr19   571311  +  TSS
+chr19   583492  +  CPAS
+chr19   571735  -  TSS
+chr19   567222  -  CPAS
+```
+
+The position is 1-based, the strand is `+`, `-` or `.` and the type is one of:
+
+ * `TSS`: transcription start site, the first base of a transcript
+ * `CPAS`: cleavage and polyadenylation site, the last base of a transcript
+ * `JSTART`: the last base of the exon before an intron
+ * `JEND`: the first base of the exon after an intron
+
+`TSS` and `CPAS` are the biological ends of a transcript, so they need a strand, and on the `-` strand
+the `TSS` is the end with the higher coordinate, as in the example above.
+
+How these features are used:
+
+ * A `TSS` or `CPAS` adds a possible transcript start or end at that position, for transcripts on
+   the same strand. It has to fall inside a region covered by reads: it can shorten a transcript, or
+   start or end one within an exon, but it never extends a transcript beyond the read coverage.
+ * With long reads (`-L`) transcripts starting or ending near such a feature are adjusted to it.
+   With short reads, and with `--mix`, the feature is used if the read coverage supports
+   a transcript start or end there.
+ * `JSTART` and `JEND` are only used when assembling short reads alone (no `-L` or `--mix`):
+   in a locus that has such features, only the junctions with both ends given this way
+   (or matching a reference transcript given with `-G`) are kept. Their strand is not used.
 
 ## The super-reads module
 

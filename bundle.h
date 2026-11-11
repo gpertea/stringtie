@@ -100,6 +100,14 @@ struct GPtFeature { //point feature (single coordinate)
  bool operator==(const GPtFeature &o) { return coord==o.coord; }
     //-- should really match ftype and strand too,
     //   but we don't care, for bundle inclusion
+ // TSS and CPAS are the biological ends of a transcript on the given strand:
+ // returns -1 for a left (lower coordinate) end, i.e. + strand TSS or - strand CPAS,
+ // 1 for a right end, and 0 for the other feature types
+ int txEnd() {
+   if (ftype==GPFT_TSS) return (strand<0) ? 1 : -1;
+   if (ftype==GPFT_CPAS) return (strand<0) ? -1 : 1;
+   return 0;
+ }
 };
 
 

@@ -44,7 +44,9 @@ Options:\n\
  --rf : assume stranded library fr-firststrand\n\
  --fr : assume stranded library fr-secondstrand\n\
  -G reference annotation to use for guiding the assembly process (GTF/GFF)\n\
- --ptf : load point-features from a given 4 column feature file <f_tab>\n\
+ --ptf : load point-features from a given 4 column feature file <f_tab>:\n\
+         <ref_seq> <position> <strand> <type>, with <type> one of TSS, CPAS,\n\
+         JSTART, JEND; TSS and CPAS need a strand (+ or -)\n\
  -o output path/file name for the assembled transcripts GTF (default: stdout)\n\
  -l name prefix for output transcripts (default: STRG)\n\
  -f minimum isoform fraction (default: 0.01)\n\
@@ -1682,6 +1684,9 @@ int loadPtFeatures(FILE* f, GArray<GRefPtData>& refpts) {
     			pftype=GPFT_JEND;
     if (pftype==0)
     	GError("Error parsing point-feature line (unrecognized type):\n%s\n",line);
+    if (strand==0 && (pftype==GPFT_TSS || pftype==GPFT_CPAS))
+    	GError("Error: point-feature %s at %s:%d must have a strand (+ or -)\n",
+    			tokens[3], tokens[0], start);
     GPtFeature* ptf=new GPtFeature(pftype, -1, strand, start);
     addPtFeature(tokens[0], ptf, refpts);
     num++;
