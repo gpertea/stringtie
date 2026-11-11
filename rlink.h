@@ -40,6 +40,74 @@ const float lowisofrac=0.02;
 
 const int max_trf_number=40000; // maximum number of transfrag accepted so that the memory doesn't blow up
 
+enum MergePathMode {
+	MRG_PATH_SHARED=0,
+	MRG_PATH_REPLICATED,
+	MRG_PATH_DIRECT
+};
+
+enum MergeGuidePolicy {
+	MRG_GUIDE_BOTH=0,
+	MRG_GUIDE_REFERENCE,
+	MRG_GUIDE_BEST
+};
+
+struct MergeOptions {
+	int min_support; // 0: not given; set from the number of input files (2 for 4 or more, else 1)
+	int rescue_support;
+	int min_introns;
+	MergePathMode path_mode;
+	int min_piece_support;
+	double set_overlap;
+	int min_support_5p;
+	int min_support_3p;
+	int slop_bp_5p;
+	int slop_bp_3p;
+	double slop_frac_5p;
+	double slop_frac_3p;
+	int max_extension_5p;
+	int max_extension_3p;
+	MergeGuidePolicy guide_policy;
+	double guide_replace_frac;
+	bool dedup_guides;
+	bool allow_fusions;
+	bool allow_cds_bridges;
+	int guide_slop_bp_5p; // -2: follow slop_bp_5p; -1: unlimited
+	int guide_slop_bp_3p;
+	bool guide_fragments_dominance; // guides follow the dominance rule when absorbing fragments
+	int max_intron_overhang; // -1: unlimited
+	bool fpkm_filter_set;
+	bool tpm_filter_set;
+	bool isofrac_filter_set;
+	GStr report_file;
+	MergeOptions():min_support(0),rescue_support(2),min_introns(1),path_mode(MRG_PATH_SHARED),
+		min_piece_support(2),set_overlap(0.80),min_support_5p(2),min_support_3p(2),
+		slop_bp_5p(100),slop_bp_3p(500),slop_frac_5p(0.50),slop_frac_3p(0.50),
+		max_extension_5p(-1),max_extension_3p(-1),guide_policy(MRG_GUIDE_BOTH),
+		guide_replace_frac(0.90),dedup_guides(false),allow_fusions(false),
+		allow_cds_bridges(false),guide_slop_bp_5p(-2),guide_slop_bp_3p(-2),
+		guide_fragments_dominance(false),max_intron_overhang(-1),fpkm_filter_set(false),tpm_filter_set(false),
+		isofrac_filter_set(false),report_file() { }
+};
+
+extern MergeOptions mergeOptions;
+
+void mergeReportEvent(const char* refseq, char strand, uint start, uint end,
+		const char* event, const char* reason, const char* transcript_id,
+		int fileidx, const char* guide_ids, const char* gene_ids, int support,
+		const char* details);
+// --report: add n input records to a final fate (no-op without --report)
+void mergeFateAdd(const char* fate,int n);
+GffObj* findMergeGuideStructure(const char* refseq,char strand,GVec<GSeg>& exons);
+GStr findMergeGuideAliases(const char* refseq,char strand,GVec<GSeg>& exons);
+// --merge output records go to a temporary file and are copied to the output sorted by
+// position; MERGE_GENE_MARK stands for the generated gene ID, which is assigned in that order
+#define MERGE_GENE_MARK '\x01'
+extern FILE* f_mergetmp;
+int mergeRefIndex(const char* refseq);
+void mergeOutputAdd(const char* refseq,uint start,uint end,char strand,uint bstart,int lgene,
+		int tnum,const char* guide_id,int64 offset);
+
 extern bool forceBAM; //for stdin alignment data
 
 extern bool verbose;

@@ -11,7 +11,7 @@
 #include "proc_mem.h"
 #endif
 
-#define VERSION "3.0.3"
+#define VERSION "3.0.4"
 
 //#define DEBUGPRINT 1
 
@@ -96,14 +96,38 @@ the following options are available:\n\
   -c <min_cov>     minimum input transcript coverage to include in the merge\n\
                     (default: 0)\n\
   -F <min_fpkm>    minimum input transcript FPKM to include in the merge\n\
-                    (default: 1.0)\n\
+                    (default: 0)\n\
   -T <min_tpm>     minimum input transcript TPM to include in the merge\n\
-                    (default: 1.0)\n\
-  -f <min_iso>     minimum isoform fraction (default: 0.01)\n\
+                    (default: 0)\n\
+  -f <min_iso>     minimum within-file isoform fraction (default: 0)\n\
   -g <gap_len>     gap between transcripts to merge together (default: 250)\n\
   -i               keep merged transcripts with retained introns; by default\n\
                    these are not kept unless there is strong evidence for them\n\
   -l <label>       name prefix for output transcripts (default: MSTRG)\n\
+  --min-support N  minimum distinct input files supporting a structure\n\
+                   (default: 2 when merging 4 or more files, otherwise 1)\n\
+  --rescue-support N rescue a filtered structure seen in N input files (2)\n\
+  --min-introns N  shared exact introns required to join MET paths (1)\n\
+  --path-mode MODE path evidence: shared, replicated, or direct (shared)\n\
+  --min-piece-support N files required per piece in replicated mode (2)\n\
+  --set-overlap F  reciprocal overlap for SET deduplication (0.80)\n\
+  --min-support-5p N / --min-support-3p N endpoint support (2)\n\
+  --slop-bp-5p N / --slop-bp-3p N unsupported endpoint slop (100 / 500);\n\
+                   N may be \"unlimited\"\n\
+  --slop-frac-5p F / --slop-frac-3p F terminal exon slop (0.50)\n\
+  --max-extension-5p N / --max-extension-3p N hard extension caps\n\
+  --guide-policy MODE both, reference, or best (both)\n\
+  --guide-replace-frac F guide core support required by best mode (0.90)\n\
+  --guide-slop-bp-5p N / --guide-slop-bp-3p N overhang past a guide end that\n\
+                   still counts as the guide (default: the --slop-bp values)\n\
+  --guide-fragments MODE absorb or dominance: whether a guide absorbs every\n\
+                   contained fragment or only less supported ones (absorb)\n\
+  --max-intron-overhang N largest overhang into an intron of a containing\n\
+                   transcript for a fragment to be absorbed (unlimited)\n\
+  --dedup-guides   collapse identical guide structures and report aliases\n\
+  --allow-fusions  permit paths crossing distinct guide genes\n\
+  --allow-cds-bridges permit paths bridging coding transcripts in one gene\n\
+  --report FILE    write deterministic merge decisions and summary\n\
 "
 //---- globals
 
@@ -155,6 +179,7 @@ int no_xs=0; // number of records without the xs tag
 
 float fpkm_thr=1;
 float tpm_thr=1;
+MergeOptions mergeOptions;
 
 // different options of implementation reflected with the next three options
 bool includesource=true;
@@ -247,7 +272,297 @@ GFastMutex countMutex;
 
 GFastMutex printCovMutex;
 
+GFastMutex mergeReportMutex;
+
 #endif
+
+struct CMergeReportEvent {
+	GStr refseq;
+	GStr event;
+	GStr reason;
+	GStr transcript_id;
+	GStr guide_ids;
+	GStr gene_ids;
+	GStr details;
+	char strand;
+	uint start;
+	uint end;
+	int fileidx;
+	int support;
+	CMergeReportEvent(const char* r=NULL,char s='.',uint st=0,uint en=0,const char* ev=NULL,
+			const char* rs=NULL,const char* tid=NULL,int fi=-1,const char* gids=NULL,
+			const char* genes=NULL,int sup=0,const char* det=NULL):refseq(r),event(ev),reason(rs),
+			transcript_id(tid),guide_ids(gids),gene_ids(genes),details(det),strand(s),start(st),
+			end(en),fileidx(fi),support(sup) { }
+	bool operator<(CMergeReportEvent& o) {
+		int c=strcmp(refseq.chars(),o.refseq.chars());
+		if(c) return c<0;
+		if(strand!=o.strand) return strand<o.strand;
+		if(start!=o.start) return start<o.start;
+		if(end!=o.end) return end<o.end;
+		c=strcmp(event.chars(),o.event.chars());
+		if(c) return c<0;
+		c=strcmp(reason.chars(),o.reason.chars());
+		if(c) return c<0;
+		if(fileidx!=o.fileidx) return fileidx<o.fileidx;
+		c=strcmp(transcript_id.chars(),o.transcript_id.chars());
+		if(c) return c<0;
+		c=strcmp(guide_ids.chars(),o.guide_ids.chars());
+		if(c) return c<0;
+		c=strcmp(gene_ids.chars(),o.gene_ids.chars());
+		if(c) return c<0;
+		if(support!=o.support) return support<o.support;
+		return strcmp(details.chars(),o.details.chars())<0;
+	}
+	bool operator==(CMergeReportEvent& o) {
+		return start==o.start && end==o.end && fileidx==o.fileidx && refseq==o.refseq &&
+			event==o.event && reason==o.reason && transcript_id==o.transcript_id;
+	}
+};
+
+GPVec<CMergeReportEvent> mergeReportEvents(true);
+// --report reconciliation: every input record gets one final fate
+GHash<int> mergeFateCounts(false);
+GVec<GStr> mergeFateNames;
+int64 mergeInputRecords=0; // main thread only
+GHash<GffObj*> mergeGuideStructures(false);
+GHash<GStr*> mergeGuideAliases(true);
+
+// --merge output: records are written to a temporary file as bundles finish, then copied to
+// the output sorted by reference (in order of first appearance in the inputs), start and end.
+// Generated gene numbers are assigned in that order, so IDs do not depend on thread timing.
+FILE* f_mergetmp=NULL;
+GStr mergeTmpName;
+struct CMergeOutRec {
+	int refidx;
+	uint start;
+	uint end;
+	char strand;
+	uint bstart; // start of the bundle
+	int lgene; // gene number within the bundle; -1: the record carries its own gene ID
+	int tnum; // transcript number within the gene
+	GStr id; // guide ID; empty for a generated transcript
+	int64 offset;
+	int len;
+	CMergeOutRec(int r,uint s,uint e,char st,uint bs,int lg,int tn,const char* gid,int64 off,int l):
+		refidx(r),start(s),end(e),strand(st),bstart(bs),lgene(lg),tnum(tn),id(gid),offset(off),len(l) { }
+	bool operator<(CMergeOutRec& o) {
+		if(refidx!=o.refidx) return refidx<o.refidx;
+		if(start!=o.start) return start<o.start;
+		if(end!=o.end) return end<o.end;
+		if(strand!=o.strand) return strand<o.strand;
+		int c=strcmp(id.chars(),o.id.chars());
+		if(c) return c<0;
+		if(bstart!=o.bstart) return bstart<o.bstart;
+		if(lgene!=o.lgene) return lgene<o.lgene;
+		return tnum<o.tnum;
+	}
+	bool operator==(CMergeOutRec& o) {
+		return refidx==o.refidx && start==o.start && end==o.end && strand==o.strand &&
+			id==o.id && bstart==o.bstart && lgene==o.lgene && tnum==o.tnum;
+	}
+};
+GPVec<CMergeOutRec> mergeOutRecs(true);
+GHash<int> mergeRefOrder(false); // output rank of each reference: order of first appearance in the inputs
+GHash<bool> mergeReservedGeneNo(false); // gene numbers that guide IDs of the form <label>.N[.M] use
+
+static GStr mergeStructureKey(const char* refseq,char strand,GVec<GSeg>& exons) {
+	GStr key("",128);
+	key+=refseq;
+	key+='|';
+	key+=strand;
+	for(int i=0;i<exons.Count();i++) key.appendfmt("|%u-%u",exons[i].start,exons[i].end);
+	return key;
+}
+
+static void registerMergeGuide(GffObj* guide) {
+	GVec<GSeg> exons;
+	for(int i=0;i<guide->exons.Count();i++) exons.Add(*guide->exons[i]);
+	GStr key=mergeStructureKey(guide->getGSeqName(),guide->strand,exons);
+	GffObj* old=mergeGuideStructures.Find(key.chars());
+	// keep the lexicographically smallest ID as the optional canonical guide
+	if(!old) {
+		mergeGuideStructures.Add(key.chars(),guide);
+		mergeGuideAliases.Add(key.chars(),new GStr());
+	}
+	else if(strcmp(guide->getID(),old->getID())<0) {
+		GStr* aliases=mergeGuideAliases.Find(key.chars());
+		if(!aliases->is_empty()) (*aliases)+=',';
+		(*aliases)+=old->getID();
+		mergeGuideStructures.Remove(key.chars());
+		mergeGuideStructures.Add(key.chars(),guide);
+	}
+	else {
+		GStr* aliases=mergeGuideAliases.Find(key.chars());
+		if(!aliases->is_empty()) (*aliases)+=',';
+		(*aliases)+=guide->getID();
+	}
+}
+
+GffObj* findMergeGuideStructure(const char* refseq,char strand,GVec<GSeg>& exons) {
+	GStr key=mergeStructureKey(refseq,strand,exons);
+	return mergeGuideStructures.Find(key.chars());
+}
+
+GStr findMergeGuideAliases(const char* refseq,char strand,GVec<GSeg>& exons) {
+	GStr key=mergeStructureKey(refseq,strand,exons);
+	GStr* aliases=mergeGuideAliases.Find(key.chars());
+	return aliases ? *aliases : GStr();
+}
+
+// a guide transcript or gene named like a generated ID (<label>.N or <label>.N.M) reserves N
+static void reserveMergeGeneNo(const char* id) {
+	if(id==NULL) return;
+	int ll=label.length();
+	if(strncmp(id,label.chars(),ll)!=0 || id[ll]!='.') return;
+	const char* p=id+ll+1;
+	const char* q=p;
+	while(*q>='0' && *q<='9') q++;
+	if(q==p || (*q!=0 && *q!='.')) return;
+	GStr num("",16);
+	for(const char* c=p;c<q;c++) num+=*c;
+	if(!mergeReservedGeneNo.Find(num.chars())) mergeReservedGeneNo.Add(num.chars(),true);
+}
+
+// rank of a reference in the output; a new name is ranked after the known ones. Input files
+// register their references in file order before any bundle is processed, so references that
+// only the guides have follow them. Not thread-safe: callers hold printMutex or run alone.
+int mergeRefIndex(const char* refseq) {
+	int* found=mergeRefOrder.Find(refseq);
+	if(found) return *found;
+	int idx=mergeRefOrder.Count();
+	mergeRefOrder.Add(refseq,idx);
+	return idx;
+}
+
+// called with printMutex held, or from the main thread after all bundles are done
+void mergeOutputAdd(const char* refseq,uint start,uint end,char strand,uint bstart,int lgene,
+		int tnum,const char* guide_id,int64 offset) {
+	int refidx=mergeRefIndex(refseq);
+	int64 pos=ftello(f_mergetmp);
+	mergeOutRecs.Add(new CMergeOutRec(refidx,start,end,strand,bstart,lgene,tnum,
+			guide_id ? guide_id : "",offset,(int)(pos-offset)));
+}
+
+void writeMergeOutput() {
+	if(f_mergetmp==NULL) return;
+	if(fclose(f_mergetmp)) GError("Error writing temporary file %s\n",mergeTmpName.chars());
+	f_mergetmp=NULL;
+	FILE* fin=fopen(mergeTmpName.chars(),"r");
+	if(fin==NULL) GError("Error opening temporary file %s\n",mergeTmpName.chars());
+	mergeOutRecs.Sort();
+	GHash<int> genenums(false);
+	GStr key("",64);
+	int geneno=0;
+	int buflen=4096;
+	char* buf=NULL;
+	GMALLOC(buf,buflen);
+	for(int i=0;i<mergeOutRecs.Count();i++) {
+		CMergeOutRec& r=*mergeOutRecs[i];
+		int gno=0;
+		if(r.lgene>=0) {
+			key.format("%d|%u|%d",r.refidx,r.bstart,r.lgene);
+			int* found=genenums.Find(key.chars());
+			if(found) gno=*found;
+			else {
+				GStr num;
+				do {
+					geneno++;
+					num.format("%d",geneno);
+				} while(mergeReservedGeneNo.Find(num.chars()));
+				gno=geneno;
+				genenums.Add(key.chars(),gno);
+			}
+		}
+		if(r.len+1>buflen) {
+			buflen=r.len+1;
+			GREALLOC(buf,buflen);
+		}
+		if(fseeko(fin,r.offset,SEEK_SET)!=0 || fread(buf,1,r.len,fin)!=(size_t)r.len)
+			GError("Error reading temporary file %s\n",mergeTmpName.chars());
+		buf[r.len]=0;
+		char* p=buf;
+		char* q;
+		while((q=strchr(p,MERGE_GENE_MARK))!=NULL) {
+			fwrite(p,1,q-p,f_out);
+			fprintf(f_out,"%s.%d",label.chars(),gno);
+			p=q+1;
+		}
+		fputs(p,f_out);
+	}
+	GFREE(buf);
+	fclose(fin);
+	mergeOutRecs.Clear();
+	if(!keepTempFiles) remove(mergeTmpName.chars());
+}
+
+void mergeReportEvent(const char* refseq, char strand, uint start, uint end,
+		const char* event, const char* reason, const char* transcript_id,
+		int fileidx, const char* guide_ids, const char* gene_ids, int support,
+		const char* details) {
+	if(mergeOptions.report_file.is_empty()) return;
+#ifndef NOTHREADS
+	GLockGuard<GFastMutex> lock(mergeReportMutex);
+#endif
+	mergeReportEvents.Add(new CMergeReportEvent(refseq,strand,start,end,event,reason,
+			transcript_id,fileidx,guide_ids,gene_ids,support,details));
+}
+
+void mergeFateAdd(const char* fate,int n) {
+	if(mergeOptions.report_file.is_empty() || n<=0) return;
+#ifndef NOTHREADS
+	GLockGuard<GFastMutex> lock(mergeReportMutex);
+#endif
+	int* count=mergeFateCounts.Find(fate);
+	if(count) (*count)+=n;
+	else {
+		mergeFateCounts.Add(fate,n);
+		GStr name(fate);
+		mergeFateNames.Add(name);
+	}
+}
+
+void writeMergeReport() {
+	if(mergeOptions.report_file.is_empty()) return;
+	FILE* fout=fopen(mergeOptions.report_file.chars(),"w");
+	if(!fout) GError("Error creating merge report file %s\n",mergeOptions.report_file.chars());
+	// sort the complete event key before counting reasons and writing TSV rows
+	mergeReportEvents.Sort();
+	GHash<int> reasonCounts(false);
+	GVec<GStr> reasons;
+	for(int i=0;i<mergeReportEvents.Count();i++) {
+		int* count=reasonCounts.Find(mergeReportEvents[i]->reason.chars());
+		if(count) (*count)++;
+		else {
+			reasonCounts.Add(mergeReportEvents[i]->reason.chars(),1);
+			reasons.Add(mergeReportEvents[i]->reason);
+		}
+	}
+	reasons.Sort();
+	fprintf(fout,"# StringTie --merge report\n# min_support\t%d\n",mergeOptions.min_support);
+	// one final fate per input record; "unaccounted" is what the fates do not explain
+	fprintf(fout,"# input_records\t%lld\n",(long long)mergeInputRecords);
+	mergeFateNames.Sort();
+	int64 explained=0;
+	for(int i=0;i<mergeFateNames.Count();i++) {
+		int count=*mergeFateCounts.Find(mergeFateNames[i].chars());
+		explained+=count;
+		fprintf(fout,"# fate\t%s\t%d\n",mergeFateNames[i].chars(),count);
+	}
+	fprintf(fout,"# fate\tunaccounted\t%lld\n",(long long)(mergeInputRecords-explained));
+	fprintf(fout,"# events\t%d\n",mergeReportEvents.Count());
+	for(int i=0;i<reasons.Count();i++)
+		fprintf(fout,"# reason\t%s\t%d\n",reasons[i].chars(),*reasonCounts.Find(reasons[i].chars()));
+	fprintf(fout,"reference\tstrand\tstart\tend\tevent\treason\ttranscript_id\tinput_file\tguide_ids\tgene_ids\tsupport\tdetails\n");
+	for(int i=0;i<mergeReportEvents.Count();i++) {
+		CMergeReportEvent& e=*mergeReportEvents[i];
+		fprintf(fout,"%s\t%c\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\n",
+			e.refseq.chars(),e.strand,e.start,e.end,e.event.chars(),e.reason.chars(),
+			e.transcript_id.chars(),e.fileidx<0 ? 0 : e.fileidx+1,e.guide_ids.chars(),
+			e.gene_ids.chars(),e.support,e.details.chars());
+	}
+	fclose(fout);
+}
 
 GStrSet<> excludeGseqs; //hash of chromosomes/contigs to exclude (e.g. chrM)
 
@@ -305,6 +620,11 @@ int main(int argc, char* argv[]) {
  // == Process arguments.
  GArgs args(argc, argv,
    "debug;help;version;viral;conservative;mix;nasc;ref=;cram-ref=cds=;keeptmp;rseq=;ptf=;bam;fr;rf;merge;"
+   "min-support=;rescue-support=;min-introns=;path-mode=;min-piece-support=;set-overlap=;"
+   "min-support-5p=;min-support-3p=;slop-bp-5p=;slop-bp-3p=;slop-frac-5p=;slop-frac-3p=;"
+   "max-extension-5p=;max-extension-3p=;guide-policy=;guide-replace-frac=;dedup-guides;"
+   "allow-fusions;allow-cds-bridges;report=;guide-slop-bp-5p=;guide-slop-bp-3p=;"
+   "guide-fragments=;max-intron-overhang=;"
    "exclude=zihvteuLRNx:n:j:s:D:G:C:S:l:m:o:a:j:c:f:p:g:P:M:Bb:A:E:F:T:");
  args.printError(USAGE, true);
 
@@ -325,6 +645,11 @@ int main(int argc, char* argv[]) {
  GVec<int> alncounts(30); //keep track of the number of read alignments per chromosome [gseq_id]
 
  int bamcount=bamreader.start(); //setup and open input files
+ if(mergeMode && mergeOptions.min_support<1) {
+	 //--min-support not given: require replication only when there are enough input files
+	 mergeOptions.min_support=(bamcount>=4) ? 2 : 1;
+	 if(verbose) GMessage(" --min-support set to %d for %d input files\n",mergeOptions.min_support,bamcount);
+ }
 
 
 #ifndef GFF_DEBUG
@@ -352,7 +677,7 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
    gffr.setRefAlphaSorted(); //alphabetical sorting of refseq IDs
    gffr.showWarnings(verbose);
    //        keepAttrs    mergeCloseExons   noExonAttrs
-   gffr.readAll(false,          true,        true);
+   gffr.readAll(false,      !mergeMode,       true);
    //the list of GffObj is in gffr.gflst, sorted by chromosome and start-end coordinates
    //collect them in other data structures, if it's kept for later call gffobj->isUsed(true)
    // (otherwise it'll be deallocated when gffr is destroyed due to going out of scope)
@@ -388,6 +713,11 @@ const char* ERR_BAM_SORT="\nError: the input alignment file is not sorted!\n";
 		    	GMessage("Warning: exonless GFF %s feature with ID %s found, added implicit exon %d-%d.\n",
 		    			m->getFeatureName(), m->getID(), m->start, m->end);
 		    m->addExon(m->start, m->end); //should never happen!
+	   }
+	   if(mergeMode) {
+		   registerMergeGuide(m);
+		   reserveMergeGeneNo(m->getID());
+		   reserveMergeGeneNo(m->getGeneID());
 	   }
 	   //DONE: always create a RC_TData for each guide in uptr, with additional tx data
 	   RC_TData* tdata=new RC_TData(*m, ++c_tid);
@@ -514,8 +844,10 @@ if (ballgown)
 	 bool new_bundle=false;
 	 //delete brec;
 	 if ((brec=bamreader.next())!=NULL) {
+		 if (mergeMode) mergeInputRecords++;
 		 if (brec->isUnmapped()) continue;
 		 if (brec->start<1 || brec->mapped_len<10) {
+			 if (mergeMode) mergeFateAdd("min_length",1);
 			 if (verbose) GMessage("Warning: invalid mapping found for read %s (position=%d, mapped length=%d)\n",
 					 brec->name(), brec->start, brec->mapped_len);
 			 continue;
@@ -575,15 +907,26 @@ if (ballgown)
 		 if (pos<prev_pos) GError("%s\nread %s (start %d) found at position %d on %s when prev_pos=%d\n",
 		       ERR_BAM_SORT, brec->name(), brec->start,  pos, refseqName, prev_pos);
 		 prev_pos=pos;
-		 if (skipGseq) continue;
+		 if (skipGseq) {
+			 if (mergeMode) mergeFateAdd("excluded_reference",1);
+			 continue;
+		 }
 		 alncounts[gseq_id]++;
 		 nh=brec->tag_int("NH");
 		 if (nh==0) nh=1;
 		 hi=brec->tag_int("HI");
-		 if (mergeMode) {
-		    //tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
-			 tinfo=new TAlnInfo(brec->name(), brec->uval);
-		    GStr score(brec->tag_str("ZS"));
+			 if (mergeMode) {
+			    //tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
+				 tinfo=new TAlnInfo(brec->name(), brec->uval);
+				 GStr geneid(brec->tag_str("ZG"));
+				 if(!geneid.is_empty()) tinfo->gene_id=geneid;
+				 GStr cds(brec->tag_str("ZC"));
+				 if(!cds.is_empty()) {
+					 GStr cdsrest=cds.split('|');
+					 if(!cds.is_empty()) tinfo->cds_start=(uint)cds.asInt();
+					 if(!cdsrest.is_empty()) tinfo->cds_end=(uint)cdsrest.asInt();
+				 }
+				 GStr score(brec->tag_str("ZS"));
 		    if (!score.is_empty()) {
 		      GStr srest=score.split('|');
 		      if (!score.is_empty())
@@ -857,7 +1200,12 @@ if (ballgown)
  fclose(dbg_out);
 #endif
  if (mergeMode && guided )
-	 writeUnbundledGuides(refguides, f_out);
+	 writeUnbundledGuides(refguides, f_mergetmp);
+
+ if (mergeMode) {
+	 writeMergeOutput();
+	 writeMergeReport();
+ }
 
 
  // clear refpts data, if loaded
@@ -996,6 +1344,30 @@ char* sprintTime() {
 	return(sbuf);
 }
 
+// strict numeric parsing for merge options: the whole value must be a number in range
+static void mergeIntOpt(GArgs& args, const char* name, int& v, int minv, bool unlimited=false) {
+	const char* s=args.getOpt(name);
+	if(s==NULL) return;
+	if(unlimited && strcmp(s,"unlimited")==0) { v=-1; return; }
+	char* end=NULL;
+	errno=0;
+	long r=strtol(s,&end,10);
+	if(end==s || *end!=0 || errno!=0 || r<minv || r>INT_MAX)
+		GError("Error: invalid value '%s' for --%s (integer >= %d expected).\n",s,name,minv);
+	v=(int)r;
+}
+
+static void mergeFracOpt(GArgs& args, const char* name, double& v) {
+	const char* s=args.getOpt(name);
+	if(s==NULL) return;
+	char* end=NULL;
+	errno=0;
+	double r=strtod(s,&end);
+	if(end==s || *end!=0 || errno!=0 || !(r>=0 && r<=1))
+		GError("Error: invalid value '%s' for --%s (number between 0 and 1 expected).\n",s,name);
+	v=r;
+}
+
 void processOptions(GArgs& args) {
 
 
@@ -1060,6 +1432,58 @@ void processOptions(GArgs& args) {
 	 mergeMode=(args.getOpt("merge")!=NULL);
 	 if(mergeMode) {
 		 longreads=false; // these are not longreads
+	 }
+	 const char* mergeOnlyOpts[]={"min-support","rescue-support","min-introns","path-mode",
+		 "min-piece-support","set-overlap","min-support-5p","min-support-3p","slop-bp-5p",
+		 "slop-bp-3p","slop-frac-5p","slop-frac-3p","max-extension-5p","max-extension-3p",
+		 "guide-policy","guide-replace-frac","dedup-guides","allow-fusions","allow-cds-bridges",
+		 "report","guide-slop-bp-5p","guide-slop-bp-3p","guide-fragments","max-intron-overhang"};
+	 if(!mergeMode) for(uint i=0;i<sizeof(mergeOnlyOpts)/sizeof(mergeOnlyOpts[0]);i++) {
+		 if(args.getOpt(mergeOnlyOpts[i]))
+			 GError("Error: --%s is only valid with --merge.\n",mergeOnlyOpts[i]);
+	 }
+	 if(mergeMode) {
+		 mergeIntOpt(args,"min-support",mergeOptions.min_support,1);
+		 mergeIntOpt(args,"rescue-support",mergeOptions.rescue_support,1);
+		 mergeIntOpt(args,"min-introns",mergeOptions.min_introns,0);
+		 mergeIntOpt(args,"min-piece-support",mergeOptions.min_piece_support,1);
+		 mergeIntOpt(args,"min-support-5p",mergeOptions.min_support_5p,1);
+		 mergeIntOpt(args,"min-support-3p",mergeOptions.min_support_3p,1);
+		 mergeIntOpt(args,"slop-bp-5p",mergeOptions.slop_bp_5p,0,true);
+		 mergeIntOpt(args,"slop-bp-3p",mergeOptions.slop_bp_3p,0,true);
+		 mergeIntOpt(args,"guide-slop-bp-5p",mergeOptions.guide_slop_bp_5p,0,true);
+		 mergeIntOpt(args,"guide-slop-bp-3p",mergeOptions.guide_slop_bp_3p,0,true);
+		 mergeIntOpt(args,"max-intron-overhang",mergeOptions.max_intron_overhang,0,true);
+		 mergeIntOpt(args,"max-extension-5p",mergeOptions.max_extension_5p,-1);
+		 mergeIntOpt(args,"max-extension-3p",mergeOptions.max_extension_3p,-1);
+		 mergeFracOpt(args,"set-overlap",mergeOptions.set_overlap);
+		 mergeFracOpt(args,"slop-frac-5p",mergeOptions.slop_frac_5p);
+		 mergeFracOpt(args,"slop-frac-3p",mergeOptions.slop_frac_3p);
+		 mergeFracOpt(args,"guide-replace-frac",mergeOptions.guide_replace_frac);
+		 GStr mv=args.getOpt("guide-fragments");
+		 if(!mv.is_empty()) {
+			 if(mv=="absorb") mergeOptions.guide_fragments_dominance=false;
+			 else if(mv=="dominance") mergeOptions.guide_fragments_dominance=true;
+			 else GError("Error: --guide-fragments must be absorb or dominance.\n");
+		 }
+		 mv=args.getOpt("path-mode");
+		 if(!mv.is_empty()) {
+			 if(mv=="shared") mergeOptions.path_mode=MRG_PATH_SHARED;
+			 else if(mv=="replicated") mergeOptions.path_mode=MRG_PATH_REPLICATED;
+			 else if(mv=="direct") mergeOptions.path_mode=MRG_PATH_DIRECT;
+			 else GError("Error: --path-mode must be shared, replicated, or direct.\n");
+		 }
+		 mv=args.getOpt("guide-policy");
+		 if(!mv.is_empty()) {
+			 if(mv=="both") mergeOptions.guide_policy=MRG_GUIDE_BOTH;
+			 else if(mv=="reference") mergeOptions.guide_policy=MRG_GUIDE_REFERENCE;
+			 else if(mv=="best") mergeOptions.guide_policy=MRG_GUIDE_BEST;
+			 else GError("Error: --guide-policy must be both, reference, or best.\n");
+		 }
+		 mergeOptions.dedup_guides=(args.getOpt("dedup-guides")!=NULL);
+		 mergeOptions.allow_fusions=(args.getOpt("allow-fusions")!=NULL);
+		 mergeOptions.allow_cds_bridges=(args.getOpt("allow-cds-bridges")!=NULL);
+		 mergeOptions.report_file=args.getOpt("report");
 	 }
 
 	 keepTempFiles=(args.getOpt("keeptmp")!=NULL);
@@ -1185,14 +1609,18 @@ void processOptions(GArgs& args) {
 	 s=args.getOpt('F');
 	 if (!s.is_empty()) {
 		 fpkm_thr=(float)s.asDouble();
+		 if(fpkm_thr<0) GError("Error: -F must be non-negative.\n");
+		 mergeOptions.fpkm_filter_set=mergeMode;
 	 }
-	 //else if(mergeMode) fpkm_thr=0;
+	 else if(mergeMode) fpkm_thr=0;
 
 	 s=args.getOpt('T');
 	 if (!s.is_empty()) {
 		 tpm_thr=(float)s.asDouble();
+		 if(tpm_thr<0) GError("Error: -T must be non-negative.\n");
+		 mergeOptions.tpm_filter_set=mergeMode;
 	 }
-	 //else if(mergeMode) tpm_thr=0;
+	 else if(mergeMode) tpm_thr=0;
 
 	 s=args.getOpt('l');
 	 if (!s.is_empty()) label=s;
@@ -1201,9 +1629,10 @@ void processOptions(GArgs& args) {
 	 s=args.getOpt('f');
 	 if (!s.is_empty()) {
 		 isofrac=(float)s.asDouble();
-		 if(isofrac>=1) GError("Miminum isoform fraction (-f coefficient: %f) needs to be less than 1\n",isofrac);
+		 if(isofrac<0 || isofrac>=1) GError("Minimum isoform fraction (-f coefficient: %f) must be between 0 and 1\n",isofrac);
+		 mergeOptions.isofrac_filter_set=mergeMode;
 	 }
-	 else if(mergeMode) isofrac=0.01;
+	 else if(mergeMode) isofrac=0;
 	 s=args.getOpt('M');
 	 if (!s.is_empty()) {
 		 mcov=(float)s.asDouble();
@@ -1368,6 +1797,8 @@ void processOptions(GArgs& args) {
 #endif
 
 	 if(mergeMode) {
+		 if(!mergeOptions.report_file.is_empty() && mergeOptions.report_file==outfname)
+			 GError("Error: --report and -o must name different files.\n");
 		 f_out=stdout;
 		 if(outfname!="stdout") {
 			 f_out=fopen(outfname.chars(), "w");
@@ -1376,6 +1807,9 @@ void processOptions(GArgs& args) {
 		 fprintf(f_out,"# ");
 		 args.printCmdLine(f_out);
 		 fprintf(f_out,"# StringTie version %s\n",VERSION);
+		 mergeTmpName=tmp_path+"merge_out.gtf";
+		 f_mergetmp=fopen(mergeTmpName.chars(), "w");
+		 if (f_mergetmp==NULL) GError("Error creating temporary file %s\n", mergeTmpName.chars());
 	 }
 	 else {
 		 tmpfname+=".tmp";
@@ -1717,6 +2151,18 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 	 //gene_id abundances (0), accumulating coords
 	 for (int m=0;m<crefd.rnas.Count();++m) {
 		 GffObj &t = *crefd.rnas[m];
+		 GStr aliases;
+		 if(mergeMode && mergeOptions.dedup_guides && getGuideStatus(&t)<GBST_ALL_INTR_COV) {
+			 // registerMergeGuide() recorded the canonical guide and the aliases of each structure
+			 GVec<GSeg> texons;
+			 for(int e=0;e<t.exons.Count();e++) texons.Add(*t.exons[e]);
+			 GffObj* canonical=findMergeGuideStructure(crefd.gseq_name,t.strand,texons);
+			 if(canonical && canonical!=&t) {
+				 setGuideStatus(&t,GBST_STORED);
+				 continue;
+			 }
+			 aliases=findMergeGuideAliases(crefd.gseq_name,t.strand,texons);
+		 }
 		 //RC_TData &td = *(RC_TData*) (t.uptr);
 		 //if (td.in_bundle) {
 		 //if (getGuideStatus(&t)) {
@@ -1729,6 +2175,7 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 		 //write these guides to output
 		 //for --merge and -e
 		 if (mergeMode || eonly) {
+			  int64 recoff=mergeMode ? ftello(fout) : 0;
 			  fprintf(fout, "%s\t%s\ttranscript\t%d\t%d\t.\t%c\t.\t",
 					  crefd.gseq_name, t.getTrackName(), t.start, t.end, t.strand);
 			  if (t.getGeneID())
@@ -1744,6 +2191,11 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 					  fprintf(fout, " gene_name \"%s\";", t.getGeneName());
 				  if (t.getGeneID())
 					  fprintf(fout, " ref_gene_id \"%s\";", t.getGeneID());
+				  fprintf(fout," reference_id \"%s\"; class_code \"=\"; merge_support \"0\";",t.getID());
+				  fprintf(fout," merge_path_support \"0\"; merge_piece_support \"0\";");
+				  fprintf(fout," merge_5p_support \"0\"; merge_3p_support \"0\"; merge_locus_support \"0\";");
+				  fprintf(fout," merge_5p_fraction \"0.000\"; merge_3p_fraction \"0.000\";");
+				  if(!aliases.is_empty()) fprintf(fout," reference_aliases \"%s\";",aliases.chars());
 			  }
 			  fprintf(fout, "\n");
 			  for (int e=0;e<t.exons.Count();++e) {
@@ -1761,6 +2213,8 @@ void writeUnbundledGuides(GVec<GRefData>& refdata, FILE* fout, FILE* gout) {
 				  }
 				  fprintf(fout, "\n");
 			  }
+			  if (mergeMode)
+				  mergeOutputAdd(crefd.gseq_name,t.start,t.end,t.strand,t.start,-1,0,t.getID(),recoff);
 		 }
 		 if (gout!=NULL) {
 			 //gather coords for this gene_id
