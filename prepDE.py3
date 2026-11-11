@@ -30,7 +30,7 @@ if (os.path.isfile(opts.input)):
                 if (len(lineLst) != 2):
                     print("Error: line should have a sample ID and a file path:\n%s" % (line.strip()))
                     exit(1)
-                if lineLst[0] in samples:
+                if lineLst[0] in [x for x,y in samples]:
                     print("Error: non-unique sample ID (%s)" % (lineLst[0]))
                     exit(1)
                 if not os.path.isfile(lineLst[1]):
@@ -66,10 +66,10 @@ if len(samples) == 0:
 RE_GENE_ID=re.compile('gene_id "([^"]+)"')
 RE_GENE_NAME=re.compile('gene_name "([^"]+)"')
 RE_TRANSCRIPT_ID=re.compile('transcript_id "([^"]+)"')
-RE_COVERAGE=re.compile('cov "([\-\+\d\.]+)"')
+RE_COVERAGE=re.compile(r'cov "([\-\+\d\.]+)"')
 RE_STRING=re.compile(re.escape(opts.string))
 
-RE_GFILE=re.compile('\-G\s*(\S+)') #assume filepath without spaces..
+RE_GFILE=re.compile(r'\-G\s*(\S+)') #assume filepath without spaces..
 
 
 #####
@@ -128,7 +128,7 @@ read_len=opts.length
 t_count_matrix, g_count_matrix=[],[]
 
 ##Get ready for clustering, stuff is once for all samples##
-geneIDs=defaultdict(lambda: str) #key=transcript, value=cluster/gene_id
+geneIDs={} #key=transcript, value=cluster/gene_id
 
 
 ## For each of the sorted sample paths
@@ -162,7 +162,7 @@ for s in samples:
                 if not RE_STRING.match(g_id):
                     badGenes.append([v[0],v[6], t_id, g_id, min(int(v[3]),int(v[4])), max(int(v[3]),int(v[4]))]) #chromosome, strand, cluster/transcript id, start, end
                     j=i+1
-                    while j<len(split) and split[j][2]=="exon":
+                    while j<len(split) and len(split[j])>2 and split[j][2]=="exon":
                         badGenes[len(badGenes)-1].append((min(int(split[j][3]), int(split[j][4])), max(int(split[j][3]), int(split[j][4]))))
                         j+=1
 
@@ -248,6 +248,7 @@ for q, s in enumerate(samples):
                        sys.exit(1)
                 continue
             v=l.split('\t')
+            if len(v)<9: continue
             if v[2]=="transcript":
                 if transcript_len>0:
 ##                        transcriptList.append((g_id, t_id, int(ceil(coverage*transcript_len/read_len))))
@@ -255,6 +256,8 @@ for q, s in enumerate(samples):
                 t_id=RE_TRANSCRIPT_ID.search(v[len(v)-1]).group(1)
                 #g_id=RE_GENE_ID.search(v[len(v)-1]).group(1)
                 g_id=getGeneID(v[8], v[0], t_id)
+                if t_id not in geneIDs: # transcript missing from the first sample
+                    geneIDs[t_id]=g_id
                 #coverage=float(RE_COVERAGE.search(v[len(v)-1]).group(1))
                 coverage=getCov(v[8])
                 transcript_len=0
@@ -262,7 +265,9 @@ for q, s in enumerate(samples):
                 transcript_len+=int(v[4])-int(v[3])+1 #because end coordinates are inclusive in GTF
 
 ##            transcriptList.append((g_id, t_id, int(ceil(coverage*transcript_len/read_len))))
-        t_dict[t_id][s[0]]=int(ceil(coverage*transcript_len/read_len))
+        if transcript_len>0:
+            t_dict[t_id][s[0]]=int(ceil(coverage*transcript_len/read_len))
+        f.close()
 
     except StopIteration:
 #        if not gtfList:
@@ -273,16 +278,24 @@ for q, s in enumerate(samples):
 
 ##        transcriptList.sort(key=lambda bla: bla[1]) #gene_id
     
-    for i,v in t_dict.items():
-##        print i,v
-       if i not in geneIDs:
-          continue
-       geneDict[geneIDs[i]][s[0]]+=v[s[0]]
+
+n_partial=0 # transcripts not found in every sample
+for i,v in t_dict.items():
+    missing=[x for x,y in samples if x not in v]
+    if missing:
+        n_partial+=1
+        if n_partial==1:
+            t_partial=(i, missing[0])
+    for x,y in samples:
+        geneDict[geneIDs[i]][x]+=v.get(x, 0)
+if n_partial>0:
+    sys.stderr.write("Warning: %d transcripts were not found in every sample (e.g. %s is not in sample %s), their missing counts were set to 0.\n" % (n_partial, t_partial[0], t_partial[1]))
+    sys.stderr.write("  All samples should be processed with the same -G file, and with StringTie 3.0.2 or later.\n")
 
 if opts.v:
    print("..writing %s " % ( opts.t ))
 with open(opts.t, 'w') as csvfile:
-   my_writer = csv.DictWriter(csvfile, fieldnames = ["transcript_id"] + [x for x,y in samples])
+   my_writer = csv.DictWriter(csvfile, fieldnames = ["transcript_id"] + [x for x,y in samples], restval=0)
    my_writer.writerow(dict((fn,fn) for fn in my_writer.fieldnames))
    for i in t_dict:
         t_dict[i]["transcript_id"] = i
@@ -290,7 +303,7 @@ with open(opts.t, 'w') as csvfile:
 if opts.v:
    print("..writing %s " % ( opts.g ))
 with open(opts.g, 'w') as csvfile:
-   my_writer = csv.DictWriter(csvfile, fieldnames = ["gene_id"] + [x for x,y in samples])
+   my_writer = csv.DictWriter(csvfile, fieldnames = ["gene_id"] + [x for x,y in samples], restval=0)
 ##    my_writer.writerow([""]+samples)
 ##    my_writer.writerows(geneDict)
    my_writer.writerow(dict((fn,fn) for fn in my_writer.fieldnames))
