@@ -140,7 +140,7 @@ run_stringtie --merge $GS0 -G "$tmpdir/guide.gtf" -F 1 --report "$tmpdir/report.
   -o "$tmpdir/out.gtf" "$tmpdir/in1.gtf" "$tmpdir/in2.gtf"
 
 test "$(grep -c 'transcript_id "txA"' "$tmpdir/out.gtf")" -eq 3
-grep -Eq 'transcript[[:space:]]+80[[:space:]]+450.*reference_id "txA"' "$tmpdir/out.gtf"
+grep -Eq 'transcript[[:space:]]+80[[:space:]]+450.*cmp_ref "txA"' "$tmpdir/out.gtf"
 grep -Eq 'reject[[:space:]]+cross_gene_bridge.*bridge1' "$tmpdir/report.tsv"
 grep -Eq 'rescue[[:space:]]+replicated_rescue[[:space:]]+ext1' "$tmpdir/report.tsv"
 
@@ -158,7 +158,7 @@ test "$(awk '$3=="transcript" && $4==80 && $5==450 {n++} END{print n+0}' "$tmpdi
 
 run_stringtie --merge $GS0 --guide-policy best --dedup-guides -G "$tmpdir/guide.gtf" -F 1 \
   -o "$tmpdir/best.gtf" "$tmpdir/in1.gtf" "$tmpdir/in2.gtf"
-grep -Eq 'transcript[[:space:]]+80[[:space:]]+450.*reference_id "txA"' "$tmpdir/best.gtf"
+grep -Eq 'transcript[[:space:]]+80[[:space:]]+450.*cmp_ref "txA"' "$tmpdir/best.gtf"
 test "$(awk '$3=="transcript" && /transcript_id "txA"/ {n++} END{print n+0}' "$tmpdir/best.gtf")" -eq 0
 
 run_stringtie --merge $GS0 --path-mode replicated --min-piece-support 2 -G "$tmpdir/guide.gtf" \
@@ -468,7 +468,7 @@ test "$(tx_count $t/A.gtf fxA)" -eq 1
 grep -Eq '^fxA.*absorb[[:space:]]+contained_fragment.*guideA' $t/A.tsv
 fx D --min-support-3p 1 -G $t/ag.gtf $t/a1.gtf
 need_chain $t/D.gtf fxA + $FULL
-need_chain $t/D.gtf fxA + $AV reference_id guideA
+need_chain $t/D.gtf fxA + $AV cmp_ref guideA
 test "$(tx_count $t/D.gtf fxA)" -eq 2
 fx Ar --min-support-3p 1 --guide-policy reference -G $t/ag.gtf $t/a1.gtf
 test "$(tx_count $t/Ar.gtf fxA)" -eq 1
@@ -478,7 +478,7 @@ test "$(tx_count $t/Ac.gtf fxA)" -eq 1
 grep -Eq '^fxA.*reject[[:space:]]+guide_extension_cap' $t/Ac.tsv
 fx E -G $t/ag.gtf $t/a1.gtf $t/a2.gtf $t/a3.gtf
 need_chain $t/E.gtf fxA + $FULL
-need_chain $t/E.gtf fxA + $AV reference_id guideA
+need_chain $t/E.gtf fxA + $AV cmp_ref guideA
 need_chain $t/E.gtf fxA + $AV merge_support 3
 test "$(tx_count $t/E.gtf fxA)" -eq 2
 ## a fragment inside the guide is absorbed, credited and reported
@@ -496,7 +496,7 @@ fx V -G $t/vg.gtf $t/v1.gtf
 need_chain $t/V.gtf fxV + 1000-1199,1300-1499 merge_support 1
 test "$(tx_count $t/V.gtf fxV)" -eq 1
 fx Vs --min-support-5p 1 --guide-slop-bp-5p 50 -G $t/vg.gtf $t/v1.gtf
-need_chain $t/Vs.gtf fxV + $VV reference_id guideV
+need_chain $t/Vs.gtf fxV + $VV cmp_ref guideV
 fx Vr --min-support-5p 1 --guide-slop-bp-5p 50 --guide-policy reference -G $t/vg.gtf $t/v1.gtf
 no_chain $t/Vr.gtf fxV + $VV
 fx Vc --min-support-5p 1 --guide-slop-bp-5p 50 --max-extension-5p 0 -G $t/vg.gtf $t/v1.gtf
@@ -602,6 +602,73 @@ fx C -G $t/cg2.gtf $t/c1.gtf
 ids=$(awk -F'\t' '$3=="transcript" {id=$9; sub(/.*transcript_id "/,"",id); sub(/".*/,"",id); print id}' $t/C.gtf)
 test "$(printf '%s\n' "$ids" | sort | tr '\n' ' ')" = "MSTRG.1.1 MSTRG.3.1 MSTRG.4.1 "
 test "$(awk -F'\t' '$3=="transcript" && $9 ~ /gene_id "MSTRG.2"/' $t/C.gtf | wc -l)" -eq 1
+
+## M: the fusion barrier follows the annotation. Guide genes that overlap on a strand are one
+## meta-gene (a small RNA gene inside its host, a readthrough gene and its parents).
+mkgtf $t/m1g.gtf ref "fxM + hostM 1000-1100,2000-2600,3000-3100" "fxM + mirM 2200-2280"
+mkgtf $t/m1.gtf in "fxM + m1 1000-1100,2000-2600,3500-3600"
+fx M1 -G $t/m1g.gtf $t/m1.gtf
+need_chain $t/M1.gtf fxM + 1000-1100,2000-2600,3500-3600
+## its relation is to the host it shares a splice site with, not to the embedded gene
+need_chain $t/M1.gtf fxM + 1000-1100,2000-2600,3500-3600 class_code j
+need_chain $t/M1.gtf fxM + 1000-1100,2000-2600,3500-3600 ref_gene_id hostM_g
+## but a single-exon guide that accounts for more of the transcript keeps 'k'
+mkgtf $t/m4g.gtf ref "fxQk + hostQ 1000-1100,2000-2100,8000-8100" "fxQk + bigQ 5000-7000"
+mkgtf $t/m4.gtf in "fxQk + m5 1000-1100,2000-2100,4900-7100"
+fx M4 -G $t/m4g.gtf $t/m4.gtf
+need_chain $t/M4.gtf fxQk + 1000-1100,2000-2100,4900-7100 class_code k
+need_chain $t/M4.gtf fxQk + 1000-1100,2000-2100,4900-7100 cmp_ref bigQ
+## single-exon pairs: an 80% overlap is '~' (needs the gclib singleExonTMatch fix)
+mkgtf $t/m5g.gtf ref "fxSe + seG 1000-2000"
+mkgtf $t/m5.gtf in "fxSe + m6 900-2300"
+fx M5 --guide-slop-bp-5p 0 --guide-slop-bp-3p 0 --min-support-5p 1 --min-support-3p 1 -G $t/m5g.gtf $t/m5.gtf
+need_chain $t/M5.gtf fxSe + 900-2300 class_code '~'
+need_chain $t/M5.gtf fxSe + 900-2300 cmp_ref seG
+! grep -q 'cross_gene_bridge' $t/M1.tsv
+## genes at separate loci are still a barrier
+mkgtf $t/m2g.gtf ref "fxN + gA 1000-1100,2000-2100" "fxN + gB 5000-5100,6000-6100"
+mkgtf $t/m2.gtf in "fxN + m2 1000-1100,2000-2100,5000-5100,6000-6100" "fxN + m3 1000-1100,2000-2100,6000-6100"
+fx M2 -G $t/m2g.gtf $t/m2.gtf
+test "$(tx_count $t/M2.gtf fxN)" -eq 2
+fate_is $t/M2.tsv cross_gene_bridge 2
+## an annotated readthrough transcript joins its parents: the same inputs are kept, and the
+## one with the readthrough chain supports that guide
+mkgtf $t/m2rg.gtf ref "fxN + gA 1000-1100,2000-2100" "fxN + gB 5000-5100,6000-6100" \
+  "fxN + gAB 1000-1100,2000-2100,5000-5100,6000-6100"
+fx M2r -G $t/m2rg.gtf $t/m2.gtf
+need_chain $t/M2r.gtf fxN + 1000-1100,2000-2100,6000-6100
+need_chain $t/M2r.gtf fxN + 1000-1100,2000-2100,5000-5100,6000-6100 merge_support 1
+fate_is $t/M2r.tsv emitted_chain 2
+## an input with a guide's intron chain supports that guide even when its end runs into the
+## next gene
+mkgtf $t/m3g.gtf ref "fxP + gA 1000-1100,2000-2100" "fxP + gB 2600-2700,3000-3100"
+mkgtf $t/m3.gtf in "fxP + m4 1000-1100,2000-2650"
+fx M3 -G $t/m3g.gtf $t/m3.gtf
+need_chain $t/M3.gtf fxP + 1000-1100,2000-2100 merge_support 1
+test "$(tx_count $t/M3.gtf fxP)" -eq 2
+! grep -q 'cross_gene_bridge' $t/M3.tsv
+
+## K: gffcompare class codes on generated transcripts (cmp_ref, class_code); the gene of the
+## guide only for a same-strand exon overlap; nothing without a guide at the locus
+mkgtf $t/kg.gtf ref "fxK + gK 1000-1100,2000-2100,3000-3100"
+mkgtf $t/k1.gtf in "fxK + kj 1000-1100,2000-2100,3500-3600" "fxK + ki 1400-1700" \
+  "fxK - kx 2050-2100,2300-2400" "fxK + kk 500-600,1000-1100,2000-2100,3000-3100" \
+  "fxK + ku 9000-9100,9500-9600" "fxK - ks 1050-1100,2000-2050"
+fx K -G $t/kg.gtf $t/k1.gtf
+need_chain $t/K.gtf fxK + 1000-1100,2000-2100,3000-3100 class_code =
+need_chain $t/K.gtf fxK + 1000-1100,2000-2100,3000-3100 reference_id gK
+need_chain $t/K.gtf fxK + 1000-1100,2000-2100,3500-3600 class_code j
+need_chain $t/K.gtf fxK + 1000-1100,2000-2100,3500-3600 cmp_ref gK
+need_chain $t/K.gtf fxK + 1000-1100,2000-2100,3500-3600 ref_gene_id gK_g
+need_chain $t/K.gtf fxK + 500-600,1000-1100,2000-2100,3000-3100 class_code k
+need_chain $t/K.gtf fxK + 1400-1700 class_code i
+no_chain $t/K.gtf fxK + 1400-1700 ref_gene_id gK_g
+need_chain $t/K.gtf fxK - 2050-2100,2300-2400 class_code x
+need_chain $t/K.gtf fxK - 1050-1100,2000-2050 class_code s
+no_chain $t/K.gtf fxK - 1050-1100,2000-2050 ref_gene_id gK_g
+test "$(awk -F'\t' '$1=="fxK" && $3=="transcript" && $4==9000' $t/K.gtf | grep -c 'class_code\|cmp_ref')" -eq 0
+## an end variant with the guide's intron chain is '~'; '=' is the guide itself
+need_chain $t/Vs.gtf fxV + $VV class_code '~'
 
 if test -n "${known_failures:-}"; then
   printf '%s\n' "merge policy test: known failures:$known_failures"

@@ -118,17 +118,22 @@ never rewritten. A changed model never reuses a guide transcript ID.
 
 Barrier order is:
 
-1. Reject a same-strand path crossing distinct guide genes unless
-   `--allow-fusions` is set.
+1. Reject a same-strand input or path whose exons overlap exons of guides from
+   more than one meta-gene, unless `--allow-fusions` is set.
 2. Reject a same-gene path combining unique introns from distinct coding guides
    unless `--allow-cds-bridges` is set.
 3. Report opposite-strand guide overlaps without treating them as a barrier.
 4. Apply biological 5-prime/3-prime hard extension caps.
 5. Apply shared-intron, path, piece, and endpoint support policies.
 
-When a reference annotation lacks a usable gene-level ID and repeats the
-transcript ID as `gene_id`, overlapping same-strand guide spans are treated as
-one inferred guide locus. Non-overlapping loci remain separate fusion barriers.
+Meta-genes (`merge_guide_metagenes()`): the guides of a bundle are grouped by
+union-find, joining guides whose spans overlap on the same strand and guides
+with the same `gene_id`. Overlapping gene families, nested genes, small RNA
+genes inside a host gene, and a readthrough gene with its parents therefore
+form one meta-gene, and crossing between them is not a fusion. Genes at
+non-overlapping loci remain separate barriers. `filter_merge_inputs()` applies
+the rule per input record and never rejects a record whose intron chain is a
+guide's chain; `merge_generated_barriers()` applies it to synthesized paths.
 
 Guide output policies are:
 
@@ -140,8 +145,17 @@ reference  Keep the unchanged guide and suppress the endpoint variant
 best       Replace the guide only with replicated, high-core-support evidence
 ```
 
-Exact guide matches carry `reference_id` and `class_code "="`. Pure
-same-chain containment/extensions carry `reference_id` and `class_code "k"`.
+Exact guide matches carry `reference_id` and `class_code "="`. Every other
+output transcript is classified at print time by `merge_class_code()`, which
+runs gclib `getOvlData()` (strict matching) against the guides of the bundle
+that its span overlaps and keeps the best `classcode_rank()`; opposite-strand
+exon overlaps become `s` (intron match) or `x`. Ties in rank go to the guide
+with more matching splice sites, then more overlapping exon bases; and for a
+multi-exon transcript a `k` against a single-exon guide yields to a
+splice-sharing `j`/`m`/`n` relation with more exon overlap. It writes `cmp_ref` and
+`class_code`, and `ref_gene_id`/`gene_name` for codes ranked below
+`CLASSCODE_OVL_RANK`. The internal `merge_class`/`merge_ref` fields still
+drive `--guide-policy` and are no longer printed.
 Identical guide structures keep every reference ID by default. With
 `--dedup-guides`, the lexicographically smallest ID is kept and the others are
 reported in `reference_aliases`. Generated structures are always deduplicated.
@@ -161,8 +175,10 @@ merge_3p_support       files supporting the biological 3-prime endpoint
 merge_locus_support    distinct files represented in the locus
 merge_5p_fraction      5-prime support / merge_support
 merge_3p_fraction      3-prime support / merge_support
-reference_id           related guide, when present
-class_code             "=" for exact guide, "k" for pure containment
+reference_id           the guide itself (class_code "=")
+cmp_ref                best matching guide of a generated transcript
+class_code             gffcompare class code of that relation
+ref_gene_id, gene_name gene of the guide, for same-strand exon overlaps
 reference_aliases      suppressed identical guide IDs, when requested
 ```
 

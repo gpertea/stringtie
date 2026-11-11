@@ -16185,22 +16185,6 @@ static bool merge_has_int(GVec<int>& values,int value) {
 	return false;
 }
 
-static void merge_add_gene_span(GVec<GSeg>& spans,uint start,uint end) {
-	// coalesce transitively overlapping fallback spans into inferred guide loci
-	GSeg merged(start,end);
-	int i=0;
-	while(i<spans.Count()) {
-		if(!spans[i].overlap(merged.start,merged.end)) {
-			i++;
-			continue;
-		}
-		if(spans[i].start<merged.start) merged.start=spans[i].start;
-		if(spans[i].end>merged.end) merged.end=spans[i].end;
-		spans.Delete(i);
-	}
-	spans.Add(merged);
-}
-
 static bool merge_file_in_reads(GList<CReadAln>& readlist,GVec<int>& reads,int fileidx) {
 	for(int i=0;i<reads.Count();i++)
 		if(readlist[reads[i]]->tinfo->fileidx==fileidx) return true;
@@ -16257,39 +16241,125 @@ static bool merge_read_guide_overlap(CReadAln& rd,GffObj* guide) {
 	return false;
 }
 
-static bool merge_read_crosses_guide_genes(CReadAln& rd,GPVec<GffObj>& guides,
+static int merge_uf_find(GVec<int>& parent,int x) {
+	while(parent[x]!=x) {
+		parent[x]=parent[parent[x]];
+		x=parent[x];
+	}
+	return x;
+}
+
+struct CMergeGuidePos {
+	char strand;
+	uint start;
+	int idx;
+	CMergeGuidePos(char s=0,uint st=0,int i=0):strand(s),start(st),idx(i) {}
+	bool operator<(const CMergeGuidePos& o) const {
+		if(strand!=o.strand) return strand<o.strand;
+		if(start!=o.start) return start<o.start;
+		return idx<o.idx;
+	}
+	bool operator==(const CMergeGuidePos& o) const { return strand==o.strand && start==o.start && idx==o.idx; }
+};
+
+// Meta-genes of the guides in a bundle. Guide genes whose spans overlap on the same strand are
+// one meta-gene: overlapping gene families, a gene nested in another, a small RNA gene inside
+// its host gene, a readthrough gene and both of its parents. A transcript within one meta-gene
+// follows a relation the annotation already has and is not a fusion. meta[i] is the meta-gene
+// of guides[i]; guides of the same gene ID are always together.
+static void merge_guide_metagenes(GPVec<GffObj>& guides,GVec<int>& meta) {
+	int n=guides.Count();
+	meta.Clear();
+	if(!n) return;
+	GVec<int> parent(n,int(0));
+	GVec<CMergeGuidePos> order;
+	for(int i=0;i<n;i++) {
+		parent[i]=i;
+		CMergeGuidePos gp(guides[i]->strand,guides[i]->start,i);
+		order.Add(gp);
+	}
+	order.Sort();
+	int first=-1; // first guide of the current run of overlapping spans
+	uint reach=0;
+	for(int x=0;x<n;x++) {
+		GffObj* g=guides[order[x].idx];
+		if(first<0 || order[x].strand!=order[first].strand || g->start>reach) {
+			first=x;
+			reach=g->end;
+			continue;
+		}
+		if(g->end>reach) reach=g->end;
+		int ra=merge_uf_find(parent,order[x].idx);
+		int rb=merge_uf_find(parent,order[first].idx);
+		parent[ra]=rb;
+	}
+	GHash<int> bygene(false);
+	GStr key("",64);
+	for(int i=0;i<n;i++) {
+		const char* gene=guides[i]->getGeneID();
+		if(!gene) continue;
+		key="";
+		key+=guides[i]->strand;
+		key+=gene;
+		int* found=bygene.Find(key.chars());
+		if(found) {
+			int ra=merge_uf_find(parent,i);
+			int rb=merge_uf_find(parent,*found);
+			parent[ra]=rb;
+		}
+		else bygene.Add(key.chars(),i);
+	}
+	for(int i=0;i<n;i++) {
+		int root=merge_uf_find(parent,i);
+		meta.Add(root);
+	}
+}
+
+// an input record is a cross-gene bridge when its exons overlap exons of guides from more than
+// one meta-gene on its strand
+static bool merge_read_crosses_guide_genes(CReadAln& rd,GPVec<GffObj>& guides,GVec<int>& meta,
 		GStr& guide_ids,GStr& gene_ids) {
 	GVec<GStr> gids;
 	GVec<GStr> genes;
-	GVec<GStr> explicitGenes;
-	GVec<GSeg> inferredSpans;
+	GVec<int> metagenes;
 	for(int i=0;i<guides.Count();i++) {
 		GffObj* guide=guides[i];
 		if((rd.strand<0?'-':rd.strand?'+':'.')!=guide->strand || !merge_read_guide_overlap(rd,guide)) continue;
 		merge_add_string(gids,guide->getID());
 		const char* gene=guide->getGeneID();
-		if(!gene) {
-			merge_add_string(genes,guide->getID());
-			merge_add_gene_span(inferredSpans,guide->start,guide->end);
-			continue;
-		}
-		merge_add_string(genes,gene);
-		if(strcmp(gene,guide->getID())!=0) merge_add_string(explicitGenes,gene);
-		else merge_add_gene_span(inferredSpans,guide->start,guide->end);
+		merge_add_string(genes,gene ? gene : guide->getID());
+		if(!merge_has_int(metagenes,meta[i])) metagenes.Add(meta[i]);
 	}
 	guide_ids=merge_join_strings(gids);
 	gene_ids=merge_join_strings(genes);
-	return explicitGenes.Count()+inferredSpans.Count()>1;
+	return metagenes.Count()>1;
 }
 
 static void filter_merge_inputs(BundleData* bdata) {
 	GList<CReadAln>& readlist=bdata->readlist;
+	GVec<int> metagenes;
+	GHash<bool> guidechains(false); // strand and intron chain of every multi-exon guide
+	if(!mergeOptions.allow_fusions) {
+		merge_guide_metagenes(bdata->keepguides,metagenes);
+		GStr key("",128);
+		for(int g=0;g<bdata->keepguides.Count();g++) {
+			GffObj* guide=bdata->keepguides[g];
+			if(guide->exons.Count()<2) continue;
+			key=""; // same form as merge_read_key()
+			key+=int(guide->strand=='-' ? -1 : (guide->strand=='+' ? 1 : 0));
+			for(int e=1;e<guide->exons.Count();e++) key.appendfmt("|%u-%u",guide->exons[e-1]->end,guide->exons[e]->start);
+			if(!guidechains.Find(key.chars())) guidechains.Add(key.chars(),true);
+		}
+	}
 	// guide-gene barriers precede abundance and splice-graph decisions
 	for(int i=0;i<readlist.Count();i++) {
 		CReadAln& rd=*readlist[i];
 		GStr guide_ids;
 		GStr gene_ids;
-		if(!mergeOptions.allow_fusions && merge_read_crosses_guide_genes(rd,bdata->keepguides,guide_ids,gene_ids)) {
+		// an input with the intron chain of a guide is that guide's transcript, whatever its ends
+		// reach: it supports the guide and is never a bridge
+		if(!mergeOptions.allow_fusions && rd.segs.Count()>1 && guidechains.Find(merge_read_key(rd).chars())) continue;
+		if(!mergeOptions.allow_fusions && merge_read_crosses_guide_genes(rd,bdata->keepguides,metagenes,guide_ids,gene_ids)) {
 			rd.nh=0;
 			rd.tinfo->mpass=false;
 			mergeFateAdd("cross_gene_bridge",1);
@@ -20278,12 +20348,11 @@ static int merge_guide_extension(CPrediction* p,GffObj* guide,bool fivep) {
 }
 
 static bool merge_generated_barriers(CPrediction* p,BundleData* bundleData,GStr& refname,
-		GStr& guide_ids,GStr& gene_ids,const char*& reason) {
+		GVec<int>& meta,GStr& guide_ids,GStr& gene_ids,const char*& reason) {
 	GVec<GStr> gids;
 	GVec<GStr> genes;
-	GVec<GStr> explicitGenes;
+	GVec<int> metagenes;
 	GVec<GStr> opposite;
-	GVec<GSeg> inferredGeneSpans;
 	GVec<int> codingGuides;
 	// classify overlapping guides by strand, gene identity, and coding evidence
 	for(int i=0;i<bundleData->keepguides.Count();i++) {
@@ -20295,15 +20364,8 @@ static bool merge_generated_barriers(CPrediction* p,BundleData* bundleData,GStr&
 		}
 		merge_add_string(gids,guide->getID());
 		const char* gene=guide->getGeneID();
-		if(gene) {
-			merge_add_string(genes,gene);
-			if(strcmp(gene,guide->getID())!=0) merge_add_string(explicitGenes,gene);
-			else merge_add_gene_span(inferredGeneSpans,guide->start,guide->end);
-		}
-		else {
-			merge_add_string(genes,guide->getID());
-			merge_add_gene_span(inferredGeneSpans,guide->start,guide->end);
-		}
+		merge_add_string(genes,gene ? gene : guide->getID());
+		if(!merge_has_int(metagenes,meta[i])) metagenes.Add(meta[i]);
 		if(guide->hasCDS() && merge_prediction_guide_intron(p,guide)) {
 			codingGuides.Add(i);
 		}
@@ -20316,7 +20378,7 @@ static bool merge_generated_barriers(CPrediction* p,BundleData* bundleData,GStr&
 		mergeReportEvent(refname.chars(),p->strand,p->start,p->end,"notice","opposite_strand_overlap",
 			"",-1,opposite_ids.chars(),"",p->merge_files.Count(),"not a merge barrier");
 	}
-	int geneGroups=explicitGenes.Count()+inferredGeneSpans.Count();
+	int geneGroups=metagenes.Count(); // overlapping guide genes count as one
 	// reject cross-gene paths before considering coding bridges within one gene
 	if(geneGroups>1) {
 		if(!mergeOptions.allow_fusions) {
@@ -20831,6 +20893,70 @@ static void merge_assign_genes(GList<CPrediction>& pred,GVec<bool>& keep) {
 	}
 }
 
+// gffcompare class code of an output transcript against the guides of its bundle, with the
+// guide it refers to: the best code by classcode_rank() over the guides its span overlaps
+// (exon or locus overlap only, so never 'p', 'r' or 'u'). Matching is strict: '=' needs
+// identical ends as well, which only a guide itself has; an identical intron chain with other
+// ends is '~'. An unstranded transcript is compared as if on the guide's strand.
+static char merge_class_code(CPrediction* p,GPVec<GffObj>& guides,GffObj*& ref) {
+	ref=NULL;
+	if(!guides.Count()) return 0;
+	GffObj q;
+	q.strand=p->strand;
+	int qlen=0;
+	for(int i=0;i<p->exons.Count();i++) {
+		q.addExon(p->exons[i].start,p->exons[i].end);
+		qlen+=p->exons[i].len();
+	}
+	q.covlen=qlen;
+	bool qstranded=(p->strand=='+' || p->strand=='-');
+	char best=0;
+	int bestrank=0;
+	int bestjunc=0;
+	int bestovl=0;
+	char jbest=0; // best relation that shares a splice site without matching the whole chain
+	GffObj* jref=NULL;
+	int jjunc=0;
+	int jovl=0;
+	for(int g=0;g<guides.Count();g++) {
+		GffObj* r=guides[g];
+		if(r->end<q.start || r->start>q.end || isNascent(r)) continue;
+		TOvlData od=getOvlData(q,*r,true,0);
+		char code=od.ovlcode;
+		if(!code) continue;
+		if(qstranded && (r->strand=='+' || r->strand=='-') && r->strand!=p->strand && code!='i' && code!='y') {
+			// opposite strands: an intron match is 's', any other exon overlap is 'x'
+			if(!q.exonOverlap(*r)) continue;
+			code=od.inbits.count() ? 's' : 'x';
+		}
+		int rank=classcode_rank(code);
+		// same rank: the guide sharing more splice sites, then more exon bases
+		if(!best || rank<bestrank || (rank==bestrank && (od.numJmatch>bestjunc ||
+				(od.numJmatch==bestjunc && od.ovlen>bestovl)))) {
+			best=code;
+			bestrank=rank;
+			bestjunc=od.numJmatch;
+			bestovl=od.ovlen;
+			ref=r;
+		}
+		if((code=='j' || code=='m' || code=='n') && od.numJmatch>0 &&
+				(od.numJmatch>jjunc || (od.numJmatch==jjunc && od.ovlen>jovl))) {
+			jbest=code;
+			jref=r;
+			jjunc=od.numJmatch;
+			jovl=od.ovlen;
+		}
+	}
+	// One departure from the gffcompare ranking. 'k' against a single-exon guide (a small RNA
+	// gene inside an exon, say) carries no splice evidence; for a multi-exon transcript a guide
+	// that shares a splice site and more exon bases is the better structural annotation.
+	if(best=='k' && p->exons.Count()>1 && ref->exons.Count()==1 && jbest && jovl>bestovl) {
+		best=jbest;
+		ref=jref;
+	}
+	return best;
+}
+
 int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 	GList<CPrediction>& pred = bundleData->pred;
 	// Observed chains first: every stranded intron chain that passed the input filters is a
@@ -20999,6 +21125,8 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 		if(rd.tinfo->g==-1 && !merge_has_int(locusfiles,rd.tinfo->fileidx)) locusfiles.Add(rd.tinfo->fileidx);
 	}
 
+	GVec<int> metagenes;
+	merge_guide_metagenes(bundleData->keepguides,metagenes);
 	// normalize guide identity before applying evidence and bridge barriers
 	for(int n=0;n<npred;n++) {
 		CPrediction* p=pred[n];
@@ -21037,7 +21165,7 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 				GStr guide_ids;
 				GStr gene_ids;
 				const char* barrier=NULL;
-				if(!merge_generated_barriers(p,bundleData,refname,guide_ids,gene_ids,barrier)) {
+				if(!merge_generated_barriers(p,bundleData,refname,metagenes,guide_ids,gene_ids,barrier)) {
 					keep[n]=false;
 					fate[n]=barrier;
 				}
@@ -21242,17 +21370,25 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 					fprintf(fm,"%s\tStringTie\ttranscript\t%d\t%d\t1000\t%c\t.\tgene_id \"%c\"; transcript_id \"%s\"; ",
 						refname.chars(),pred[m]->start,pred[m]->end,pred[m]->strand,MERGE_GENE_MARK,
 						trid.chars());
-          GffObj* guide = NULL;
+					GffObj* guide = NULL;
+					GffObj* cmpref = NULL; // generated transcript: guide of its gffcompare class code
+					char cmpcode = 0;
 					if(pred[m]->t_eq) {
-						//fprintf(fm,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
-					  guide = pred[m]->t_eq;
-					  if (!isNascent(guide) && getGuideStatus(guide) < GBST_ALL_INTR_COV) {
-               setGuideStatus(guide, GBST_STORED);
-            }
-						if (guide->getGeneName())
-							fprintf(fm,"gene_name \"%s\"; ",guide->getGeneName());
-						if (guide->getGeneID())
-							fprintf(fm,"ref_gene_id \"%s\"; ",guide->getGeneID());
+						guide = pred[m]->t_eq;
+						if (!isNascent(guide) && getGuideStatus(guide) < GBST_ALL_INTR_COV) {
+							setGuideStatus(guide, GBST_STORED);
+						}
+					}
+					else cmpcode=merge_class_code(pred[m],bundleData->keepguides,cmpref);
+					// the gene of a generated transcript is the gene of that guide when the two share
+					// exon sequence on the same strand
+					GffObj* generef=guide;
+					if(!generef && cmpcode && classcode_rank(cmpcode)<CLASSCODE_OVL_RANK) generef=cmpref;
+					if(generef) {
+						if (generef->getGeneName())
+							fprintf(fm,"gene_name \"%s\"; ",generef->getGeneName());
+						if (generef->getGeneID())
+							fprintf(fm,"ref_gene_id \"%s\"; ",generef->getGeneID());
 					}
 
 					if(includecov) fprintf(fm,"cov \"%g\"; ",pred[m]->cov);
@@ -21265,8 +21401,8 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 					fprintf(fm,"merge_5p_fraction \"%.3f\"; merge_3p_fraction \"%.3f\"; ",frac5,frac3);
 					if(pred[m]->merge_contained_files.Count())
 						fprintf(fm,"merge_contained_support \"%d\"; ",pred[m]->merge_contained_files.Count());
-					if(pred[m]->merge_ref) fprintf(fm,"reference_id \"%s\"; ",pred[m]->merge_ref->getID());
-					if(pred[m]->merge_class) fprintf(fm,"class_code \"%c\"; ",pred[m]->merge_class);
+					if(guide) fprintf(fm,"reference_id \"%s\"; class_code \"=\"; ",guide->getID());
+					else if(cmpcode) fprintf(fm,"cmp_ref \"%s\"; class_code \"%c\"; ",cmpref->getID(),cmpcode);
 					if(!pred[m]->merge_ref_aliases.is_empty())
 						fprintf(fm,"reference_aliases \"%s\"; ",pred[m]->merge_ref_aliases.chars());
 
@@ -21277,12 +21413,11 @@ int printMergeResults(BundleData* bundleData, int geneno, GStr& refname) {
 						fprintf(fm,"%s\tStringTie\texon\t%d\t%d\t1000\t%c\t.\tgene_id \"%c\"; transcript_id \"%s\"; exon_number \"%d\"; ",
 							refname.chars(),pred[m]->exons[j].start,pred[m]->exons[j].end,pred[m]->strand,MERGE_GENE_MARK,
 							trid.chars(),j+1);
-						if(guide) {
-							//fprintf(fm,"reference_id \"%s\"; ",pred[m]->t_eq->getID());
-							if (guide->getGeneName())
-								fprintf(fm,"gene_name \"%s\"; ",guide->getGeneName());
-							if (guide->getGeneID())
-								fprintf(fm,"ref_gene_id \"%s\"; ",guide->getGeneID());
+						if(generef) {
+							if (generef->getGeneName())
+								fprintf(fm,"gene_name \"%s\"; ",generef->getGeneName());
+							if (generef->getGeneID())
+								fprintf(fm,"ref_gene_id \"%s\"; ",generef->getGeneID());
 						}
 						fprintf(fm,"\n");
 					}

@@ -388,8 +388,8 @@ treated as follows:
   fragment of it. It is absorbed, its files are credited to the guide
   (`merge_support` for the guide's own chain, `merge_contained_support` for
   fragments), and fragments are listed in the report as `absorb` rows.
-- Otherwise it is a guide variant, emitted under a generated ID with
-  `reference_id` and `class_code` `k` (same chain) or `j` (part of the chain).
+- Otherwise it is a guide variant, emitted under a generated ID with `cmp_ref`
+  naming the guide and a `class_code` (see below).
   `both` keeps the guide and the variant; `reference` suppresses the variant;
   `best` replaces the guide with a same-chain variant only when the variant has
   at least two complete-path files and its complete-path fraction reaches
@@ -407,8 +407,14 @@ weaker longer model. Guides absorb their fragments regardless of support unless
 `--guide-fragments dominance` is given. A fragment that retains an intron of
 the longer transcript follows the same rule, and `-i` keeps all of them.
 
-Same-strand paths crossing distinct guide genes are rejected before intron
-joining unless `--allow-fusions` is set. Within one guide gene, a path carrying
+Same-strand transcripts whose exons overlap exons of distinct guide genes are
+rejected (`cross_gene_bridge`) unless `--allow-fusions` is set. The barrier
+follows the annotation: guide genes whose spans overlap on the same strand are
+one meta-gene and are not a barrier to each other. That covers overlapping gene
+families, a gene nested in another, a small RNA gene inside its host gene, and
+an annotated readthrough gene together with both of its parents. An input with
+exactly the intron chain of a guide always supports that guide, even when its
+end runs into a neighboring gene. Within one guide gene, a path carrying
 unique introns from two coding guide transcripts is rejected unless
 `--allow-cds-bridges` is set. Opposite-strand guide overlap is reported but is
 not a barrier.
@@ -423,8 +429,23 @@ The merged GTF records `merge_support` (files with evidence for the transcript),
 `merge_path_support` (files carrying its complete intron chain),
 `merge_piece_support` (files supporting its weakest intron),
 `merge_5p_support` and `merge_3p_support` (files reaching the emitted end
-within the slop), locus support, `reference_id`, `class_code`, and optional
-`merge_contained_support` and `reference_aliases`.
+within the slop), locus support, and optional `merge_contained_support` and
+`reference_aliases`.
+
+Relation to the reference annotation. A reference transcript carries
+`reference_id` (its own ID) and `class_code "="`. A generated transcript that
+overlaps the locus of any guide carries `cmp_ref` (the best matching guide) and
+the gffcompare `class_code` of that relation, computed with the same code and
+priorities as gffcompare (`~` same intron chain with other ends, `c`, `k`, `m`,
+`n`, `j`, `e`, `o`, and for relations without a same-strand exon overlap `s`,
+`x`, `i`, `y`). Among guides with equally ranked codes the one sharing more
+splice sites, then more exon bases, is taken. There is one departure from the
+gffcompare ranking: for a multi-exon transcript, `k` against a single-exon
+guide (for example a miRNA gene inside one of its exons) gives way to a guide
+that shares a splice site with it (`j`, `m`, `n`) and more exon bases. When the relation is a
+same-strand exon overlap the transcript and its exons also get the guide's
+`ref_gene_id` and `gene_name`. A transcript with no guide at its locus has none
+of these attributes.
 
 The report header also accounts for every input record. `# input_records` is
 the number of transcripts read from the input files, and each `# fate` line
@@ -446,7 +467,7 @@ set_exon_overlap          Single-exon, overlapping such an exon partly.
 minimum_support           Below `--min-support`.
 abundance_filter          Failed `-c`/`-F`/`-T`/`-f` and was not rescued.
 cross_gene_bridge         Rejected by the reference gene or coding
-coding_transcript_bridge  transcript barrier.
+coding_transcript_bridge  transcript barrier (genes at separate loci).
 direct_path_support       Rejected by `--path-mode`.
 piece_support
 guide_extension_cap       Variant of a reference transcript rejected by
