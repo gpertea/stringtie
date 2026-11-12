@@ -562,7 +562,15 @@ static inline bool has_lr_witness_two_splices(int la, int ra, int lb, int rb, GP
 // and return true as soon as this holds while scanning from the boundary.
 // - fromRight=false: scan left->right (use when boundary is at 'a')
 // - fromRight=true : scan right->left (use when boundary is at 'b')
-static inline bool poly_window_meets(const char* readseq, int a, int b, char good1, char good2,
+// base i of the read as stored in the alignment record, i.e. character i of
+// GSamRecord::sequence(), without decoding the whole sequence. The polyA/T checks
+// below look at a few bases at the ends of the read and are called several times
+// for every long read.
+static inline char readbase(bam1_t* b, int i) {
+	return seq_nt16_str[bam_seqi(bam_get_seq(b), i)];
+}
+
+static inline bool poly_window_meets(bam1_t* rb, int a, int b, char good1, char good2,
                             int minCount, double minFrac, bool fromRight) {
     int n = b - a;
     if (n <= 0) return false;
@@ -570,7 +578,7 @@ static inline bool poly_window_meets(const char* readseq, int a, int b, char goo
     int checked = 0;
     if (!fromRight) {
         for (int i = a; i < b; ++i) {
-            char x = readseq[i];
+            char x = readbase(rb,i);
             if (x == good1 || x == good2) {
                 matches++;
             }
@@ -585,7 +593,7 @@ static inline bool poly_window_meets(const char* readseq, int a, int b, char goo
         }
     } else {
         for (int i = b - 1; i >= a; --i) {
-            char x = readseq[i];
+            char x = readbase(rb,i);
             if (x == good1 || x == good2) {
                 matches++;
             }
@@ -603,78 +611,69 @@ static inline bool poly_window_meets(const char* readseq, int a, int b, char goo
 }
 // Check for consecutive T's at start of read
 bool check_aligned_polyT_start(GSamRecord& brec) {
-    char *readseq = brec.sequence();
-    if (!readseq) return false;
-    int len = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int len = rb->core.l_qseq;
 
     // Adjust start position for left softclipping
     int start_pos = brec.clipL;
     int a = start_pos;
     int b = a + POLY_TAIL_WIN; if (b > len - brec.clipR) b = len - brec.clipR;
     // boundary-anchored run from clipL forward
-    int runT = 0; for (int i=a;i<b;i++){ char x=readseq[i]; if (x=='T'||x=='t') runT++; else break; }
-    if (runT>=POLY_TAIL_MIN_CONSEC) { GFREE(readseq); return true; }
-    bool ok = poly_window_meets(readseq, a, b, 'T','t', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, false);
-    GFREE(readseq);
+    int runT = 0; for (int i=a;i<b;i++){ char x=readbase(rb,i); if (x=='T'||x=='t') runT++; else break; }
+    if (runT>=POLY_TAIL_MIN_CONSEC) return true;
+    bool ok = poly_window_meets(rb, a, b, 'T','t', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, false);
     return ok;
 }
 
 // Check for consecutive A's at end of read with specified threshold percentage
 bool check_aligned_polyA_end(GSamRecord& brec) {
-    char *readseq = brec.sequence();
-    if (!readseq) return false;
-    int len = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int len = rb->core.l_qseq;
 
     // Adjust end position for right softclipping
     int b = len - brec.clipR; // first unaligned index on right
     int a = b - POLY_TAIL_WIN; if (a < brec.clipL) a = brec.clipL;
     // boundary-anchored run from last aligned base backward
-    int runA = 0; for (int i=b-1;i>=a;--i){ char x=readseq[i]; if (x=='A'||x=='a') runA++; else break; }
-    if (runA>=POLY_TAIL_MIN_CONSEC) { GFREE(readseq); return true; }
-    bool ok = poly_window_meets(readseq, a, b, 'A','a', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, true);
-    GFREE(readseq);
+    int runA = 0; for (int i=b-1;i>=a;--i){ char x=readbase(rb,i); if (x=='A'||x=='a') runA++; else break; }
+    if (runA>=POLY_TAIL_MIN_CONSEC) return true;
+    bool ok = poly_window_meets(rb, a, b, 'A','a', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, true);
     return ok;
 }
 
 
 bool check_unaligned_polyA_end(GSamRecord& brec) {
-    char *readseq = brec.sequence();
-    if (!readseq) return false;
-    int len = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int len = rb->core.l_qseq;
 
     int clip_len = brec.clipR;
-    if (clip_len <= 0) { GFREE(readseq); return false; }
+    if (clip_len <= 0) return false;
 
     int start = len - clip_len; // first unaligned index on right
     // boundary-anchored run from boundary forward into the soft-clip
-    int runAadj=0; for (int i=start;i<len && i<start+POLY_TAIL_WIN;++i){ char x=readseq[i]; if (x=='A'||x=='a') runAadj++; else break; }
-    if (runAadj>=POLY_TAIL_MIN_CONSEC) { GFREE(readseq); return true; }
+    int runAadj=0; for (int i=start;i<len && i<start+POLY_TAIL_WIN;++i){ char x=readbase(rb,i); if (x=='A'||x=='a') runAadj++; else break; }
+    if (runAadj>=POLY_TAIL_MIN_CONSEC) return true;
     int wR = (clip_len < POLY_TAIL_WIN) ? clip_len : POLY_TAIL_WIN;
-    bool ok = poly_window_meets(readseq, start, start + wR, 'A','a', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, false);
-    GFREE(readseq);
+    bool ok = poly_window_meets(rb, start, start + wR, 'A','a', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, false);
     return ok;
 }
 
 bool check_unaligned_polyT_start(GSamRecord& brec) {
-    char *readseq = brec.sequence();
-    if (!readseq) return false;
+    bam1_t* rb = brec.get_b();
 
     int clip_len = brec.clipL;
-    if (clip_len <= 0) { GFREE(readseq); return false; }
+    if (clip_len <= 0) return false;
 
     // boundary-anchored run from boundary backward into the soft-clip
-    int runTadj=0; for (int i=clip_len-1;i>=0 && i>=(clip_len-POLY_TAIL_WIN);--i){ char x=readseq[i]; if (x=='T'||x=='t') runTadj++; else break; }
-    if (runTadj>=POLY_TAIL_MIN_CONSEC) { GFREE(readseq); return true; }
+    int runTadj=0; for (int i=clip_len-1;i>=0 && i>=(clip_len-POLY_TAIL_WIN);--i){ char x=readbase(rb,i); if (x=='T'||x=='t') runTadj++; else break; }
+    if (runTadj>=POLY_TAIL_MIN_CONSEC) return true;
     int wL = (clip_len < POLY_TAIL_WIN) ? clip_len : POLY_TAIL_WIN;
-    bool ok = poly_window_meets(readseq, clip_len - wL, clip_len, 'T','t', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, true);
-    GFREE(readseq);
+    bool ok = poly_window_meets(rb, clip_len - wL, clip_len, 'T','t', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, true);
     return ok;
 }
 
 float check_last_exon_polyA(GSamRecord& brec) {
-    char* readseq = brec.sequence();
-    if (!readseq) return 0;
-    int seqLen = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int seqLen = rb->core.l_qseq;
 
     // compute read‐relative start/end of the last exon
     int exonLen  = brec.exons.Last().end - brec.exons.Last().start + 1;
@@ -684,17 +683,15 @@ float check_last_exon_polyA(GSamRecord& brec) {
 
     int a_count = 0, pos_count = 0;
     for (int i = startIdx; i <= endIdx; ++i) {
-        if (readseq[i] == 'A') ++a_count;
+        if (readbase(rb,i) == 'A') ++a_count;
         ++pos_count;
     }
-    GFREE(readseq);
     return pos_count ? float(a_count) / pos_count : 0;
 }
 
 float check_first_exon_polyT(GSamRecord& brec) {
-    char* readseq = brec.sequence();
-    if (!readseq) return 0;
-    int seqLen = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int seqLen = rb->core.l_qseq;
 
     int exonLen  = brec.exons.First().end - brec.exons.First().start + 1;
     int startIdx = brec.clipL;               // first aligned base in the read
@@ -703,10 +700,9 @@ float check_first_exon_polyT(GSamRecord& brec) {
 
     int t_count = 0, pos_count = 0;
     for (int i = startIdx; i <= endIdx; ++i) {
-        if (readseq[i] == 'T') ++t_count;
+        if (readbase(rb,i) == 'T') ++t_count;
         ++pos_count;
     }
-    GFREE(readseq);
     return pos_count ? float(t_count) / pos_count : 0;
 }
 
