@@ -236,14 +236,19 @@ void countFragment(BundleData& bdata, GSamRecord& brec, int nh) {
 
 }
 
-bool deljuncmatch(CReadAln *rd,GVec<GSeg> &jd) {
+bool deljuncmatch(CReadAln *rd,GReadAlnData& alndata) {
+	GVec<GSeg> &jd=alndata.brec->juncsdel;
 
 	if(rd->juncs.Count()!=jd.Count()) return(false);
 
 	for(int i=0;i<rd->juncs.Count();i++) {
 		uint startj=rd->segs[i].end-rd->juncs[i]->start;
 		uint endj=rd->juncs[i]->end-rd->segs[i+1].start;
-		if(startj!=jd[i].start || endj!=jd[i].end) return(false);
+		if(alndata.juncs.Count()>i && alndata.juncs[i]->guide_match) {
+			// processRead() stores a junction that matches a guide without the deletion offsets
+			if(startj || endj) return(false);
+		}
+		else if(startj!=jd[i].start || endj!=jd[i].end) return(false);
 	}
 
 	return(true);
@@ -761,7 +766,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	if(!mergeMode) while(n>-1 && readlist[n]->start==brec.start) {
 		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig)) {
 			match=exonmatch(readlist[n]->segs,brec.exons);
-			if(match && (longreads || mixedMode)) match=deljuncmatch(readlist[n],brec.juncsdel); //DEL AWARE
+			if(match && (longreads || mixedMode)) match=deljuncmatch(readlist[n],alndata); //DEL AWARE
 		}
 		//if(strand==readlist[n]->strand) match=exonmatch(readlist[n]->segs,brec.exons);
 		if(match) break; // this way I make sure that I keep the n of the matching readlist
