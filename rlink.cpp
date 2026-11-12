@@ -17617,11 +17617,15 @@ void count_good_junctions(BundleData* bdata) {
 					CJunction *nj=NULL;
 					CJunction jn(rd.juncs[i-1]->start, rd.juncs[i-1]->end, rd.strand); // if the deletion makes sense then keep it
 					int oidx=-1;
+					// the junction with deletion offsets is shared by all the reads having it:
+					// move only this read's share of its counts
+					CJunction *dj=rd.juncs[i-1];
+					float share=(dj->nreads>0) ? rd.read_count/dj->nreads : 0;
 					if (junction.Found(&jn, oidx)) {
 						nj=junction.Get(oidx);
-						nj->nreads+=rd.juncs[i-1]->nreads;
-						nj->mm+=rd.juncs[i-1]->mm;
-						nj->nm+=rd.juncs[i-1]->nm;
+						nj->nreads+=rd.read_count;
+						nj->mm+=share*dj->mm;
+						nj->nm+=share*dj->nm;
 						rd.juncs[i-1]=nj;
 						// adjust start/end of read
 						rd.segs[i-1].end=rd.juncs[i-1]->start;
@@ -17631,9 +17635,9 @@ void count_good_junctions(BundleData* bdata) {
 						CJunction jn(rd.segs[i-1].end, rd.segs[i].start, rd.strand);
 						if (junction.Found(&jn, oidx)) {
 							nj=junction.Get(oidx);
-							nj->nreads+=rd.juncs[i-1]->nreads;
-							nj->mm+=rd.juncs[i-1]->mm;
-							nj->nm+=rd.juncs[i-1]->nm;
+							nj->nreads+=rd.read_count;
+							nj->mm+=share*dj->mm;
+							nj->nm+=share*dj->nm;
 							rd.juncs[i-1]=nj;
 						}
 						else { // new junction
