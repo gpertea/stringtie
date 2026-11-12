@@ -1,3 +1,7 @@
 merge-dev/
 SuperReads_RNA/
 tests*/
+/.codebase-memory/
+.drafts/
+worklog*
+devlog*
