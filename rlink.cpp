@@ -257,6 +257,25 @@ bool exonmatch(GVec<GSeg> &prevexons, GVec<GSeg> &exons) {
 	return true;
 }
 
+// true if stored read rd is the same read alignment as the incoming brec
+static inline bool samereadmatch(CReadAln *rd, GSamRecord& brec, char strand, bool longr, double unitig_cov) {
+	bool match=false;
+	if(strand==rd->strand && (rd->longread==longr) && (!isunitig || (unitig_cov>0) == rd->unitig)) {
+		match=exonmatch(rd->segs,brec.exons);
+		if(match && (longreads || mixedMode)) match=deljuncmatch(rd,brec.juncsdel); //DEL AWARE
+	}
+	return match;
+}
+
+// hash of exon coordinates only: strand can be rewritten on a stored read before it is added,
+// and deljuncmatch() is not symmetric, so those are left to samereadmatch()
+static inline uint64_t exonhash(GVec<GSeg>& exons) {
+	uint64_t h=wyhash64((uint64_t)exons.Count(),0);
+	for(int i=0;i<exons.Count();i++)
+		h=wyhash64(h,((uint64_t)exons[i].start<<32)|exons[i].end);
+	return h;
+}
+
 bool mismatch_anchor(CReadAln *rd,char *mdstr,int refstart, bam1_t *b) {
 	if(mdstr==NULL) return false;
 	//--make a copy of the string, in case the original is a const string
@@ -758,14 +777,18 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	bool match=false;  // true if current read matches a previous read
 	int n=readlist.Count()-1;
 
-	if(!mergeMode) while(n>-1 && readlist[n]->start==brec.start) {
-		if(strand==readlist[n]->strand && (readlist[n]->longread==longr) && (!isunitig || (unitig_cov>0) == readlist[n]->unitig)) {
-			match=exonmatch(readlist[n]->segs,brec.exons);
-			if(match && (longreads || mixedMode)) match=deljuncmatch(readlist[n],brec.juncsdel); //DEL AWARE
+	uint64_t ehash=0; // hash of brec.exons, non-merge mode only
+	int* last_read=NULL; // last_read_with_exons value for ehash, if present; valid until the map is changed
+
+	if(!mergeMode) { // find an identical stored read anywhere in the bundle, newest first (issue #511)
+		ehash=exonhash(brec.exons);
+		last_read=bdata.last_read_with_exons.Find(ehash);
+		n=last_read ? *last_read : -1;
+		while(n>-1) {
+			match=samereadmatch(readlist[n],brec,strand,longr,unitig_cov);
+			if(match) break; // this way I make sure that I keep the n of the matching readlist
+			n=bdata.prev_read_same_exons[n];
 		}
-		//if(strand==readlist[n]->strand) match=exonmatch(readlist[n]->segs,brec.exons);
-		if(match) break; // this way I make sure that I keep the n of the matching readlist
-		n--;
 	}
 	else { //mergeMode: defer rejection so repeated structures can rescue a filtered input
 		bool covfail=(alndata.tinfo->cov>=0 && alndata.tinfo->cov<readthr);
@@ -864,6 +887,12 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			readaln->segs.Add(brec.exons[i]);
 		}
 		n=readlist.Add(readaln);  // reset n for the case there is no match
+		if(!mergeMode) { // index the new entry; readaln->segs are a copy of brec.exons
+			int prev_read=-1;
+			if(last_read) { prev_read=*last_read; *last_read=n; }
+			else bdata.last_read_with_exons.Add(ehash,n);
+			bdata.prev_read_same_exons.Add(prev_read);
+		}
 
 	}
 	else { //redundant read alignment matching a previous alignment

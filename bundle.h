@@ -405,6 +405,9 @@ struct BundleData {
  // Long-read witness for adjacent junction pairs (packed key -> count)
  // Key recommended: (uint64_t)jL_ptr << 32 ^ (uint64_t)jR_ptr, using canonical CJunction* pointers
  GHashMap<uint64_t, uint32_t> lr_pair;
+// used by processRead() to check whether an incoming read is identical to a read already in readlist (not used with --merge):
+ GHashMap<uint64_t,int> last_read_with_exons; // exon coordinate hash -> readlist index of the last stored read with that hash
+ GVec<int> prev_read_same_exons; // prev_read_same_exons[i] is the position of the prev read with same exons as readlist[i], or -1 if none
  // CPAS breakpoints (bundle-relative indices, to be merged into bp in build_graphs)
  GVec<int> cpasCuts[2];  // 0 = minus strand, 1 = plus strand
  BundleData():status(BUNDLE_STATUS_CLEAR), idx(0), start(0), end(0),
@@ -469,6 +472,9 @@ struct BundleData {
 	mergechains.Clear();
 	readlist.Clear();
 	readlist.setSorted(false);
+	if(last_read_with_exons.n_buckets()>65536) last_read_with_exons.Reset(); // do not keep a huge table around
+	else last_read_with_exons.Clear();
+	prev_read_same_exons.Clear(); // also frees the array
 	for(int i=0;i<3;i++) {
 		bpcov[i].Clear();
 		bpcov[i].setCapacity(1024);
