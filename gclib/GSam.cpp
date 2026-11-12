@@ -225,7 +225,9 @@ switch (cop) {
 			exonStarted=true;
 		    l+=_cigLen(cigar[i]);
 			if(intron) { // op comes after intron --> update juncsdel
-				GSeg deljunc(prevdel,0);
+				GSeg deljunc; //not GSeg(prevdel,0): the constructor swaps start and end when start>end
+				deljunc.start=prevdel; // deleted bases before the intron
+				deljunc.end=0;         // deleted bases after the intron
 				juncsdel.Add(deljunc);
 			}
 		    intron=false;
@@ -236,7 +238,9 @@ switch (cop) {
 			del=_cigLen(cigar[i]);
 			l+=del;
 			if (intron) { // deletion after intron --> update juncsdel
-				GSeg deljunc(prevdel,del);
+				GSeg deljunc;
+				deljunc.start=prevdel;
+				deljunc.end=del;
 				juncsdel.Add(deljunc);
 			}
 			ins=false;
