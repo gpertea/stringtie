@@ -262,6 +262,19 @@ GConditionVar haveClear; //will notify when bundle buf space available
 
 GMutex queueMutex; //controls bundleQueue and bundles access
 
+bool workersRunning=false; //the worker threads were started and are not joined yet
+
+// Registered with atexit(). When exit() is called while the worker threads exist
+// (a fatal error, GError(), in any thread) the static destructors must not run:
+// the other threads still use those objects, and destroying a condition variable
+// waits for the threads blocked on it, so the program printed the error and never
+// ended. Flush the output and end the process here instead.
+void exitWithWorkers() {
+	if (!workersRunning) return;
+	fflush(NULL);
+	_exit(1);
+}
+
 GFastMutex printMutex; //for writing the output to file
 
 GFastMutex logMutex; //only when verbose - to avoid mangling the log output
@@ -817,6 +830,8 @@ if (ballgown)
  //bundles[0..num_cpus-1] are processed by threads, loading bundles[num_cpus] first
 
  dataClear.setCapacity(num_cpus+1);
+ atexit(exitWithWorkers);
+ workersRunning=true;
  for (int b=0;b<num_cpus;b++) {
 	 threads[b].kickStart(workerThread, (void*) &bundleQueue, defStackSize);
 	 bundles[b+1].idx=b+1;
@@ -1179,6 +1194,7 @@ if (ballgown)
 #ifndef NOTHREADS
  for (int t=0;t<num_cpus;t++)
 	 threads[t].join();
+ workersRunning=false;
  if (verbose) {
    printTime(stderr);
    GMessage(" All threads finished.\n");
