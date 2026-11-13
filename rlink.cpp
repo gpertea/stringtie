@@ -798,9 +798,9 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	}
 
 
-	double nm=(double)brec.tag_int("NM"); // read mismatch
+	double nm=(double)CAlnTags::intval(alndata.tags.nm); // read mismatch (NM)
 	double unitig_cov=0;
-	unitig_cov=brec.tag_float("YK");
+	unitig_cov=CAlnTags::floatval(alndata.tags.yk); // YK
 
 	bool match=false;  // true if current read matches a previous read
 	int n=readlist.Count()-1;
@@ -964,7 +964,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	  	bdata.end=currentend;
 	}
 
-	float rdcount=(float)brec.tag_int("YC"); // alignment count
+	float rdcount=(float)CAlnTags::intval(alndata.tags.yc); // alignment count (YC)
 	if(!rdcount) rdcount=1;
 	if(unitig_cov) {
 		rdcount=unitig_cov;
@@ -976,7 +976,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 
 	// store the mismatch count per junction so that I can eliminate it later
 	if(!nm) {
-		nm=(double)brec.tag_int("nM"); // paired mismatch : big problem with STAR alignments
+		nm=(double)CAlnTags::intval(alndata.tags.nM); // paired mismatch (nM) : big problem with STAR alignments
 		if(brec.isPaired()) nm/=2;
 	}
 	if(brec.clipL) nm++;

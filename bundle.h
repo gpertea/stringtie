@@ -242,11 +242,55 @@ struct CReadAln:public GSeg {
 	~CReadAln() { if(mergeMode) {delete tinfo;} }
 };
 
+// The tags read for every alignment, found in one pass over the tags of the record:
+// each GSamRecord::tag_...() call scans them from the start, and a tag that is not
+// there costs a scan of all of them. The pointers are what bam_aux_get() returns,
+// NULL when the tag is absent; they are valid while the record is not changed.
+struct CAlnTags {
+	uint8_t *xs, *ts, *nh, *hi, *nm, *yk, *yc, *nM;
+	CAlnTags():xs(NULL),ts(NULL),nh(NULL),hi(NULL),nm(NULL),yk(NULL),yc(NULL),nM(NULL) { }
+	void get(bam1_t* b) { //keeps the first occurrence of a tag, like bam_aux_get()
+		xs=ts=nh=hi=nm=yk=yc=nM=NULL;
+		for (uint8_t* s=bam_aux_first(b); s; s=bam_aux_next(b, s)) {
+			const char* t=bam_aux_tag(s);
+			switch (t[0]) {
+			  case 'X': if (t[1]=='S' && !xs) xs=s; break;
+			  case 't': if (t[1]=='s' && !ts) ts=s; break;
+			  case 'N': if (t[1]=='H') { if (!nh) nh=s; }
+			            else if (t[1]=='M' && !nm) nm=s;
+			            break;
+			  case 'H': if (t[1]=='I' && !hi) hi=s; break;
+			  case 'Y': if (t[1]=='K') { if (!yk) yk=s; }
+			            else if (t[1]=='C' && !yc) yc=s;
+			            break;
+			  case 'n': if (t[1]=='M' && !nM) nM=s; break;
+			}
+		}
+	}
+	static char char1(uint8_t* s) { //first character of an A or Z tag, as GSamRecord::tag_char1()
+		if (s==NULL) return 0;
+		int type=*s++;
+		return (type=='A' || type=='Z') ? *(char*)s : 0;
+	}
+	//'+' or '-' from the XS tag or from minimap2's ts tag, else '.', as GSamRecord::spliceStrand()
+	char spliceStrand(bool reversed) {
+		char c=char1(xs);
+		if (c==0) {
+			char m=char1(ts);
+			if (m=='+' || m=='-') c=reversed ? ((m=='+') ? '-' : '+') : m;
+		}
+		return (c=='+' || c=='-') ? c : '.';
+	}
+	static int64_t intval(uint8_t* s) { return s ? bam_aux2i(s) : 0; } //as GSamRecord::tag_int()
+	static double floatval(uint8_t* s) { return s ? bam_aux2f(s) : 0; } //as GSamRecord::tag_float()
+};
+
 struct GReadAlnData {
 	GSamRecord* brec;
 	char strand; //-1, 0, 1
 	int nh;
 	int hi;
+	CAlnTags tags;
 	GPVec<CJunction> juncs;
 	union {
 		TAlnInfo* tinfo;
