@@ -272,12 +272,48 @@ static inline bool samereadmatch(CReadAln *rd, GReadAlnData& alndata, char stran
 	return match;
 }
 
-// hash of exon coordinates only: strand can be rewritten on a stored read before it is added,
-// and deljuncmatch() is not symmetric, so those are left to samereadmatch()
-static inline uint64_t exonhash(GVec<GSeg>& exons) {
-	uint64_t h=wyhash64((uint64_t)exons.Count(),0);
-	for(int i=0;i<exons.Count();i++)
-		h=wyhash64(h,((uint64_t)exons[i].start<<32)|exons[i].end);
+// The index of stored reads (BundleData::last_read_with_key) uses a hash of everything
+// samereadmatch() compares, not only of the exons: otherwise the reads that have the same
+// exons but can never match (a deletion right after an intron; with -G a deletion at a guide
+// junction; a strand taken from the polyA/T tail) pile up in one chain, and each new one walks
+// all of it. The two sides of the comparison are not symmetric, so there are two functions:
+// alnkey() for an incoming alignment and readkey() for a stored read. They MUST stay in step
+// with samereadmatch() and deljuncmatch(): a pair these accept must have equal keys.
+static inline uint64_t keystart(char strand, bool longr, bool unitig, int nexons) {
+	return wyhash64((uint64_t)nexons, (uint64_t)(strand+1) | (longr ? 4 : 0) | (unitig ? 8 : 0));
+}
+
+// key of an incoming alignment: what samereadmatch() takes from alndata
+static inline uint64_t alnkey(GReadAlnData& alndata, char strand, bool longr, double unitig_cov) {
+	GSamRecord& brec=*(alndata.brec);
+	uint64_t h=keystart(strand, longr, isunitig && unitig_cov>0, brec.exons.Count());
+	for(int i=0;i<brec.exons.Count();i++)
+		h=wyhash64(h,((uint64_t)brec.exons[i].start<<32)|brec.exons[i].end);
+	if(longreads || mixedMode) { // what deljuncmatch() takes from brec.juncsdel
+		h=wyhash64(h,(uint64_t)brec.juncsdel.Count());
+		for(int i=0;i<brec.juncsdel.Count();i++) {
+			// a junction that matches a guide is stored, and compared, without its deletion offsets
+			if(alndata.juncs.Count()>i && alndata.juncs[i]->guide_match) h=wyhash64(h,0);
+			else h=wyhash64(h,((uint64_t)brec.juncsdel[i].start<<32)|brec.juncsdel[i].end);
+		}
+	}
+	return h;
+}
+
+// key of a stored read: what samereadmatch() takes from rd; to be called when the strand and
+// the unitig flag of rd are final
+static inline uint64_t readkey(CReadAln *rd) {
+	uint64_t h=keystart(rd->strand, rd->longread, isunitig && rd->unitig, rd->segs.Count());
+	for(int i=0;i<rd->segs.Count();i++)
+		h=wyhash64(h,((uint64_t)rd->segs[i].start<<32)|rd->segs[i].end);
+	if(longreads || mixedMode) { // the offsets deljuncmatch() derives from rd
+		h=wyhash64(h,(uint64_t)rd->juncs.Count());
+		for(int i=0;i<rd->juncs.Count();i++) {
+			uint startj=rd->segs[i].end-rd->juncs[i]->start;
+			uint endj=rd->juncs[i]->end-rd->segs[i+1].start;
+			h=wyhash64(h,((uint64_t)startj<<32)|endj);
+		}
+	}
 	return h;
 }
 
@@ -535,7 +571,15 @@ static inline bool has_lr_witness_two_splices(int la, int ra, int lb, int rb, GP
 // and return true as soon as this holds while scanning from the boundary.
 // - fromRight=false: scan left->right (use when boundary is at 'a')
 // - fromRight=true : scan right->left (use when boundary is at 'b')
-static inline bool poly_window_meets(const char* readseq, int a, int b, char good1, char good2,
+// base i of the read as stored in the alignment record, i.e. character i of
+// GSamRecord::sequence(), without decoding the whole sequence. The polyA/T checks
+// below look at a few bases at the ends of the read and are called several times
+// for every long read.
+static inline char readbase(bam1_t* b, int i) {
+	return seq_nt16_str[bam_seqi(bam_get_seq(b), i)];
+}
+
+static inline bool poly_window_meets(bam1_t* rb, int a, int b, char good1, char good2,
                             int minCount, double minFrac, bool fromRight) {
     int n = b - a;
     if (n <= 0) return false;
@@ -543,7 +587,7 @@ static inline bool poly_window_meets(const char* readseq, int a, int b, char goo
     int checked = 0;
     if (!fromRight) {
         for (int i = a; i < b; ++i) {
-            char x = readseq[i];
+            char x = readbase(rb,i);
             if (x == good1 || x == good2) {
                 matches++;
             }
@@ -558,7 +602,7 @@ static inline bool poly_window_meets(const char* readseq, int a, int b, char goo
         }
     } else {
         for (int i = b - 1; i >= a; --i) {
-            char x = readseq[i];
+            char x = readbase(rb,i);
             if (x == good1 || x == good2) {
                 matches++;
             }
@@ -576,78 +620,69 @@ static inline bool poly_window_meets(const char* readseq, int a, int b, char goo
 }
 // Check for consecutive T's at start of read
 bool check_aligned_polyT_start(GSamRecord& brec) {
-    char *readseq = brec.sequence();
-    if (!readseq) return false;
-    int len = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int len = rb->core.l_qseq;
 
     // Adjust start position for left softclipping
     int start_pos = brec.clipL;
     int a = start_pos;
     int b = a + POLY_TAIL_WIN; if (b > len - brec.clipR) b = len - brec.clipR;
     // boundary-anchored run from clipL forward
-    int runT = 0; for (int i=a;i<b;i++){ char x=readseq[i]; if (x=='T'||x=='t') runT++; else break; }
-    if (runT>=POLY_TAIL_MIN_CONSEC) { GFREE(readseq); return true; }
-    bool ok = poly_window_meets(readseq, a, b, 'T','t', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, false);
-    GFREE(readseq);
+    int runT = 0; for (int i=a;i<b;i++){ char x=readbase(rb,i); if (x=='T'||x=='t') runT++; else break; }
+    if (runT>=POLY_TAIL_MIN_CONSEC) return true;
+    bool ok = poly_window_meets(rb, a, b, 'T','t', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, false);
     return ok;
 }
 
 // Check for consecutive A's at end of read with specified threshold percentage
 bool check_aligned_polyA_end(GSamRecord& brec) {
-    char *readseq = brec.sequence();
-    if (!readseq) return false;
-    int len = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int len = rb->core.l_qseq;
 
     // Adjust end position for right softclipping
     int b = len - brec.clipR; // first unaligned index on right
     int a = b - POLY_TAIL_WIN; if (a < brec.clipL) a = brec.clipL;
     // boundary-anchored run from last aligned base backward
-    int runA = 0; for (int i=b-1;i>=a;--i){ char x=readseq[i]; if (x=='A'||x=='a') runA++; else break; }
-    if (runA>=POLY_TAIL_MIN_CONSEC) { GFREE(readseq); return true; }
-    bool ok = poly_window_meets(readseq, a, b, 'A','a', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, true);
-    GFREE(readseq);
+    int runA = 0; for (int i=b-1;i>=a;--i){ char x=readbase(rb,i); if (x=='A'||x=='a') runA++; else break; }
+    if (runA>=POLY_TAIL_MIN_CONSEC) return true;
+    bool ok = poly_window_meets(rb, a, b, 'A','a', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, true);
     return ok;
 }
 
 
 bool check_unaligned_polyA_end(GSamRecord& brec) {
-    char *readseq = brec.sequence();
-    if (!readseq) return false;
-    int len = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int len = rb->core.l_qseq;
 
     int clip_len = brec.clipR;
-    if (clip_len <= 0) { GFREE(readseq); return false; }
+    if (clip_len <= 0) return false;
 
     int start = len - clip_len; // first unaligned index on right
     // boundary-anchored run from boundary forward into the soft-clip
-    int runAadj=0; for (int i=start;i<len && i<start+POLY_TAIL_WIN;++i){ char x=readseq[i]; if (x=='A'||x=='a') runAadj++; else break; }
-    if (runAadj>=POLY_TAIL_MIN_CONSEC) { GFREE(readseq); return true; }
+    int runAadj=0; for (int i=start;i<len && i<start+POLY_TAIL_WIN;++i){ char x=readbase(rb,i); if (x=='A'||x=='a') runAadj++; else break; }
+    if (runAadj>=POLY_TAIL_MIN_CONSEC) return true;
     int wR = (clip_len < POLY_TAIL_WIN) ? clip_len : POLY_TAIL_WIN;
-    bool ok = poly_window_meets(readseq, start, start + wR, 'A','a', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, false);
-    GFREE(readseq);
+    bool ok = poly_window_meets(rb, start, start + wR, 'A','a', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, false);
     return ok;
 }
 
 bool check_unaligned_polyT_start(GSamRecord& brec) {
-    char *readseq = brec.sequence();
-    if (!readseq) return false;
+    bam1_t* rb = brec.get_b();
 
     int clip_len = brec.clipL;
-    if (clip_len <= 0) { GFREE(readseq); return false; }
+    if (clip_len <= 0) return false;
 
     // boundary-anchored run from boundary backward into the soft-clip
-    int runTadj=0; for (int i=clip_len-1;i>=0 && i>=(clip_len-POLY_TAIL_WIN);--i){ char x=readseq[i]; if (x=='T'||x=='t') runTadj++; else break; }
-    if (runTadj>=POLY_TAIL_MIN_CONSEC) { GFREE(readseq); return true; }
+    int runTadj=0; for (int i=clip_len-1;i>=0 && i>=(clip_len-POLY_TAIL_WIN);--i){ char x=readbase(rb,i); if (x=='T'||x=='t') runTadj++; else break; }
+    if (runTadj>=POLY_TAIL_MIN_CONSEC) return true;
     int wL = (clip_len < POLY_TAIL_WIN) ? clip_len : POLY_TAIL_WIN;
-    bool ok = poly_window_meets(readseq, clip_len - wL, clip_len, 'T','t', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, true);
-    GFREE(readseq);
+    bool ok = poly_window_meets(rb, clip_len - wL, clip_len, 'T','t', POLY_TAIL_MIN_COUNT, POLY_TAIL_MIN_FRAC, true);
     return ok;
 }
 
 float check_last_exon_polyA(GSamRecord& brec) {
-    char* readseq = brec.sequence();
-    if (!readseq) return 0;
-    int seqLen = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int seqLen = rb->core.l_qseq;
 
     // compute read‐relative start/end of the last exon
     int exonLen  = brec.exons.Last().end - brec.exons.Last().start + 1;
@@ -657,17 +692,15 @@ float check_last_exon_polyA(GSamRecord& brec) {
 
     int a_count = 0, pos_count = 0;
     for (int i = startIdx; i <= endIdx; ++i) {
-        if (readseq[i] == 'A') ++a_count;
+        if (readbase(rb,i) == 'A') ++a_count;
         ++pos_count;
     }
-    GFREE(readseq);
     return pos_count ? float(a_count) / pos_count : 0;
 }
 
 float check_first_exon_polyT(GSamRecord& brec) {
-    char* readseq = brec.sequence();
-    if (!readseq) return 0;
-    int seqLen = strlen(readseq);
+    bam1_t* rb = brec.get_b();
+    int seqLen = rb->core.l_qseq;
 
     int exonLen  = brec.exons.First().end - brec.exons.First().start + 1;
     int startIdx = brec.clipL;               // first aligned base in the read
@@ -676,10 +709,9 @@ float check_first_exon_polyT(GSamRecord& brec) {
 
     int t_count = 0, pos_count = 0;
     for (int i = startIdx; i <= endIdx; ++i) {
-        if (readseq[i] == 'T') ++t_count;
+        if (readbase(rb,i) == 'T') ++t_count;
         ++pos_count;
     }
-    GFREE(readseq);
     return pos_count ? float(t_count) / pos_count : 0;
 }
 
@@ -775,25 +807,30 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	}
 
 
-	double nm=(double)brec.tag_int("NM"); // read mismatch
+	double nm=(double)CAlnTags::intval(alndata.tags.nm); // read mismatch (NM)
 	double unitig_cov=0;
-	unitig_cov=brec.tag_float("YK");
+	unitig_cov=CAlnTags::floatval(alndata.tags.yk); // YK
 
 	bool match=false;  // true if current read matches a previous read
 	int n=readlist.Count()-1;
 
-	uint64_t ehash=0; // hash of brec.exons, non-merge mode only
-	int* last_read=NULL; // last_read_with_exons value for ehash, if present; valid until the map is changed
-
 	if(!mergeMode) { // find an identical stored read anywhere in the bundle, newest first (issue #511)
-		ehash=exonhash(brec.exons);
-		last_read=bdata.last_read_with_exons.Find(ehash);
+		int* last_read=bdata.last_read_with_key.Find(alnkey(alndata,strand,longr,unitig_cov));
 		n=last_read ? *last_read : -1;
-		while(n>-1) {
+		while(n>-1) { // more than one step only after a hash collision
 			match=samereadmatch(readlist[n],alndata,strand,longr,unitig_cov);
 			if(match) break; // this way I make sure that I keep the n of the matching readlist
-			n=bdata.prev_read_same_exons[n];
+			n=bdata.prev_read_same_key[n];
 		}
+#ifdef READIDX_CHECK
+		{ // debug: the newest matching read of the bundle, found without the index
+			int n0=readlist.Count()-1;
+			while(n0>-1 && !samereadmatch(readlist[n0],alndata,strand,longr,unitig_cov)) n0--;
+			if((n0>-1)!=match || (match && n0!=n))
+				GError("READIDX_CHECK: search mismatch at %s:%d (scan %d, index %d/%d)\n",
+						bdata.refseq.chars(), brec.start, n0, (int)match, n);
+		}
+#endif
 	}
 	else { //mergeMode: defer rejection so repeated structures can rescue a filtered input
 		bool covfail=(alndata.tinfo->cov>=0 && alndata.tinfo->cov<readthr);
@@ -892,12 +929,6 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 			readaln->segs.Add(brec.exons[i]);
 		}
 		n=readlist.Add(readaln);  // reset n for the case there is no match
-		if(!mergeMode) { // index the new entry; readaln->segs are a copy of brec.exons
-			int prev_read=-1;
-			if(last_read) { prev_read=*last_read; *last_read=n; }
-			else bdata.last_read_with_exons.Add(ehash,n);
-			bdata.prev_read_same_exons.Add(prev_read);
-		}
 
 	}
 	else { //redundant read alignment matching a previous alignment
@@ -942,7 +973,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 	  	bdata.end=currentend;
 	}
 
-	float rdcount=(float)brec.tag_int("YC"); // alignment count
+	float rdcount=(float)CAlnTags::intval(alndata.tags.yc); // alignment count (YC)
 	if(!rdcount) rdcount=1;
 	if(unitig_cov) {
 		rdcount=unitig_cov;
@@ -954,7 +985,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 
 	// store the mismatch count per junction so that I can eliminate it later
 	if(!nm) {
-		nm=(double)brec.tag_int("nM"); // paired mismatch : big problem with STAR alignments
+		nm=(double)CAlnTags::intval(alndata.tags.nM); // paired mismatch (nM) : big problem with STAR alignments
 		if(brec.isPaired()) nm/=2;
 	}
 	if(brec.clipL) nm++;
@@ -1033,6 +1064,14 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 		}
 	} //<-- if mate is mapped on the same chromosome
 
+	if(!mergeMode && !match) { // index the new read, now that its strand and unitig flag are final
+		int prev_read=-1;
+		uint64_t key=readkey(readlist[n]);
+		int* last_read=bdata.last_read_with_key.Find(key);
+		if(last_read) { prev_read=*last_read; *last_read=n; }
+		else bdata.last_read_with_key.Add(key,n);
+		bdata.prev_read_same_key.Add(prev_read);
+	}
 }
 
 int get_min_start(CGroup **currgroup) {
