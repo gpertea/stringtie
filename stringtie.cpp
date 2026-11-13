@@ -837,6 +837,7 @@ if (ballgown)
 	 int pos=0;
 	 const char* refseqName=NULL;
 	 char xstrand=0;
+	 CAlnTags alntags; //tags of the current alignment
 	 int nh=1;
 	 int hi=0;
 	 int gseq_id=lastref_id;  //current chr id
@@ -856,7 +857,8 @@ if (ballgown)
 		 dbg_waln(brec);
 #endif
 		 refseqName=brec->refName();
-		 xstrand=brec->spliceStrand(); // tagged strand gets priority
+		 alntags.get(brec->get_b()); //XS, ts, NH, HI, NM, YK, YC, nM in one pass
+		 xstrand=alntags.spliceStrand((brec->flags() & BAM_FREVERSE)!=0); // tagged strand gets priority
 		 if(xstrand=='.' && (fr_strand || rf_strand)) { // set strand if stranded library
 			 if(brec->isPaired()) { // read is paired
 				 if(brec->pairOrder()==1) { // first read in pair
@@ -912,9 +914,9 @@ if (ballgown)
 			 continue;
 		 }
 		 alncounts[gseq_id]++;
-		 nh=brec->tag_int("NH");
+		 nh=(int)CAlnTags::intval(alntags.nh);
 		 if (nh==0) nh=1;
-		 hi=brec->tag_int("HI");
+		 hi=(int)CAlnTags::intval(alntags.hi);
 			 if (mergeMode) {
 			    //tinfo=new TAlnInfo(brec->name(), brec->tag_int("ZF"));
 				 tinfo=new TAlnInfo(brec->name(), brec->uval);
@@ -1150,6 +1152,7 @@ if (ballgown)
 	 if (guides && genNascent && bundle_last_kept_guide>=0)
 	     bundle->generateAllNascents(bundle_last_kept_guide, ref_rc);
 	 GReadAlnData alndata(brec, 0, nh, hi, tinfo);
+	 alndata.tags=alntags;
      bool ovlpguide=bundle->evalReadAln(alndata, xstrand);
 
      if(!eonly || ovlpguide) { // in eonly case consider read only if it overlaps guide

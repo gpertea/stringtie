@@ -79,8 +79,8 @@ public:
 		new_nb = khint_t(1) << new_bits;
 		if (count > (new_nb>>1) + (new_nb>>2)) return 0; // requested size is too small
 		new_used = (uint32_t*)std::malloc(__kh_fsize(new_nb) * sizeof(uint32_t));
-		memset(new_used, 0, __kh_fsize(new_nb) * sizeof(uint32_t));
 		if (!new_used) return -1; /* not enough memory */
+		memset(new_used, 0, __kh_fsize(new_nb) * sizeof(uint32_t));
 		nb = n_buckets();
 		if (nb < new_nb) { /* expand */
 			T *new_keys = (T*)std::realloc(keys, new_nb * sizeof(T));

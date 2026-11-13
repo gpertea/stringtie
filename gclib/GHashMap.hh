@@ -68,6 +68,40 @@ template <> struct GHashKey_Eq<const char*> {
     }
 };
 
+// A table larger than GHASH_SHRINK_MIN buckets is freed by Clear() when, since the
+// previous Clear(), it never held more than 1 item per 2^GHASH_SHRINK_SPARSE
+// buckets. A table that was very large once does not stay that large (Clear() and
+// iteration visit all of it), while one that keeps being filled is kept.
+#ifndef GHASH_SHRINK_MIN
+#define GHASH_SHRINK_MIN (1<<16)
+#endif
+#ifndef GHASH_SHRINK_SPARSE
+#define GHASH_SHRINK_SPARSE 4
+#endif
+
+// position of the lowest bit set in a non-zero 32 bit word
+static inline int gh_ctz32(uint32_t w) {
+#if defined(__GNUC__) || defined(__clang__)
+	return __builtin_ctz(w);
+#else
+	int n=0;
+	while (!(w & 1U)) { w>>=1; ++n; }
+	return n;
+#endif
+}
+
+// first used bucket at or after bucket i, or nb if there is none; one word of
+// the used flags covers 32 buckets, so empty stretches are skipped a word at a time
+template <typename khInt_t> static inline
+  khInt_t gh_next_used(const uint32_t* used, khInt_t i, khInt_t nb) {
+	while (i<nb) {
+		uint32_t w=used[i>>5] >> (i & 0x1fU);
+		if (w) return i+gh_ctz32(w);
+		i=(i | (khInt_t)0x1fU)+1;
+	}
+	return nb;
+}
+
 // GHashSet<KType> never makes a deep copy of a char* key, it only stores the pointer
 //  - for pointer keys like char*, key allocation must be managed separately (and should always survive the GHashSet)
 template <typename K=const char*, class Hash=GHashKey_wyHash<K>, class Eq=GHashKey_Eq<K>, typename khInt_t=uint64_t >
@@ -76,12 +110,15 @@ template <typename K=const char*, class Hash=GHashKey_wyHash<K>, class Eq=GHashK
 	klib::KHashSet< K, Hash,  Eq, khInt_t > >::type  {
 protected:
 	khInt_t i_iter=0;
+	khInt_t peak=0; //largest number of items since the last Clear()
 public:
 	inline khInt_t Add(const K ky) { // return -1 if the key already exists
 		int absent=-1;
 		khInt_t i=this->put(ky, &absent);
-		if (absent==1) //key was actually added
+		if (absent==1) { //key was actually added
+		   if (this->count>peak) peak=this->count;
 		   return i;
+		}
 		return -1;
 	}
 
@@ -94,14 +131,26 @@ public:
 		  return -1;
 	}
 
+	// empties the table (the items must have been released already); nothing to
+	// do for a table without items, and a large table that was not needed is freed
+	inline void clearTable() {
+		khInt_t nb=this->n_buckets();
+		if (peak<this->count) peak=this->count; //items can also be added with put()
+		if (nb>(khInt_t)GHASH_SHRINK_MIN && peak<(nb>>GHASH_SHRINK_SPARSE)) {
+			GFREE(this->used); GFREE(this->keys);
+			this->bits=0; this->count=0;
+		}
+		else if (this->count) this->clear();
+		peak=0;
+	}
+
 	inline void Clear() {
-		this->clear(); //does not shrink
+		clearTable();
 	}
 
 	inline void Reset() {
-		this->clear();
 		GFREE(this->used); GFREE(this->keys);
-		this->bits=0; this->count=0;
+		this->bits=0; this->count=0; peak=0;
 	}
 
     ~GHashSet() {
@@ -130,10 +179,10 @@ public:
 	K* Next() {
 		//returns a pointer to next valid key in the table (NULL if no more)
 		if (this->count==0) return NULL;
-		uint32_t nb=this->n_buckets();
-		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
-		if (i_iter==nb) return NULL;
-		K* k=&(this->key(i_iter-1));
+		khInt_t nb=this->n_buckets();
+		i_iter=gh_next_used(this->used, i_iter, nb);
+		if (i_iter>=nb) return NULL;
+		K* k=&(this->key(i_iter)); //was key(i_iter-1), the bucket before the one found
 		++i_iter;
 		return k;
 	}
@@ -156,6 +205,7 @@ template <class Hash=GHashKey_wyHash<const char*>, class Eq=GHashKey_Eq<const ch
 		   const char* s=Gstrdup(ky);
 		   this->key(i)=s; //store a copy of the key string
 		   lastKey=s;
+		   if (this->count>this->peak) this->peak=this->count;
 		   return i;
 		}
 		//key was already there
@@ -178,13 +228,15 @@ template <class Hash=GHashKey_wyHash<const char*>, class Eq=GHashKey_Eq<const ch
 
 	inline void Clear() {
 		khInt_t nb=this->n_buckets();
-		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->_used(i)) continue;
+		khInt_t i=0;
+		for (khInt_t left=this->count; left; --left, ++i) { //stops after the last used bucket
+			i=gh_next_used(this->used, i, nb);
+			if (i>=nb) break;
 			//deallocate string copy
 			GFREE(this->key(i));
 		}
 		lastKey=NULL;
-		this->clear(); //does not shrink !
+		this->clearTable();
 	}
 
 	inline void Reset() {
@@ -211,6 +263,7 @@ template <class K, class V, class Hash=GHashKey_wyHash<K>, class Eq=GHashKey_Eq<
     klib::KHashMap< K, V, Hash,  Eq, khInt_t> >::type  {
 protected:
 	khInt_t i_iter=0;
+	khInt_t peak=0; //largest number of items since the last Clear()
 	bool freeItems=false;
 public:
 	//---- these should be reimplemented for GHash
@@ -220,6 +273,7 @@ public:
 		khInt_t i=this->put(ky, &absent);
 		if (absent==1) { //key was actually added
 			this->value(i)=val; //value is always copied
+			if (this->count>peak) peak=this->count;
 			return i;
 		}
 		return -1;
@@ -250,21 +304,34 @@ public:
 	template <typename T=V> inline
 		typename std::enable_if< std::is_pointer<T>::value, void>::type
 		Clear() {
-		if (!freeItems) {
-			this->clear(); //does not shrink !
-			return;
+		if (freeItems) {
+			khInt_t nb=this->n_buckets();
+			khInt_t i=0;
+			for (khInt_t left=this->count; left; --left, ++i) { //stops after the last used bucket
+				i=gh_next_used(this->used, i, nb);
+				if (i>=nb) break;
+				delete this->value(i);
+			}
 		}
-		khInt_t nb=this->n_buckets();
-		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->_used(i)) continue;
-			if (freeItems) delete this->value(i);
-		}
-		this->clear();
+		this->clearTable();
 	}
 
 	template <typename T=V> inline
 		typename std::enable_if< !std::is_pointer<T>::value, void>::type
-		Clear() { this->clear(); }
+		Clear() { this->clearTable(); }
+
+	// empties the table (the items must have been released already); nothing to
+	// do for a table without items, and a large table that was not needed is freed
+	inline void clearTable() {
+		khInt_t nb=this->n_buckets();
+		if (peak<this->count) peak=this->count; //items can also be added with put()
+		if (nb>(khInt_t)GHASH_SHRINK_MIN && peak<(nb>>GHASH_SHRINK_SPARSE)) {
+			GFREE(this->used); GFREE(this->keys);
+			this->bits=0; this->count=0;
+		}
+		else if (this->count) this->clear();
+		peak=0;
+	}
 
 	inline void Reset() {
 		this->Clear();
@@ -331,8 +398,8 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
-		if (i_iter==nb) return NULL;
+		i_iter=gh_next_used(this->used, i_iter, nb);
+		if (i_iter>=nb) return NULL;
 		val=this->value(i_iter);
 		K* k=&(this->key(i_iter));
 		++i_iter;
@@ -345,8 +412,8 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
-		if (i_iter==nb) return NULL;
+		i_iter=gh_next_used(this->used, i_iter, nb);
+		if (i_iter>=nb) return NULL;
 		val=this->value(i_iter);
 		K k = this->key(i_iter);
 		++i_iter;
@@ -359,8 +426,8 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
-		if (i_iter==nb) return NULL;
+		i_iter=gh_next_used(this->used, i_iter, nb);
+		if (i_iter>=nb) return NULL;
 		T* val=&(this->value(i_iter));
 		++i_iter;
 		return val;
@@ -372,8 +439,8 @@ public:
 		//returns a pointer to next key entry in the table (NULL if no more)
 		if (this->count==0) return NULL;
 		khInt_t nb=this->n_buckets();
-		while (i_iter<nb && !this->_used(i_iter)) i_iter++;
-		if (i_iter==nb) return NULL;
+		i_iter=gh_next_used(this->used, i_iter, nb);
+		if (i_iter>=nb) return NULL;
 		T val=this->value(i_iter);
 		++i_iter;
 		return val;
@@ -404,6 +471,7 @@ public:
 			this->key(i)=s; //store a copy of the key string
 			lastKey=s;
 			this->value(i)=val; //value is always copied
+			if (this->count>this->peak) this->peak=this->count;
 			return i;
 		}
 		return -1;
@@ -444,25 +512,29 @@ public:
 		typename std::enable_if< std::is_pointer<T>::value, void>::type
 		Clear() {
 		khInt_t nb=this->n_buckets();
-		for (khInt_t i = 0; i != nb; ++i) {
-			if (!this->_used(i)) continue;
+		khInt_t i=0;
+		for (khInt_t left=this->count; left; --left, ++i) { //stops after the last used bucket
+			i=gh_next_used(this->used, i, nb);
+			if (i>=nb) break;
 			if (this->freeItems) delete this->value(i);
 			GFREE(this->key(i));
 		}
 		lastKey=NULL;
-		this->clear();
+		this->clearTable();
 	}
 
 	template <typename T=V> inline
 		typename std::enable_if< !std::is_pointer<T>::value, void>::type
 		Clear() {
 		khInt_t nb=this->n_buckets();
-		for (khInt_t i = 0; i != nb; ++i) {
-			if (! this->_used(i) ) continue;
+		khInt_t i=0;
+		for (khInt_t left=this->count; left; --left, ++i) { //stops after the last used bucket
+			i=gh_next_used(this->used, i, nb);
+			if (i>=nb) break;
 			GFREE(this->key(i));
 		}
 		lastKey=NULL;
-		this->clear();
+		this->clearTable();
 	}
 
 	inline void Reset() {
