@@ -864,7 +864,7 @@ void processRead(int currentstart, int currentend, BundleData& bdata,
 					CJunction *nullj=new CJunction(0, 0, 0);
 					junction.Add(nullj);
 				}
-				int jstrand=strand;
+				int jstrand=readaln->strand; // may come from the polyA/T tail, see above
 				uint jstart=brec.exons[i-1].end;
 				uint jend=brec.exons[i].start;
 
