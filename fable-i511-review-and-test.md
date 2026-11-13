@@ -12,7 +12,7 @@ survey of the source and of local long-read data) and
 
 ## 1. Summary
 
-- Ida's diagnosis of issue #511 is right: the duplicate search in `processRead()`
+- The diagnosis given on issue #511 is right: the duplicate search in `processRead()`
   (`rlink.cpp:761`) is quadratic in the number of distinct alignments sharing one
   start. On a synthetic locus it takes 85-97% of the run time.
 - "Replace it with a hash lookup" is not a drop-in change. Which reads get
@@ -36,9 +36,9 @@ survey of the source and of local long-read data) and
   is confirmed by the original comparison.
 - A separate producer cost turned up while timing (section 9): the mate hash is
   cleared at every bundle and `GHash::Clear()` scans the whole table at its
-  largest size. After one 14.6M-read bundle every later bundle costs 4 ms; on a
-  chr21 short-read sample that is 14 of 24 s. Branch `ghash-clear` (one commit,
-  `6e8ff08`, local) fixes `Clear()` and iteration in `gclib/GHashMap.hh`: 24.5 s
+  largest size. After one 14.6M-read bundle every later bundle costs 3.7 ms; on a
+  chr21 short-read sample that is 11 of 24.5 s. Branch `ghash-clear` (one commit,
+  `9753ae8`, local) fixes `Clear()` and iteration in `gclib/GHashMap.hh`: 24.5 s
   to 13.6 s, identical output.
 
 ## 2. Context
@@ -52,13 +52,13 @@ distinct, 12,859 junctions) "begins processing"; the bundle itself then takes 1-
 A similar gap precedes a chr22 bundle. The reporter suspected the same-start search
 in `processRead()` and asked for a fix that keeps the assembly rules.
 
-Ida confirmed the hypothesis (IGK/IGL loci: very many reads sharing a start, most of
-them distinct structures) and said she is replacing the linear search with a hash
-lookup. The reporter then reported a local "same-start candidate index retaining the
+The first project reply confirmed the hypothesis (IGK/IGL loci: very many reads
+sharing a start, most of them distinct structures) and announced a fix replacing the
+linear search with a hash lookup. The reporter then reported a local "same-start candidate index retaining the
 original matching checks": chr2 459.7 s to 42.2 s, chr22 95.5 s to 33.9 s, output
 equivalence not yet checked.
 
-The question for this session was whether the fix is as simple as that.
+The question for this session was what such a fix has to preserve.
 
 ### The code
 
@@ -340,11 +340,10 @@ is hardly used there (152,017 lookups, 2 index builds), so I traced it:
   file in both binaries.
 - `main()` sits 112 bytes later in the branch binary than in master. Relinking the unchanged branch objects with padding in `.text.startup` before
   `stringtie.o` gives 29.2 s (no padding), 27.9 s (16 bytes), 25.2 s (32) and
-  24.8 s (48). Master relinked with 8 bytes of padding in `.text` runs in 28.0 s
-  instead of 24-25 s. So the speed of that one loop depends on where it lands,
-  for master as well.
+  24.8 s (48). So the speed of that one loop depends on where it lands. (These are
+  single runs; see the follow-up below for repeated measurements.)
 
-Two earlier explanations of mine were wrong and are recorded as such: a changed
+Two earlier explanations were wrong and are recorded as such: a changed
 inlining budget in `processRead()` (marking the index functions `noinline` changed
 nothing), and the linker picking a different template instance of `Clear()` (it is
 inlined; there is no such symbol).
@@ -375,6 +374,34 @@ paired short-read data purely through layout. It should be timed together with
   `RUNIDX_CHECK` build, or by comparing GTFs at `-p 1`.
 - `-U` (unitig) input: no local data; the flag is in the key and the predicate.
 - Thread safety beyond the existing single-producer assumption.
+
+### Follow-up: can the layout be controlled (2026-11-12, later)
+
+Corrections first. Some numbers above are single runs, and any binary on this
+machine shows occasional slow runs (28-37 s instead of 24-26 s) that I cannot
+attribute; they occur with address randomization on or off. Two claims do not
+survive that: "master relinked with 8 bytes of padding runs in 28.0 s" was one
+run and is not evidence, and the stack position is not a factor (one binary,
+environment padded by 0 to 128 bytes, randomization off: 24.6-26.1 s throughout).
+
+What holds, from repeated runs (`issue_511/run-index/layout_alignment_followup.tsv`):
+
+- The run-index build with the default flags is slow every time, with address
+  randomization on or off (30.8-31.0 s; master 24.9 s).
+- The loop in question is `Clear()` inlined in `main()`: 7 instructions per empty
+  bucket, two of them taken branches, everything in registers. Its speed is set by
+  branch prediction for those two branches, hence by their addresses.
+- Built with `-falign-functions=64`, master (25.6-25.9 s) and the run-index build
+  (25.5-26.1 s, two layouts) run alike. The flag pins `main()` to a 64-byte
+  boundary, so code added elsewhere no longer moves the loop. It controls the
+  effect; it does not optimize it: the pinned position is about 3% slower than
+  master's default layout happens to be.
+- The optimization is to remove the loop (`ghash-clear`). With the default flags
+  that build still shows up to 8% between the fastest and slowest of 11 layouts
+  (13.05 s vs 14.07 s, five runs each). With `-falign-functions=64` five layouts
+  give means of 13.4-13.9 s, which I cannot separate from run-to-run noise.
+
+Not tested: `-falign-loops`, profile-guided optimization, a non-PIE link.
 
 ## 7. Hash functions
 
@@ -508,8 +535,8 @@ RefSeq and the reads are NA12878 direct RNA aligned with minimap2 2.17, where 24
 of spliced alignments have such a deletion; on the `issue_465` long-read BAM it is
 0.6%.
 
-Whether the rescue is meant to work as I describe it is a question for Mihaela;
-the issue draft asks it.
+Whether the rescue is meant to work as described here is a question for the authors
+of that code; the issue draft asks it.
 
 ### Interaction with the run index
 
@@ -530,7 +557,9 @@ the largest bundle seen.
 strings, and the table never shrinks ("does not shrink!" in the source). Once a
 very deep paired-read bundle has grown it, every later bundle pays for a scan of
 the table at that size. On `mix/chr21_short.bam` one bundle has 14.6M of the 17.4M
-reads; the roughly 3,000 bundles after it take 14 s, 4 to 5 ms each. A
+reads; each of the roughly 3,000 bundles after it then pays 3.7 ms for the clear
+(the microbenchmark figure below), 11 s in all, which is also the difference
+between the runs with and without the fix. A
 whole-genome sample with a deep locus early on (rRNA, mitochondrial) would pay the
 same on every later bundle. Paired short reads only: long reads do not use this
 table.
@@ -543,9 +572,10 @@ included):
 - The scan reads the used flags a 32-bucket word at a time and stops after the
   last item. The same helper (`gh_next_used()`) replaces the bucket-by-bucket
   loops in `Next()`/`NextData()`.
-- A table above 65,536 buckets with fewer than 1/16 of them in use is freed by
-  `Clear()`; the next insertion starts a small table. A table that is refilled to
-  a similar size each time is kept.
+- `Clear()` frees a table above 65,536 buckets that, since the previous `Clear()`,
+  never held more than 1 item per 16 buckets; the next insertion starts a small
+  table. The containers track the peak item count for this (one comparison per
+  `Add`). A table that keeps being filled to a similar size is kept.
 - Bug fix: `GHashSet::Next()` returned `key(i_iter-1)`, the bucket before the one
   found. Nothing in stringtie calls it.
 
@@ -554,14 +584,26 @@ Measured with `issue_511/ghash/ghash_test bench` (old header, new header):
 ```text
 Operation                                              Old          New
 -----------------------------------------------------  -----------  ----------
-Clear(), 8.4M buckets, 100 keys left (first time)        3,709 us    13,226 us
-then 200 Add, 190 Remove, Clear, per cycle               3,701 us         7 us
+Clear(), 8.4M buckets, 100 keys left (first time)        3,709 us       228 us
+then 200 Add, 190 Remove, Clear, per cycle               3,701 us      14.5 us
 Clear() of the emptied table                             3,667 us     0.001 us
-iteration, 1,000 items in 4.2M buckets                   2,017 us        79 us
-GIntHash: 1M Add then Clear, per cycle (Add / Clear)   12.9 / 0.002 ms   12.7 / 0.002 ms
+iteration, 1,000 items in 4.2M buckets                   2,017 us        80 us
+GIntHash: 1M Add then Clear, per cycle (Add / Clear)   12.9 / 0.002 ms   12.6 / 0.002 ms
 ```
 
-The first `Clear()` is slower once because it returns about 200 MB to the system.
+The per-cycle figure includes, once, the 13 ms it takes to return about 200 MB to
+the system at the first `Clear()` after a small cycle.
+
+Consecutive deep bundles (`cycle_bench`: fill to the peak, remove all but 16 keys,
+`Clear()`, 20 cycles), per cycle:
+
+```text
+Peak items   Old: total / Clear     New: total / Clear
+----------   --------------------   --------------------
+   400,000   44.26 ms / 0.653 ms    44.28 ms / 0.021 ms
+   100,000    5.74 ms / 0.171 ms     5.57 ms / 0.005 ms
+    20,000    1.21 ms / 0.022 ms     1.19 ms / 0.001 ms
+```
 
 StringTie with the new header, default threads:
 
@@ -579,8 +621,35 @@ Checks: `ghash_test` runs random Add/Remove/Find/Clear/iteration sequences on
 `GHashMap<int,Obj*>`, `GStrSet` and `GHashSet<int>` against `std::map`/`std::set`,
 through phases that grow, empty and regrow the tables. Old and new headers give
 the same checksums and pass every check, except that the old `GHashSet::Next()`
-returns 85,435 wrong keys. Under valgrind the new build has 0 errors and no
-leaks. `make test`: 12 OK.
+returns about 86,000 wrong keys (and reads before the key array, which ASan
+reports). The new build is clean under valgrind and under ASan+UBSan.
+`make test`: 12 OK.
+
+### Review of the Codex document
+
+`worklogs/astra-GHash-Clear-optimizations.md` examines the same function
+independently. Its two proposals (return when `count==0`; walk the used-flag
+words) are the first two items above, for the non-pointer `GHash::Clear()` only.
+It adds no further algorithm, but three things from it were worth using:
+
+- Its collision test (a hash function returning 0 for every key, 0 to 129 keys,
+  alternate keys removed) covers clusters and word boundaries that random keys
+  rarely hit. Run against this branch under ASan+UBSan: passes
+  (`issue_511/ghash/astra_check.cpp`).
+- It warns that a shrink policy penalizes consecutive large bundles. Measured, and
+  true of the first version (commit `6e8ff08`), which freed a table that was sparse
+  at the moment of `Clear()`: the mate hash usually is, so back-to-back deep
+  bundles regrew it each time (14-17 ms per cycle against 5.8 ms at a 100,000-item
+  peak). The peak-based rule above replaces it; the table for that case is the
+  `cycle_bench` one.
+- It notes that stack samples do not give a runtime share. The first write-up said
+  "14 of 24 s", taken from the elapsed time of that phase; the supported number is
+  11 s, the measured difference.
+
+Its bitmap loop (`live &= live-1`) and mine (`gh_next_used()`) do the same work;
+mine also stops after the last item and serves the iterators. Its timings for its
+own variants (0.68 ms to 0.015 ms at 16 live keys in 1M buckets) agree with mine
+for the old header (0.68 ms).
 
 One behavior to be aware of: the order in which `Next()` returns items depends on
 the table size, so after a `Clear()` that freed a large table, items inserted
@@ -595,7 +664,7 @@ code alone. `khashl.hh` `resize()` calls `memset` on a new array before checking
 that the allocation succeeded; noted, not changed. `gclib/GHashMap.hh` here is
 identical to the copy in `~/src/gclib`, so the change applies there as is.
 
-An earlier version of this branch (commit `1e59117`, now replaced) worked around
+The first version of this branch (commit `1e59117`, now replaced) worked around
 the problem in `stringtie.cpp` by freeing `hashread` when it was large; it gave
 the same times. The fix in `Clear()` makes that unnecessary.
 
@@ -607,21 +676,20 @@ Decisions from the maintainer (2026-11-12):
    short and mixed data, the per-read check, and no measurable slowdown on normal
    data. A small numeric drift would also be acceptable if accuracy is unaffected
    and the gain is large.
-2. The fix goes to a separate branch for discussion with Ida, not a PR.
+2. The fix goes to a separate branch for discussion and review, not a PR.
 3. The collapse defects get their own issue and branch, with reproducers that can
    become regression tests.
 4. Reporter data: can be requested; local data first.
 
 Open:
 
-- None of the three branches (`i511-long-reads`, `lr-junction-deletions`,
-  `ghash-clear`) is pushed; `git push -u origin <branch>` when wanted. Each is
-  based on master and independent of the others.
+- The three branches (`i511-long-reads`, `lr-junction-deletions`, `ghash-clear`)
+  were pushed to origin on 2026-11-12. Each is based on master and independent of
+  the others.
 - `i511-long-reads` should be timed together with `ghash-clear` (section 6).
-- The junction-deletion issue is drafted, not filed. I held it because the scope
-  grew from the two collapse cases that were approved to four defects, two of which
-  change assembly results, and filing notifies the repository watchers.
-- Ida's patch has not been seen. The same battery and a `RUNIDX_CHECK`-style check
+- The junction-deletion issue is drafted; the maintainer will read and file it.
+- The project's own patch for #511 (later PR #513) was not available when this was
+  written. The same battery and a `RUNIDX_CHECK`-style check
   apply to it; section 4 lists what to look for.
 - A bundle-wide hash (drift accepted) would be simpler than the run index, but it
   only differs on the few reads of section 4.2 and saves no time over it, so there
@@ -649,6 +717,9 @@ issue_511/work/i511/src/                     export of master used for instrumen
 issue_511/work/i511/pmp.sh                   stack sampler (gdb as parent; perf and attach are blocked)
 issue_511/work/i511/st_gh                    release binary of branch ghash-clear
 issue_511/ghash/ghash_test.cpp               GHash test and benchmark (section 9)
+issue_511/ghash/cycle_bench.cpp              consecutive deep-bundle pattern
+issue_511/ghash/astra_check.cpp, astra_bench.cpp  programs from the Codex document
+issue_511/ghash/old, new                     GHashMap.hh of master and of ghash-clear
 issue_511/work/collapse/st_d0 .. st_d4       master and cumulative fix builds
 issue_511/work/stringtie_i511, _lrdel        release binaries of the two branch tips
 ```
@@ -664,30 +735,154 @@ git checkout i511-long-reads
 make clean && CXXFLAGS="-g -O3 -DRUNIDX_CHECK" make -j8 release
 ```
 
-## 12. Problems during this work
+## 12. Things that went wrong during this work
 
-- I deleted the baseline binary copy with `rm ../st_h*` while cleaning hash
-  variants. The dataset battery was running; its rows from `c21_S` on were invalid.
-  I restored the binary from the unchanged object files, verified that it
-  reproduces two earlier baseline GTFs, and reran those datasets.
+Recorded because each one affected a number or a conclusion at some point.
+
+- The baseline binary copy was deleted by a too-broad `rm ../st_h*` while the
+  dataset battery was running; its rows from `c21_S` on were invalid. The binary
+  was restored from the unchanged object files, checked against two earlier
+  baseline GTFs, and those datasets were rerun.
 - The first battery did not record run times (`/usr/bin/time` output redirected to
   `/dev/null`); timing was redone separately (section 6).
 - The hash comparison began with master on the 640k synthetic file (the quadratic
-  case, 29 minutes) without my having said so. I then stopped that run after 4.6
-  minutes when asked about the delay. Stopping it was the mistake: the result was
-  needed, and I had to run it again from the start.
-- Twice I killed my own shell with `pkill -f PATTERN` because the pattern also
-  matched the command line that contained it.
-- The short-read slowdown (section 6) took two wrong explanations before stack
-  samples and relinking with padding settled it.
-- A binary that calls `GError()` from the producer thread (my negative control) did
-  not exit: it stayed asleep after printing the message. I did not investigate; it
-  may affect real error exits in threaded runs.
+  case, 29 minutes), and that run was stopped after 4.6 minutes. The result was
+  needed, so it had to be run again from the start.
+- `pkill -f PATTERN` twice killed the shell that issued it, because the pattern
+  also matched its own command line.
+- The short-read slowdown (section 6) went through two wrong explanations before
+  stack samples and relinking with padding settled it.
+- A binary that calls `GError()` from the producer thread (the negative control)
+  did not exit. This turned out to be a real defect; see section 13.
 - An early table of the reproducers reported `longcov` as `cov`. The regression
   script exposed it; the numbers in section 8 and in the issue draft are from the
   corrected parsing.
 - The session scratch directory was retired midway. Experiment files were moved to
-  `issue_511/work/` and the temporary worktrees removed; both branches are intact.
-- `.gitignore` and `AGENTS.md` in the working tree were modified at 10:01 by another
-  agent (codebase-memory-mcp setup text). I did not touch them, and committed in
-  separate worktrees so they are not part of either branch.
+  `issue_511/work/` and the temporary worktrees removed; the branches are intact.
+- `.gitignore` and `AGENTS.md` in the working tree were modified during the session
+  by another tool (code graph setup text). They were left alone, and commits were
+  made in separate worktrees so they are not part of any branch.
+
+## 13. Follow-up work (same day)
+
+### Error exit with worker threads (branch `error-exit-hang`, local)
+
+The hang noted in section 12 is real and affects ordinary use. An unsorted input
+(`issue_511/error-exit/unsorted.sam`) prints "the input alignment file is not
+sorted" and then never ends: 9 of 9 runs on master at `-p 1`, `-p 4` and `-p 8`
+(at `-p 2` it happened to exit).
+
+Cause, from the stacks of the hung process (`master_hang_stacks.txt`): `GError()`
+calls `exit()`, which runs the static destructors. The destructor of the global
+condition variable `haveBundles` calls `pthread_cond_destroy()`, and glibc waits
+there for the worker threads still blocked on it.
+
+A fatal error raised inside a worker thread (tested with an injected `GError()` in
+`processBundle()`) is worse: the other threads keep using objects that `exit()` is
+destroying. Master hangs in some runs and ends with a segmentation fault or abort
+in most of the others, instead of exit status 1.
+
+Fix, commit `21369e7`: an `atexit()` function that, while the workers are running,
+flushes the output and calls `_exit(1)`; the flag is cleared after the threads are
+joined, so a normal run ends as before. 40 of 40 runs with the unsorted input and
+40 of 40 with the injected worker error exit with status 1 and the message printed
+(`-p 1, 2, 4, 8`, ten each). `make test`: 12 OK; a normal run gives identical
+output. A first attempt (never destroying the condition variables) fixed only the
+main-thread case and is not in the branch.
+
+Not changed: `GError()` itself. Any gclib program that calls it while other threads
+are running has the same exposure; a hook in gclib would be the general fix.
+
+### khashl and the ports to the other repositories
+
+- `khashl.hh` `resize()`: the allocation is now checked before `memset()`; second
+  commit on `ghash-clear` (`66e7b4e`, pushed). Related and not changed: when
+  `resize()` fails, `put()` reports -1 through `absent`, and the `Add()` wrappers
+  treat that like "key exists".
+- An Opus agent ported both commits. Its report, with the commit hashes checked
+  here against the remotes:
+
+```text
+Repository         Branch   Commits            How                      Tests run
+-----------------  -------  -----------------  -----------------------  ---------------------------
+gclib              master   24f39ab, f4bb73f   clean apply              header tests; htest -Q
+gclib-core         master   b826c1a, 4460641   one hunk ported by hand  header tests; make test (13 OK)
+gffcompare         master   e3611ae, 6883f5d   clean apply (vendored)   run_tests.sh (2 OK)
+gffread            master   none               gclib is not tracked     run_tests.sh (7 OK) with new gclib
+```
+
+  All pushed. In gclib-core the `int64_t` return types and the 64-bit `GIntHash`
+  were kept. The header tests (`ghash_test`, the collision check, ASan/UBSan) pass
+  on the patched gclib and gclib-core headers with the same checksums as before;
+  work files are in `issue_511/ghash/port-work/`.
+- gffcompare and gffread were on a feature branch, `gclib-core-submodule`, where
+  gclib is a submodule of gclib-core at `fa030f8`. Nothing was committed there.
+  With the submodule temporarily at `4460641` both build and pass their tests; the
+  submodule was put back. Bumping it is left to the maintainer.
+- gffcompare's master is checked out in a second worktree (`~/src/gffcompare-master`);
+  the work for master was done there. gffread's master was fast-forwarded to
+  `05462cd` by the pull. gffread's `make clean` also removed the object files in
+  `~/src/gclib`.
+
+### The cases left unconfirmed in the first pass
+
+Tested on master; reproducers and the generator are in `issue_511/strand-cases/`,
+and the write-up for discussion is `.drafts/long-read-strand-and-count-questions.md`.
+
+- Confirmed: an unstranded long read whose strand is set from a polyA tail when it
+  is stored is never collapsed with identical alignments (3 of 3 and 20 of 20
+  stored separately).
+- New: those reads have a strand but unstranded junctions. Twenty of them alone
+  give no transcript; mixed with ten stranded copies the transcript has `longcov`
+  10 and exon coverages 20, 30, 30. Cause not traced.
+- Confirmed: `rlink.cpp:17788` adds the whole count of a shared unstranded
+  junction once per read (10 reads, count 22), and this can select the wrong
+  splice site (`u_alt.sam`). The per-read transfer of section 8, defect 4, fixes
+  that example in a test build; it is not on a branch.
+- Not a problem: the out-of-order stored reads of section 4.2. The worker sorts
+  `readlist` before assembly (`rlink.cpp:17877`).
+
+### Drafts
+
+`.drafts/` (ignored by git, as are `worklog*` and `devlog*`; the `.gitignore` edit
+is not committed):
+
+```text
+File                                         For
+-------------------------------------------  ------------------------------------------
+i511-comment.md                              comment on #511: findings, branch, how to test
+junction-deletions-issue.md                  the four deletion defects (copy of the worklog draft)
+long-read-strand-and-count-questions.md      the three strand/count cases above
+```
+
+### Later the same day
+
+- `error-exit-hang` pushed.
+- gffcompare and gffread, branch `gclib-core-submodule`: the gclib submodule now
+  points at gclib-core `4460641` (commits `456c78c` and `e5871b7`, pushed). That
+  also brings in gclib-core `8a1132f` (GList noexcept), the one commit between the
+  old pin and the patches. Clean builds; gffcompare 2 tests OK, gffread 9 OK.
+- Master of both retested here with the patched gclib: gffcompare (worktree
+  `~/src/gffcompare-master`, vendored gclib) 2 tests OK; gffread (built against
+  `~/src/gclib` at `f4bb73f`) all tests passed. gffread was switched to master for
+  this and back to `gclib-core-submodule` afterwards.
+- `ghash-clear` merged into `i511-long-reads` (merge commit `fec648b`, pushed), as
+  section 6 recommends timing them together. On the merged build: `make test` 12
+  OK; the `RUNIDX_CHECK` build reports no mismatch on i476_L, c21_LG, mixbug_mixG
+  and c1_L; output identical to master on six runs, with these times (default
+  threads, one run each):
+
+```text
+Run        Master    Merged
+---------  --------  --------
+i476_L      5.04 s    3.33 s
+c21_LG      2.43 s    2.43 s
+c1_L       16.28 s   16.12 s
+c21_S      25.26 s   13.88 s
+c21_mixG   21.34 s   15.45 s
+syn100k    11.02 s    0.86 s
+```
+
+  `ghash-clear` was then deleted, locally and on origin: its two commits (`9753ae8`,
+  `66e7b4e`) are in `i511-long-reads`, and the same change is in gclib (`24f39ab`,
+  `f4bb73f`) and gclib-core (`b826c1a`, `4460641`).

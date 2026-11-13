@@ -15,7 +15,7 @@ plan.
 
 ## Main findings
 
-Ida's proposed hash-based acceleration addresses a real quadratic search in
+The hash-based acceleration proposed on the issue addresses a real quadratic search in
 `processRead()`. The reporter's experimental candidate index provides additional
 evidence that this search is important on their data. A behavior-preserving fix is
 nevertheless more subtle than hashing identical raw alignments: guide-aware junction
@@ -129,9 +129,9 @@ A separate chr22 hotspot at `21,867,909-23,145,021` showed pre-start gaps of
 times were much larger, but resource conditions were uncontrolled. The reporter
 explicitly did not claim a proven version regression or function-level profile.
 
-[Ida's reply](https://github.com/gpertea/stringtie/issues/511#issuecomment-6825744958)
+[The first project reply](https://github.com/gpertea/stringtie/issues/511#issuecomment-6825744958)
 identifies the same-start linear search, explains its quadratic worst case, and
-proposes replacing it with a hash lookup. She attributes the loci to highly abundant
+proposes replacing it with a hash lookup. It attributes the loci to highly abundant
 immunoglobulin transcripts with varied structures. That biological explanation was
 not independently established from the reporter's reads in this investigation.
 
@@ -148,7 +148,7 @@ chr22      95.53 s   33.90 s
 
 These are preliminary comparisons from different build environments/system loads.
 Per-bundle input and potential-transcript counts matched; full output equivalence
-was still pending. Neither the reporter's patch nor Ida's patch was inspected.
+was still pending. Neither the reporter's patch nor the project's planned patch was inspected.
 
 The bundle-wide count of 337,129 structures does not reveal how many share each
 start. The distribution by start, and actual candidate-comparison counts, are
@@ -562,7 +562,7 @@ and a complete file scan in any subsequent report.
 - How much current-master producer time does the natural issue #476 hotspot spend
   in candidate lookup, and how many candidates are actually compared?
 - Which raw structures survive current filtering, trimming, and guide handling?
-- Does Ida's implementation preserve the existing eligibility window, effective
+- Does the planned implementation (later PR #513) preserve the existing eligibility window, effective
   matching state, and newest-first representative choice?
 - After lookup acceleration, which remaining producer costs become significant?
 - Do the reporter's original inputs show the same improvement and full output
