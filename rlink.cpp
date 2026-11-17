@@ -4366,6 +4366,7 @@ int create_graph(int refstart,int s,int g,CBundle *bundle,GPVec<CBundlenode>& bn
 	// here I know graphno => I can see if it's too big
 	if(!mergeMode && graphno>allowed_nodes) { // TODO: define allowed_nodes as a default in stringtie.cpp that varies with the memory
 		graphno=prune_graph_nodes(graphno,s,g,bundle2graph,bnode.Count(),no2gnode,junction,edgeno,futuretr,sink);
+		if(bdata->keepguides.Count()) { edgeno+=2*bdata->keepguides.Count();}
 		//fprintf(stderr,"new_graphno=%d edgeno=%d\n",graphno,edgeno);
 	}
 
